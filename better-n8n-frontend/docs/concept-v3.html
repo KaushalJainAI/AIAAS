@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f6f1">
+  <title>AIAAS — Work home concept</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f7f6f1;
+      --surface: #fffefa;
+      --surface-soft: #f0efe8;
+      --ink: #252821;
+      --muted: #76796f;
+      --line: #e8e6dc;
+      --green: #3d654c;
+      --green-dark: #2d503b;
+      --green-soft: #eaf0e8;
+      --violet: #7463a2;
+      --violet-soft: #f0edf6;
+      --amber: #a66b2e;
+      --amber-soft: #f8f0e4;
+      --red: #a95347;
+      --shadow: 0 12px 34px rgba(49, 47, 37, .055), 0 1px 3px rgba(49, 47, 37, .045);
+      --radius: 18px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink); }
+    button, input, textarea { font: inherit; }
+    button { color: inherit; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+    .sidebar { position: sticky; top: 0; height: 100vh; padding: 27px 16px 18px; border-right: 1px solid var(--line); background: rgba(255,254,250,.72); display: flex; flex-direction: column; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px; margin-bottom: 31px; font-size: 15px; font-weight: 690; letter-spacing: -.035em; }
+    .brand-mark { width: 29px; height: 29px; border-radius: 10px; display: grid; place-items: center; background: var(--green); color: white; }
+    .brand-mark svg { width: 17px; height: 17px; }
+    .workspace { display: flex; align-items: center; gap: 10px; margin: 0 4px 25px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; text-align: left; background: var(--surface); cursor: pointer; }
+    .workspace:hover, .icon-button:hover, .nav-item:hover { background: var(--surface-soft); }
+    .workspace-avatar { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: #e9e4d6; color: #5a5544; font-size: 11px; font-weight: 700; }
+    .workspace-copy { min-width: 0; flex: 1; }
+    .workspace-copy strong { display: block; font-size: 12px; font-weight: 650; }
+    .workspace-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .section-label { margin: 0 10px 9px; color: #95968d; font-size: 9px; font-weight: 740; letter-spacing: .13em; text-transform: uppercase; }
+    .nav-group { display: grid; gap: 3px; margin-bottom: 22px; }
+    .nav-item { display: flex; align-items: center; gap: 11px; min-height: 39px; padding: 0 11px; border: 0; border-radius: 10px; background: transparent; text-align: left; color: #696c63; cursor: pointer; font-size: 12px; }
+    .nav-item svg { width: 16px; height: 16px; stroke-width: 1.8; }
+    .nav-item.active { background: var(--green-soft); color: var(--green-dark); font-weight: 650; }
+    .nav-item .count { margin-left: auto; display: grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 99px; background: #ead7bd; color: #795327; font-size: 10px; font-weight: 750; }
+    .sidebar-bottom { margin-top: auto; }
+    .usage { margin: 0 5px 15px; padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+    .usage-head { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+    .usage-head strong { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 650; }
+    .track { height: 5px; margin-top: 10px; border-radius: 99px; background: #ebe9df; overflow: hidden; }
+    .track span { display: block; width: 27%; height: 100%; border-radius: inherit; background: var(--green); }
+    .profile { display: flex; align-items: center; gap: 10px; padding: 11px 9px 0; border-top: 1px solid var(--line); }
+    .profile-avatar { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 50%; background: #ded8c8; color: #554e3d; font-size: 10px; font-weight: 750; }
+    .profile strong { display: block; font-size: 11px; font-weight: 650; }
+    .profile small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+
+    .main { min-width: 0; }
+    .topbar { position: sticky; top: 0; z-index: 5; height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 clamp(24px, 5vw, 72px); border-bottom: 1px solid rgba(232,230,220,.8); background: rgba(247,246,241,.9); backdrop-filter: blur(16px); }
+    .crumb { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+    .crumb span:last-child { color: var(--ink); font-weight: 570; }
+    .top-actions { display: flex; align-items: center; gap: 9px; }
+    .search { display: flex; align-items: center; gap: 9px; width: 224px; height: 35px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: #98998f; font-size: 11px; }
+    .search svg { width: 14px; height: 14px; }
+    .search kbd { margin-left: auto; padding: 2px 5px; border: 1px solid var(--line); border-radius: 5px; background: #faf9f5; font: 9px ui-monospace, monospace; }
+    .icon-button { width: 35px; height: 35px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: #696c63; cursor: pointer; }
+    .icon-button svg { width: 15px; height: 15px; }
+    .content { width: min(1150px, 100%); margin: 0 auto; padding: 46px clamp(24px, 5vw, 72px) 60px; }
+    .welcome { display: flex; justify-content: space-between; align-items: flex-end; gap: 22px; margin-bottom: 27px; }
+    .eyebrow { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; color: var(--green); font-size: 10px; font-weight: 730; letter-spacing: .11em; text-transform: uppercase; }
+    .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: #719276; box-shadow: 0 0 0 3px #e5ede3; }
+    h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(31px, 4vw, 43px); line-height: 1.08; letter-spacing: -.045em; font-weight: 500; }
+    .welcome p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+    .date { padding-bottom: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(275px, .86fr); align-items: start; gap: 22px; }
+    .left-column, .right-column { display: grid; gap: 18px; min-width: 0; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+    .ask-card { padding: 22px; }
+    .card-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .035em; }
+    .spark { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 8px; background: var(--green-soft); color: var(--green); }
+    .spark svg { width: 13px; height: 13px; }
+    .ask-title { margin: 0 0 15px; font-family: Georgia, "Times New Roman", serif; font-size: 22px; font-weight: 500; letter-spacing: -.025em; }
+    .prompt-box { padding: 15px 15px 10px; border: 1px solid #d9d9ce; border-radius: 13px; background: #fff; transition: border .18s, box-shadow .18s; }
+    .prompt-box:focus-within { border-color: #78947b; box-shadow: 0 0 0 3px rgba(61,101,76,.09); }
+    textarea { width: 100%; min-height: 57px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 13px; line-height: 1.6; }
+    textarea::placeholder { color: #9a9b92; }
+    .prompt-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .prompt-tools { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .tool-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: #77796f; cursor: pointer; font-size: 10px; }
+    .tool-pill:hover, .tool-pill.selected { background: var(--surface-soft); color: var(--ink); }
+    .tool-pill svg { width: 13px; height: 13px; }
+    .send { width: 33px; height: 33px; display: grid; place-items: center; border: 0; border-radius: 10px; background: var(--green); color: white; cursor: pointer; transition: background .15s, transform .15s; }
+    .send:hover { background: var(--green-dark); transform: translateY(-1px); }
+    .send svg { width: 15px; height: 15px; }
+    .hint { display: flex; align-items: center; gap: 5px; margin-top: 10px; color: #92938a; font-size: 10px; }
+    .hint svg { width: 12px; height: 12px; }
+    .suggestions { display: flex; gap: 8px; margin-top: 13px; flex-wrap: wrap; }
+    .suggestion { padding: 8px 11px; border: 1px solid var(--line); border-radius: 99px; background: transparent; color: #62655c; cursor: pointer; font-size: 10px; transition: background .15s, border-color .15s; }
+    .suggestion:hover { border-color: #b8c7b7; background: #f5f7f2; }
+
+    .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 1px 10px; }
+    .section-heading h2 { margin: 0; font-size: 13px; font-weight: 680; letter-spacing: -.01em; }
+    .section-heading a, .text-button { border: 0; background: transparent; color: var(--green); text-decoration: none; cursor: pointer; font-size: 10px; font-weight: 620; }
+    .section-heading a:hover, .text-button:hover { text-decoration: underline; }
+    .approval { padding: 17px 18px 16px; border-color: #eadcc7; background: #fffdf8; }
+    .approval-top { display: flex; align-items: flex-start; gap: 11px; }
+    .approval-mark { width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: var(--amber-soft); color: var(--amber); }
+    .approval-mark svg { width: 16px; height: 16px; }
+    .approval-copy { min-width: 0; flex: 1; }
+    .approval-copy h3 { margin: 1px 0 4px; font-size: 12px; font-weight: 670; letter-spacing: -.01em; }
+    .approval-copy p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .wait { padding: 5px 8px; border-radius: 99px; background: var(--amber-soft); color: #8f612d; font-size: 9px; font-weight: 670; white-space: nowrap; }
+    .approval-detail { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; margin: 15px 0 14px 42px; padding: 11px 12px; border-radius: 10px; background: #f8f5ed; color: #77796f; font-size: 10px; }
+    .approval-detail strong { color: #34372f; font-size: 10px; font-weight: 620; text-align: right; }
+    .approval-actions { display: flex; align-items: center; gap: 8px; margin-left: 42px; }
+    .btn { min-height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; cursor: pointer; font-size: 10px; font-weight: 620; }
+    .btn:hover { background: var(--surface-soft); }
+    .btn.primary { border-color: var(--green); background: var(--green); color: white; }
+    .btn.primary:hover { background: var(--green-dark); }
+    .btn.danger { margin-left: auto; border-color: transparent; color: #8b675e; background: transparent; }
+    .btn.danger:hover { background: #f7eeeb; color: var(--red); }
+    .empty-approval { display: none; padding: 21px; color: var(--muted); text-align: center; font-size: 11px; }
+
+    .run-card { padding: 16px 17px; }
+    .run-head { display: flex; align-items: center; gap: 10px; }
+    .agent-icon { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 10px; background: var(--violet-soft); color: var(--violet); }
+    .agent-icon svg { width: 15px; height: 15px; }
+    .run-title { flex: 1; min-width: 0; }
+    .run-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 670; }
+    .run-title small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+    .live-state { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 99px; background: var(--violet-soft); color: var(--violet); font-size: 9px; font-weight: 650; }
+    .live-state i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .run-progress { margin: 15px 0 10px; }
+    .run-progress-track { height: 4px; border-radius: 99px; background: #eeedf2; overflow: hidden; }
+    .run-progress-track span { display: block; width: 64%; height: 100%; border-radius: inherit; background: #897bb1; }
+    .run-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; }
+    .run-meta strong { color: #66685f; font-weight: 600; }
+    .run-foot { display: flex; align-items: center; justify-content: space-between; padding-top: 11px; margin-top: 11px; border-top: 1px solid #efeee8; color: var(--muted); font-size: 9px; }
+    .run-foot a { color: var(--green); text-decoration: none; font-weight: 620; }
+
+    .recent-card { overflow: hidden; }
+    .recent-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 17px 11px; }
+    .recent-head h2 { margin: 0; font-size: 12px; font-weight: 670; }
+    .filter { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9px; }
+    .filter svg { width: 12px; height: 12px; }
+    .recent-row { display: flex; align-items: center; gap: 10px; padding: 12px 17px; border-top: 1px solid #f0efe9; }
+    .recent-symbol { width: 29px; height: 29px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; background: #f0efe8; color: #797b72; }
+    .recent-symbol svg { width: 14px; height: 14px; }
+    .recent-copy { flex: 1; min-width: 0; }
+    .recent-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 620; }
+    .recent-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+    .done { color: #65826a; font-size: 9px; font-weight: 650; white-space: nowrap; }
+    .recent-row.new { animation: arrive .25s ease-out; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+
+    .connections { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 17px; }
+    .connections h2 { margin: 0; font-size: 11px; font-weight: 660; }
+    .connections p { margin: 4px 0 0; color: var(--muted); font-size: 9px; }
+    .connector-stack { display: flex; padding-left: 7px; }
+    .connector { width: 25px; height: 25px; display: grid; place-items: center; margin-left: -6px; border: 2px solid var(--surface); border-radius: 50%; background: #f2eee2; color: #7c7464; font-size: 8px; font-weight: 750; }
+    .connector:nth-child(2) { background: #e8edf4; color: #536a87; }
+    .connector:nth-child(3) { background: #e8f0e8; color: #56715a; }
+    .connector:nth-child(4) { background: #f5e8e1; color: #9a6652; }
+    .mobile-nav { display: none; }
+    .toast { position: fixed; right: 24px; bottom: 23px; z-index: 20; padding: 12px 15px; border: 1px solid #d8e4d7; border-radius: 12px; background: #fffefa; box-shadow: var(--shadow); color: var(--green-dark); font-size: 11px; opacity: 0; transform: translateY(8px); pointer-events: none; transition: .2s; }
+    .toast.show { opacity: 1; transform: none; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+    @media (max-width: 1000px) {
+      .app { grid-template-columns: 205px minmax(0,1fr); }
+      .content { padding-left: 28px; padding-right: 28px; }
+      .topbar { padding: 0 28px; }
+      .layout { grid-template-columns: minmax(0,1.25fr) minmax(250px,.9fr); gap: 15px; }
+      .ask-card { padding: 18px; }
+    }
+    @media (max-width: 760px) {
+      .app { display: block; padding-bottom: 68px; }
+      .sidebar { display: none; }
+      .topbar { height: 57px; padding: 0 18px; }
+      .search { width: 35px; padding: 0 10px; border-color: transparent; background: transparent; }
+      .search span, .search kbd { display: none; }
+      .search svg { flex: 0 0 auto; color: #66695f; }
+      .content { padding: 32px 18px 35px; }
+      .welcome { margin-bottom: 21px; }
+      .welcome p { max-width: 290px; line-height: 1.5; }
+      .date { display: none; }
+      .layout { grid-template-columns: 1fr; gap: 19px; }
+      .left-column, .right-column { gap: 17px; }
+      .ask-card { padding: 17px; }
+      .mobile-nav { position: fixed; z-index: 10; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(4,1fr); padding: 8px 7px max(8px,env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(255,254,250,.94); backdrop-filter: blur(16px); }
+      .mobile-nav button { display: grid; justify-items: center; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; }
+      .mobile-nav button.current { color: var(--green); font-weight: 650; }
+      .mobile-nav svg { width: 17px; height: 17px; }
+    }
+    @media (max-width: 390px) {
+      .content { padding-right: 13px; padding-left: 13px; }
+      .topbar { padding: 0 13px; }
+      .suggestions { gap: 6px; }
+      .suggestion { padding: 8px 9px; font-size: 9px; }
+      .approval-detail, .approval-actions { margin-left: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M4 10.2 8.1 14 16 5.8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> AIAAS</div>
+      <button class="workspace" type="button" aria-label="Switch workspace">
+        <span class="workspace-avatar">KJ</span><span class="workspace-copy"><strong>Kaushal’s workspace</strong><small>Personal · Free plan</small></span>
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="#85877d" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+      <p class="section-label">Workspace</p>
+      <nav class="nav-group">
+        <button class="nav-item active" data-nav="Home" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="m3.5 10 8.5-7 8.5 7v10.5h-6v-6h-5v6h-6V10Z" stroke="currentColor" stroke-linejoin="round"/></svg>Home</button>
+        <button class="nav-item" data-nav="Activity" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h3l2.2-6 4.1 12 2.3-6H20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>Activity <span class="count" id="approval-count">1</span></button>
+        <button class="nav-item" data-nav="Agents" type="button"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="4" stroke="currentColor"/><path d="M9 13h.01M15 13h.01M9 17h6M12 3v4" stroke="currentColor" stroke-linecap="round"/></svg>Agents</button>
+      </nav>
+      <p class="section-label">Resources</p>
+      <nav class="nav-group">
+        <button class="nav-item" data-nav="Documents" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="M6 3.5h8l4 4v13H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-linejoin="round"/><path d="M14 3.5v5h5M8 13h8M8 16.5h6" stroke="currentColor" stroke-linecap="round"/></svg>Documents</button>
+        <button class="nav-item" data-nav="Connections" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="M9.2 14.8 7.1 17a4 4 0 0 1-5.7-5.7l4-4a4 4 0 0 1 5.7 0M14.8 9.2l2.1-2.1a4 4 0 0 1 5.7 5.7l-4 4a4 4 0 0 1-5.7 0M8.5 15.5l7-7" stroke="currentColor" stroke-linecap="round"/></svg>Connections</button>
+        <button class="nav-item" data-nav="Settings" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="M12 15.3a3.3 3.3 0 1 0 0-6.6 3.3 3.3 0 0 0 0 6.6Z" stroke="currentColor"/><path d="m19.3 13.8 1.2.9-1.5 2.6-1.4-.6a7.8 7.8 0 0 1-1.8 1l-.2 1.5h-3l-.3-1.5a7.8 7.8 0 0 1-1.8-1l-1.4.6-1.5-2.6 1.2-.9a7.3 7.3 0 0 1 0-2.1l-1.2-.9 1.5-2.6 1.4.6a7.8 7.8 0 0 1 1.8-1l.3-1.5h3l.2 1.5a7.8 7.8 0 0 1 1.8 1l1.4-.6 1.5 2.6-1.2.9a7.3 7.3 0 0 1 0 2.1Z" stroke="currentColor" stroke-linejoin="round" transform="translate(-1 -1) scale(.95)"/></svg>Settings</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="usage"><div class="usage-head"><span>Today’s usage</span><strong>₹54 <span style="color:#92938a;font-weight:450">/ ₹200</span></strong></div><div class="track"><span></span></div></div>
+        <div class="profile"><span class="profile-avatar">KJ</span><span><strong>Kaushal Jain</strong><small>Account settings</small></span></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb"><span>Workspace</span><span aria-hidden="true">/</span><span>Home</span></div>
+        <div class="top-actions">
+          <button class="search" type="button" aria-label="Search workspace"><svg viewBox="0 0 20 20" fill="none"><circle cx="8.8" cy="8.8" r="5.8" stroke="currentColor" stroke-width="1.5"/><path d="m13.2 13.2 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Search anything</span><kbd>⌘ K</kbd></button>
+          <button class="icon-button" type="button" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 20 20" fill="none"><path d="M15.5 7.8a5.5 5.5 0 0 0-11 0c0 6-2 6-2 7.5h15c0-1.5-2-1.5-2-7.5ZM8 18h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="welcome" aria-labelledby="welcome-title">
+          <div><div class="eyebrow"><span class="dot"></span>Your workspace is ready</div><h1 id="welcome-title">Good morning, Kaushal.</h1><p>What would you like to get off your plate today?</p></div>
+          <div class="date">Wednesday, September 24</div>
+        </section>
+
+        <div class="layout">
+          <div class="left-column">
+            <section class="card ask-card" aria-labelledby="ask-title">
+              <div class="card-kicker"><span class="spark"><svg viewBox="0 0 16 16" fill="none"><path d="m8 1 1.6 5.4L15 8l-5.4 1.6L8 15l-1.6-5.4L1 8l5.4-1.6L8 1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span> Your AI workspace</div>
+              <h2 class="ask-title" id="ask-title">Start with the outcome.</h2>
+              <form id="ask-form">
+                <div class="prompt-box">
+                  <label class="sr-only" for="prompt">Describe what you want the agent to do</label>
+                  <textarea id="prompt" placeholder="Ask a question or describe a task…" rows="2"></textarea>
+                  <div class="prompt-footer">
+                    <div class="prompt-tools">
+                      <button class="tool-pill" type="button" data-tool="Attach"><svg viewBox="0 0 16 16" fill="none"><path d="m6 8.5 3.8-3.8a2.1 2.1 0 0 1 3 3L7 13.5a3.2 3.2 0 0 1-4.5-4.5l6-6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Attach</button>
+                      <button class="tool-pill" type="button" data-tool="Scope"><svg viewBox="0 0 16 16" fill="none"><path d="M2 3.5h12M4 8h8m-6 4.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Scope</button>
+                      <button class="tool-pill" type="button" data-tool="Agent"><svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="4.5" width="11" height="9" rx="3" stroke="currentColor" stroke-width="1.2"/><path d="M6 8h.01M10 8h.01M6 11h4M8 1.5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>Choose agent</button>
+                    </div>
+                    <button class="send" type="submit" aria-label="Send request"><svg viewBox="0 0 18 18" fill="none"><path d="M9 14V4m0 0L5 8m4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                  </div>
+                </div>
+                <div class="hint"><svg viewBox="0 0 16 16" fill="none"><path d="M8 1.7 13 3.5v4.1c0 3.2-2.2 5.5-5 6.7-2.8-1.2-5-3.5-5-6.7V3.5l5-1.8Z" stroke="currentColor" stroke-width="1.2"/><path d="m5.8 8 1.5 1.5 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> You’ll review anything that sends, edits, or spends.</div>
+              </form>
+              <div class="suggestions" aria-label="Suggested tasks">
+                <button class="suggestion" type="button">Summarize this week’s inbox</button>
+                <button class="suggestion" type="button">Find overdue invoices</button>
+                <button class="suggestion" type="button">Make a report from Drive</button>
+              </div>
+            </section>
+
+            <section aria-labelledby="approval-heading">
+              <div class="section-heading"><h2 id="approval-heading">Needs your review <span id="approval-heading-count" style="color:#9b7447;font-weight:550">· 1</span></h2><a href="#approval-card" id="review-link">View activity →</a></div>
+              <article class="card approval" id="approval-card">
+                <div class="approval-top">
+                  <span class="approval-mark"><svg viewBox="0 0 20 20" fill="none"><path d="M10 2.2 18 16H2l8-13.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M10 7v4m0 2.4v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+                  <div class="approval-copy"><h3>Send 3 payment reminder emails</h3><p>Finance assistant · Prepared from your Q3 invoice review</p></div>
+                  <span class="wait">Review needed</span>
+                </div>
+                <div class="approval-detail"><span>Recipients</span><strong>3 vendors</strong><span>Total overdue</span><strong>₹69,600</strong><span>Waiting for</span><strong>12 minutes</strong></div>
+                <div class="approval-actions"><button class="btn primary" id="approve" type="button">Review & approve</button><button class="btn" id="edit" type="button">Edit draft</button><button class="btn danger" id="reject" type="button">Reject</button></div>
+              </article>
+              <div class="empty-approval card" id="empty-approval">You’re all caught up. New review requests will show up here.</div>
+            </section>
+
+            <section aria-labelledby="recent-heading">
+              <div class="section-heading"><h2 id="recent-heading">Recently completed</h2><a href="#recent-list">See all →</a></div>
+              <div class="card recent-card" id="recent-list">
+                <div class="recent-row"><span class="recent-symbol"><svg viewBox="0 0 18 18" fill="none"><path d="M4 2.5h7l3 3v10H4v-13Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M11 2.5v3h3M6.5 9h5M6.5 11.5h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span><span class="recent-copy"><strong>Q3 invoice summary</strong><small>Finance assistant · 9:42 am · 34 invoices</small></span><span class="done">Complete</span></div>
+                <div class="recent-row"><span class="recent-symbol"><svg viewBox="0 0 18 18" fill="none"><path d="M2 4h14M3.5 4v10h11V4M6 7h6M6 10h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="recent-copy"><strong>Weekly product feedback digest</strong><small>Feedback monitor · Yesterday · 18 sources</small></span><span class="done">Complete</span></div>
+                <div class="recent-row"><span class="recent-symbol"><svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.2"/><path d="M9 5.5v4l2.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span><span class="recent-copy"><strong>Drive storage cleanup report</strong><small>Workspace assistant · Sep 22 · 12 suggestions</small></span><span class="done">Complete</span></div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="right-column" aria-label="Workspace status">
+            <section aria-labelledby="running-heading">
+              <div class="section-heading"><h2 id="running-heading">In progress <span style="color:var(--muted);font-weight:500">· 1</span></h2><a href="#running-card">View runs →</a></div>
+              <article class="card run-card" id="running-card">
+                <div class="run-head"><span class="agent-icon"><svg viewBox="0 0 18 18" fill="none"><rect x="2.5" y="5" width="13" height="10" rx="3.5" stroke="currentColor" stroke-width="1.3"/><path d="M6.5 9h.01M11.5 9h.01M7 12h4M9 2v3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span><span class="run-title"><strong>Weekly feedback digest</strong><small>Started 4 min ago · 6 steps</small></span><span class="live-state"><i></i>Working</span></div>
+                <div class="run-progress"><div class="run-progress-track"><span></span></div></div>
+                <div class="run-meta"><span>Reading support conversations</span><strong>Step 4 of 6</strong></div>
+                <div class="run-foot"><span>Last update · just now</span><a href="#running-card">Open run →</a></div>
+              </article>
+            </section>
+
+            <section aria-labelledby="agents-heading">
+              <div class="section-heading"><h2 id="agents-heading">Your agents</h2><button class="text-button" id="new-agent" type="button">+ New agent</button></div>
+              <div class="card recent-card">
+                <div class="recent-row"><span class="agent-icon"><svg viewBox="0 0 18 18" fill="none"><path d="M3 5h12v10H3zM6 8h.01M12 8h.01M6.5 12h5M9 2v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="recent-copy"><strong>Finance assistant</strong><small>Runs when you ask</small></span><span class="done">Ready</span></div>
+                <div class="recent-row"><span class="agent-icon" style="background:#edf0e9;color:#617550"><svg viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M9 5v4l2.5 1.5M5 2.7 4 1.5M13 2.7l1-1.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span><span class="recent-copy"><strong>Feedback monitor</strong><small>Every weekday · 9:00 am</small></span><span class="done">Scheduled</span></div>
+                <div class="recent-row"><span class="agent-icon" style="background:#f3eee6;color:#957450"><svg viewBox="0 0 18 18" fill="none"><path d="M3 3.5h12v11H3zM6 6.5h6M6 9h6M6 11.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="recent-copy"><strong>Workspace assistant</strong><small>Runs when you ask</small></span><span class="done">Ready</span></div>
+              </div>
+            </section>
+
+            <section class="card connections" aria-label="Connected services">
+              <div><h2>Connected services</h2><p>Accounts your agents can use</p></div>
+              <div class="connector-stack" aria-label="Gmail, Drive, Calendar, Slack"><span class="connector">G</span><span class="connector">D</span><span class="connector">C</span><span class="connector">S</span></div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <button class="current" data-nav="Home" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="m3.5 10 8.5-7 8.5 7v10.5h-6v-6h-5v6h-6V10Z" stroke="currentColor" stroke-linejoin="round"/></svg>Home</button>
+    <button data-nav="Activity" type="button"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h3l2.2-6 4.1 12 2.3-6H20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>Activity</button>
+    <button data-nav="Agents" type="button"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="4" stroke="currentColor"/><path d="M9 13h.01M15 13h.01M9 17h6M12 3v4" stroke="currentColor" stroke-linecap="round"/></svg>Agents</button>
+    <button data-nav="Resources" type="button"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor"/><path d="M9.5 9a2.6 2.6 0 1 1 4.4 1.8c-1.1 1-1.9 1.2-1.9 2.7M12 17h.01" stroke="currentColor" stroke-linecap="round"/></svg>More</button>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const promptBox = document.querySelector('#prompt');
+    const toast = document.querySelector('#toast');
+    let toastTimer;
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+    document.querySelectorAll('.suggestion').forEach((button) => {
+      button.addEventListener('click', () => {
+        promptBox.value = button.textContent.trim();
+        promptBox.focus();
+      });
+    });
+    document.querySelectorAll('[data-tool]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const active = button.classList.toggle('selected');
+        showToast(active ? `${button.dataset.tool} added to this request` : `${button.dataset.tool} removed`);
+      });
+    });
+    document.querySelector('#ask-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const request = promptBox.value.trim();
+      if (!request) {
+        promptBox.focus();
+        showToast('Describe the outcome you want first.');
+        return;
+      }
+      const row = document.createElement('div');
+      row.className = 'recent-row new';
+      row.innerHTML = '<span class="recent-symbol"><svg viewBox="0 0 18 18" fill="none"><path d="M9 2.5 10.3 7l4.5 1.3-4.5 1.3L9 14l-1.3-4.4L3.2 8.3 7.7 7 9 2.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></span><span class="recent-copy"><strong></strong><small>Just now · Request queued</small></span><span class="live-state"><i></i>Queued</span>';
+      row.querySelector('strong').textContent = request;
+      document.querySelector('#recent-list').prepend(row);
+      promptBox.value = '';
+      showToast('Request added to your activity.');
+    });
+    document.querySelector('#approve').addEventListener('click', () => {
+      document.querySelector('#approval-card').hidden = true;
+      document.querySelector('#empty-approval').style.display = 'block';
+      document.querySelector('#approval-count').textContent = '0';
+      document.querySelector('#approval-heading-count').textContent = '· 0';
+      showToast('Approved. The agent can continue.');
+    });
+    document.querySelector('#edit').addEventListener('click', () => showToast('Opening the draft for review…'));
+    document.querySelector('#reject').addEventListener('click', () => {
+      document.querySelector('#approval-card').hidden = true;
+      document.querySelector('#empty-approval').style.display = 'block';
+      document.querySelector('#approval-count').textContent = '0';
+      document.querySelector('#approval-heading-count').textContent = '· 0';
+      showToast('Request rejected. The agent was stopped.');
+    });
+    document.querySelector('#new-agent').addEventListener('click', () => showToast('Agent creation would open here.'));
+    document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-nav]').forEach((item) => item.classList.toggle('active', item.dataset.nav === button.dataset.nav));
+      document.querySelectorAll('.mobile-nav button').forEach((item) => item.classList.toggle('current', item.dataset.nav === button.dataset.nav));
+      if (button.dataset.nav !== 'Home' && button.dataset.nav !== 'Resources') showToast(`${button.dataset.nav} selected — page navigation is a concept.`);
+      else if (button.dataset.nav === 'Resources') showToast('Open Documents, Connections, or Settings from the sidebar.');
+    }));
+    document.querySelector('#review-link').addEventListener('click', (event) => {
+      event.preventDefault();
+      document.querySelector('#approval-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,544 @@
+/* Segoe UI first (Windows gets the real thing); Open Sans is the web fallback —
+   Steve Matteson drew both, so the humanist feel survives everywhere else. */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 
+/* ─────────────────────────────────────────────────────────────
+   Design tokens — Fluent 2 geometry and neutrals.
+
+   THE RULE THAT MATTERS: colour encodes agency.
+     --agent (violet) = the agent did this on its own
+     --primary (blue) = you did this, or it is waiting on you
+   Every surface in the app must honour this. A violet control
+   means "dispatch an agent"; a blue control means "you act".
+   ───────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    font-size: 14px;
+
+    /* neutrals — Fluent grey ramp */
+    --background: 0 0% 100%;          /* #ffffff */
+    --foreground: 0 0% 14.1%;         /* #242424 neutralForeground1 */
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 14.1%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 14.1%;
+
+    /* human / primary — Fluent communication blue #0f6cbd */
+    --primary: 208 85% 40%;
+    --primary-foreground: 0 0% 100%;
+    --primary-rgb: 15, 108, 189;
+    --primary-subtle: 212 71% 95%;    /* #ebf3fc */
+    --primary-line: 210 84% 84%;      /* #b4d6fa */
+
+    /* agent — violet #6b4fbb */
+    --agent: 256 44% 52%;
+    --agent-foreground: 0 0% 100%;
+    --agent-rgb: 107, 79, 187;
+    --agent-subtle: 256 58% 96%;      /* #f3f0fb */
+    --agent-line: 256 46% 88%;        /* #d6cdf2 */
+
+    --secondary: 0 0% 96.1%;          /* #f5f5f5 */
+    --secondary-foreground: 0 0% 14.1%;
+
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 38%;     /* #616161 neutralForeground2 */
+
+    --accent: 0 0% 92.2%;             /* #ebebeb */
+    --accent-foreground: 0 0% 14.1%;
+
+    --success: 120 78% 25%;           /* #0e700e */
+    --success-subtle: 120 44% 94%;
+    --warning: 22 91% 39%;            /* #bc4b09 */
+    --warning-subtle: 33 87% 95%;
+    --destructive: 355 85% 37%;       /* #b10e1c */
+    --destructive-foreground: 0 0% 100%;
+    --destructive-subtle: 355 78% 97%;
+
+    /* Chart marks. Deliberately separate from --agent/--destructive: a fill
+       sitting in a plot has to clear the OKLCH lightness band and adjacent-pair
+       CVD separation for its own surface, which the UI tokens do not in dark
+       mode. Light steps happen to equal the UI ones; dark steps are re-stepped.
+       Validated: light #6b4fbb/#af0e1c, dark #9074dc/#e0525d — all checks pass. */
+    --chart-work: 256 44% 52%;        /* #6b4fbb — a run the agent completed */
+    --chart-fail: 355 85% 37%;        /* #af0e1c — a run that did not complete */
+
+    --border: 0 0% 89.8%;             /* #e5e5e5 neutralStroke2 */
+    --border-strong: 0 0% 82%;        /* #d1d1d1 neutralStroke1 */
+    --input: 0 0% 82%;
+    --ring: 208 85% 40%;
+
+    --sidebar-bg: 0 0% 98%;           /* #fafafa */
+    --sidebar-border: 0 0% 89.8%;
+
+    /* Fluent shape scale — controls 4px, cards 6px, surfaces 8px */
+    --radius: 6px;
+  }
+
+  .dark {
+    --background: 0 0% 7.8%;          /* #141414 canvas */
+    --foreground: 0 0% 96%;
+
+    --card: 0 0% 12.2%;               /* #1f1f1f */
+    --card-foreground: 0 0% 96%;
+
+    --popover: 0 0% 16.1%;            /* #292929 */
+    --popover-foreground: 0 0% 96%;
+
+    --primary: 210 90% 62%;           /* #479ef5 */
+    --primary-foreground: 0 0% 7.8%;
+    --primary-rgb: 71, 158, 245;
+    --primary-subtle: 210 60% 16%;
+    --primary-line: 210 50% 30%;
+
+    --agent: 256 65% 74%;
+    --agent-foreground: 0 0% 7.8%;
+    --agent-rgb: 168, 148, 232;
+    --agent-subtle: 256 30% 19%;
+    --agent-line: 256 30% 34%;
+
+    --secondary: 0 0% 16.1%;
+    --secondary-foreground: 0 0% 96%;
+
+    --muted: 0 0% 16.1%;
+    --muted-foreground: 0 0% 67.8%;   /* #adadad */
+
+    --accent: 0 0% 20%;
+    --accent-foreground: 0 0% 96%;
+
+    --success: 120 45% 62%;
+    --success-subtle: 120 30% 14%;
+    --warning: 28 85% 62%;
+    --warning-subtle: 28 40% 15%;
+    --destructive: 355 75% 66%;
+    --destructive-foreground: 0 0% 7.8%;
+    --destructive-subtle: 355 35% 16%;
+
+    /* Re-stepped for the dark surface, not flipped from light — the UI tokens
+       (#a894e8 / #e96772) read L .717 / .676, above the .48–.67 dark band. */
+    --chart-work: 256 60% 66%;        /* #9074dc */
+    --chart-fail: 355 70% 60%;        /* #e0525d */
+
+    --border: 0 0% 23.9%;             /* #3d3d3d */
+    --border-strong: 0 0% 30%;
+    --input: 0 0% 30%;
+    --ring: 210 90% 62%;
+
+    --sidebar-bg: 0 0% 10.2%;
+    --sidebar-border: 0 0% 23.9%;
+  }
+
+  /* Alternate accent — swaps the *human* colour only.
+     The agent violet is structural and never changes. */
+  :root[data-color-theme='magenta'] {
+    --primary: 322 68% 42%;
+    --primary-rgb: 178, 34, 111;
+    --primary-subtle: 322 60% 96%;
+    --primary-line: 322 50% 86%;
+    --ring: 322 68% 42%;
+  }
+
+  .dark[data-color-theme='magenta'] {
+    --primary: 322 75% 68%;
+    --primary-rgb: 232, 121, 184;
+    --primary-subtle: 322 30% 18%;
+    --primary-line: 322 30% 34%;
+    --ring: 322 75% 68%;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  /* ── App-shell height ──
+     100vh on mobile browsers includes the area behind the collapsing URL bar /
+     gesture bar, clipping the bottom of the layout (chat composer). 100dvh
+     tracks the *visible* viewport; keep 100vh first as a fallback. */
+  .h-viewport {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* ── Entrance ──
+     One system: `animate-in fade-in zoom-in-95 duration-200` from
+     tailwindcss-animate for overlays/modals/dropdowns. The three classes
+     below are the only hand-rolled exceptions: page-enter for routes,
+     fade/slide/scale for auth + empty states that predate the plugin.
+     Kept short (≤200ms) so navigation never reads as latency. */
+  .animate-fade-in {
+    animation: fade-in 0.2s linear both;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.2s cubic-bezier(0.33, 0, 0.67, 1) both;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.15s cubic-bezier(0.33, 0, 0.67, 1) both;
+  }
+
+  /* Canonical entrances — use these for anything new. */
+  .entrance-overlay {
+    animation: fade-in 0.2s linear both;
+  }
+
+  .entrance-modal {
+    animation: scale-in 0.15s cubic-bezier(0.33, 0, 0.67, 1) both;
+  }
+
+  /* ── Route transition ──
+     Applied by `RouteTransition` to the element keyed on the pathname, so it
+     replays on every navigation. Deliberately short and translate-only: a
+     page switch should feel continuous, not staged, and anything longer than
+     ~200ms reads as latency on a fast route. */
+  .page-enter {
+    animation: page-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Skeleton block for content that has not arrived yet. */
+  .skeleton {
+    @apply rounded-md bg-muted/60;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+
+  /* ── Acrylic ──
+     Retired as glassmorphism: flat card now. Kept under the old `.glass`
+     name so existing call sites don't break — they render as a plain card
+     with no blur, no translucency, no glow. */
+  .glass {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 2px rgba(0,0,0,.12);
+  }
+
+  .dark .glass {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* ── Canonical overlay / modal / buttons ──
+     One spec for the whole app. Overlays are flat black, no blur.
+     Modals are flat cards, 6px radius, neutral shadow. Buttons never glow,
+     never scale, never lift. */
+  .overlay {
+    @apply fixed inset-0 bg-black/50;
+  }
+
+  .modal {
+    @apply bg-card border border-border rounded-lg shadow-lg overflow-hidden;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg font-semibold text-sm shadow-sm transition-colors duration-150;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 border border-border rounded-lg font-semibold text-sm hover:bg-secondary transition-colors duration-150;
+  }
+
+  .micro-label {
+    @apply text-[11px] font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+
+  /* ── Card hover ──
+     No lift, no coloured ring. Rows and cards in a dense console should
+     acknowledge the pointer, not animate away from it. */
+  .card-hover {
+    @apply transition-colors duration-150 ease-out;
+  }
+  .card-hover:hover {
+    background: hsl(var(--secondary));
+    border-color: hsl(var(--border-strong));
+  }
+
+  /* ── Stagger (first paint only) ──
+     Apply `.stagger-once` on static grids only. Filterable grids re-render
+     on every keystroke — replaying entrance there costs reading time. */
+  .stagger-children > * {
+    animation: slide-up 0.18s cubic-bezier(0.33, 0, 0.67, 1) both;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 12ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 24ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 36ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 48ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 60ms; }
+  .stagger-children > *:nth-child(7) { animation-delay: 72ms; }
+  .stagger-children > *:nth-child(8) { animation-delay: 84ms; }
+  .stagger-children > *:nth-child(n+9) { animation-delay: 96ms; }
+}
+
+/* ── Keyframes ──
+   Only what is still referenced: entrances, route, skeleton.
+   pulse-glow / shimmer / float / scanning-beam were deleted with their
+   last call sites — a glow reads as decoration, a shadow reads as height. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.995); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes indeterminate-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.animate-indeterminate-slide {
+  width: 50%;
+  animation: indeterminate-slide 1.5s infinite linear;
+}
+
+/* ── Custom Markdown Styling ── */
+.ai-chat-prose {
+  @apply text-foreground/90 leading-relaxed;
+}
+.ai-chat-prose p {
+  @apply mb-4 last:mb-0;
+}
+.ai-chat-prose ul {
+  @apply list-none ml-0 pl-0 mb-4 space-y-2;
+}
+.ai-chat-prose ul li {
+  @apply relative pl-5;
+}
+.ai-chat-prose ul li::before {
+  content: "•";
+  @apply absolute left-1 top-0 text-primary/80 font-bold text-xl leading-6;
+}
+.ai-chat-prose ol {
+  @apply list-decimal pl-6 mb-4 space-y-2 marker:text-primary marker:font-bold;
+}
+.ai-chat-prose strong {
+  @apply font-semibold text-foreground;
+}
+/* Tables the agent returns are data, not marketing. Plain rules, real header
+   weight, no tint on the body, no drop shadow. */
+.ai-chat-prose table {
+  @apply w-full my-4 border-collapse border border-border text-[13px] block md:table overflow-x-auto rounded-lg;
+}
+.ai-chat-prose thead {
+  @apply bg-secondary border-b border-border-strong text-left;
+}
+.ai-chat-prose thead th {
+  @apply px-4 py-2.5 font-semibold text-muted-foreground whitespace-nowrap;
+}
+.ai-chat-prose tbody tr {
+  @apply border-b border-border last:border-0 hover:bg-secondary transition-colors duration-150;
+}
+.ai-chat-prose tbody td {
+  @apply px-4 py-2.5 align-middle text-foreground leading-relaxed;
+}
+.ai-chat-prose h1, .ai-chat-prose h2, .ai-chat-prose h3, .ai-chat-prose h4 {
+  @apply font-semibold mt-6 mb-3 text-foreground;
+}
+.ai-chat-prose code {
+  @apply bg-secondary text-foreground px-1.5 py-0.5 rounded text-[0.85em] font-mono border border-border;
+}
+.ai-chat-prose pre {
+  @apply bg-secondary text-foreground p-4 rounded-lg my-4 overflow-x-auto border border-border text-[13px] leading-relaxed;
+}
+.ai-chat-prose pre code {
+  @apply bg-transparent text-inherit p-0 border-0;
+}
+
+
+/* ── Scrollbar Styling ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.15);
+  border-radius: 20px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.15) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.35);
+}
+
+/* Hides the scrollbar without disabling the scrolling — for horizontal rails
+   (tab rows, the Settings tab strip, the composer textarea) where a visible
+   bar would be thicker than the thing it scrolls.
+   It was used at seven call sites for a long time with nothing defining it:
+   there is no tailwind-scrollbar plugin here, so every one of them compiled to
+   nothing and the bar showed anyway. Defining it is what makes them real. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Momentum + snap for the horizontal rails above, so a tab row on a phone
+   behaves like a native carousel rather than a truncated block. */
+.scroll-rail {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+
+
+/* ── iOS focus zoom ──
+   Mobile Safari zooms the viewport whenever a form control with a computed
+   font-size under 16px receives focus, and `maximum-scale` is (rightly)
+   ignored, so it never zooms back out. The app has ~107 controls and most are
+   `text-sm` (14px) or smaller, which made tapping any search box or field on
+   an iPhone shove the layout sideways for the rest of the session.
+
+   One rule instead of 107 edits. It is deliberately unlayered so it outranks
+   the Tailwind `text-*` utilities in `@layer utilities`, and it is scoped
+   below `md` so the dense desktop typography is untouched. */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* Stops iOS from re-scaling text when the device is turned to landscape,
+   which otherwise makes headings jump a size mid-rotation. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ── Touch targets ──
+   The grey flash iOS paints over any tapped element reads as a rendering
+   glitch on the app's own pressed states, which are already handled by
+   `active:` utilities. */
+@media (hover: none) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Honour the OS setting: every decorative animation above collapses to a
+   near-instant state change rather than being removed, so nothing that
+   depends on `animationend` stops firing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Syntax colours for `components/files/CodeView.tsx`.
+   highlight.js only emits `.hljs-*` class names; these give them colour
+   from one set of tokens per theme, so dark mode is the same rules with
+   different values rather than a second imported theme file. Light values
+   hold 4.5:1 on #ffffff/#f5f5f5, dark ones on #1f1f1f/#292929.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --code-keyword: #8a2bb0;
+  --code-string: #0a6b2b;
+  --code-number: #a0460a;
+  --code-comment: #6b6b6b;
+  --code-title: #0f5fa8;
+  --code-type: #7a5a00;
+  --code-attr: #b3261e;
+  --code-meta: #5c5c5c;
+  --code-added: #0a6b2b;
+  --code-added-bg: #e6f4ea;
+  --code-removed: #b3261e;
+  --code-removed-bg: #fde8e7;
+}
+.dark {
+  --code-keyword: #d49bf2;
+  --code-string: #8fd694;
+  --code-number: #f2b27a;
+  --code-comment: #979797;
+  --code-title: #7ab8f5;
+  --code-type: #e8c86a;
+  --code-attr: #f28b82;
+  --code-meta: #a8a8a8;
+  --code-added: #8fd694;
+  --code-added-bg: #16301c;
+  --code-removed: #f28b82;
+  --code-removed-bg: #3a1a18;
+}
+
+.hljs { color: hsl(var(--foreground)); background: transparent; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-literal,
+.hljs-doctag, .hljs-section { color: var(--code-keyword); }
+.hljs-string, .hljs-regexp, .hljs-template-tag,
+.hljs-selector-attr, .hljs-selector-pseudo { color: var(--code-string); }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: var(--code-number); }
+.hljs-comment, .hljs-quote { color: var(--code-comment); font-style: italic; }
+.hljs-title, .hljs-title.function_, .hljs-name,
+.hljs-selector-id, .hljs-selector-class { color: var(--code-title); }
+.hljs-type, .hljs-title.class_, .hljs-class .hljs-title { color: var(--code-type); }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable,
+.hljs-property, .hljs-params { color: var(--code-attr); }
+.hljs-meta, .hljs-meta .hljs-keyword, .hljs-link { color: var(--code-meta); }
+.hljs-addition { color: var(--code-added); background: var(--code-added-bg); }
+.hljs-deletion { color: var(--code-removed); background: var(--code-removed-bg); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }

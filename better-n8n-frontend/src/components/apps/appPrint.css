@@ -1,0 +1,19 @@
+/**
+ * Printing from the apps: only the document prints, never the chrome.
+ *
+ * Elements carrying `app-no-print` (the app bar, tabs, file panel, editor
+ * toolbars, save status, history panel) are hidden; the editor surface
+ * (`app-print-area`) lays out at its natural height instead of scrolling.
+ */
+@media print {
+  .app-no-print {
+    display: none !important;
+  }
+
+  .app-print-area {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: auto !important;
+  }
+}

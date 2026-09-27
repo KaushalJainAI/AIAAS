@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AIAAS">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#479ef5"/>
+      <stop offset="1" stop-color="#0f6cbd"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- An "A" drawn as a workflow: three nodes joined by edges. -->
+  <g stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M19 47 L32 17 L45 47"/>
+    <path d="M25 36 H39"/>
+  </g>
+  <g fill="#fff">
+    <circle cx="32" cy="17" r="6"/>
+    <circle cx="19" cy="47" r="5"/>
+    <circle cx="45" cy="47" r="5"/>
+  </g>
+</svg>
