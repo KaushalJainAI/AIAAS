@@ -1,0 +1,18 @@
+{
+  "name": "aiaas-instance-interactive-tests",
+  "private": true,
+  "description": "Browser-automation harness that mimics a regular user — API + UI across the 7-stage journey (instance/docs/USER_JOURNEY.md).",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:trace": "playwright test --trace on",
+    "report": "playwright show-report",
+    "codegen": "playwright codegen http://localhost:5173",
+    "seed": "python ../scripts/seed_instance.py"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

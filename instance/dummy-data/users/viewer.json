@@ -1,0 +1,18 @@
+{
+  "email": "viewer@example.com",
+  "username": "viewer@example.com",
+  "password": "Viewer123!",
+  "first_name": "Viewer",
+  "last_name": "Only",
+  "role": "viewer",
+  "tier": "free",
+  "description": "Read-only viewer — autonomy=plan, no fileOps. Tests that plan withholds mutating tools.",
+  "expected_permissions": {
+    "can_create_agent": true,
+    "can_run_agent": false,
+    "can_upload_document": false,
+    "can_enable_mcp": false,
+    "fileAccess": "readonly",
+    "autonomy": "plan"
+  }
+}

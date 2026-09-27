@@ -1,0 +1,18 @@
+{
+  "email": "regular_user@example.com",
+  "username": "regular_user@example.com",
+  "password": "Regular123!",
+  "first_name": "Regular",
+  "last_name": "User",
+  "role": "member",
+  "tier": "pro",
+  "description": "Primary regular user — exercises every surface with low privileges. Use for smoke and permission-boundary tests.",
+  "expected_permissions": {
+    "can_create_agent": true,
+    "can_run_agent": true,
+    "can_upload_document": true,
+    "can_enable_mcp": false,
+    "fileAccess": "scoped",
+    "autonomy": "ask"
+  }
+}

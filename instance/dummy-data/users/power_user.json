@@ -1,0 +1,18 @@
+{
+  "email": "power_user@example.com",
+  "username": "power_user@example.com",
+  "password": "Power123!",
+  "first_name": "Power",
+  "last_name": "User",
+  "role": "editor",
+  "tier": "pro",
+  "description": "Power user — has fileOps+rag+codeExecution, read_all_write_own. Tests higher privilege paths.",
+  "expected_permissions": {
+    "can_create_agent": true,
+    "can_run_agent": true,
+    "can_upload_document": true,
+    "can_enable_mcp": true,
+    "fileAccess": "read_all_write_own",
+    "autonomy": "auto"
+  }
+}

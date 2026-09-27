@@ -1,0 +1,10 @@
+{
+  "name": "Product Documentation",
+  "description": "Guides, API refs and release notes (instance seed).",
+  "backend": "vector",
+  "is_default": true,
+  "documents": [
+    "getting-started.md",
+    "api-notes.md"
+  ]
+}

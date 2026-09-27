@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 440" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="860" height="440" fill="#ffffff"/>
+  <text x="430" y="28" text-anchor="middle" font-size="17" font-weight="600" fill="#0f172a">Frontend: put state where its lifetime says</text>
+
+  <!-- axis -->
+  <line x1="250" y1="395" x2="830" y2="395" stroke="#475569" stroke-width="1.5"/>
+  <g font-size="11.5" fill="#475569" text-anchor="middle">
+    <line x1="260" y1="390" x2="260" y2="400" stroke="#475569"/><text x="260" y="416">one render</text>
+    <line x1="360" y1="390" x2="360" y2="400" stroke="#475569"/><text x="360" y="416">one answer</text>
+    <line x1="470" y1="390" x2="470" y2="400" stroke="#475569"/><text x="470" y="416">minutes</text>
+    <line x1="590" y1="390" x2="590" y2="400" stroke="#475569"/><text x="590" y="416">tab open</text>
+    <line x1="710" y1="390" x2="710" y2="400" stroke="#475569"/><text x="710" y="416">days</text>
+    <line x1="820" y1="390" x2="820" y2="400" stroke="#475569"/><text x="820" y="416">forever</text>
+  </g>
+  <text x="540" y="434" text-anchor="middle" font-size="11" fill="#64748b">how long the state must live →</text>
+
+  <g font-size="12.5" fill="#1e293b">
+    <text x="20" y="66">useState</text>
+    <text x="20" y="81" font-size="10.5" fill="#64748b">open / closed, hover</text>
+    <rect x="250" y="55" width="70" height="24" rx="6" fill="#cbd5e1"/>
+
+    <text x="20" y="108">useChatStream reducer</text>
+    <text x="20" y="123" font-size="10.5" fill="#64748b">one streamed turn</text>
+    <rect x="250" y="97" width="120" height="24" rx="6" fill="#a5b4fc"/>
+
+    <text x="20" y="150">chatRuns external store</text>
+    <text x="20" y="165" font-size="10.5" fill="#64748b">survives navigation, +5 min</text>
+    <rect x="250" y="139" width="235" height="24" rx="6" fill="#8b5cf6"/>
+
+    <text x="20" y="192">React Query cache</text>
+    <text x="20" y="207" font-size="10.5" fill="#64748b">server data, stale after 5 min</text>
+    <rect x="250" y="181" width="250" height="24" rx="6" fill="#38bdf8"/>
+
+    <text x="20" y="234">Context / Zustand</text>
+    <text x="20" y="249" font-size="10.5" fill="#64748b">auth, theme, toasts</text>
+    <rect x="250" y="223" width="340" height="24" rx="6" fill="#22c55e"/>
+
+    <text x="20" y="276">sessionStorage</text>
+    <text x="20" y="291" font-size="10.5" fill="#64748b">search text, open tabs</text>
+    <rect x="250" y="265" width="345" height="24" rx="6" fill="#facc15"/>
+
+    <text x="20" y="318">localStorage</text>
+    <text x="20" y="333" font-size="10.5" fill="#64748b">chosen tab, theme choice</text>
+    <rect x="250" y="307" width="470" height="24" rx="6" fill="#fb923c"/>
+
+    <text x="20" y="360">Server (Postgres)</text>
+    <text x="20" y="375" font-size="10.5" fill="#64748b">the truth; everything else caches it</text>
+    <rect x="250" y="349" width="575" height="24" rx="6" fill="#ef4444"/>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+{
+  "name": "Finance Inbox",
+  "description": "Invoices, receipts and statements (instance seed).",
+  "backend": "vector",
+  "is_default": false,
+  "documents": [
+    "invoice-ACME-2026-03.md",
+    "invoice-GLOBEX-2026-04.md"
+  ]
+}

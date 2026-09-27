@@ -1,0 +1,33 @@
+{
+  "description": "Role matrix — what each dummy persona can do. Used by both API and browser harnesses.",
+  "roles": {
+    "member": {
+      "persona": "regular_user@example.com",
+      "can": ["chat", "create_agent", "run_agent", "upload_doc", "search_rag"],
+      "cannot": ["enable_curated_mcp_globally", "disable_locked_tools"],
+      "fileAccess": "scoped",
+      "autonomy": "ask"
+    },
+    "editor": {
+      "persona": "power_user@example.com",
+      "can": ["chat", "create_agent", "run_agent", "upload_doc", "search_rag", "enable_mcp_personal", "toggle_tools"],
+      "cannot": ["disable_locked_tools"],
+      "fileAccess": "read_all_write_own",
+      "autonomy": "auto"
+    },
+    "viewer": {
+      "persona": "viewer@example.com",
+      "can": ["chat", "search_rag"],
+      "cannot": ["run_unattended", "write_file", "enable_mcp", "disable_locked_tools"],
+      "fileAccess": "readonly",
+      "autonomy": "plan"
+    }
+  },
+  "invariants": [
+    "Absent ToolConfig row = code default",
+    "LOCKED_TOOLS cannot be disabled (400)",
+    "plan withholds mutating tools + MCP",
+    "MCP curated toggle writes preference, not server.enabled",
+    "KB scope None = unrestricted; empty selection = None"
+  ]
+}

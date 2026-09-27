@@ -1,0 +1,33 @@
+# generated / local-only instance artifacts — never commit real data
+dummy-data/generated/
+dummy-data/*.sqlite3
+dummy-data/*.db
+
+# permission snapshots taken during interactive runs
+dummy-permissions/.cache/
+
+# browser-automation outputs (also covered by interactive-tests/.gitignore)
+interactive-tests/fixtures/trace/
+interactive-tests/test-results/
+interactive-tests/playwright-report/
+interactive-tests/.auth/
+interactive-tests/node_modules/
+interactive-tests/blob-report/
+interactive-tests/playwright/.cache/
+
+# any real credential material accidentally dropped here
+**/credentials/*.key
+**/credentials/*.pem
+**/*.env
+# ...except the shared test configuration, which is the point of having one:
+# every value in it is dummy, local-only and greppable, and both the Python
+# harnesses and the browser suite read it. Real provider keys stay in
+# Backend/.env.local, which this repo never tracks.
+!test.env
+generated/
+*.log
+
+# Captured production session token — never commit
+.prod-token
+recordings/
+.browser-profile/

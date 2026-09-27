@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 430" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="880" height="430" fill="#ffffff"/>
+  <text x="440" y="28" text-anchor="middle" font-size="17" font-weight="600" fill="#0f172a">FileScope — read one subtree, write another</text>
+
+  <!-- read region -->
+  <rect x="30" y="52" width="400" height="340" rx="14" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="48" y="74" font-size="12" font-weight="600" fill="#0369a1">readable: the whole tree (root = user's root)</text>
+
+  <!-- write region -->
+  <rect x="98" y="262" width="210" height="60" rx="10" fill="#dcfce7" fill-opacity="0.7" stroke="#16a34a" stroke-width="2"/>
+  <text x="318" y="288" font-size="12" font-weight="600" fill="#15803d">write_prefix</text>
+  <text x="318" y="304" font-size="11" fill="#166534">("Agents","Reporter")</text>
+
+  <!-- shared region -->
+  <rect x="68" y="178" width="190" height="52" rx="10" fill="#fef3c7" fill-opacity="0.7" stroke="#d97706" stroke-width="2"/>
+  <text x="268" y="200" font-size="12" font-weight="600" fill="#b45309">shared_prefix</text>
+  <text x="268" y="216" font-size="11" fill="#92400e">delegator's folder (workers)</text>
+
+  <g font-family="Consolas, Menlo, monospace" font-size="14" fill="#0f172a">
+    <text x="60" y="108">/</text>
+    <text x="80" y="138">Reports/</text>
+    <text x="110" y="164" fill="#475569">q1.pdf</text>
+    <text x="80" y="194">Chat/</text>
+    <text x="110" y="220" fill="#475569">summary.md</text>
+    <text x="80" y="250">Agents/</text>
+    <text x="110" y="283">Reporter/</text>
+    <text x="140" y="309" fill="#475569">draft.docx</text>
+    <text x="110" y="355">Analyst/</text>
+  </g>
+
+  <!-- legend: modes -->
+  <text x="470" y="74" font-size="14" font-weight="600" fill="#0f172a">sandbox.fileAccess modes</text>
+  <g font-size="12.5" fill="#1e293b">
+    <rect x="470" y="88" width="380" height="1" fill="#cbd5e1"/>
+    <text x="470" y="112" font-weight="600">none</text><text x="640" y="112">no scope → file tools withheld</text>
+    <text x="470" y="140" font-weight="600">readonly</text><text x="640" y="140">read tree · write_prefix = None</text>
+    <text x="470" y="168" font-weight="600">scoped</text><text x="640" y="168">root = own folder · write ()</text>
+    <text x="470" y="196" font-weight="600">read_all_write_own</text><text x="640" y="196">read tree · write own folder</text>
+    <text x="470" y="224" font-weight="600">full</text><text x="640" y="224">read tree · write () = anywhere</text>
+    <rect x="470" y="238" width="380" height="1" fill="#cbd5e1"/>
+  </g>
+  <g font-size="12" fill="#334155">
+    <text x="470" y="270">• Paths are walked one folder at a time from root,</text>
+    <text x="482" y="287">never matched as strings → no traversal.</text>
+    <text x="470" y="311">• ".." at the root is clamped, not an error.</text>
+    <text x="470" y="335">• None ≠ () : "nothing writable" vs "anywhere".</text>
+    <text x="470" y="359">• A write is checked on segments before mkdir -p,</text>
+    <text x="482" y="376">so no parent folder is made for a refused write.</text>
+  </g>
+</svg>

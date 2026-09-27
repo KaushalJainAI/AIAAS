@@ -1,0 +1,26 @@
+{
+  "name": "Researcher",
+  "brief": "Researches a topic across 2-3 angles, reads pages, reports with sources. Cite every claim.",
+  "provider": "nvidia",
+  "model": "openai/gpt-oss-20b",
+  "temperature": 0.4,
+  "fileAccess": "readonly",
+  "tools": {
+    "rag": false,
+    "codeExecution": false,
+    "fileOps": false,
+    "webSearch": true,
+    "scrape": true,
+    "mcp": false,
+    "shell": false
+  },
+  "autonomy": "auto",
+  "spendCapRupees": 300,
+  "egress": "none",
+  "maxRunSeconds": 600,
+  "compaction": true,
+  "recursiveContext": true,
+  "indexing": true,
+  "allowUnattended": false,
+  "expected_behavior": "Should fan out web searches, scrape, and synthesize with citations. No file writes."
+}

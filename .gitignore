@@ -1,0 +1,111 @@
+# ── Secrets & credentials ────────────────────────────────────────────
+.env
+.env*
+!.env.example
+!.env.sample
+!.env.template
+!example.env
+!*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+credentials.toml
+*secret*.json
+*accessKey*
+.prod-token
+.faultline/credentials.toml
+
+# ── Personal / non-project files at the root ─────────────────────────
+/Kaushal_Jain_Resume*
+/*.pdf
+/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+/test_chrome.png
+/agents-walkthrough.mp4
+
+# ── Local-only folders ───────────────────────────────────────────────
+.archive/
+.git-backup/
+.deploy-coordination/
+.claude/settings.local.json
+BrowserOS/
+scratch/
+backups/
+.eval_data/
+
+# ── Databases & dumps (dev data only) ────────────────────────────────
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.bak*
+db.sqlite3*
+*.dump
+*.sql
+*.bak
+
+# ── Uploaded media, static output, model weights ─────────────────────
+media/
+staticfiles/
+static/model_cache/
+chroma_data/
+*.faiss
+
+# ── Dependencies ─────────────────────────────────────────────────────
+node_modules/
+venv/
+env/
+.venv/
+
+# ── Build output & caches ────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+.vite/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+htmlcov/
+coverage/
+playwright-report/
+blob-report/
+test-results/
+celerybeat-schedule
+celerybeat.pid
+
+# ── Logs & scratch output ────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+status.txt
+diff.txt
+api_test_output.txt
+api_test_report.json
+api_validation_report.md
+=*
+
+# ── Archives ─────────────────────────────────────────────────────────
+*.tar
+*.tar.gz
+*.zip
+
+# ── Editors & OS ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+.cursorignore
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+{
+  "persona": "power_user@example.com",
+  "agent": "Researcher",
+  "guardrails": { "autonomy": "auto" },
+  "expected": {
+    "gates_on_effect_not_sensitive": true,
+    "read_and_reversible_auto": true,
+    "irreversible_gated": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Power user workspace overlay — web_search off workspace-wide even though Researcher grants it. Tests that ToolConfig overlay wins over grant.",
+  "persona": "power_user@example.com",
+  "overlay": {
+    "tool": "web_search",
+    "enabled": false
+  },
+  "expected": {
+    "get_available_tools_excludes": ["web_search"],
+    "agent_toolbox_excludes": ["web_search"],
+    "execute_tool_refuses": "web_search with 'tool is disabled for this workspace'"
+  }
+}

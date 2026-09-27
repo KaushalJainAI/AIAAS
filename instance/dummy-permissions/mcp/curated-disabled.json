@@ -1,0 +1,11 @@
+{
+  "description": "Regular user disables a curated MCP server — writes MCPServerPreference, not MCPServer.enabled. Visible via GET /api/mcp/servers/ -> effective_enabled=false.",
+  "persona": "regular_user@example.com",
+  "server": "slack (example curated)",
+  "action": { "enabled": false },
+  "expected": {
+    "GET_servers_effective_enabled": false,
+    "toolbox_excludes_mcp": true,
+    "system_row_unchanged": true
+  }
+}

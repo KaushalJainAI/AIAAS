@@ -1,0 +1,11 @@
+{
+  "persona": "viewer@example.com",
+  "agent": "Researcher",
+  "guardrails": { "autonomy": "plan" },
+  "expected": {
+    "toolbox_withholds_mutating": true,
+    "mcp_withheld": true,
+    "approval_policy": "never",
+    "note": "plan is not switchable mid-run"
+  }
+}

@@ -1,0 +1,5 @@
+[
+  { "name": "Reports", "parent": null, "description": "Smoke reports — scope for Finance helper's read/write" },
+  { "name": "Invoices", "parent": null, "description": "Finance inbox — dummy invoices live here" },
+  { "name": "Q1", "parent": "Reports", "description": "Q1 sub-folder under Reports" }
+]

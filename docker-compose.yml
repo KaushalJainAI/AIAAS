@@ -1,0 +1,190 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: aiaas-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - aiaas-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: aiaas-backend
+    restart: unless-stopped
+    env_file:
+      - ./Backend/.env.local
+    environment:
+      DEBUG: "True"
+      PUBLIC_URL: http://localhost:8000
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      USE_REDIS_CHANNEL_LAYER: "True"
+      RUN_WORKFLOWS_ASYNC: "False"
+      SQLITE_PATH: /app/data/db.sqlite3
+      # Checkpoints beside the DB, on the same persistent volume — the code
+      # default is BASE_DIR/checkpoints.sqlite3 (/app), which is ephemeral in
+      # the image and lost on every redeploy.
+      AGENT_CHECKPOINT_PATH: /app/data/checkpoints.sqlite3
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3000/auth/google/callback
+      # Run the execute_python tool in the hardened sidecar, not in-process.
+      SANDBOX_ENGINE: "service"
+      SANDBOX_SERVICE_URL: http://sandbox:8100
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/app/data
+      - backend_media:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    networks:
+      - aiaas-network
+      - sandbox-net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./better-n8n-frontend
+      dockerfile: Dockerfile
+    container_name: aiaas-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - aiaas-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # The code-execution sandbox. A separate hardened container that runs
+  # untrusted, LLM-authored Python: no network egress (it lives only on the
+  # internal `sandbox-net`, which has no route out and no published ports),
+  # all Linux capabilities dropped, read-only root with a small tmpfs scratch,
+  # a non-root user, and memory/pids caps. Even a full interpreter breakout
+  # lands in a throwaway container holding no secrets. See sandbox_service/.
+  sandbox:
+    build:
+      context: ./Backend/sandbox_service
+      dockerfile: Dockerfile
+    container_name: aiaas-sandbox
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 128
+    networks:
+      - sandbox-net
+
+  worker:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: aiaas-worker
+    restart: unless-stopped
+    profiles:
+      - async
+    env_file:
+      - ./Backend/.env.local
+    environment:
+      DEBUG: "True"
+      PUBLIC_URL: http://localhost:8000
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      USE_REDIS_CHANNEL_LAYER: "True"
+      RUN_WORKFLOWS_ASYNC: "True"
+      SQLITE_PATH: /app/data/db.sqlite3
+      AGENT_CHECKPOINT_PATH: /app/data/checkpoints.sqlite3
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3000/auth/google/callback
+      SANDBOX_ENGINE: "service"
+      SANDBOX_SERVICE_URL: http://sandbox:8100
+    command: celery -A workflow_backend worker -l info
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - backend_data:/app/data
+      - backend_media:/app/media
+    networks:
+      - aiaas-network
+      - sandbox-net
+
+  # Periodic tasks — currently the HITL reminder sweep (escalation ladder,
+  # hourly nudges, daily digest). Separate from `worker` because beat must run
+  # as exactly one process; a scaled worker would fire duplicate schedules.
+  beat:
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    container_name: aiaas-beat
+    restart: unless-stopped
+    profiles:
+      - async
+    env_file:
+      - ./Backend/.env.local
+    environment:
+      DEBUG: "True"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      USE_REDIS_CHANNEL_LAYER: "True"
+      SQLITE_PATH: /app/data/db.sqlite3
+    command: celery -A workflow_backend beat -l info --schedule /app/data/celerybeat-schedule
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - backend_data:/app/data
+    networks:
+      - aiaas-network
+
+networks:
+  aiaas-network:
+    driver: bridge
+  # Internal-only: no gateway to the outside, so the sandbox container has no
+  # route to the internet. The backend joins it to reach the sandbox; the
+  # sandbox joins nothing else.
+  sandbox-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  backend_data:
+  backend_media:
+  redis_data:

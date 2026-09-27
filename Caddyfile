@@ -1,0 +1,19 @@
+aiaas.kaushaljain.com {
+	# zstd first: Caddy picks by the client's preference, and current browsers
+	# offer zstd, which compresses the JS bundle smaller and faster than gzip.
+	encode zstd gzip
+
+	# Long-lived streams: chat turns are SSE and execution logs are websockets,
+	# both of which sit open far longer than a normal request.
+	reverse_proxy frontend:80 {
+		flush_interval -1
+	}
+}
+
+# Reaching the box by IP (or any other host) still answers, over plain http,
+# so a deploy can be verified before DNS/TLS is in the picture.
+:80 {
+	reverse_proxy frontend:80 {
+		flush_interval -1
+	}
+}

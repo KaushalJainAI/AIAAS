@@ -1,0 +1,12 @@
+{
+  "description": "Viewer tries to disable LOCKED_TOOLS (read_tool_output, recall_context) — must be refused 400. Escape hatch must stay open.",
+  "persona": "viewer@example.com",
+  "attempt": {
+    "tool": "read_tool_output",
+    "enabled": false
+  },
+  "expected": {
+    "status": 400,
+    "error_contains": "locked"
+  }
+}

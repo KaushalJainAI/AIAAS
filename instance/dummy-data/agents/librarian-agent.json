@@ -1,0 +1,25 @@
+{
+  "name": "Docs librarian",
+  "brief": "Answers from the product documentation KB with citations. If unsure, say so.",
+  "provider": "nvidia",
+  "model": "openai/gpt-oss-20b",
+  "temperature": 0.2,
+  "fileAccess": "readonly",
+  "tools": {
+    "rag": true,
+    "codeExecution": false,
+    "fileOps": false,
+    "webSearch": false,
+    "scrape": false,
+    "mcp": false
+  },
+  "autonomy": "ask",
+  "spendCapRupees": 150,
+  "egress": "none",
+  "maxRunSeconds": 300,
+  "compaction": true,
+  "recursiveContext": false,
+  "indexing": true,
+  "allowUnattended": false,
+  "expected_behavior": "Should only answer from Product Documentation KB, never hallucinate outside it."
+}

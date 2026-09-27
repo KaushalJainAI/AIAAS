@@ -1,0 +1,10 @@
+{
+  "persona": "regular_user@example.com",
+  "agent": "Finance helper",
+  "guardrails": { "autonomy": "ask" },
+  "expected": {
+    "sensitive_tools_gate": true,
+    "read_tools_auto": true,
+    "approval_scope": "once|session|always supported"
+  }
+}

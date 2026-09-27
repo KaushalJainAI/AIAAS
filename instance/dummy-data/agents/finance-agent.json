@@ -1,0 +1,26 @@
+{
+  "name": "Finance helper",
+  "brief": "Reads invoices, extracts vendor/date/total, chases overdue ones. Keep tone concise.",
+  "provider": "nvidia",
+  "model": "openai/gpt-oss-20b",
+  "temperature": 0.2,
+  "fileAccess": "scoped",
+  "tools": {
+    "rag": true,
+    "codeExecution": true,
+    "fileOps": true,
+    "webSearch": false,
+    "scrape": false,
+    "mcp": false,
+    "shell": false
+  },
+  "autonomy": "ask",
+  "spendCapRupees": 200,
+  "egress": "none",
+  "maxRunSeconds": 300,
+  "compaction": true,
+  "recursiveContext": false,
+  "indexing": true,
+  "allowUnattended": false,
+  "expected_behavior": "Should answer from Finance Inbox KB, execute python for totals, ask before side effects."
+}
