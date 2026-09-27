@@ -1,0 +1,1947 @@
+"""
+The agent's virtual filesystem: POSIX-shaped paths over the user's own tree.
+
+An agent needs a filesystem it can *plan* with — `/notes/draft.md`, "list what
+is in there", "write that to a file" — and this platform already has durable
+per-user storage in `Folder` + `Document`. This module is the adapter between
+the two, and it is deliberately **artificial**: `os` is never imported, no path
+is ever built here, and no path an agent types corresponds to any path on any
+host. The worst a traversal bug can reach is another row, never another file,
+and never the process's own disk.
+
+The one place bytes are touched is a rendered binary (`write_binary`,
+`read_image`), and it goes through the row's own `Document.file` — the storage
+an upload uses, at a path `utils.user_document_path` derives from the owner's
+id and a fresh uuid. Nothing the caller supplied reaches that path, so it adds
+a place bytes live without adding a way to name one.
+
+Three properties carry the isolation, and each is structural rather than
+checked:
+
+*Paths are walked, never matched.* A path becomes a list of name segments,
+resolved one parent/child hop at a time from the scope root through
+`filesystem.child_by_name`. No query anywhere joins a caller-supplied string to
+`Folder.path`, so there is no string that addresses a row outside the subtree
+the walk started in — every step is an edge from a folder already resolved to
+its own children. This is why `filesystem.py`'s "no route accepts a path as a
+locator" survives a module whose entire API is paths.
+
+*`..` is clamped, not refused.* Popping an empty stack is a no-op. Refusing the
+segment outright would look stricter and behave worse: models emit `../`
+constantly, and an error teaches the model to retry with another spelling of
+the same intent, while a clamp gives it exactly what a chroot would have.
+
+*The scope root is a folder the user owns.* Every operation starts from a
+`Folder` that came out of `resolve_folder`, or from `None`, which *is* the
+user's root and is unforgeable. `mode` narrows what may be done inside that
+subtree; it can never widen where the subtree is.
+
+Writing is narrowed a second time. For most modes the readable and writable
+subtrees are the same, so the walk alone confines both. `read_all_write_own`
+reads the whole tree and writes only the agent's own home, and that gap is held
+by `FileScope.write_prefix` — a segment prefix checked on every write, because
+a walk that starts at the tree root cannot confine anything by itself.
+
+What this module does not do is index. A written file is `status='stored'` —
+the raw-backend terminal state, browsable and readable but not searchable — and
+no knowledge base is touched. "Folders organise, KBs index" holds for agents
+exactly as it does for people, so writing a file is never a silent embedding
+bill. Deleting goes through `recycle.trash`, so an agent's mistake lands in the
+user's recycle bin with the retention window every other delete gets, rather
+than being unrecoverable.
+"""
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
+from typing import Any, Sequence
+
+from workflow_backend.thresholds import (
+    AGENT_FILE_BINARY_BYTES,
+    AGENT_FILE_LIST_LIMIT,
+    AGENT_FILE_READ_CHARS,
+    AGENT_FILE_WRITE_CHARS,
+    AGENT_HOME_ROOT,
+    CHAT_HOME_ROOT,
+)
+
+#: Workspace knobs for the file tools (`list_files`/`find_files.maxEntries`,
+#: `read_file.windowChars`, `write_file`/`edit_file.maxChars`). The thresholds
+#: stay as the defaults these clamp to — see `tools_config/settings_schema`.
+#: Sync functions take them as keyword args; the tool layer resolves the knob
+#: and passes it in, so a stored value narrows and never widens past these.
+from tools_config.settings_schema import (  # noqa: E402 — thresholds first, knobs next
+    _FILE_LIST_LIMIT,
+    _FILE_READ_CHARS,
+    _FILE_WRITE_CHARS,
+)
+
+from . import filesystem as fs
+from .models import Document, Folder
+
+logger = logging.getLogger(__name__)
+
+#: The `SubAgent.sandbox['fileAccess']` values that grant anything at all.
+#: `none` is absent on purpose — it resolves to no scope, and therefore to no
+#: tools being offered rather than to tools that refuse.
+READONLY = 'readonly'
+SCOPED = 'scoped'
+FULL = 'full'
+#: Read the user's whole tree, write only inside the agent's own home. The one
+#: setting where the readable and writable subtrees differ — see `FileScope`.
+READ_ALL_WRITE_OWN = 'read_all_write_own'
+
+#: Characters that cannot appear in a name, because they would either fake a
+#: hierarchy that is not there (`/`) or corrupt the listing (`\x00-\x1f`). Same
+#: set `filesystem._ILLEGAL_NAME` enforces for folders, applied here to
+#: *document* names too — a document called "a/b" would be unaddressable by the
+#: only API that can reach it.
+_ILLEGAL = re.compile(r'[/\\\x00-\x1f]')
+
+#: Extension -> `Document.FILE_TYPE_CHOICES`. Anything unrecognised is stored as
+#: text, which is what it is: the content column is a TextField either way, so
+#: the type is a display hint and guessing wrong costs an icon, not data.
+_EXT_TO_TYPE = {
+    'md': 'md', 'markdown': 'md',
+    'txt': 'txt', 'text': 'txt', 'log': 'txt',
+    'json': 'json',
+    'csv': 'csv',
+    'html': 'html', 'htm': 'html',
+}
+
+#: Extensions whose *bytes* are the file, mapped to their `file_type`. These are
+#: produced only by `write_binary` (the office render tools, generated images):
+#: `write_file` refuses them, because a text body saved as `report.docx` is a
+#: file that downloads as a corrupt Word document and previews as nothing.
+BINARY_TYPES = {
+    'pptx': 'pptx',
+    'xlsx': 'xlsx',
+    'docx': 'docx',
+    'pdf': 'pdf',
+    'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'webp': 'image', 'gif': 'image',
+    # Text under the hood, an image to everyone who opens it: stored as one
+    # so the preview draws it instead of showing XML.
+    'svg': 'image',
+    # Spoken audio and recordings: `text_to_speech` saves here, and a meeting
+    # file a user uploads lands here too. Without these, audio had a file type
+    # nothing could write — the choice list named it, no door produced it.
+    'mp3': 'audio', 'wav': 'audio', 'ogg': 'audio', 'm4a': 'audio',
+    'mp4': 'video', 'webm': 'video', 'mov': 'video',
+}
+
+#: How many `name (n).ext` candidates `write_binary` tries before giving up.
+_FREE_NAME_TRIES = 50
+
+
+class VfsError(Exception):
+    """Anything the model should read and correct: a path that does not exist,
+    a write into a read-only scope, a file over the size cap. Tools render the
+    message verbatim, so it is written to be read by a model — it says what was
+    refused and what to do instead, never just "invalid"."""
+
+
+# ---------------------------------------------------------------------------
+# Scope — what one run may see
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class FileScope:
+    """The subtree one agent run may address, and what it may do inside it.
+
+    Readable and writable are **two subtrees, not one subtree and a flag**.
+    For three of the four modes they coincide, and confinement comes for free
+    from the walk: every path is resolved hop-by-hop from `root`, so no string
+    addresses anything outside it and a write needs no further check. The
+    fourth mode, `read_all_write_own`, deliberately breaks that identity — it
+    reads the whole tree and writes only the agent's own home — so writes need
+    a check the walk cannot give them.
+
+    That check is `write_prefix`: the segments, *relative to `root`*, that a
+    write must begin with. Comparing segments rather than resolved rows is what
+    makes it work for paths that do not exist yet, which `write_file` needs
+    because it creates missing parents before there is any row to compare.
+    """
+
+    user: Any
+    #: `None` is the user's root. Not a sentinel for "unset" — see
+    #: `filesystem.resolve_folder`, which uses the same convention.
+    root: Folder | None
+    mode: str
+    #: How the root is described to the model, so a path in an error message
+    #: means something to whoever reads the transcript.
+    label: str
+    #: Segments a write must start with. `()` means anywhere inside `root`;
+    #: `None` means nothing is writable at all. Note `()` and `None` are the
+    #: distinction the old boolean carried, kept apart here because an empty
+    #: tuple is a real prefix that everything matches.
+    write_prefix: tuple[str, ...] | None = None
+    #: How the writable subtree is described to the model. Equal to `label`
+    #: wherever the two subtrees coincide.
+    write_label: str = ''
+
+    #: A *second* writable subtree: the delegating agent's home, granted to a
+    #: worker for the length of a delegated run. `None` for every other scope.
+    #:
+    #: Named rather than folded into a list of prefixes, because the two are
+    #: not interchangeable — one is "your own files", the other is "the folder
+    #: you share with whoever asked", and both the system prompt and
+    #: `list_dir`'s per-directory `writable` flag need to say which is which. A
+    #: list would make them the same thing with different indices.
+    #:
+    #: It is what lets delegation hand back *paths* instead of prose. Without
+    #: it a worker's findings could only come back through the transcript, so
+    #: every fan-out paid its whole result into the parent's context window —
+    #: and anything over the cap was archived and had to be fetched back out
+    #: again. A shared folder makes the answer "wrote findings-2.md", and the
+    #: parent reads it only if it needs to.
+    shared_prefix: tuple[str, ...] | None = None
+    shared_label: str = ''
+
+    @property
+    def writable(self) -> bool:
+        """Whether anything at all may be written in this scope."""
+        return self.write_prefix is not None or self.shared_prefix is not None
+
+    def may_write_at(self, parts: Sequence[str]) -> bool:
+        """Whether a write at `parts` (scope-relative) lands in a writable subtree.
+
+        A path shorter than a prefix is *not* writable: standing at `/` with a
+        prefix of `Agents/Reporter` means the agent may not create siblings of
+        its own home, only descend into it.
+
+        Both subtrees are checked because a worker legitimately has two — its
+        own home and the shared workspace — and confinement still comes from
+        the walk: each prefix names segments under a root that was resolved
+        from a row the user owns, so neither one widens *where* the scope can
+        reach, only what may be written once it is there.
+        """
+        for prefix in (self.write_prefix, self.shared_prefix):
+            if prefix is not None and tuple(parts[:len(prefix)]) == prefix:
+                return True
+        return False
+
+
+def build_scope(user, file_access: str, *, agent_name: str = '') -> FileScope | None:
+    """The scope implied by an agent's `fileAccess` setting, or None for `none`.
+
+    None means the caller offers no file tools at all, which is the same rule
+    `ask_vision` follows: an advertised tool that cannot run is worse than one
+    never offered, because the model plans around it and then has to explain
+    the failure.
+
+    The four served modes are two independent questions — what may be read, and
+    what may be written — which happen to coincide in three of them:
+
+    * `readonly` — reads the whole tree, writes nothing.
+    * `scoped`   — reads and writes only the agent's own home.
+    * `full`     — reads and writes the whole tree.
+    * `read_all_write_own` — reads the whole tree, writes only its own home.
+
+    The last is the useful default in practice and the reason `write_prefix`
+    exists: an agent asked to summarise the user's documents needs to read
+    outside its home, and an agent that can then write anywhere is a much
+    larger grant than the task called for.
+
+    Both `scoped` and `read_all_write_own` need the home folder to exist, so
+    this is where it is created.
+    """
+    mode = (file_access or '').strip().lower()
+    if mode not in (READONLY, SCOPED, FULL, READ_ALL_WRITE_OWN):
+        return None
+
+    if mode == READONLY:
+        return FileScope(user=user, root=None, mode=mode, label='/',
+                         write_prefix=None, write_label='')
+
+    if mode == FULL:
+        return FileScope(user=user, root=None, mode=mode, label='/',
+                         write_prefix=(), write_label='/')
+
+    home = agent_home(user, agent_name)
+    home_label = f'/{AGENT_HOME_ROOT}/{home.name}'
+
+    if mode == SCOPED:
+        # Root *at* the home, so the walk itself is the confinement and the
+        # agent cannot even see the rest of the tree.
+        return FileScope(user=user, root=home, mode=mode, label=home_label,
+                         write_prefix=(), write_label=home_label)
+
+    # read_all_write_own: root at the whole tree for reading, and a prefix that
+    # pins writes back to the home. The prefix is expressed in the same exact,
+    # case-sensitive segment names `filesystem.child_by_name` matches on, so
+    # what the prefix admits and what the walk resolves cannot disagree.
+    return FileScope(
+        user=user, root=None, mode=mode, label='/',
+        write_prefix=(AGENT_HOME_ROOT, home.name), write_label=home_label,
+    )
+
+
+def with_shared_workspace(
+    scope: FileScope | None,
+    prefix: Sequence[str],
+    label: str = '',
+) -> FileScope | None:
+    """Grant `scope` write access to a second subtree — the caller's own folder.
+
+    This is what lets a worker hand its parent a *path* instead of prose. The
+    parent already writes in that folder, so a worker that can write there too
+    has somewhere to leave a report the parent reads on demand rather than pays
+    for in its context window.
+
+    `prefix` is the delegating scope's own `write_prefix`, passed straight
+    through rather than rebuilt from an agent name. Deriving it from the caller
+    is what keeps the two halves from disagreeing: the shared folder is *by
+    definition* the one the parent writes to, so there is no second rule that
+    could drift — and it works unchanged when the delegator is chat, whose
+    folder is `/Chat/` and not an agent home at all.
+
+    **It only ever adds, and only where it can mean something.** Four cases are
+    left exactly as they were, each for its own reason:
+
+    * a worker rooted at its own home (`fileAccess='scoped'`) — its
+      configuration says "confine me to my folder", and re-rooting it would
+      make one brief write to different places depending on who called it;
+    * a `readonly` worker — its configuration says it writes nothing, and
+      being delegated to is not consent to change that;
+    * an empty `prefix` — a parent that writes everywhere (`full`, chat's own
+      root) has no particular folder to share, and `()` would match every path,
+      quietly upgrading the worker to write anywhere;
+    * a prefix the worker already writes to — nothing to add.
+
+    Returns the scope unchanged in all of them, so a caller never has to ask
+    whether it applied: a worker without a workspace answers the way it always
+    did.
+    """
+    if scope is None:
+        return scope
+    prefix = tuple(str(p) for p in (prefix or ()) if str(p))
+    if not prefix:
+        return scope
+    # Rooted somewhere other than the tree: the walk starts inside the agent's
+    # own home and can never address the parent's, so a prefix here would name
+    # segments no path can reach.
+    if scope.root is not None:
+        return scope
+    if scope.write_prefix is None or prefix == scope.write_prefix:
+        return scope
+
+    return replace(
+        scope,
+        shared_prefix=prefix,
+        shared_label=label or '/' + '/'.join(prefix),
+    )
+
+
+def chat_scope(user) -> FileScope:
+    """What a chat turn may address: read the whole tree, write into `/Chat/`.
+
+    Chat had no scope at all until now, which is why `requires="files"` was an
+    unconditional `False` — there was no `fileAccess` setting to build one
+    from, so the tools were withheld rather than offered and refused. That was
+    the right call while the only file tools reached the *host* filesystem.
+    These reach rows in the user's own tree, so the question is no longer
+    whether chat may touch files but which ones, and that has a fixed answer
+    rather than a configurable one.
+
+    `read_all_write_own` is that answer, and it is the same shape an agent gets
+    from the same words. Reading the whole tree is what makes "summarise my
+    notes" work at all, and it grants nothing new — the KB tools already read
+    the user's documents. Writing is confined to one visible folder, so a
+    conversation cannot scatter files through a tree the user organised, and
+    everything chat produced is in one place they can find, move or delete.
+
+    There is deliberately no folder per session. A user looking for the summary
+    they asked for yesterday should find it under `/Chat/`, not under a uuid
+    they never saw; and a conversation that cannot read what an earlier one
+    wrote is a filing cabinet that forgets.
+    """
+    fs.ensure_folder(user, CHAT_HOME_ROOT, None)
+    return FileScope(
+        user=user, root=None, mode=READ_ALL_WRITE_OWN, label='/',
+        write_prefix=(CHAT_HOME_ROOT,), write_label=f'/{CHAT_HOME_ROOT}',
+    )
+
+
+def agent_home(user, agent_name: str) -> Folder:
+    """`/Agents/<agent name>/`, created on demand.
+
+    Keyed by **agent, not by run**, and that is the one place this design
+    departs from how an ephemeral sandbox works. A run is the right unit for
+    isolating *compute* and the wrong one for a workspace: per-run folders would
+    leave one directory per execution in the user's own tree — a mess they did
+    not ask to clean up — and would make "read what you wrote last time"
+    impossible without inventing a second mechanism to carry it across. This
+    tree is the durable half on purpose. When there is a real ephemeral
+    workspace for compute, it belongs beside this, not instead of it.
+
+    Under a real folder rather than a hidden one, because these files are the
+    user's: a tree they cannot see in the UI is a tree they cannot clean up.
+    """
+    parent = fs.ensure_folder(user, AGENT_HOME_ROOT, None)
+    return fs.ensure_folder(user, safe_name(agent_name) or 'agent', parent)
+
+
+def safe_name(name: str) -> str:
+    """A caller-supplied name reduced to something storable.
+
+    Agent names and model-authored filenames both land here. Separators become
+    hyphens rather than being rejected: the model meant a name, and the useful
+    answer is to store the name it meant.
+    """
+    cleaned = _ILLEGAL.sub('-', (name or '').strip())
+    if cleaned in ('.', '..'):
+        cleaned = ''
+    return cleaned[:255]
+
+
+# ---------------------------------------------------------------------------
+# Path resolution — the walk
+# ---------------------------------------------------------------------------
+
+def segments(path: str) -> list[str]:
+    """Split a path into resolved name segments, relative to the scope root.
+
+    `.` drops, `..` pops, and popping an empty stack is a no-op — the clamp
+    that makes escape impossible without making `..` an error. Backslashes are
+    read as separators too, since a model that has seen Windows paths will
+    write them and no name may contain one anyway.
+    """
+    out: list[str] = []
+    for raw in (path or '').replace('\\', '/').split('/'):
+        seg = raw.strip()
+        if not seg or seg == '.':
+            continue
+        if seg == '..':
+            if out:
+                out.pop()
+            continue
+        out.append(seg)
+    return out
+
+
+def _scope_parts(scope: FileScope, path: str) -> list[str]:
+    """`segments(path)`, accepting the paths this module itself prints.
+
+    A scope rooted at an agent's home is *labelled* `/Agents/<name>`, and every
+    message and listing renders paths under that label -- but a path was only
+    ever resolved relative to the home. So an agent that wrote `/bench/a.txt`,
+    was told it wrote `/Agents/<name>/bench/a.txt`, and read that path back got
+    "No such file"; writing to it created `/Agents/<name>/Agents/<name>/bench/`
+    inside its own home. Found by the benchmark (files suite, "Write then read
+    back"), and the reason a correctly scoped agent told users it could not
+    write where it could.
+
+    Stripping the label is safe by construction: it only ever maps a path onto
+    the scope's own root, which the walk already confines, so it cannot reach
+    anything the unprefixed path could not.
+    """
+    parts = segments(path)
+    if scope.root is None:
+        return parts
+    label = segments(scope.label)
+    if label and parts[:len(label)] == label:
+        return parts[len(label):]
+    return parts
+
+
+def render(scope: FileScope, parts: Sequence[str]) -> str:
+    """A scope-relative path as the model should see it, for messages."""
+    tail = '/'.join(parts)
+    base = scope.label.rstrip('/')
+    return f'{base}/{tail}' if tail else (base or '/')
+
+
+def _folder_at(scope: FileScope, parts: Sequence[str]) -> Folder | None:
+    """Walk `parts` from the scope root. Raises if any segment is missing."""
+    node = scope.root
+    for i, seg in enumerate(parts):
+        child = fs.child_by_name(scope.user, node, seg)
+        if child is None:
+            raise VfsError(
+                f'No such directory: {render(scope, parts[:i + 1])}. '
+                + _did_you_mean(scope, parts[:i], _other_case_folders(scope.user, node, seg))
+                + 'List the parent first to see what is actually there.'
+            )
+        node = child
+    return node
+
+
+def _other_case_folders(user, parent: Folder | None, name: str) -> list[str]:
+    """Live sibling folders whose name differs from `name` only in case."""
+    return fs.other_case_children(user, parent, name)
+
+
+def _other_case_files(user, folder: Folder | None, name: str) -> list[str]:
+    return list(
+        Document.objects.filter(user=user, folder=folder, name__iexact=name)
+        .exclude(name=name).values_list('name', flat=True)[:2]
+    )
+
+
+def _did_you_mean(scope: FileScope, parent_parts: Sequence[str], names: list[str]) -> str:
+    """"Did you mean …?" when exactly one name differs only in case, else ''.
+
+    A hint, never a redirect: a read that silently followed a different case
+    would answer about a file the model did not name.
+    """
+    if len(names) != 1:
+        return ''
+    return f'Did you mean {render(scope, list(parent_parts) + [names[0]])}? (Names are case-sensitive.) '
+
+
+def _document_in(scope: FileScope, folder: Folder | None, name: str) -> Document | None:
+    """One live document by exact name in `folder`.
+
+    `Document.objects` is the `LiveManager`, so a trashed file is not found —
+    which is what makes "delete then write the same name" behave the way the
+    model expects instead of colliding with a row it cannot see.
+
+    Ordered by id, so that where same-named siblings exist (uploads and
+    attachments may create them; nothing constrains the table) the *oldest*
+    is the file, for every verb, every time. The model's default ordering is
+    newest-first, which made the answer depend on which row a query happened
+    to see first.
+    """
+    return (Document.objects.filter(user=scope.user, folder=folder, name=name)
+            .order_by('id').first())
+
+
+def _no_such_file(scope: FileScope, folder: Folder | None,
+                  parent_parts: Sequence[str], name: str) -> VfsError:
+    return VfsError(
+        f'No such file: {render(scope, list(parent_parts) + [name])}. '
+        + _did_you_mean(scope, parent_parts, _other_case_files(scope.user, folder, name))
+        + 'List the directory to see what is there.'
+    )
+
+
+@contextmanager
+def _name_lock(user, folder: Folder | None, name: str):
+    """Serialise look-up-then-write on one (user, folder, name).
+
+    `Document` has no unique constraint on its name — uploads and attachments
+    create same-named siblings by design — so two workers writing one new path
+    each saw "no such file" and each created a row. Inside this block they
+    take turns. On Postgres that is a transaction-scoped advisory lock keyed
+    on the name; on SQLite (`transaction_mode=IMMEDIATE`) opening the
+    transaction already takes the database write lock, which is stronger.
+    """
+    from django.db import connection, transaction
+
+    with transaction.atomic():
+        if connection.vendor == 'postgresql':
+            raw = f'vfs|{user.pk}|{folder.pk if folder else 0}|{name}'.encode()
+            key = int.from_bytes(
+                hashlib.blake2b(raw, digest_size=8).digest(), 'big', signed=True)
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT pg_advisory_xact_lock(%s)', [key])
+        yield
+
+
+def _version(doc: Document) -> str | None:
+    """The etag a caller hands back as `expected_version`."""
+    return doc.updated_at.isoformat() if doc.updated_at else None
+
+
+def _require_fresh(scope: FileScope, doc: Document | None, expected: str | None,
+                   shown: str) -> None:
+    """Refuse a write based on a read that is no longer current."""
+    if not expected:
+        return
+    if doc is None:
+        raise VfsError(
+            f'{shown} no longer exists — it was deleted or moved since you read '
+            f'it. List the directory before writing.'
+        )
+    from .office_edit import is_stale
+
+    if is_stale(doc, expected):
+        raise VfsError(
+            f'{shown} changed since you read it (someone else wrote to it). '
+            f'Read it again, then redo your change on the current text.'
+        )
+
+
+def _split_leaf(scope: FileScope, path: str) -> tuple[list[str], str]:
+    """`parts-to-the-parent, leaf name`, refusing a path that names the root."""
+    parts = _scope_parts(scope, path)
+    if not parts:
+        raise VfsError(
+            f'That path names the directory {scope.label}, not a file. '
+            f'Give a file name, like {scope.label.rstrip("/")}/notes.md.'
+        )
+    return parts[:-1], parts[-1]
+
+
+# ---------------------------------------------------------------------------
+# Operations
+# ---------------------------------------------------------------------------
+
+#: Deepest `list_dir(depth=...)` goes. Each level is two queries per folder,
+#: and the entry budget bounds the total, so this bounds the query count.
+MAX_LIST_DEPTH = 3
+
+
+def list_dir(scope: FileScope, path: str = '/',
+               limit: int = AGENT_FILE_LIST_LIMIT, depth: int = 1) -> dict:
+    """Directories and files directly inside `path`.
+
+    `limit` is the caller's workspace knob, clamped to never exceed the
+    module ceiling — a stored knob narrows, never widens.
+
+    `depth` > 1 adds `tree`: every entry up to that many levels down, as
+    paths relative to `path`, sharing one budget of `limit` entries. The
+    direct listing is unchanged, so depth 1 is exactly the old answer.
+    """
+    limit = max(1, min(int(limit), AGENT_FILE_LIST_LIMIT))
+    try:
+        depth = max(1, min(int(depth or 1), MAX_LIST_DEPTH))
+    except (TypeError, ValueError):
+        depth = 1
+    result = _list_one(scope, path, limit)
+    if depth > 1:
+        folder = _folder_at(scope, _scope_parts(scope, path))
+        tree: list[str] = []
+        complete = _walk_tree(scope, folder, '', depth, limit, tree)
+        result['tree'] = tree
+        if not complete:
+            result['tree_truncated'] = True
+            result['tree_note'] = (
+                f'Tree capped at {limit} entries. List a subdirectory to see more.')
+    return result
+
+
+def _walk_tree(scope: FileScope, folder: Folder | None, prefix: str,
+               levels: int, budget: int, out: list[str]) -> bool:
+    """Append `prefix`-relative entries to `out`; False when the budget ran out."""
+    for d in fs.children(scope.user, folder):
+        if len(out) >= budget:
+            return False
+        out.append(f'{prefix}{d.name}/')
+        if levels > 1 and not _walk_tree(
+                scope, d, f'{prefix}{d.name}/', levels - 1, budget, out):
+            return False
+    names = (Document.objects.filter(user=scope.user, folder=folder)
+             .order_by('name').values_list('name', flat=True)[: budget - len(out) + 1])
+    for name in names:
+        if len(out) >= budget:
+            return False
+        out.append(f'{prefix}{name}')
+    return True
+
+
+def _list_one(scope: FileScope, path: str, limit: int) -> dict:
+    parts = _scope_parts(scope, path)
+    folder = _folder_at(scope, parts)
+
+    dirs = list(fs.children(scope.user, folder)[: limit + 1])
+    docs = list(
+        Document.objects
+        .filter(user=scope.user, folder=folder)
+        .order_by('name')
+        .values('id', 'name', 'file_type', 'file_size', 'updated_at')
+        [: limit + 1]
+    )
+
+    truncated = len(dirs) > limit or len(docs) > limit
+    dirs = dirs[:limit]
+    docs = docs[:limit]
+
+    return {
+        'path': render(scope, parts),
+        # Per-directory, not per-scope: under `read_all_write_own` most of the
+        # tree is readable and unwritable, and a flat `scope.writable` would
+        # tell the model it may write in every folder it lists — which it would
+        # believe, and plan around, right up until the write was refused.
+        'writable': scope.may_write_at(parts),
+        'directories': [f'{d.name}/' for d in dirs],
+        'files': [
+            {
+                'name': d['name'],
+                'type': d['file_type'],
+                'bytes': d['file_size'],
+                'modified': d['updated_at'].isoformat() if d['updated_at'] else None,
+            }
+            for d in docs
+        ],
+        # A capped listing and a complete one must not look alike — the same
+        # rule the HTTP list endpoints follow.
+        'truncated': truncated,
+        **({'note': f'Listing capped at {limit} entries per kind.'}
+           if truncated else {}),
+    }
+
+
+def read_file(scope: FileScope, path: str, *, offset: int = 0,
+              limit: int | None = None, window: int = AGENT_FILE_READ_CHARS,
+              start_line: int | None = None, end_line: int | None = None) -> dict:
+    """Text of one file, from `offset`.
+
+    `window` is the caller's workspace knob (`read_file.windowChars`),
+    clamped to never exceed the module ceiling. `limit` stays as the legacy
+    per-call override, also clamped.
+
+    `start_line`/`end_line` (1-based, inclusive) switch to line mode: the
+    lines come back prefixed with their numbers, still within the character
+    window. Character mode stays the default.
+
+    `version` in the result is what `write_file`/`edit_file` accept as
+    `expected_version`, to refuse a write based on a stale read.
+    """
+    parent_parts, name = _split_leaf(scope, path)
+    folder = _folder_at(scope, parent_parts)
+    doc = _document_in(scope, folder, name)
+    if doc is None:
+        raise _no_such_file(scope, folder, parent_parts, name)
+    # A pending office draft renders first: the text below is the extract of
+    # the bytes, and the bytes are what the draft is still building.
+    from . import drafts
+
+    doc = drafts.ensure_rendered(doc)
+
+    window = max(1, min(int(window), AGENT_FILE_READ_CHARS))
+    cap = min(limit or window, window)
+    body = doc.content_text or ''
+
+    if start_line or end_line:
+        out = _read_lines(body, start_line, end_line, cap)
+        out = {'path': render(scope, parent_parts + [name]), 'document_id': doc.id,
+               'version': _version(doc), **out}
+        if is_binary(doc):
+            out['binary'] = doc.file_type
+        return out
+
+    offset = max(0, int(offset or 0))
+    window = body[offset:offset + cap]
+    end = offset + len(window)
+    remaining = max(0, len(body) - end)
+
+    out = {
+        'path': render(scope, parent_parts + [name]),
+        'document_id': doc.id,
+        'version': _version(doc),
+        'content': window,
+        'offset': offset,
+        'chars': len(window),
+        'total_chars': len(body),
+    }
+    if remaining:
+        # Named, not silent. A truncated read that looks complete is how a model
+        # ends up summarising half a document as if it were the whole one.
+        out['truncated'] = True
+        out['note'] = (
+            f'{remaining:,} characters remain — call read_file again with '
+            f'offset={end} to continue.'
+        )
+    if is_binary(doc):
+        # Said up front, because the text reads like the file and is not: a
+        # model that "edits" it, or quotes it as the layout, is working from a
+        # summary. Re-rendering is how a binary changes.
+        out['binary'] = doc.file_type
+        out['note'] = (
+            f'This is a {doc.file_type} file; the content above is text '
+            f'extracted from it, not the file itself. To change it, render it '
+            f'again rather than editing this text.'
+            + (f' {out["note"]}' if 'note' in out else '')
+        )
+    elif not body:
+        out['note'] = (
+            'This file has no extracted text. It may be a binary upload (PDF, '
+            'image) that was never processed, rather than an empty file.'
+        )
+    return out
+
+
+def _read_lines(body: str, start_line, end_line, cap: int) -> dict:
+    """Numbered lines `start_line..end_line`, stopping at `cap` characters."""
+    lines = body.split('\n')
+    total = len(lines) if body else 0
+    try:
+        start = max(1, int(start_line or 1))
+        end = int(end_line) if end_line else total
+    except (TypeError, ValueError):
+        raise VfsError('start_line and end_line must be whole numbers.')
+    if total == 0:
+        return {'content': '', 'start_line': 1, 'end_line': 0, 'total_lines': 0,
+                'note': 'This file has no text.'}
+    if start > total:
+        raise VfsError(f'The file has {total} lines; start_line {start} is past the end.')
+    if end < start:
+        raise VfsError('end_line must be at or after start_line.')
+    end = min(end, total)
+
+    shown: list[str] = []
+    used = 0
+    last = start - 1
+    for n in range(start, end + 1):
+        entry = f'{n}: {lines[n - 1]}'
+        if shown and used + len(entry) + 1 > cap:
+            break
+        shown.append(entry[:cap] if not shown else entry)
+        used += len(entry) + 1
+        last = n
+    out = {'content': '\n'.join(shown), 'start_line': start, 'end_line': last,
+           'total_lines': total}
+    if last < end:
+        # Named, for the reason the character mode names it.
+        out['truncated'] = True
+        out['note'] = (f'Stopped at line {last} to stay within the read window — '
+                       f'call read_file again with start_line={last + 1} to continue.')
+    return out
+
+
+def read_binary(scope: FileScope, path: str) -> bytes:
+    """The bytes of one stored file in scope — for a tool that must re-read it.
+
+    `read_file` hands a model text; this hands our own code the file, which is
+    what `edit_workbook` needs to change a workbook without the model
+    re-emitting it. Same walk, so the confinement is the same.
+    """
+    parent_parts, name = _split_leaf(scope, path)
+    folder = _folder_at(scope, parent_parts)
+    doc = _document_in(scope, folder, name)
+    shown = render(scope, parent_parts + [name])
+    if doc is None:
+        raise VfsError(f'No such file: {shown}. List the directory to see what is there.')
+    # A pending office draft renders first: this hands our own code the file,
+    # and the file is what the draft is still building.
+    from . import drafts
+
+    doc = drafts.ensure_rendered(doc)
+    if not doc.file:
+        raise VfsError(
+            f'{shown} is a text file, not a stored document with its own bytes.'
+        )
+    if (doc.file_size or 0) > AGENT_FILE_BINARY_BYTES:
+        raise VfsError(f'{shown} is too large to open here.')
+    with doc.file.open('rb') as handle:
+        data = handle.read(AGENT_FILE_BINARY_BYTES + 1)
+    if len(data) > AGENT_FILE_BINARY_BYTES:
+        raise VfsError(f'{shown} is too large to open here.')
+    return data
+
+
+def read_image(scope: FileScope, path: str) -> tuple[bytes, str]:
+    """The bytes of one image in scope, and its rendered path.
+
+    Only for embedding — a slide's picture, a document's figure. Reached by
+    the same walk as `read_file`, so an image outside the readable subtree is
+    "no such file" exactly as a text file would be.
+    """
+    parent_parts, name = _split_leaf(scope, path)
+    folder = _folder_at(scope, parent_parts)
+    doc = _document_in(scope, folder, name)
+    shown = render(scope, parent_parts + [name])
+    if doc is None:
+        raise VfsError(f'No such image: {shown}. List the directory to see what is there.')
+    if doc.file_type != 'image' or not doc.file:
+        raise VfsError(f'{shown} is not an image file (it is {doc.file_type}).')
+    if (doc.file_size or 0) > AGENT_FILE_BINARY_BYTES:
+        raise VfsError(f'{shown} is too large to embed. Use a smaller image.')
+    with doc.file.open('rb') as handle:
+        data = handle.read(AGENT_FILE_BINARY_BYTES + 1)
+    if len(data) > AGENT_FILE_BINARY_BYTES:
+        raise VfsError(f'{shown} is too large to embed. Use a smaller image.')
+    return data, shown
+
+
+def write_file(scope: FileScope, path: str, content: str, *,
+               append: bool = False, overwrite: bool = True,
+               max_chars: int = AGENT_FILE_WRITE_CHARS,
+               expected_version: str | None = None) -> dict:
+    """Create or overwrite one file, creating parent directories as needed.
+
+    `mkdir -p` semantics deliberately: a model that has to create three folders
+    before it can save a file will spend three tool calls doing it and get one
+    of them wrong. The directories it creates are ordinary folders the user can
+    see, move and delete.
+
+    `max_chars` is the caller's workspace knob, clamped to never exceed the
+    module ceiling.
+    """
+    max_chars = max(1, min(int(max_chars), AGENT_FILE_WRITE_CHARS))
+    parent_parts, raw_name = _split_leaf(scope, path)
+    # Checked before `_make_dirs`, not after: creating three folders and *then*
+    # refusing the file would leave the tree littered with directories from a
+    # write that never happened.
+    _require_write_at(scope, parent_parts, 'write')
+
+    name = safe_name(raw_name)
+    if not name:
+        raise VfsError(f'"{raw_name}" is not a usable file name.')
+    _refuse_binary_name(name, 'write_file')
+
+    text = content if isinstance(content, str) else str(content)
+    if len(text) > max_chars:
+        raise VfsError(
+            f'That is {len(text):,} characters; the limit for one write is '
+            f'{max_chars:,}. Write it in parts, or write less.'
+        )
+
+    walked: list[str] = []
+    folder = _make_dirs(scope, parent_parts, walked)
+    parent_parts = walked
+    with _name_lock(scope.user, folder, name):
+        return _write_text_locked(scope, parent_parts, folder, name, text,
+                                  append=append, overwrite=overwrite,
+                                  max_chars=max_chars,
+                                  expected_version=expected_version)
+
+
+def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: str,
+                       *, append: bool, overwrite: bool, max_chars: int,
+                       expected_version: str | None) -> dict:
+    """`write_file`'s look-up-then-write, run under `_name_lock`."""
+    doc = _document_in(scope, folder, name)
+    _require_fresh(scope, doc, expected_version, render(scope, list(parent_parts) + [name]))
+    if doc is not None and not overwrite and not append:
+        # `download_file` and friends keep the create-only promise the render
+        # tools make; `write_file`'s own callers still overwrite by default,
+        # which is what the tool's description says it does.
+        name = _free_name(scope, folder, name)
+        doc = None
+
+    if doc is None:
+        doc = Document.objects.create(
+            user=scope.user,
+            folder=folder,
+            name=name,
+            file='',                       # no upload backs this; the text is the file
+            file_type=_file_type(name),
+            file_size=len(text.encode('utf-8')),
+            content_text=text,
+            # 'stored' is the raw-backend terminal state: readable and
+            # browsable, never indexed. An agent writing a file must not
+            # silently start an embedding job.
+            status='stored',
+            metadata={'created_by': 'agent'},
+        )
+        created = True
+    else:
+        text = (doc.content_text or '') + text if append else text
+        if len(text) > max_chars:
+            raise VfsError(
+                f'Appending would make this file {len(text):,} characters, over '
+                f'the {max_chars:,} limit.'
+            )
+        # Through the apps' save door: it keeps a version of what the file
+        # held, and writes the bytes too when the file has them — writing only
+        # `content_text` left an uploaded file downloading its old contents.
+        from .office_edit import save_text
+
+        doc = save_text(doc, text, version_source='agent')
+        created = False
+
+    return {
+        'path': render(scope, list(parent_parts) + [name]),
+        'document_id': doc.id,
+        'version': _version(doc),
+        'created': created,
+        'appended': append and not created,
+        'chars': len(text),
+    }
+
+
+def write_binary(scope: FileScope, path: str, data: bytes, *, text: str = '',
+                 spec: dict | None = None, overwrite: bool = False) -> dict:
+    """Save a rendered binary — a deck, a workbook, a Word file, an image.
+
+    The bytes go to the document's `FileField` (the same storage an upload
+    uses, so `document_download` serves them unchanged) and `text` goes to
+    `content_text`, which is what keeps `find_files` and `read_file` working on
+    a file whose real contents they cannot read. `spec` is the structure that
+    produced the file; the preview renders from it, because drawing a slide
+    from its spec is possible in a browser and drawing one from `.pptx` bytes
+    is not.
+
+    **Never overwrites by accident.** A name that is taken becomes
+    `name (2).ext` and the real path is returned. `overwrite=True` replaces the
+    file *in place* — same document, same id — after keeping what it held as a
+    version (`inference/versions.py`), so the previous state is one restore
+    away, which is what makes the render tools `reversible` without asking
+    first. In place rather than trash-and-recreate (2026-09-25): a new id
+    pulled the file out from under anyone who had it open in an app.
+    """
+    parent_parts, raw_name = _split_leaf(scope, path)
+    # Before `_make_dirs`, for the reason `write_file` gives.
+    _require_write_at(scope, parent_parts, 'write')
+
+    name = safe_name(raw_name)
+    if not name:
+        raise VfsError(f'"{raw_name}" is not a usable file name.')
+    # Bytes that arrive from outside (a download, an API response) can be a
+    # zip bomb as easily as an upload can (N2).
+    from .utils import OFFICE_ZIP_EXTENSIONS, zip_within_budget
+
+    if _extension(name) in OFFICE_ZIP_EXTENSIONS:
+        import io
+
+        if not zip_within_budget(io.BytesIO(data)):
+            raise VfsError(f'"{name}" expands to far more than its size when opened; it was refused.')
+    file_type = BINARY_TYPES.get(_extension(name))
+    if file_type is None:
+        raise VfsError(
+            f'"{name}" needs one of these extensions: '
+            f'{", ".join(sorted(BINARY_TYPES))}.'
+        )
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise VfsError('There is nothing to save — the rendered file is empty.')
+    if len(data) > AGENT_FILE_BINARY_BYTES:
+        raise VfsError(
+            f'The rendered file is {len(data) / 1_048_576:.1f} MB; the limit is '
+            f'{AGENT_FILE_BINARY_BYTES / 1_048_576:.0f} MB. Use fewer or smaller '
+            f'images, or split it into two files.'
+        )
+
+    walked: list[str] = []
+    folder = _make_dirs(scope, parent_parts, walked)
+    parent_parts = walked
+    requested = name
+    # Look-up, decision and row write under one lock, for `write_file`'s
+    # reason: two renders to one new path must not both create it.
+    with _name_lock(scope.user, folder, requested):
+        existing = _document_in(scope, folder, name)
+        if existing is not None:
+            if overwrite and existing.file_type == file_type:
+                return _replace_in_place(scope, parent_parts, existing, data, text, spec)
+            name = _free_name(scope, folder, name)
+        return _create_binary(scope, parent_parts, folder, name, requested,
+                              file_type, data, text, spec)
+
+
+def _create_binary(scope: FileScope, parent_parts, folder, name: str, requested: str,
+                   file_type: str, data: bytes, text: str, spec: dict | None) -> dict:
+    from django.core.files.base import ContentFile
+    from django.db import transaction
+
+    from workflow_backend.thresholds import DOCUMENT_EXTRACT_CAP
+
+    replaced = False
+
+    doc = Document(
+        user=scope.user,
+        folder=folder,
+        name=name,
+        file_type=file_type,
+        file_size=len(data),
+        content_text=(text or '')[:DOCUMENT_EXTRACT_CAP],
+        # Terminal and never indexed, exactly as `write_file`: producing a
+        # file must not silently start an embedding job.
+        status='stored',
+        metadata={'created_by': 'agent', **({'spec': spec} if spec else {})},
+    )
+    # Bytes first, row second, and the bytes removed if the row fails: the
+    # other order leaves a row pointing at nothing, which downloads as a 500.
+    doc.file.save(name, ContentFile(bytes(data)), save=False)
+    try:
+        with transaction.atomic():
+            doc.save()
+    except Exception:
+        doc.file.delete(save=False)
+        raise
+
+    return {
+        'path': render(scope, list(parent_parts) + [name]),
+        'document_id': doc.id,
+        'created': not replaced,
+        'replaced': replaced,
+        # Said, so the model reports the path that exists rather than the one
+        # it asked for.
+        'renamed': name != requested,
+        'type': file_type,
+        'bytes': len(data),
+        'chars': len(doc.content_text),
+    }
+
+
+def _replace_in_place(scope: FileScope, parent_parts: Sequence[str], doc: Document,
+                      data: bytes, text: str, spec: dict | None) -> dict:
+    """`write_binary(overwrite=True)` onto an existing file of the same type."""
+    from . import drafts
+    from .office_edit import replace_bytes
+
+    # A pending office draft renders first, so the version this overwrite
+    # keeps holds the file as the app left it rather than a stale render.
+    doc = drafts.ensure_rendered(doc)
+    doc = replace_bytes(doc, data, text=text or '', spec=spec, version_source='agent')
+    if spec is None and (doc.metadata or {}).get('spec') is not None:
+        # The old spec described the old bytes; the preview would draw them.
+        doc.metadata = {k: v for k, v in doc.metadata.items() if k != 'spec'}
+        doc.save(update_fields=['metadata', 'updated_at'])
+    return {
+        'path': render(scope, list(parent_parts) + [doc.name]),
+        'document_id': doc.id,
+        'created': False,
+        'replaced': True,
+        'renamed': False,
+        'type': doc.file_type,
+        'bytes': len(data),
+        'chars': len(doc.content_text or ''),
+    }
+
+
+def edit_file(scope: FileScope, path: str, old_text: str, new_text: str,
+              *, replace_all: bool = False,
+              max_chars: int = AGENT_FILE_WRITE_CHARS,
+              expected_version: str | None = None) -> dict:
+    """Replace an exact run of text inside one file, leaving the rest untouched.
+
+    The alternative was the only thing on offer: `write_file`, which replaces
+    the whole document. Changing one line of a long note therefore meant
+    reading every character in and emitting every character back out — two full
+    payloads billed per edit, and the model silently dropping the parts it
+    decided to paraphrase on the way through. The longer the file, the more
+    likely an edit was to quietly lose something.
+
+    So the contract is exact-match-or-refuse, and it is deliberately strict in
+    both directions:
+
+    * text that is not present is an error, never a no-op reported as success —
+      a model told "done" about an edit that changed nothing will build its
+      next three steps on a file it believes it has already fixed;
+    * text that appears more than once is an error too, unless `replace_all`
+      says the caller meant all of them. Silently taking the first occurrence
+      is how an edit lands in the wrong paragraph, and nothing downstream can
+      detect that it did.
+
+    Both refusals name the count, because the model's next move differs: zero
+    means re-read the file, several means include more surrounding text.
+    """
+    if not old_text:
+        raise VfsError(
+            'old_text is empty. Give the exact text to replace — to create a '
+            'file or overwrite one entirely, use write_file instead.'
+        )
+
+    parent_parts, name = _split_leaf(scope, path)
+    # Checked before the file is even looked up, so a read-only scope gets the
+    # same answer for a file that exists and one that does not — an editable
+    # location is not something to probe for.
+    _require_write_at(scope, parent_parts, 'edit')
+
+    folder = _folder_at(scope, parent_parts)
+    # Read-modify-write under the name lock, so two edits of one file apply
+    # one after the other instead of the second overwriting the first.
+    with _name_lock(scope.user, folder, name):
+        doc = _document_in(scope, folder, name)
+        if doc is None:
+            if expected_version:
+                _require_fresh(scope, None, expected_version,
+                               render(scope, parent_parts + [name]))
+            raise _no_such_file(scope, folder, parent_parts, name)
+        _require_fresh(scope, doc, expected_version, render(scope, parent_parts + [name]))
+        return _edit_locked(scope, parent_parts, name, doc, old_text, new_text,
+                            replace_all=replace_all, max_chars=max_chars)
+
+
+def _edit_locked(scope: FileScope, parent_parts, name: str, doc: Document,
+                 old_text: str, new_text: str, *, replace_all: bool,
+                 max_chars: int) -> dict:
+    if is_binary(doc):
+        raise VfsError(
+            f'{render(scope, parent_parts + [name])} is a binary '
+            f'{doc.file_type} file; its text is an extract, not the file. To '
+            f'change it, render it again with the same path and overwrite=true.'
+        )
+
+    body = doc.content_text or ''
+    if not body:
+        raise VfsError(
+            f'{render(scope, parent_parts + [name])} has no text to edit. It '
+            f'may be a binary upload (PDF, image) rather than an empty file.'
+        )
+
+    found = body.count(old_text)
+    if found == 0:
+        raise VfsError(
+            'That exact text is not in the file. Read it again and copy the '
+            'text to replace verbatim — whitespace and line breaks included.'
+        )
+    if found > 1 and not replace_all:
+        raise VfsError(
+            f'That text appears {found} times. Include more of the surrounding '
+            f'text so it matches once, or pass replace_all=true to change all '
+            f'{found}.'
+        )
+
+    updated = body.replace(old_text, new_text) if replace_all else \
+        body.replace(old_text, new_text, 1)
+
+    # The same ceiling a write is held to. An edit is a write; a growing
+    # replacement is the one way it can push a file past the cap.
+    max_chars = max(1, min(int(max_chars), AGENT_FILE_WRITE_CHARS))
+    if len(updated) > max_chars:
+        raise VfsError(
+            f'That edit would make this file {len(updated):,} characters, over '
+            f'the {max_chars:,} limit.'
+        )
+
+    from .office_edit import save_text
+
+    doc = save_text(doc, updated, version_source='agent')
+
+    return {
+        'path': render(scope, parent_parts + [name]),
+        'document_id': doc.id,
+        'version': _version(doc),
+        'replacements': found if replace_all else 1,
+        'chars': len(updated),
+        'chars_before': len(body),
+    }
+
+
+def _existing(scope: FileScope, path: str) -> tuple[list[str], Document]:
+    parent_parts, name = _split_leaf(scope, path)
+    folder = _folder_at(scope, parent_parts)
+    doc = _document_in(scope, folder, name)
+    if doc is None:
+        raise _no_such_file(scope, folder, parent_parts, name)
+    # A pending office draft renders first, so an export, restore or version
+    # sees the file as the app left it rather than as it last rendered.
+    from . import drafts
+
+    return parent_parts, drafts.ensure_rendered(doc)
+
+
+def file_versions(scope: FileScope, path: str) -> dict:
+    """What a file held before each overwrite (`inference/versions.py`)."""
+    from . import versions
+
+    parent_parts, doc = _existing(scope, path)
+    listed = versions.listing(doc)
+    return {
+        'path': render(scope, parent_parts + [doc.name]),
+        'document_id': doc.id,
+        'versions': [
+            {'version_id': v['id'], 'saved_at': v['created_at'].isoformat(),
+             'by': {'app': 'the user, in an app', 'agent': 'an agent',
+                    'restore': 'before a restore'}.get(v['source'], v['source']),
+             'bytes': v['size']}
+            for v in listed
+        ],
+        'note': ('Each entry is the file as it was *before* that save. '
+                 'restore_file_version puts one back; the current contents '
+                 'become a version themselves, so a restore can be undone.')
+        if listed else 'This file has no earlier versions.',
+    }
+
+
+def restore_file_version(scope: FileScope, path: str, version_id: int) -> dict:
+    from . import versions
+    from .models import DocumentVersion
+    from .office_edit import EditError
+
+    parent_parts, doc = _existing(scope, path)
+    _require_write_at(scope, parent_parts, 'restore')
+    version = DocumentVersion.objects.filter(document=doc, id=version_id).first()
+    if version is None:
+        raise VfsError(
+            f'{doc.name} has no version {version_id}. Call file_versions to list them.'
+        )
+    try:
+        doc = versions.restore(doc, version)
+    except EditError as exc:
+        raise VfsError(str(exc)) from exc
+    return {
+        'path': render(scope, parent_parts + [doc.name]),
+        'document_id': doc.id,
+        'restored_version': version_id,
+        'saved_at': version.created_at.isoformat(),
+    }
+
+
+def export_file(scope: FileScope, path: str, fmt: str, *, target: str = '') -> dict:
+    """Save `path` in another format beside it (or at `target`), never overwriting."""
+    from . import export
+
+    parent_parts, doc = _existing(scope, path)
+    try:
+        data, name, _mime = export.build(doc, fmt)
+    except export.ExportError as exc:
+        raise VfsError(str(exc)) from exc
+    destination = target or render(scope, parent_parts + [name])
+    if (fmt or '').lower().strip('.') in ('md', 'txt', 'csv'):
+        result = write_file(scope, destination, data.decode('utf-8'), overwrite=False)
+    else:
+        result = write_binary(scope, destination, data, text=doc.content_text or '')
+    result['exported_from'] = render(scope, parent_parts + [doc.name])
+    result['format'] = fmt
+    return result
+
+
+def _editable_spec(scope: FileScope, path: str, kinds: tuple[str, ...]) -> tuple[list[str], Document, dict, bool]:
+    """The doc at `path` with its editable spec, importing an upload first.
+
+    Returns (parent_parts, doc, spec, imported): an uploaded Word/PowerPoint
+    file without a spec is converted on demand (the original upload stays
+    version 1), so the tools work on uploads exactly as on files made here.
+    """
+    from . import importers
+
+    parent_parts, doc = _existing(scope, path)
+    _require_write_at(scope, parent_parts, 'edit')
+    if doc.file_type not in kinds:
+        raise VfsError(f'This works on {", ".join(kinds)} files; {doc.name} is a {doc.file_type} file.')
+    spec = (doc.metadata or {}).get('spec')
+    imported = False
+    if not isinstance(spec, dict):
+        try:
+            result = importers.import_upload(doc)
+        except importers.ImportError_ as exc:
+            raise VfsError(str(exc)) from exc
+        doc.refresh_from_db()
+        spec = (doc.metadata or {}).get('spec')
+        imported = True
+        _ = result
+    return parent_parts, doc, spec, imported
+
+
+def edit_document(scope: FileScope, path: str, ops: list) -> dict:
+    """Change a Word file block by block: insert, replace or delete blocks by
+    index, or find/replace text. Saves a version and asks first (sensitive),
+    like `edit_file` one format up."""
+    from office.spec import SpecError
+
+    from . import office_edit
+    from .office_edit import EditError
+
+    if not isinstance(ops, list) or not ops:
+        raise VfsError('Give ops as a non-empty list.')
+    parent_parts, doc, spec, imported = _editable_spec(scope, path, ('docx',))
+    blocks = list(spec.get('blocks') or [])
+    applied: list[str] = []
+    for n, op in enumerate(ops, 1):
+        if not isinstance(op, dict):
+            raise VfsError(f'Op {n} must be an object with op.')
+        kind = op.get('op')
+        if kind == 'insert':
+            index = _block_index(op.get('index'), len(blocks), f'op {n}', insert=True)
+            incoming = op.get('blocks')
+            if not isinstance(incoming, list) or not incoming:
+                raise VfsError(f'Op {n}: insert needs a non-empty blocks list.')
+            blocks[index:index] = incoming
+            applied.append(f'inserted {len(incoming)} block(s) at {index}')
+        elif kind == 'replace':
+            index = _block_index(op.get('index'), len(blocks), f'op {n}')
+            incoming = op.get('blocks')
+            if not isinstance(incoming, list) or not incoming:
+                raise VfsError(f'Op {n}: replace needs a non-empty blocks list.')
+            blocks[index:index + 1] = incoming
+            applied.append(f'replaced block {index}')
+        elif kind == 'delete':
+            index = _block_index(op.get('index'), len(blocks), f'op {n}')
+            count = op.get('count', 1)
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                raise VfsError(f'Op {n}: count must be a whole number.')
+            if count < 1:
+                raise VfsError(f'Op {n}: count must be 1 or more.')
+            removed = min(count, len(blocks) - index)
+            del blocks[index:index + count]
+            applied.append(f'deleted {removed} block(s) at {index}')
+        elif kind == 'find_replace':
+            applied.append(_find_replace(blocks, op, n))
+        else:
+            raise VfsError(f'Op {n}: op must be insert, replace, delete or find_replace.')
+    if not blocks:
+        raise VfsError('That would leave the document with no blocks.')
+    try:
+        doc = office_edit.edit_spec(doc, {'title': spec.get('title'), 'subtitle': spec.get('subtitle'),
+                                          'theme': spec.get('theme'), 'blocks': blocks},
+                                    version_source='agent')
+    except (SpecError, EditError) as exc:
+        raise VfsError(str(exc)) from exc
+    out = {'path': render(scope, parent_parts + [doc.name]), 'document_id': doc.id,
+           'applied': applied}
+    if imported:
+        out['imported_upload'] = True
+    return out
+
+
+def _block_index(raw: object, length: int, where: str, *, insert: bool = False) -> int:
+    try:
+        index = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise VfsError(f'{where}: index must be a whole number.')
+    limit = length if insert else length - 1
+    if not 0 <= index <= limit:
+        raise VfsError(f'{where}: index {raw} is past this document ({length} blocks).')
+    return index
+
+
+def _find_replace(blocks: list, op: dict, n: int) -> str:
+    find = op.get('find')
+    if not isinstance(find, str) or not find:
+        raise VfsError(f'Op {n}: find_replace needs find text.')
+    replace = op.get('replace', '')
+    if not isinstance(replace, str):
+        raise VfsError(f'Op {n}: replace must be text.')
+    replace_all = bool(op.get('replace_all', False))
+    count = 0
+    for block in blocks:
+        for get, set_ in _text_targets(block):
+            text = get()
+            if find not in text:
+                continue
+            if replace_all:
+                count += text.count(find)
+                set_(text.replace(find, replace))
+            else:
+                set_(text.replace(find, replace, 1))
+                return f'replaced 1 occurrence of {find!r}'
+    if not count:
+        raise VfsError(f'Op {n}: {find!r} was not found.')
+    return f'replaced {count} occurrences of {find!r}'
+
+
+def _text_targets(block: dict):
+    """(get, set) pairs for every replaceable string in a block or item."""
+    if isinstance(block.get('text'), str):
+        yield lambda: block['text'], lambda v: block.__setitem__('text', v)
+    for run in block.get('runs') or []:
+        yield lambda r=run: r['text'], lambda v, r=run: r.__setitem__('text', v)
+    items = block.get('items') or []
+    for idx, item in enumerate(items):
+        if isinstance(item, str):
+            yield lambda i=idx: items[i], lambda v, i=idx: items.__setitem__(i, v)
+        elif isinstance(item, dict):
+            if isinstance(item.get('text'), str):
+                yield lambda d=item: d['text'], lambda v, d=item: d.__setitem__('text', v)
+            for run in item.get('runs') or []:
+                yield lambda r=run: r['text'], lambda v, r=run: r.__setitem__('text', v)
+
+
+def edit_deck(scope: FileScope, path: str, ops: list) -> dict:
+    """Change a deck slide by slide: add, remove, move or duplicate slides,
+    or set fields. Saves a version and asks first, like `edit_file`."""
+    from office.spec import SpecError
+
+    from . import office_edit
+    from .office_edit import EditError
+
+    if not isinstance(ops, list) or not ops:
+        raise VfsError('Give ops as a non-empty list.')
+    parent_parts, doc, spec, imported = _editable_spec(scope, path, ('pptx',))
+    slides = list(spec.get('slides') or [])
+    applied: list[str] = []
+    for n, op in enumerate(ops, 1):
+        if not isinstance(op, dict):
+            raise VfsError(f'Op {n} must be an object with op.')
+        kind = op.get('op')
+        if kind == 'add':
+            slide = op.get('slide')
+            if not isinstance(slide, dict):
+                raise VfsError(f'Op {n}: add needs a slide object.')
+            index = op.get('index', len(slides))
+            slides.insert(_slide_index(index, len(slides), f'op {n}', insert=True), slide)
+            applied.append(f'added a slide at {index}')
+        elif kind == 'remove':
+            index = _slide_index(op.get('index'), len(slides), f'op {n}')
+            del slides[index]
+            applied.append(f'removed slide {index}')
+        elif kind == 'move':
+            index = _slide_index(op.get('index'), len(slides), f'op {n}')
+            to = _slide_index(op.get('to'), len(slides), f'op {n}', insert=True)
+            slide = slides.pop(index)
+            slides.insert(min(to, len(slides)), slide)
+            applied.append(f'moved slide {index} to {to}')
+        elif kind == 'duplicate':
+            index = _slide_index(op.get('index'), len(slides), f'op {n}')
+            import copy
+
+            slides.insert(index + 1, copy.deepcopy(slides[index]))
+            applied.append(f'duplicated slide {index}')
+        elif kind == 'set':
+            index = _slide_index(op.get('index'), len(slides), f'op {n}')
+            fields = op.get('fields')
+            if not isinstance(fields, dict) or not fields:
+                raise VfsError(f'Op {n}: set needs a non-empty fields object.')
+            if not isinstance(slides[index], dict):
+                raise VfsError(f'Op {n}: slide {index} is not an object.')
+            slides[index] = {**slides[index], **fields}
+            applied.append(f'updated slide {index}')
+        else:
+            raise VfsError(f'Op {n}: op must be add, remove, move, duplicate or set.')
+    if not slides:
+        raise VfsError('That would leave the deck with no slides.')
+    try:
+        doc = office_edit.edit_spec(doc, {'title': spec.get('title'), 'theme': spec.get('theme'),
+                                          'slides': slides},
+                                    version_source='agent')
+    except (SpecError, EditError) as exc:
+        raise VfsError(str(exc)) from exc
+    out = {'path': render(scope, parent_parts + [doc.name]), 'document_id': doc.id,
+           'applied': applied}
+    if imported:
+        out['imported_upload'] = True
+    return out
+
+
+def _slide_index(raw: object, length: int, where: str, *, insert: bool = False) -> int:
+    try:
+        index = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        raise VfsError(f'{where}: index must be a whole number.')
+    limit = length if insert else length - 1
+    if not 0 <= index <= limit:
+        raise VfsError(f'{where}: index {raw} is past this deck ({length} slides).')
+    return index
+
+
+def find(scope: FileScope, query: str, *, limit: int = 0) -> dict:
+    """Locate files by name or by the text inside them, anywhere in scope.
+
+    A filesystem an agent cannot search is a filing cabinet with no index: with
+    only `list_files` and `read_file`, finding last month's report means walking
+    the tree a directory at a time and reading candidates in full, which costs
+    a tool call per guess and usually ends in the model giving up and asking the
+    user where they put it.
+
+    This is deliberately **not** knowledge-base search, and the two must not be
+    confused. A KB answers "what does the corpus say about X" and costs an
+    embedding job to build; this answers "which file is called X, or mentions
+    it" and costs one `LIKE` (trigram-indexed on Postgres by migration
+    `inference.0024`; a scan of the user's rows on SQLite). Each match
+    carries up to three `snippets` — line number and text — so the model can
+    go straight to `read_file(start_line=...)`. Keeping them apart is what lets writing a
+    file stay free — the rule this module opens by stating, that folders
+    organise and KBs index, holds precisely because finding a file never needed
+    an index in the first place.
+
+    Substring matching, not ranking. `icontains` on a name and on the stored
+    text is honest about what it does and cannot pretend to relevance it has
+    not computed; a model given a ranked list of near-misses treats the top one
+    as the answer, while a model given "three files contain this string" goes
+    and reads them.
+
+    `limit` is the caller's workspace knob, clamped to never exceed the
+    module ceiling.
+    """
+    needle = (query or '').strip()
+    if len(needle) < 2:
+        raise VfsError('Give at least two characters to search for.')
+
+    cap = max(1, min(int(limit or _FILE_LIST_LIMIT), AGENT_FILE_LIST_LIMIT))
+
+    rows = Document.objects.filter(user=scope.user)
+    if scope.root is not None:
+        # Confined by the *resolved* root's id path, never by a caller string —
+        # the walk rule this module opens with is about paths a model typed,
+        # and this prefix comes from a row we already own. One indexed match,
+        # which is what `Folder.path` holding ids is for.
+        rows = rows.filter(folder__in=fs.subtree(scope.root, include_trashed=False))
+    else:
+        # The whole tree is in scope, except the hidden eval tree: fixture
+        # documents are working data for the eval harness, and a search that
+        # surfaces them answers from a test the owner never saw (see
+        # `filesystem.EVAL_ROOT_NAME`). An eval run searches inside its world
+        # instead, through the branch above.
+        hidden = fs.eval_subtree_ids(scope.user)
+        if hidden:
+            rows = rows.exclude(folder_id__in=hidden)
+
+    from django.db.models import Q
+
+    rows = rows.filter(Q(name__icontains=needle) | Q(content_text__icontains=needle))
+    rows = rows.select_related('folder').order_by('-updated_at')
+
+    # One extra row is the difference between "there are exactly `cap` matches"
+    # and "there are more"; without it a full page and a complete result are
+    # indistinguishable and `truncated` would be a guess.
+    window = list(rows[:cap + 1])
+    truncated = len(window) > cap
+
+    # Resolved per folder, not per document: a search returns many files from
+    # few directories, and `breadcrumbs` is a query each. Bounded either way,
+    # but 200 results in one folder should cost one lookup, not 200.
+    parts_by_folder: dict[Any, list[str]] = {}
+
+    found = []
+    for doc in window[:cap]:
+        key = doc.folder_id
+        if key not in parts_by_folder:
+            parts_by_folder[key] = _folder_parts(scope, doc.folder)
+        parts = parts_by_folder[key]
+        found.append({
+            'path': render(scope, parts + [doc.name]),
+            'document_id': doc.id,
+            'chars': len(doc.content_text or ''),
+            'in_name': needle.lower() in (doc.name or '').lower(),
+            'writable': scope.may_write_at(parts),
+            'snippets': _snippets(doc.content_text or '', needle),
+        })
+
+    out = {'query': needle, 'matches': found, 'count': len(found)}
+    if truncated:
+        # Named rather than silent, for the same reason `read_file` names a
+        # truncated read: a capped list and a complete one must not look alike,
+        # or the model concludes the file it wanted does not exist.
+        out['truncated'] = True
+        out['note'] = (
+            f'Showing the {cap} most recently updated matches. Narrow the '
+            f'search if what you want is not here.'
+        )
+    if not found:
+        out['note'] = 'No file in scope has that in its name or its text.'
+    return out
+
+
+#: Per match: how many hits, and how much of each hit's line, `find` shows.
+_SNIPPETS_PER_FILE = 3
+_SNIPPET_CHARS = 200
+
+
+def _snippets(text: str, needle: str) -> list[dict]:
+    """The first few lines containing `needle` (case-insensitive), numbered."""
+    if not text:
+        return []
+    low, want = text.lower(), needle.lower()
+    if len(low) != len(text):
+        # A few characters change length when lowered (İ), which would put
+        # every index below off by one or more; exact case is the honest
+        # fallback.
+        low, want = text, needle
+    out: list[dict] = []
+    pos = low.find(want)
+    while pos != -1 and len(out) < _SNIPPETS_PER_FILE:
+        start = text.rfind('\n', 0, pos) + 1
+        end = text.find('\n', pos)
+        end = len(text) if end == -1 else end
+        line = text[start:end]
+        if len(line) > _SNIPPET_CHARS:
+            # Centre the window on the hit so a long line still shows it.
+            lo = max(0, min(pos - start - _SNIPPET_CHARS // 2, len(line) - _SNIPPET_CHARS))
+            line = ('…' if lo else '') + line[lo:lo + _SNIPPET_CHARS] + (
+                '…' if lo + _SNIPPET_CHARS < len(line) else '')
+        out.append({'line': text.count('\n', 0, pos) + 1, 'text': line.strip()})
+        pos = low.find(want, end)
+    return out
+
+
+def _folder_parts(scope: FileScope, folder: Folder | None) -> list[str]:
+    """A folder's name segments relative to the scope root.
+
+    A file reached by search has to describe itself the same way a file reached
+    by a walk does — same path, same answer to "may I write here?" — or the two
+    routes to one document would disagree about it.
+
+    Built from `breadcrumbs`, which resolves a whole ancestor chain in one
+    query off `Folder.ancestor_ids`, rather than by following `parent` upward a
+    row at a time.
+    """
+    if folder is None:
+        return []
+    names = [c['name'] for c in fs.breadcrumbs(folder)] + [folder.name]
+    if scope.root is None:
+        return names
+    root_names = [c['name'] for c in fs.breadcrumbs(scope.root)] + [scope.root.name]
+    return names[len(root_names):]
+
+
+def make_dir(scope: FileScope, path: str) -> dict:
+    """Create a directory and any missing parents. Idempotent."""
+    parts = _scope_parts(scope, path)
+    if not parts:
+        raise VfsError('Give a directory name to create.')
+    _require_write_at(scope, parts, 'create directories')
+    walked: list[str] = []
+    _make_dirs(scope, parts, walked)
+    return {'path': render(scope, walked), 'created': True}
+
+
+def delete(scope: FileScope, path: str) -> dict:
+    """Move one file or directory to the user's recycle bin.
+
+    Trash, never purge. An agent deleting the wrong thing is a mistake the user
+    must be able to undo, and `recycle.trash` is the same door their own delete
+    goes through — so it gets the same retention window, drops the same vectors,
+    and shows up in the same trash view.
+    """
+    parts = _scope_parts(scope, path)
+    if not parts:
+        raise VfsError(f'Refusing to delete {scope.label} itself.')
+    _require_write_at(scope, parts, 'delete')
+
+    from . import recycle
+
+    parent = _folder_at(scope, parts[:-1])
+    leaf = parts[-1]
+
+    doc = _document_in(scope, parent, leaf)
+    if doc is not None:
+        recycle.trash(scope.user, documents=[doc])
+        return {'path': render(scope, parts), 'deleted': 'file',
+                'restorable': True}
+
+    folder = fs.child_by_name(scope.user, parent, leaf)
+    if folder is not None:
+        recycle.trash(scope.user, folders=[folder])
+        return {'path': render(scope, parts), 'deleted': 'directory',
+                'restorable': True}
+
+    raise VfsError(f'Nothing to delete at {render(scope, parts)}.')
+
+
+def _protected(scope: FileScope, parts: Sequence[str]) -> bool:
+    """A folder that must not be moved or renamed as a whole.
+
+    The writable roots themselves (`/Agents/<name>`, `/Chat`, a shared
+    workspace) — moving one would leave the scope pointing at a folder that
+    no longer exists — and, when the scope is the whole tree, the top-level
+    `/Agents`, `/Chat` and hidden eval folders the platform looks up by name.
+    """
+    parts = tuple(parts)
+    for prefix in (scope.write_prefix, scope.shared_prefix):
+        if prefix and parts == prefix:
+            return True
+    if scope.root is None and len(parts) == 1 and parts[0] in (
+            AGENT_HOME_ROOT, CHAT_HOME_ROOT, fs.EVAL_ROOT_NAME):
+        return True
+    return False
+
+
+def _destination(scope: FileScope, dst: str, default_name: str) -> tuple[list[str], str]:
+    """(`parent parts`, `leaf name`) for a move/copy target.
+
+    A `dst` naming an existing directory means "into it, keeping the name";
+    anything else is the new full path.
+    """
+    parts = _scope_parts(scope, dst)
+    if not parts:
+        return [], default_name
+    try:
+        _folder_at(scope, parts)
+    except VfsError:
+        name = safe_name(parts[-1])
+        if not name:
+            raise VfsError(f'"{parts[-1]}" is not a usable name.')
+        return parts[:-1], name
+    return parts, default_name
+
+
+def _check_extension(doc: Document, new_name: str) -> str:
+    """The `file_type` `doc` has under `new_name`, refusing a binary retype."""
+    if _extension(new_name) == _extension(doc.name):
+        return doc.file_type
+    if is_binary(doc):
+        raise VfsError(
+            f'Keep the .{_extension(doc.name)} extension — {doc.name} is a '
+            f'binary file and its extension decides how it opens.'
+        )
+    _refuse_binary_name(new_name, 'a rename of a text file')
+    return _file_type(new_name)
+
+
+def move(scope: FileScope, src: str, dst: str) -> dict:
+    """Move or rename one file or directory, keeping its id and history.
+
+    A move is a column write: nothing is re-indexed and no bytes move. Both
+    ends must be writable, the destination name must be free (never a silent
+    overwrite or renumbering), and a folder cannot go inside itself. Runs in
+    one transaction so a refusal leaves no half-created destination folders.
+    """
+    from django.db import transaction
+
+    src_parent, src_name = _split_leaf(scope, src)
+    src_parts = src_parent + [src_name]
+    _require_write_at(scope, src_parent, 'move things out of here')
+    if _protected(scope, src_parts):
+        raise VfsError(f'{render(scope, src_parts)} is a system folder and cannot be moved.')
+
+    parent = _folder_at(scope, src_parent)
+    doc = _document_in(scope, parent, src_name)
+    folder = None if doc is not None else fs.child_by_name(scope.user, parent, src_name)
+    if doc is None and folder is None:
+        raise _no_such_file(scope, parent, src_parent, src_name)
+
+    dst_parent, name = _destination(scope, dst, src_name)
+    _require_write_at(scope, dst_parent, 'move things into here')
+    if folder is not None and dst_parent[:len(src_parts)] == src_parts:
+        raise VfsError('A folder cannot be moved into itself.')
+
+    with transaction.atomic():
+        walked: list[str] = []
+        target = _make_dirs(scope, dst_parent, walked)
+        shown = render(scope, walked + [name])
+
+        if doc is not None:
+            file_type = _check_extension(doc, name)
+            with _name_lock(scope.user, target, name):
+                if (Document.objects.filter(user=scope.user, folder=target, name=name)
+                        .exclude(pk=doc.pk).exists()):
+                    raise VfsError(f'{shown} already exists. Pick another name, '
+                                   f'or delete that file first.')
+                # `updated_at` is the etag open editors guard saves with, and a
+                # move is not a content change (office_edit.rename's rule).
+                Document.objects.filter(pk=doc.pk).update(
+                    folder=target, name=name, file_type=file_type)
+            return {'from': render(scope, src_parts), 'to': shown,
+                    'kind': 'file', 'document_id': doc.id}
+
+        if fs.folder_name_taken(scope.user, target, name, exclude_pk=folder.pk):
+            raise VfsError(f'{shown} already exists. Pick another name.')
+        try:
+            if (target.pk if target else None) == folder.parent_id:
+                fs.rename_folder(folder, name)
+            else:
+                folder.name = fs.validate_name(name)
+                fs.move(scope.user, folders=[folder], target=target)
+        except fs.FilesystemError as e:
+            raise VfsError(str(e)) from e
+        return {'from': render(scope, src_parts), 'to': shown + '/',
+                'kind': 'directory'}
+
+
+def copy(scope: FileScope, src: str, dst: str) -> dict:
+    """Copy one file — bytes, text and spec — to a new path.
+
+    Only the destination needs to be writable; the source is confined by the
+    walk like any read. Files only: copying a tree would multiply rows and
+    storage in one call, and nothing the tools do needs it.
+    """
+    from django.db import transaction
+
+    from . import drafts
+    from .office_edit import EditError
+    from .office_edit import copy as copy_document
+
+    src_parent, src_name = _split_leaf(scope, src)
+    parent = _folder_at(scope, src_parent)
+    doc = _document_in(scope, parent, src_name)
+    if doc is None:
+        if fs.child_by_name(scope.user, parent, src_name) is not None:
+            raise VfsError('copy_file copies files, not directories. Copy the '
+                           'files inside it one at a time.')
+        raise _no_such_file(scope, parent, src_parent, src_name)
+
+    dst_parent, name = _destination(scope, dst, src_name)
+    _require_write_at(scope, dst_parent, 'copy into here')
+    file_type = _check_extension(doc, name)
+    doc = drafts.ensure_rendered(doc)
+
+    with transaction.atomic():
+        walked: list[str] = []
+        target = _make_dirs(scope, dst_parent, walked)
+        shown = render(scope, walked + [name])
+        with _name_lock(scope.user, target, name):
+            if _document_in(scope, target, name) is not None:
+                raise VfsError(f'{shown} already exists. Pick another name.')
+            try:
+                clone = copy_document(doc, target)
+            except EditError as e:
+                raise VfsError(str(e)) from e
+            Document.objects.filter(pk=clone.pk).update(
+                name=name, file_type=file_type,
+                metadata={**(clone.metadata or {}), 'created_by': 'agent'})
+    return {'from': render(scope, src_parent + [src_name]), 'to': shown,
+            'document_id': clone.pk}
+
+
+# ---------------------------------------------------------------------------
+# Internals
+# ---------------------------------------------------------------------------
+
+def _require_write_at(scope: FileScope, parts: Sequence[str], verb: str) -> None:
+    """Refuse a write this scope does not allow at this path.
+
+    Path-aware rather than a bare boolean, because `read_all_write_own` reads a
+    wider subtree than it writes: the walk confines reads, and this confines
+    writes. The two refusals are worded differently on purpose — "read-only"
+    and "not there, but here" call for different next moves from the model, and
+    a single message would send it retrying the wrong one.
+    """
+    if not scope.writable:
+        raise VfsError(
+            f'This agent has read-only file access, so it cannot {verb}. '
+            f'Report what you would have written instead of retrying.'
+        )
+    if not scope.may_write_at(parts):
+        raise VfsError(
+            f'This agent can read anywhere in your files but can only {verb} '
+            f'inside {scope.write_label}. Retry with a path under '
+            f'{scope.write_label}/ — the rest of the tree is readable, not writable.'
+        )
+
+
+def _make_dirs(scope: FileScope, parts: Sequence[str],
+               names_out: list[str] | None = None) -> Folder | None:
+    """Walk `parts`, creating what is missing. Returns the deepest folder.
+
+    `names_out`, when given, receives the segment names actually walked — which
+    differ from `parts` where a folder was reused under its existing case, and
+    are what a caller should render back to the model.
+    """
+    node = scope.root
+    for raw in parts:
+        name = safe_name(raw)
+        if not name:
+            raise VfsError(f'"{raw}" is not a usable directory name.')
+        if fs.child_by_name(scope.user, node, name) is None:
+            # `reports/` when only `Reports/` exists: reuse it rather than
+            # create a sibling differing only in case. Only when exactly one
+            # candidate exists — two is ambiguous, and guessing would file the
+            # write somewhere the model did not name.
+            others = _other_case_folders(scope.user, node, name)
+            if len(others) == 1:
+                name = others[0]
+        try:
+            node = fs.ensure_folder(scope.user, name, node)
+        except fs.FilesystemError as e:
+            # A depth or per-user folder cap. Surfaced verbatim: the message
+            # already names the limit, and the model can act on it.
+            raise VfsError(str(e)) from e
+        if names_out is not None:
+            names_out.append(node.name)
+    return node
+
+
+def _file_type(name: str) -> str:
+    ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+    return _EXT_TO_TYPE.get(ext, 'txt')
+
+
+def _extension(name: str) -> str:
+    return name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+
+
+def is_binary(doc: Document) -> bool:
+    """A document whose bytes live in its `FileField`, not in `content_text`.
+
+    Decided by what the type is *not*: anything with a stored file that is not
+    one of the text types is binary, so a format uploaded before we had a
+    reader for it (`other`, `audio`) is still handed to the sandbox as bytes
+    rather than as an empty string.
+    """
+    from .utils import TEXT_FILE_TYPES
+
+    return bool(doc.file) and doc.file_type not in TEXT_FILE_TYPES
+
+
+def _refuse_binary_name(name: str, tool: str) -> None:
+    ext = _extension(name)
+    if ext in BINARY_TYPES:
+        raise VfsError(
+            f'.{ext} is a binary format and {tool} stores text, so the result '
+            f'would not open. Use render_deck for .pptx, render_workbook for '
+            f'.xlsx and render_document for .docx; for plain text pick .md, '
+            f'.txt, .csv or .json.'
+        )
+
+
+def _free_name(scope: FileScope, folder: Folder | None, name: str) -> str:
+    """`name`, or the first `stem (n).ext` not already taken in `folder`."""
+    stem, dot, ext = name.rpartition('.')
+    if not dot:
+        stem, ext = name, ''
+    for n in range(2, _FREE_NAME_TRIES + 2):
+        candidate = f'{stem} ({n}).{ext}' if ext else f'{stem} ({n})'
+        if _document_in(scope, folder, candidate) is None:
+            return candidate
+    raise VfsError(
+        f'{name} and {_FREE_NAME_TRIES} numbered copies of it already exist. '
+        f'Pick a different name, or pass overwrite=true to replace it.'
+    )

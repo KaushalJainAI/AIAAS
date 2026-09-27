@@ -1,0 +1,43 @@
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    ChatSessionViewSet,
+    active_runs,
+    attach_message_stream,
+    delete_message,
+    execute_tool_view,
+    send_message,
+    send_message_stream,
+    steer_message_stream,
+    stop_message_stream,
+    upload_file,
+)
+from chat.commands import views as command_views
+from chat.guest import views as guest_views
+
+router = DefaultRouter()
+router.register(r'sessions', ChatSessionViewSet, basename='chat-session')
+
+urlpatterns = [
+    path('', include(router.urls)),
+    path('execute-tool/', execute_tool_view, name='execute_tool'),
+    path('sessions/<str:session_id>/message/', send_message, name='send_message'),
+    path('sessions/<str:session_id>/message/stream/', send_message_stream, name='send_message_stream'),
+    path('sessions/<str:session_id>/message/attach/', attach_message_stream, name='attach_message_stream'),
+    path('sessions/<str:session_id>/message/stop/', stop_message_stream, name='stop_message_stream'),
+    path('sessions/<str:session_id>/message/steer/', steer_message_stream, name='steer_message_stream'),
+    path('runs/', active_runs, name='active_runs'),
+    path('sessions/<str:session_id>/messages/<int:message_id>/', delete_message, name='delete_message'),
+    path('sessions/<str:session_id>/upload/', upload_file, name='upload_file'),
+
+    # Slash commands (P10, §18): the palette, completion, and action runs.
+    path('commands/', command_views.command_list, name='command_list'),
+    path('commands/complete/', command_views.command_complete, name='command_complete'),
+    path('commands/run/', command_views.command_run, name='command_run'),
+    path('commands/confirm/', command_views.command_confirm, name='command_confirm'),
+
+    # Guest (unauthenticated) chat endpoints — NVIDIA NIM only, IP-rate-limited.
+    path('guest/sessions/', guest_views.create_guest_session, name='guest_create_session'),
+    path('guest/sessions/<str:session_id>/', guest_views.get_guest_session, name='guest_get_session'),
+    path('guest/sessions/<str:session_id>/message/stream/', guest_views.guest_send_message_stream, name='guest_send_message_stream'),
+]

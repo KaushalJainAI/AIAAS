@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# Django runtime data — must NEVER be baked into the image
+db.sqlite3
+db.sqlite3-*
+*.sqlite3
+*.sqlite3-*
+data/
+media/
+staticfiles/
+# collectstatic regenerates this; also holds the local HF model_cache.
+# NOTE: .dockerignore has no inline comments — a trailing `# ...` becomes part
+# of the pattern and silently disables it. Keep comments on their own line.
+static/
+# NOTE: do NOT exclude logs/ — it is a Django app (Backend/logs/apps.py).
+#       Same for tests/ below. Only exclude actual log *files*.
+*.log
+
+# Indexes / model caches
+**/indices/
+**/.cache/
+**/huggingface/
+
+# Build artifacts
+dist/
+build/
+*.egg
+
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.ec2.example
+
+# Docs / dev-only
+docs/
+archive/
+test-reports/
+# tests/ kept — may be imported as a package
+*.md
+!README.md
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Backups
+*.tar.gz
+*.bak
+*.backup
+
+# External benchmark datasets
+.eval_data/

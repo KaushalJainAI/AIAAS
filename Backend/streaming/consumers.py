@@ -1,0 +1,540 @@
+"""
+WebSocket Consumers - Real-time Communication for HITL and Execution
+
+Django Channels consumers for:
+- Execution updates (real-time node progress)
+- HITL requests/responses (approval, clarification, error recovery)
+- Orchestrator communication
+
+Usage:
+    # In frontend
+    ws = new WebSocket('ws://localhost:8000/ws/execution/<execution_id>/');
+    ws.onmessage = (event) => handleExecutionEvent(JSON.parse(event.data));
+    
+    # Respond to HITL
+    ws.send(JSON.stringify({type: 'hitl_response', request_id: '...', response: {...}}));
+"""
+import json
+import logging
+from datetime import datetime
+from typing import Optional
+
+from channels.db import database_sync_to_async
+from django.utils import timezone
+
+from core.realtime.consumers import SocketThreadConsumer
+
+logger = logging.getLogger(__name__)
+
+
+class ExecutionConsumer(SocketThreadConsumer):
+    """
+    WebSocket consumer for execution updates and HITL.
+    
+    Groups:
+        - execution_{execution_id}: Execution-specific events
+        - user_{user_id}: User-wide notifications
+    
+    Message types (server -> client):
+        - execution.event: Node/workflow events
+        - hitl.request: HITL approval/clarification needed
+        - error: Error notifications
+    
+    Message types (client -> server):
+        - hitl_response: Response to HITL request
+        - subscribe: Subscribe to additional executions
+        - unsubscribe: Unsubscribe from execution
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.execution_id: Optional[str] = None
+        self.user_id: Optional[int] = None
+        self.groups: list[str] = []
+    
+    async def connect(self):
+        """Handle WebSocket connection request."""
+        # Get execution_id from URL
+        self.execution_id = self.scope['url_route']['kwargs'].get('execution_id')
+        
+        await self.accept() # Accept first to avoid HTTP 403 drops
+        
+        # Get user from scope
+        user = self.scope.get('user')
+        if not user or not user.is_authenticated:
+            logger.error(f"Execution WS CONNECTION REJECTED. User in scope: {user}")
+            # Reject unauthenticated connections
+            await self.close(code=4001)
+            return
+        
+        self.user_id = user.pk
+        logger.info(f"Execution WS CONNECTION ACCEPTED for User ID: {self.user_id}, Execution: {self.execution_id}")
+        
+        # Verify user has access to this execution
+        if self.execution_id:
+            has_access = await self._verify_execution_access(self.execution_id)
+            if not has_access:
+                await self.close(code=4003)
+                return
+            
+            # Join execution group
+            group_name = f"execution_{self.execution_id}"
+            await self.channel_layer.group_add(group_name, self.channel_name)
+            self.groups.append(group_name)
+        
+        # Join user group (for user-wide notifications)
+        user_group = f"user_{self.user_id}"
+        await self.channel_layer.group_add(user_group, self.channel_name)
+        self.groups.append(user_group)
+        
+        
+        # Send connection confirmation
+        await self.send_json({
+            'type': 'connected',
+            'data': {
+                'execution_id': self.execution_id,
+                'user_id': self.user_id,
+                'timestamp': datetime.utcnow().isoformat(),
+            }
+        })
+        
+        # Send initial state sync if execution_id is provided
+        if self.execution_id:
+            try:
+                await self._send_initial_state(self.execution_id)
+            except Exception as e:
+                logger.error(f"Error sending initial state for {self.execution_id}: {e}")
+        
+        logger.info(f"WebSocket connected: user={self.user_id}, execution={self.execution_id}")
+
+    async def _send_initial_state(self, execution_id: str):
+        """Send the current state of all nodes for this execution."""
+        from logs.models import ExecutionLog
+        
+        from workflow_backend.thresholds import EXECUTION_STREAM_LOG_LIMIT
+
+        try:
+            # Fetch execution and its most recent node logs.
+            #
+            # Bounded, and newest-first: this is a catch-up frame for a client
+            # that just connected, and the tail is what it is behind on. The
+            # unbounded version replayed every node of the run — each with its
+            # full output payload — in one socket message, so the cost of
+            # connecting grew with the length of the run being watched.
+            exec_log = await ExecutionLog.objects.aget(execution_id=execution_id)
+            steps = exec_log.steps.order_by('-order')[:EXECUTION_STREAM_LOG_LIMIT]
+
+            initial_state = []
+            async for step in steps:
+                initial_state.append({
+                    # The wire keys stay `node_*`: the canvas reducer switches
+                    # on them and ships its own build. What they carry is a
+                    # tool call, which is what they always carried.
+                    'node_id': step.call_id,
+                    'status': step.status,
+                    'output': step.result,
+                    'error': step.error_message,
+                    'duration_ms': step.duration_ms,
+                    'started_at': step.started_at.isoformat() if step.started_at else None,
+                    'completed_at': step.completed_at.isoformat() if step.completed_at else None
+                })
+            
+            if initial_state:
+                # Restore ascending order: the reducer applies these in
+                # sequence, and the query ordering was for the limit, not the
+                # client.
+                initial_state.reverse()
+                await self.send_json({
+                    'type': 'execution.state_sync',
+                    'data': {
+                        'execution_id': execution_id,
+                        'overall_status': exec_log.status,
+                        'nodes': initial_state
+                    }
+                })
+                logger.info(f"Sent initial state sync for execution {execution_id} with {len(initial_state)} nodes")
+        except ExecutionLog.DoesNotExist:
+            logger.warning(f"Initial state sync failed: Execution {execution_id} not found")
+        except Exception as e:
+            logger.exception(f"Error in _send_initial_state: {e}")
+
+    
+    async def disconnect(self, close_code):
+        """Handle WebSocket disconnection."""
+        # Leave all groups
+        for group_name in self.groups:
+            await self.channel_layer.group_discard(group_name, self.channel_name)
+        
+        logger.info(f"WebSocket disconnected: user={self.user_id}, code={close_code}")
+    
+    async def receive(self, text_data):
+        """Handle incoming WebSocket messages."""
+        try:
+            data = json.loads(text_data)
+            message_type = data.get('type')
+            
+            if message_type == 'hitl_response':
+                await self._handle_hitl_response(data)
+            elif message_type == 'subscribe':
+                await self._handle_subscribe(data)
+            elif message_type == 'unsubscribe':
+                await self._handle_unsubscribe(data)
+            elif message_type == 'ping':
+                await self.send_json({'type': 'pong', 'timestamp': datetime.utcnow().isoformat()})
+            else:
+                await self.send_json({
+                    'type': 'error',
+                    'error': f'Unknown message type: {message_type}'
+                })
+                
+        except json.JSONDecodeError:
+            await self.send_json({
+                'type': 'error',
+                'error': 'Invalid JSON'
+            })
+        except Exception as e:
+            logger.exception(f"Error processing WebSocket message: {e}")
+            await self.send_json({
+                'type': 'error',
+                'error': 'Internal error processing message'
+            })
+    
+    # Handler for execution events (from channel layer)
+    async def execution_event(self, event):
+        """Handle execution event from channel layer."""
+        await self.send_json({
+            'type': 'execution.event',
+            'data': event.get('event', {})
+        })
+    
+    # Handler for HITL requests (from channel layer)
+    async def hitl_request(self, event):
+        """Handle HITL request from channel layer."""
+        await self.send_json({
+            'type': 'hitl.request',
+            'data': event.get('request', {})
+        })
+    
+    # Handler for notifications (from channel layer)
+    async def notification(self, event):
+        """Handle notification from channel layer."""
+        await self.send_json({
+            'type': 'notification',
+            'data': event.get('data', {})
+        })
+    
+    async def _handle_hitl_response(self, data):
+        """Process HITL response from client."""
+        request_id = data.get('request_id')
+        response = data.get('response')
+        
+        if not request_id or response is None:
+            await self.send_json({
+                'type': 'error',
+                'error': 'Missing request_id or response'
+            })
+            return
+        
+        # Process the HITL response
+        try:
+            result = await self._save_hitl_response(request_id, response)
+            
+            await self.send_json({
+                'type': 'hitl_response_ack',
+                'data': {
+                    'request_id': request_id,
+                    'status': 'accepted' if result else 'error',
+                }
+            })
+            
+            # Notify executor to resume (if waiting)
+            if result:
+                await self._notify_execution_resume(request_id)
+                
+        except Exception as e:
+            logger.exception(f"Error saving HITL response: {e}")
+            await self.send_json({
+                'type': 'error',
+                'error': 'Failed to process HITL response'
+            })
+    
+    async def _handle_subscribe(self, data):
+        """Subscribe to additional execution."""
+        execution_id = data.get('execution_id')
+        
+        if not execution_id:
+            await self.send_json({
+                'type': 'error',
+                'error': 'Missing execution_id'
+            })
+            return
+        
+        # Verify access
+        has_access = await self._verify_execution_access(execution_id)
+        if not has_access:
+            await self.send_json({
+                'type': 'error',
+                'error': 'Access denied to execution'
+            })
+            return
+        
+        # Join group
+        group_name = f"execution_{execution_id}"
+        if group_name not in self.groups:
+            await self.channel_layer.group_add(group_name, self.channel_name)
+            self.groups.append(group_name)
+        
+        await self.send_json({
+            'type': 'subscribed',
+            'data': {'execution_id': execution_id}
+        })
+    
+    async def _handle_unsubscribe(self, data):
+        """Unsubscribe from execution."""
+        execution_id = data.get('execution_id')
+        
+        if not execution_id:
+            return
+        
+        group_name = f"execution_{execution_id}"
+        if group_name in self.groups:
+            await self.channel_layer.group_discard(group_name, self.channel_name)
+            self.groups.remove(group_name)
+        
+        await self.send_json({
+            'type': 'unsubscribed',
+            'data': {'execution_id': execution_id}
+        })
+    
+    @database_sync_to_async
+    def _verify_execution_access(self, execution_id: str) -> bool:
+        """Verify user has access to execution."""
+        from logs.models import ExecutionLog
+        
+        try:
+            ExecutionLog.objects.get(
+                execution_id=execution_id,
+                user_id=self.user_id
+            )
+            return True
+        except ExecutionLog.DoesNotExist:
+            return False
+    
+    @database_sync_to_async
+    def _save_hitl_response(self, request_id: str, response: dict) -> bool:
+        """Save HITL response to database."""
+        from agents.models import HITLRequest
+        
+        try:
+            hitl_request = HITLRequest.objects.get(
+                request_id=request_id,
+                user_id=self.user_id,
+                status='pending'
+            )
+            
+            # Determine status based on response
+            # Accept either a wrapped {"value": ...} or a bare response value.
+            response_value = response.get('value', response) if isinstance(response, dict) else response
+            if response_value in ('approve', 'approved', True):
+                hitl_request.status = 'approved'
+            elif response_value in ('reject', 'rejected', False):
+                hitl_request.status = 'rejected'
+            else:
+                hitl_request.status = 'answered'
+            
+            hitl_request.response = response
+            hitl_request.responded_at = timezone.now()
+            hitl_request.save()
+            
+            return True
+            
+        except HITLRequest.DoesNotExist:
+            logger.warning(f"HITL request not found or not pending: {request_id}")
+            return False
+    
+    async def _notify_execution_resume(self, request_id: str):
+        """Notify executor that HITL response is ready."""
+        # Send to execution-specific channel
+        hitl_request = await self._get_hitl_request(request_id)
+        if hitl_request:
+            execution_id = await self._get_execution_id(hitl_request)
+            if execution_id:
+                await self.channel_layer.group_send(
+                    f"executor_{execution_id}",
+                    {
+                        'type': 'hitl.response_received',
+                        'request_id': request_id,
+                    }
+                )
+    
+    @database_sync_to_async
+    def _get_hitl_request(self, request_id: str):
+        """Get HITL request from database."""
+        from agents.models import HITLRequest
+        try:
+            return HITLRequest.objects.get(request_id=request_id)
+        except HITLRequest.DoesNotExist:
+            return None
+    
+    @database_sync_to_async
+    def _get_execution_id(self, hitl_request) -> Optional[str]:
+        """Get execution ID from HITL request."""
+        if hitl_request and hitl_request.execution:
+            return str(hitl_request.execution.execution_id)
+        return None
+    
+    async def send_json(self, data: dict):
+        """Send JSON data to client."""
+        await self.send(text_data=json.dumps(data))
+
+
+class HITLNotificationConsumer(SocketThreadConsumer):
+    """
+    Dedicated consumer for HITL notifications.
+    
+    Allows users to receive pending HITL requests across all executions.
+    
+    Route: /ws/hitl/<user_id>/
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user_id: Optional[int] = None
+        self.group_name: Optional[str] = None
+    
+    async def connect(self):
+        """Handle connection."""
+        await self.accept() # Accept first so we don't drop with HTTP 403
+        
+        user = self.scope.get('user')
+        if not user or not user.is_authenticated:
+            logger.error(f"WS CONNECTION REJECTED. User in scope: {user}")
+            await self.close(code=4001)
+            return
+        
+        self.user_id = user.pk
+        logger.info(f"WS CONNECTION ACCEPTED for User ID: {self.user_id}")
+        self.group_name = f"hitl_{self.user_id}"
+        
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        
+        # Send pending HITL requests
+        pending = await self._get_pending_requests()
+        await self.send_json({
+            'type': 'connected',
+            'data': {
+                'user_id': self.user_id,
+                'pending_requests': pending,
+            }
+        })
+    
+    async def disconnect(self, close_code):
+        """Handle disconnection."""
+        if self.group_name:
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+    
+    async def receive(self, text_data):
+        """Handle incoming messages."""
+        try:
+            data = json.loads(text_data)
+            message_type = data.get('type')
+            
+            if message_type == 'respond':
+                # Forward to ExecutionConsumer logic
+                request_id = data.get('request_id')
+                response = data.get('response')
+                
+                if request_id and response:
+                    result = await self._save_hitl_response(request_id, response)
+                    await self.send_json({
+                        'type': 'response_ack',
+                        'data': {
+                            'request_id': request_id,
+                            'success': result,
+                        }
+                    })
+            elif message_type == 'refresh':
+                pending = await self._get_pending_requests()
+                await self.send_json({
+                    'type': 'pending_requests',
+                    'data': pending,
+                })
+                
+        except json.JSONDecodeError:
+            await self.send_json({'type': 'error', 'error': 'Invalid JSON'})
+    
+    async def hitl_reminder(self, event):
+        """
+        Escalation / hourly / digest nudge.
+
+        Distinct from `hitl.new_request` because the client raises an OS-level
+        notification for these rather than only updating in-app state.
+        """
+        await self.send_json({
+            'type': 'reminder',
+            'data': event.get('reminder', {})
+        })
+
+    async def notification(self, event):
+        """Handle generic notifications (like orchestrator activities)."""
+        await self.send_json({
+            'type': 'notification',
+            'data': event.get('data', {})
+        })
+    
+    @database_sync_to_async
+    def _get_pending_requests(self) -> list:
+        """Get pending HITL requests for user."""
+        from agents.models import HITLRequest
+        
+        requests = HITLRequest.objects.filter(
+            user_id=self.user_id,
+            status='pending'
+        ).order_by('-created_at')[:20]
+        
+        return [
+            {
+                'request_id': str(r.request_id),
+                'type': r.request_type,
+                'title': r.title,
+                'message': r.message,
+                'options': r.options,
+                'created_at': r.created_at.isoformat(),
+            }
+            for r in requests
+        ]
+    
+    @database_sync_to_async
+    def _save_hitl_response(self, request_id: str, response: dict) -> bool:
+        """Save HITL response."""
+        from agents.models import HITLRequest
+        
+        try:
+            hitl_request = HITLRequest.objects.get(
+                request_id=request_id,
+                user_id=self.user_id,
+                status='pending'
+            )
+            
+            # Accept either a wrapped {"value": ...} or a bare response value.
+            response_value = response.get('value', response) if isinstance(response, dict) else response
+            if response_value in ('approve', 'approved', True):
+                hitl_request.status = 'approved'
+            elif response_value in ('reject', 'rejected', False):
+                hitl_request.status = 'rejected'
+            else:
+                hitl_request.status = 'answered'
+            
+            hitl_request.response = response
+            hitl_request.responded_at = timezone.now()
+            hitl_request.save()
+            
+            return True
+        except HITLRequest.DoesNotExist:
+            return False
+    
+    async def send_json(self, data: dict):
+        """Send JSON data."""
+        await self.send(text_data=json.dumps(data))
+
+

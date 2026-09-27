@@ -1,0 +1,387 @@
+"""
+Finished sweeps -> one markdown scorecard a person can read or send.
+
+The report is built from `EvalRun` / `EvalResult` rows, never from what the
+command happened to print, so `benchmark report` can regenerate it later — and
+a human review recorded afterwards (on the Evals page) changes the numbers.
+
+It has three layers, so the same file serves a skim and an investigation:
+
+1. **Headline** — pass rates by group, real cost, models.
+2. **Suites** — one row per suite, then every case with why it failed.
+3. **Case details** — for every case: the goal, each grader's verdict and
+   detail, the tools the agent really called, and an excerpt of the answer.
+
+Cost is the provider's reported `ExecutionLog.cost_usd` plus the recorded
+`EvalResult.judge_cost_usd`, not the spend cap's flat token rate: that rate is a
+blast-radius control and overstates cheap models and understates dear ones.
+"""
+from __future__ import annotations
+
+from decimal import Decimal
+
+from django.utils import timezone
+
+from .suites import ALL_SUITES
+
+_BY_NAME = {s['name']: s for s in ALL_SUITES}
+
+#: For the rupee line only. Approximate on purpose, and labelled as such in the
+#: report: a benchmark is not the place to track an exchange rate.
+USD_TO_INR = Decimal('88')
+ANSWER_EXCERPT_CHARS = 700
+
+
+def _mark(passed) -> str:
+    return {True: 'PASS', False: 'FAIL', None: 'REVIEW'}[passed]
+
+
+def _secs(ms) -> str:
+    return '-' if ms is None else f'{ms / 1000:.1f}s'
+
+
+def _cell(text: str, limit: int = 90) -> str:
+    text = ' '.join((text or '').split()).replace('|', '\\|')
+    return text if len(text) <= limit else text[: limit - 1] + '…'
+
+
+def _pct(part: int, whole: int) -> str:
+    return f'{100 * part / whole:.0f}%' if whole else '-'
+
+
+def _usd(value) -> str:
+    value = Decimal(value or 0)
+    return f'${value:.4f} (≈ ₹{value * USD_TO_INR:.2f})'
+
+
+def _verdict(result) -> str:
+    if result.status == 'error':
+        return 'ERROR'
+    if result.status == 'skipped':
+        return 'SKIPPED'
+    return _mark(result.final_passed)
+
+
+def _failed_checks(result) -> str:
+    if result.status == 'error':
+        return 'run errored: ' + (result.error_message or '')
+    if result.status == 'skipped':
+        return 'skipped: ' + (result.error_message or '')
+    misses = [f"{g['type']}: {g.get('detail') or 'failed'}" for g in (result.grades or []) if not g.get('passed')]
+    return '; '.join(misses)
+
+
+def _tools_called(result) -> list[str]:
+    execution = result.execution
+    trace = ((execution.output_data or {}).get('tool_trace') or []) if execution else []
+    return [str(call.get('tool') or call.get('name') or '?') for call in trace]
+
+
+def _cost(result) -> Decimal:
+    agent = Decimal(result.execution.cost_usd or 0) if result.execution else Decimal(0)
+    judge = Decimal(result.judge_cost_usd or 0)
+    return agent + judge
+
+
+def _judge_cost(result) -> Decimal:
+    return Decimal(result.judge_cost_usd or 0)
+
+
+def summary_rows(runs) -> list[dict]:
+    rows = []
+    for run in runs:
+        definition = _BY_NAME.get(run.suite.name, {})
+        if not definition and run.suite.name.startswith('External:'):
+            definition = {'slug': 'external', 'group': 'external',
+                          'proves': run.suite.description}
+        if not definition and run.suite.name.startswith('Smoke:'):
+            definition = {'slug': 'smoke', 'group': run.suite.tags[1] if len(run.suite.tags or []) > 1 else 'capability',
+                          'proves': run.suite.description}
+        results = list(run.results.select_related('execution', 'review').order_by('id'))
+        rows.append({
+            'suite': run.suite.name,
+            'slug': definition.get('slug', ''),
+            'group': definition.get('group', '?'),
+            'proves': definition.get('proves', run.suite.description),
+            'agent': run.subagent.name if run.subagent else '-',
+            'model': (f"{run.subagent.llm_provider}/{run.subagent.llm_model or '(provider default)'}"
+                      if run.subagent else '-'),
+            'mode': getattr(run, 'mode', 'agent'),
+            'passed': run.passed_count,
+            'total': run.total_cases,
+            'errors': run.error_count,
+            'review': run.pending_review_count,
+            'score': run.score,
+            'threshold': run.suite.pass_threshold,
+            'verdict': run.passed,
+            'status': run.status,
+            'tokens': run.tokens_used,
+            'duration_ms': run.duration_ms,
+            'cost': sum((_cost(r) for r in results), Decimal(0)),
+            'results': results,
+            'run': run,
+        })
+    return rows
+
+
+def _group_line(rows, group: str, label: str) -> str:
+    chosen = [r for r in rows if r['group'] == group]
+    if not chosen:
+        return f'- **{label}:** not run'
+    cases = sum(r['total'] for r in chosen)
+    passed = sum(r['passed'] for r in chosen)
+    held = sum(1 for r in chosen if r['verdict'] is True)
+    return (f'- **{label}:** {passed}/{cases} cases ({_pct(passed, cases)}), '
+            f'{held}/{len(chosen)} suites at their pass bar')
+
+
+def reliability(rows) -> list[dict]:
+    """Per suite with more than one attempt: pass@1 and pass^k, and per case k/n.
+
+    pass@1 is the share of all attempts that passed; pass^k is the share of cases
+    that passed on *every* attempt (τ-bench's measure). The gap between them is
+    the unreliability a user meets: a case at 2/3 works in a demo and fails one
+    run in three.
+    """
+    by_suite: dict[str, list] = {}
+    for r in rows:
+        by_suite.setdefault(r['suite'], []).append(r)
+    out = []
+    for suite, attempts in by_suite.items():
+        if len(attempts) < 2:
+            continue
+        per_case: dict[str, list[bool]] = {}
+        for r in attempts:
+            for result in r['results']:
+                per_case.setdefault(result.case_name, []).append(result.final_passed is True)
+        total = sum(len(v) for v in per_case.values())
+        passes = sum(sum(v) for v in per_case.values())
+        out.append({
+            'suite': suite,
+            'group': attempts[0]['group'],
+            'attempts': len(attempts),
+            'pass_at_1': passes / total if total else 0.0,
+            'pass_all': sum(1 for v in per_case.values() if v and all(v)) / len(per_case) if per_case else 0.0,
+            'cases': {name: (sum(v), len(v)) for name, v in per_case.items()},
+        })
+    return out
+
+
+def _reliability(rows) -> list[str]:
+    stats = reliability(rows)
+    if not stats:
+        return []
+    out = ['## Reliability', '',
+           'Each suite was attempted more than once from a fresh workspace. **pass@1** is the share of '
+           'attempts that passed; **pass^k** is the share of cases that passed *every* time.', '',
+           '| Suite | Group | Attempts | pass@1 | pass^k |', '|---|---|---|---|---|']
+    for s in stats:
+        out.append(f"| {s['suite']} | {s['group']} | {s['attempts']} | {s['pass_at_1']:.0%} | {s['pass_all']:.0%} |")
+    out += ['', '| Suite › Case | Passed |', '|---|---|']
+    for s in stats:
+        for name, (passed, n) in s['cases'].items():
+            mark = '✅' if passed == n else ('❌' if passed == 0 else '⚠️')
+            out.append(f"| {s['suite']} › {_cell(name, 60)} | {mark} {passed}/{n} |")
+    return out + ['']
+
+
+def _attention(rows) -> list[str]:
+    """Every case that did not pass, grouped by what to do about it."""
+    fails, reviews, errors = [], [], []
+    for r in rows:
+        for result in r['results']:
+            verdict = _verdict(result)
+            item = f"- **{r['suite']} › {result.case_name}**: {_cell(_failed_checks(result), 220) or 'graders could not decide'}"
+            if verdict == 'FAIL':
+                fails.append(item)
+            elif verdict == 'REVIEW':
+                reviews.append(item)
+            elif verdict == 'ERROR':
+                errors.append(item)
+    out = ['## Needs attention', '']
+    if not (fails or reviews or errors):
+        return out + ['Nothing: every case passed.', '']
+    if fails:
+        out += [f'### Failed ({len(fails)})', '', *fails, '']
+    if reviews:
+        out += [f'### Waiting for a human verdict ({len(reviews)})', '',
+                'Answer these on the Evals page, then run `manage.py benchmark report`.', '',
+                *reviews, '']
+    if errors:
+        out += [f'### Errored: the agent never answered ({len(errors)})', '', *errors, '']
+    return out
+
+
+def _case_detail(r, result) -> list[str]:
+    tools = _tools_called(result)
+    redacted = r.get('group') == 'external'
+    lines = [
+        f"#### {result.case_name} — {_verdict(result)}",
+        '',
+        # Gold answers never leave the process in clear for redacted sets: the
+        # item id is printed instead of the question/expected answer.
+        f"- **Goal:** {'(redacted external item)' if redacted else _cell(result.goal, 400)}",
+        f"- **Tools really called:** {', '.join(f'`{t}`' for t in tools) if tools else 'none'}",
+        f"- **Time / tokens / cost:** {_secs(result.duration_ms)} · {result.tokens:,} · {_usd(_cost(result))}",
+    ]
+    if result.execution:
+        lines.append(f"- **Execution:** `{result.execution.execution_id}` (open on /runs)")
+    review = getattr(result, 'review', None)
+    if review is not None:
+        lines.append(f"- **Human verdict:** {review.verdict}"
+                     + (f" — {_cell(review.comment, 200)}" if review.comment else ''))
+    lines += ['', '| Grader | Passed | Detail |', '|---|---|---|']
+    for grade in result.grades or []:
+        lines.append(f"| `{grade['type']}` | {'✅' if grade.get('passed') else '❌'} | "
+                     f"{_cell(grade.get('detail') or '', 160)} |")
+    if result.status == 'error':
+        lines.append(f"| (run) | ❌ | {_cell(result.error_message, 160)} |")
+    answer = (result.answer or '').strip()
+    if answer:
+        excerpt = answer[:ANSWER_EXCERPT_CHARS]
+        more = '…' if len(answer) > ANSWER_EXCERPT_CHARS else ''
+        lines += ['', '<details><summary>Answer excerpt</summary>', '', '```text',
+                  excerpt.replace('```', "'''") + more, '```', '', '</details>']
+    return lines + ['']
+
+
+def _calibration_line() -> str:
+    try:
+        from eval.models import JudgeCalibration
+
+        row = JudgeCalibration.objects.filter(source='handwritten').order_by('-created_at').first()
+        if row is None:
+            return ''
+        return (f"- **Judge calibration:** `{row.judge_model}` agreement {row.agreement:.0%}, "
+                f"false-pass {row.false_pass_rate:.0%} (n={row.n}, {row.created_at:%Y-%m-%d})")
+    except Exception:  # noqa: BLE001
+        return ''
+
+
+def _external_section(rows) -> list[str]:
+    ext = [r for r in rows if r['group'] == 'external']
+    if not ext:
+        return []
+    out = ['## External', '',
+           '| Suite | Agent | Bare | Delta |',
+           '|---|---|---|---|']
+    by_suite: dict[str, list] = {}
+    for r in ext:
+        by_suite.setdefault(r['suite'], []).append(r)
+    for suite, attempts in by_suite.items():
+        agent_rows = [r for r in attempts if r.get('mode') != 'bare']
+        bare_rows = [r for r in attempts if r.get('mode') == 'bare']
+        def _pass1(items) -> float:
+            total = sum(x['total'] for x in items)
+            passed = sum(x['passed'] for x in items)
+            return (passed / total) if total else 0.0
+        agent = _pass1(agent_rows) if agent_rows else 0.0
+        bare = _pass1(bare_rows) if bare_rows else 0.0
+        out.append(f'| {suite} | {agent:.0%} | {bare:.0%} | {agent - bare:+.0%} |')
+    return out + ['']
+
+
+def render(runs, *, skipped=(), judge: str = '', baselines: dict | None = None,
+           verdict: str = '') -> str:
+    runs = list(runs)
+    skipped = list(skipped)
+    baselines = baselines or {}
+    rows = summary_rows(runs)
+    total_cases = sum(r['total'] for r in rows)
+    total_passed = sum(r['passed'] for r in rows)
+    total_tokens = sum(r['tokens'] for r in rows)
+    total_cost = sum((r['cost'] for r in rows), Decimal(0))
+    total_ms = sum(r['duration_ms'] or 0 for r in rows)
+    agent_models = sorted({r['model'] for r in rows})
+
+    judge_cost_total = sum(
+        (_judge_cost(res) for r in rows for res in r['results']), Decimal(0)
+    )
+    agent_cost_total = total_cost - judge_cost_total
+    calib = _calibration_line()
+    out = [
+        '# AIAAS benchmark scorecard',
+        '',
+        f"Generated {timezone.localtime():%Y-%m-%d %H:%M %Z}.",
+        '',
+        *([verdict, ''] if verdict else []),
+        '## Headline',
+        '',
+        f'- **Cases passed:** {total_passed} / {total_cases} ({_pct(total_passed, total_cases)})',
+        _group_line(rows, 'capability', 'Capability'),
+        _group_line(rows, 'guardrail', 'Guardrails'),
+        _group_line(rows, 'external', 'External'),
+        f"- **Agent model:** {', '.join(f'`{m}`' for m in agent_models) or '-'}",
+        *([f'- **Judge model:** `{judge}`'] if judge else []),
+        *([calib] if calib else []),
+        f'- **Real cost:** {_usd(total_cost)} for {total_tokens:,} tokens '
+        f'(agent {_usd(agent_cost_total)}, judge {_usd(judge_cost_total)}).',
+        f'- **Wall time:** {_secs(total_ms)}',
+        *([f'- **Skipped:** {len(skipped)} suite(s) this account cannot run (listed below)'] if skipped else []),
+        '',
+        '## Suites',
+        '',
+        '| Suite | Group | Verdict | Passed | Score / bar | Vs baseline | Errors | Review | Time | Tokens | Cost |',
+        '|---|---|---|---|---|---|---|---|---|---|---|',
+    ]
+    for r in rows:
+        score = '-' if r['score'] is None else f"{r['score']:.2f}"
+        base = baselines.get(r['suite'])
+        if base is None:
+            vs = '-'
+        else:
+            now = (r['passed'] / r['total']) if r['total'] else 0.0
+            vs = f'{now:.0%} vs {base:.0%} ({now - base:+.0%})'
+        out.append(
+            f"| {r['suite']} | {r['group']} | {_mark(r['verdict'])} | {r['passed']}/{r['total']} | "
+            f"{score} / {r['threshold']:.2f} | {vs} | {r['errors']} | {r['review']} | "
+            f"{_secs(r['duration_ms'])} | {r['tokens']:,} | ${r['cost']:.4f} |"
+        )
+    out.append('')
+    out += _external_section(rows)
+    out += _reliability(rows)
+    out += _attention(rows)
+
+    out += ['## Results by suite', '']
+    for r in rows:
+        run = r['run']
+        out += [
+            f"### {r['suite']} — {_mark(r['verdict'])}",
+            '',
+            f"*What a pass proves:* {r['proves']}",
+            '',
+            f"Agent `{r['agent']}` · model `{r['model']}` · run `{run.run_id}` · status `{r['status']}`",
+            '',
+            '| Case | Result | Why it failed | Time | Tokens |',
+            '|---|---|---|---|---|',
+        ]
+        for result in r['results']:
+            out.append(
+                f'| {_cell(result.case_name, 50)} | {_verdict(result)} | {_cell(_failed_checks(result))} | '
+                f'{_secs(result.duration_ms)} | {result.tokens:,} |'
+            )
+        out.append('')
+
+    if skipped:
+        out += ['## Skipped', '', '| Suite | Why |', '|---|---|']
+        out += [f"| {d['name']} | {_cell(reason, 140)} |" for d, reason in skipped]
+        out.append('')
+
+    out += ['## Case details', '']
+    for r in rows:
+        out += [f"### {r['suite']}", '']
+        for result in r['results']:
+            out += _case_detail(r, result)
+
+    out += [
+        '## How to read this',
+        '',
+        '- **PASS / FAIL** on a case is every grader agreeing / at least one disagreeing.',
+        '- **REVIEW** means the automatic graders could not decide; answer it on the Evals page and regenerate with `manage.py benchmark report`.',
+        '- **Skipped** suites need something this account does not have (usually Google connected). They are not failures.',
+        '- **ERROR** means the agent never answered (provider down, missing key, spend cap). It is an outage, not a wrong answer.',
+        '- **Tools really called** is what dispatched, from the run trace. A `MOCK` line in an answer is a proposal and never appears there.',
+        f'- Rupee figures use an approximate rate of ₹{USD_TO_INR} per US dollar.',
+        '',
+    ]
+    return '\n'.join(out)

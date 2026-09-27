@@ -1,0 +1,366 @@
+from rest_framework import status, serializers
+from adrf import viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
+from django.core import signing
+from django.db import IntegrityError
+from urllib.parse import urlparse
+from .models import Credential, CredentialType, CredentialAuditLog
+from .serializers import (
+    CredentialSerializer, 
+    CredentialTypeSerializer, 
+    CredentialAuditLogSerializer,
+    CredentialOAuthInitSerializer,
+    CredentialOAuthCallbackSerializer
+)
+from asgiref.sync import sync_to_async
+import logging
+
+logger = logging.getLogger(__name__)
+
+from .oauth import ALLOWED_REDIRECT_ORIGINS
+
+@extend_schema_view(
+    list=extend_schema(
+        responses={200: OpenApiResponse(response={
+            "type": "object",
+            "required": ["types"],
+            "properties": {
+                "types": {"type": "array", "items": {"$ref": "#/components/schemas/CredentialType"}},
+            },
+        })},
+    ),
+)
+class CredentialTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for Credential Types.
+    Allows fetching available types.
+    """
+    queryset = CredentialType.objects.filter(is_active=True)
+    serializer_class = CredentialTypeSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        """Override to return wrapped response matching frontend expectations."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({'types': serializer.data})
+
+
+@extend_schema_view(
+    list=extend_schema(
+        responses={200: OpenApiResponse(response={
+            "type": "object",
+            "required": ["credentials"],
+            "properties": {
+                "credentials": {"type": "array", "items": {"$ref": "#/components/schemas/Credential"}},
+            },
+        })},
+    ),
+)
+class CredentialViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing user credentials.
+    """
+    serializer_class = CredentialSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        # Users can only see their own credentials
+        return Credential.objects.filter(user=self.request.user).select_related('credential_type')
+
+    def list(self, request, *args, **kwargs):
+        """Override to return wrapped response matching frontend expectations."""
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({'credentials': serializer.data})
+
+    def perform_create(self, serializer):
+        # Automatically assign the creator
+        try:
+            serializer.save(user=self.request.user)
+        except IntegrityError:
+            # unique_together ['user', 'name'] — surface as a 400, not a 500.
+            raise serializers.ValidationError(
+                {'name': 'You already have a credential with this name.'}
+            ) from None
+        # The manager caches decrypted data for 5 minutes; a fresh credential
+        # must not be invisible to callers that hit the cached miss path.
+        self._bust_credential_cache(self.request.user.id)
+
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {'name': 'You already have a credential with this name.'}
+            ) from None
+        # Stale decrypted data (old key, old is_verified) must not outlive an
+        # update in the manager's process-local cache.
+        self._bust_credential_cache(self.request.user.id)
+
+    @staticmethod
+    def _bust_credential_cache(user_id):
+        from .manager import get_credential_manager
+        get_credential_manager().clear_cache(user_id=user_id)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Prevent deletion if credential is used in active workflows.
+        """
+        instance = self.get_object()
+        credential_id = str(instance.id)
+        
+        # Which agents would break. This used to scan every active workflow's
+        # node JSON for a `credential_id`; there are no nodes any more, and an
+        # agent names its LLM credential with a real foreign key — so the same
+        # question is now one indexed query instead of a full scan plus a
+        # nested loop over untyped JSON.
+        from agents.models import SubAgent
+
+        affected = list(
+            SubAgent.objects
+            .filter(user=request.user, status='active', llm_credential_id=instance.id)
+            .values_list('name', flat=True)
+        )
+
+        if affected:
+            return Response(
+                {'error': f'Cannot delete credential used by active agents: {", ".join(affected)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Log deletion audit. The snapshot keeps name/type readable after the
+        # credential's FK is nulled by SET_NULL on delete. The `or ''` keeps the
+        # NOT NULL user_agent column happy for clients that send no UA header.
+        from .models import CredentialAuditLog
+        CredentialAuditLog.objects.create(
+            credential=instance,
+            user=request.user,
+            action='deleted',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            user_agent=request.META.get('HTTP_USER_AGENT') or '',
+            snapshot={
+                'name': instance.name,
+                'credential_type': instance.credential_type.name,
+            },
+        )
+            
+        self._bust_credential_cache(request.user.id)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    async def verify(self, request, pk=None):
+        """
+        Trigger credential verification logic against the external provider.
+        """
+        # Wrap ORM in sync_to_async
+        credential = await sync_to_async(self.get_object)()
+        
+        from .verification import CredentialVerifier
+        
+        # Capture audit context
+        audit_context = {
+            'user': request.user,
+            'ip_address': request.META.get('REMOTE_ADDR'),
+            'user_agent': request.META.get('HTTP_USER_AGENT')
+        }
+        
+        # Await the now-async verify method
+        is_valid, message = await CredentialVerifier.verify(credential, audit_context=audit_context)
+        
+        credential.is_verified = is_valid
+        # Update last_error if failed, clear it if success
+        if is_valid:
+            credential.last_error = ""
+        else:
+            credential.last_error = message
+            
+        await sync_to_async(credential.save)()
+        
+        return Response({
+            'valid': is_valid, 
+            'message': message
+        })
+
+
+class GoogleCredentialOAuthViewSet(viewsets.ViewSet):
+    """
+    Handle Google OAuth2 flow for creating/updating Credentials.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def init(self, request):
+        """
+        Generate Google Authorization URL with CSRF state token.
+        """
+        from .oauth import GoogleOAuthProvider
+        
+        serializer = CredentialOAuthInitSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        
+        redirect_uri = serializer.validated_data['redirect_uri']
+        scopes = serializer.validated_data.get('scopes')
+        
+        # Validate redirect_uri against allowlist to prevent open redirect
+        parsed_redirect = urlparse(redirect_uri)
+        redirect_origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
+        if redirect_origin not in ALLOWED_REDIRECT_ORIGINS:
+            return Response(
+                {'error': f'Redirect URI origin is not allowed: {redirect_origin}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Default scopes for our main integration use cases (Sheets, etc)
+        if not scopes:
+            scopes = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive.readonly'
+            ]
+        
+        # Generate CSRF state token (signed with Django SECRET_KEY, expires in 10 min)
+        state = signing.dumps(
+            {'user_id': request.user.id, 'redirect_uri': redirect_uri},
+            salt='oauth-state'
+        )
+        
+        provider = GoogleOAuthProvider(redirect_uri=redirect_uri)
+        url = provider.get_auth_url(scopes=scopes, state=state)
+        
+        return Response({'url': url})
+
+    @action(detail=False, methods=['post'])
+    async def callback(self, request):
+        """
+        Exchange code for tokens and create/update Credential.
+        Validates the CSRF state token to prevent CSRF/open redirect attacks.
+        """
+        from .oauth import GoogleOAuthProvider
+        from .models import Credential, CredentialType
+        
+        serializer = CredentialOAuthCallbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        code = serializer.validated_data['code']
+        redirect_uri = serializer.validated_data['redirect_uri']
+        name = serializer.validated_data['name']
+        state = serializer.validated_data.get('state') or request.data.get('state')
+        
+        # Validate CSRF state token — mandatory, not best-effort: without it a
+        # stolen code could be exchanged against an arbitrary redirect_uri.
+        if not state:
+            return Response({'error': 'Missing OAuth state token'}, status=400)
+        try:
+            state_data = signing.loads(state, salt='oauth-state', max_age=600)  # 10 min expiry
+            if state_data.get('user_id') != request.user.id:
+                return Response({'error': 'OAuth state token user mismatch'}, status=400)
+            if state_data.get('redirect_uri') != redirect_uri:
+                return Response({'error': 'OAuth state token redirect_uri mismatch'}, status=400)
+        except signing.BadSignature:
+            return Response({'error': 'Invalid OAuth state token'}, status=400)
+        except signing.SignatureExpired:
+            return Response({'error': 'OAuth state token expired. Please try again.'}, status=400)
+        
+        # Validate redirect_uri against allowlist
+        parsed_redirect = urlparse(redirect_uri)
+        redirect_origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
+        if redirect_origin not in ALLOWED_REDIRECT_ORIGINS:
+            return Response(
+                {'error': 'Redirect URI origin is not allowed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        provider = GoogleOAuthProvider(redirect_uri=redirect_uri)
+        
+        try:
+            # Await async code exchange
+            token_data = await provider.exchange_code(code)
+        except Exception as e:
+            return Response({'error': f'Token exchange failed: {str(e)}'}, status=400)
+            
+        if 'error' in token_data:
+             return Response({'error': token_data.get('error_description', 'Unknown OAuth error')}, status=400)
+             
+        # Get/Create Credential Type
+        try:
+            cred_type = await sync_to_async(CredentialType.objects.get)(slug='google-oauth2')
+        except CredentialType.DoesNotExist:
+             return Response({'error': 'Google OAuth2 credential type not found in system'}, status=500)
+             
+        # Encrypt tokens before saving
+        from cryptography.fernet import Fernet
+        fernet = Fernet(Credential._get_encryption_key())
+        
+        # Re-connecting the same account is update-or-create by (user, name):
+        # the frontend always sends 'Google Account', so a second connect used
+        # to raise IntegrityError (unique_together ['user', 'name']) → 500.
+        expires_in = token_data.get('expires_in')
+        token_expires_at = None
+        if expires_in:
+            from django.utils import timezone
+            from datetime import timedelta
+            token_expires_at = timezone.now() + timedelta(seconds=expires_in)
+        
+        defaults = {
+            'credential_type': cred_type,
+            'access_token': fernet.encrypt(token_data.get('access_token', '').encode()),
+            'token_expires_at': token_expires_at,
+        }
+        # Google sends a refresh token only when the user is shown the consent
+        # screen, and omits it on some re-consents. Writing '' over the stored
+        # one used to leave a credential that worked for an hour and then could
+        # never refresh again — every native Google tool depends on it.
+        if token_data.get('refresh_token'):
+            defaults['refresh_token'] = fernet.encrypt(token_data['refresh_token'].encode())
+        credential, _ = await sync_to_async(Credential.objects.update_or_create)(
+            user=request.user,
+            name=name,
+            defaults=defaults,
+        )
+            
+        # Verify immediately - use async info fetch
+        try:
+            # Await async user info fetch
+            user_info = await provider.get_user_info(token_data.get('access_token'))
+            credential.public_metadata = {
+                'email': user_info.get('email'),
+                'picture': user_info.get('picture'),
+                'name': user_info.get('name'),
+                # What the token was actually granted. With
+                # `include_granted_scopes` this is the union across every card
+                # connected so far, so it answers "does this account cover
+                # Calendar yet" without a call to Google.
+                'scopes': sorted((token_data.get('scope') or '').split()),
+            }
+            credential.is_verified = True
+        except Exception:
+            credential.is_verified = False
+            
+        await sync_to_async(credential.save)()
+        
+        # New tokens are in the DB; don't let the manager's cache serve the
+        # pre-reconnect values (or miss entirely) for the next 5 minutes.
+        from .manager import get_credential_manager
+        get_credential_manager().clear_cache(user_id=request.user.id)
+        
+        # Use sync_to_async for serializer in async context
+        serialized_data = await sync_to_async(lambda: CredentialSerializer(credential).data)()
+        return Response(serialized_data)
+
+
+class CredentialAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ReadOnly ViewSet for Credential Audit Logs.
+    Users can view logs for their own credentials.
+    """
+    serializer_class = CredentialAuditLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return CredentialAuditLog.objects.filter(user=self.request.user)
+
