@@ -407,6 +407,11 @@ class TurnContext:
     #: them — without it a write succeeds but leaves no record.
     execution_id: str = ''
 
+    #: The `Mission` this run is one link of, or None. The mission tools
+    #: (`chat/tools/missions.py`) read it from the tool context; without it
+    #: every one of them answered "This run is not part of a mission".
+    mission_id: int | None = None
+
     @property
     def max_tokens(self) -> int:
         return _MAX_TOKENS_BY_INTENT.get(self.intent, _DEFAULT_MAX_TOKENS)
@@ -1602,6 +1607,9 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
         # Who started the run. `publish_page` refuses above-`link`
         # visibilities from unattended callers.
         "caller": turn.caller,
+        # An eval's gated-call policy, so a worker it starts inherits it
+        # (`chat/tools/agents.py::worker_caller`).
+        "record_intents": turn.record_intents,
         # The org boundary for the solution tools (`chat/tools/solutions.py`).
         "org_id": turn.org_id,
         "share_solutions": turn.share_solutions,
@@ -1614,6 +1622,7 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
         "task_id": turn.task_id,
         "worker_label": turn.worker_label,
         "execution_id": turn.execution_id,
+        "mission_id": turn.mission_id,
         # The lead's live sink, so detached workers can publish plan-panel
         # frames (task/lease/change updates) to whoever is watching the lead.
         # None in unit tests that build a bare TurnContext.

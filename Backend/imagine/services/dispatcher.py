@@ -165,6 +165,11 @@ def run_generation(generation: Generation) -> Generation:
     refused = (check_image_prompt(generation.prompt or '')
                if generation.type in ('image', 'video')
                else check_text(generation.prompt or '', where='audio prompt'))
+    if refused is None and generation.type in ('image', 'video'):
+        # The model second opinion, only once the patterns passed.
+        from core.safety import moderation
+
+        refused = moderation.check(generation.prompt or '', where='image prompt')
     if refused is not None:
         generation.status = "failed"
         generation.error_message = refused.message

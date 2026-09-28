@@ -62,6 +62,12 @@ def publish(user, *, title: str, kind: str, body, visibility: str):
     from core.safety.content_policy import check_text
 
     refused = check_text(f'{title}\n{body}', where='published page')
+    if refused is None:
+        # The model second opinion: a page can be public, and patterns miss
+        # rewording (`core/safety/moderation.py`).
+        from core.safety import moderation
+
+        refused = moderation.check(f'{title}\n{body}', where='published page')
     if refused is not None:
         raise PublishError(refused.message)
 

@@ -270,6 +270,20 @@ def _agent_summary(row: dict) -> dict:
     }
 
 
+def worker_caller(context: Dict, default: str = "orchestrator") -> tuple[str, str]:
+    """`(caller, gated_calls)` for a run this run starts.
+
+    A run started from inside an eval is part of that eval. It used to run as
+    `orchestrator` (or `chat`), so it could pause on an approval nobody would
+    answer, needed `allow_unattended`, and its cost counted against the real
+    spend cap and showed on `/runs`. It now inherits `eval` and the eval's
+    gated-call policy (record, then run or block), the same as its parent.
+    """
+    if context.get("caller") == "eval":
+        return "eval", str(context.get("record_intents") or "run")
+    return default, "run"
+
+
 def _agent_search_limit(args: Dict, max_results: int) -> int:
     """The caller's `limit`, clamped. A model can send anything here."""
     try:
@@ -457,9 +471,11 @@ async def run_agent(args: Dict, context: Dict) -> str:
     if user is None:
         return json.dumps({"error": "User not found."})
 
+    caller, gated_calls = worker_caller(context, default="chat")
     try:
         execution_id = await start_agent_run(
-            agent, goal, user=user, trigger_type="api", caller="chat",
+            agent, goal, user=user, trigger_type="api", caller=caller,
+            gated_calls=gated_calls,
             # The step that asked for this run. It is what makes the run
             # traceable back to the reasoning that chose to start it, instead
             # of appearing in the history with no explanation of who wanted it.
@@ -919,10 +935,13 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
     parent_scope = context.get("file_scope")
     workspace = tuple(getattr(parent_scope, "write_prefix", None) or ())
 
+    caller, gated_calls = worker_caller(context)
+
     async def runner(task: str, index: int, thread_id: str) -> WorkerResult:
         run = await run_agent(
             worker_agent, task, user=user, thread_id=thread_id,
-            trigger_type="api", caller="orchestrator", depth=depth + 1,
+            trigger_type="api", caller=caller, gated_calls=gated_calls,
+            depth=depth + 1,
             # Provenance: which call delegated, what it asked for, and where in
             # the fan-out this worker sat. `parent_step.turn.reasoning` is then
             # the orchestrator's own thinking at the moment it split the work,

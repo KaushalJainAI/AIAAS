@@ -84,3 +84,7 @@ AGENT_CHECKPOINTER = 'memory'
 # The trigger scheduler must never start a background loop in tests. Apart
 # from leaking tasks across cases, a loop would fire real schedules mid-suite.
 SCHEDULER_ENABLED = False
+
+# No network in tests: the model second opinion is switched off, and its own
+# tests (`core/tests/test_moderation.py`) turn it on with a fake transport.
+CONTENT_MODERATION_MODEL = ''

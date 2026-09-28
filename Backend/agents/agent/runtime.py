@@ -1463,7 +1463,7 @@ def _open_log(agent, user, goal: str, trigger_type: str, thread_id: str = '',
               *, caller: str = 'api', depth: int = 0,
               parent_step_id: int | None = None, delegation_task: str = '',
               delegation_index: int = 0, model_used: str = '',
-              fallback_from: str = ''):
+              fallback_from: str = '', mission_id: int | None = None):
     from logs.models import ExecutionLog
     from logs import revisions
 
@@ -1506,6 +1506,9 @@ def _open_log(agent, user, goal: str, trigger_type: str, thread_id: str = '',
         # Set by the caller, which resolved the fallback before opening.
         model_used=(model_used or '')[:150],
         fallback_from=(fallback_from or '')[:150],
+        # One link of a mission chain. The sweep reads the finished row back
+        # through this FK to decide the mission's next step.
+        mission_id=mission_id,
     )
 
 
@@ -1846,7 +1849,8 @@ async def run_agent(agent, goal: str, *, user, sink=None,
                      worker_label: str = '',
                      write_paths=None, command_scope=None,
                      gated_calls: str = 'run',
-                     environment: Any = None) -> AgentRun:
+                     environment: Any = None,
+                     mission_id: int | None = None) -> AgentRun:
     """Run `agent` against `goal` and record the run.
 
     `gated_calls` applies to `caller='eval'` only: a call that would pause is
@@ -1902,7 +1906,11 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             agent, user, goal, trigger_type, thread_id,
             caller=caller, depth=depth, parent_step_id=parent_step_id,
             delegation_task=delegation_task, delegation_index=delegation_index,
+            mission_id=mission_id,
         )
+    # A resumed mission run arrives with its log and no id: the log is where
+    # the chain is written down, so it is where the id is read back from.
+    mission_id = mission_id or getattr(log, 'mission_id', None)
 
     # Every run streams to the execution channel, whether or not the caller
     # asked for a sink: that is what makes the run visible on the workflow
@@ -2087,6 +2095,7 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             task_id=task_id or '',
             worker_label=worker_label or '',
             execution_id=str(log.execution_id),
+            mission_id=mission_id,
         )
 
         # The backstop under the soft stop. The loop checks the clock between
@@ -2321,7 +2330,9 @@ async def start_agent_run(agent, goal: str, *, user,
                           parent_step_id: int | None = None,
                           delegation_task: str = '',
                           delegation_index: int = 0,
-                          workspace: tuple[str, ...] = ()) -> str:
+                          workspace: tuple[str, ...] = (),
+                          mission_id: int | None = None,
+                          gated_calls: str = 'run') -> str:
     """Begin a run in the background and return its execution id immediately.
 
     `workspace` is the caller's own write folder, granted to the run as a
@@ -2370,6 +2381,7 @@ async def start_agent_run(agent, goal: str, *, user,
         caller=caller, parent_step_id=parent_step_id,
         delegation_task=delegation_task, delegation_index=delegation_index,
         model_used=model, fallback_from=fallback_from,
+        mission_id=mission_id,
     )
 
     async def _run() -> None:
@@ -2398,7 +2410,9 @@ async def start_agent_run(agent, goal: str, *, user,
             async with admission.slot(user.id):
                 await run_agent(agent, goal, user=user, thread_id=thread_id,
                                 trigger_type=trigger_type, caller=caller,
-                                log=log, workspace=workspace)
+                                log=log, workspace=workspace,
+                                mission_id=mission_id,
+                                gated_calls=gated_calls)
         except admission.AdmissionTimeout as exc:
             # Nothing ran, so there is nothing to report as having failed
             # part-way. The log is closed here because `run_agent` never got to
@@ -2427,7 +2441,8 @@ async def start_agent_run(agent, goal: str, *, user,
 
 async def start_agent_run_and_wait(agent, goal: str, *, user,
                                    trigger_type: str = 'schedule',
-                                   caller: str = 'trigger') -> str:
+                                   caller: str = 'trigger',
+                                   mission_id: int | None = None) -> str:
     """Start a run and wait for its background task to finish (blocking).
 
     The sync-context twin of `start_agent_run`, for callers with no persistent
@@ -2446,6 +2461,7 @@ async def start_agent_run_and_wait(agent, goal: str, *, user,
     """
     execution_id = await start_agent_run(
         agent, goal, user=user, trigger_type=trigger_type, caller=caller,
+        mission_id=mission_id,
     )
     task = _live_task(execution_id)
     if task is not None:

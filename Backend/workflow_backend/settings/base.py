@@ -443,6 +443,13 @@ RUN_RECOVERY_SWEEP_SECONDS = int(
 RUN_DETAIL_RETENTION_SWEEP_SECONDS = int(
     os.environ.get('RUN_DETAIL_RETENTION_SWEEP_SECONDS', '86400')
 )
+# Model second opinion on image prompts and published pages, after the pattern
+# floor (`core/safety/moderation.py`). Platform key pays; blank = off. Fails open.
+CONTENT_MODERATION_MODEL = os.environ.get(
+    'CONTENT_MODERATION_MODEL', 'openai/gpt-oss-safeguard-20b')
+CONTENT_MODERATION_TIMEOUT_S = float(os.environ.get('CONTENT_MODERATION_TIMEOUT_S', '4'))
+# How often the mission sweep settles finished runs and starts due ones.
+MISSION_SWEEP_SECONDS = int(os.environ.get('MISSION_SWEEP_SECONDS', '120'))
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -688,7 +695,7 @@ CELERY_BEAT_SCHEDULE = {
     # Mission chains. Also runnable as `manage.py run_missions`.
     'sweep-missions': {
         'task': 'missions.sweep_missions',
-        'schedule': 300,
+        'schedule': MISSION_SWEEP_SECONDS,
     },
     # Daily: reasoning and tool payloads of finished runs age out after
     # RUN_DETAIL_RETENTION_DAYS (storage limitation, DPDP/GDPR). Also runnable

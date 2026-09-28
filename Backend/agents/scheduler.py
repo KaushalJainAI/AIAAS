@@ -211,6 +211,13 @@ async def _prune_chat_checkpoints():
     return await prune_chat_checkpoints()
 
 
+async def _missions():
+    # Detached: settles finished mission runs and starts the due ones without
+    # waiting for them (`missions/sweep.py`).
+    from missions.sweep import sweep
+    return await sweep()
+
+
 async def _run_detail_retention():
     # Storage limitation: a finished run's reasoning and tool payloads age out
     # after RUN_DETAIL_RETENTION_DAYS; the run record stays. `logs/retention.py`.
@@ -227,6 +234,7 @@ PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
     PeriodicJob('orchestrator.recover_runs', 'RUN_RECOVERY_SWEEP_SECONDS', _recover_runs),
     PeriodicJob('orchestrator.prune_chat_checkpoints', 'RUN_RECOVERY_SWEEP_SECONDS',
                 _prune_chat_checkpoints),
+    PeriodicJob('missions.sweep_missions', 'MISSION_SWEEP_SECONDS', _missions),
     PeriodicJob('logs.redact_old_run_detail', 'RUN_DETAIL_RETENTION_SWEEP_SECONDS',
                 _run_detail_retention),
 )
@@ -234,10 +242,6 @@ PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
 #: Beat entries this loop deliberately does not run, and why.
 NOT_IN_PROCESS: dict[str, str] = {
     'orchestrator.sweep_triggers': 'is this loop itself (`sweep_once`)',
-    'missions.sweep_missions': (
-        'waits for each mission run to finish (`start_agent_run_and_wait`), '
-        'which would hold a thread for up to two hours inside the web server; '
-        'it needs a detached launch path first'),
     'workspaces.sweep_workspaces': (
         'drives the workspace engine with its own event loop, and no engine '
         'is configured (`WORKSPACE_ENGINE=none`)'),

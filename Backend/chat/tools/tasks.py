@@ -18,6 +18,7 @@ import json
 import logging
 from typing import Any, Dict
 
+from .agents import worker_caller
 from .registry import tool
 
 from workflow_backend.background import release_db
@@ -351,7 +352,7 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
     try:
         log = await _open_log(
             worker, user, instructions, 'api', thread_id,
-            caller='orchestrator', depth=depth + 1,
+            caller=worker_caller(context)[0], depth=depth + 1,
             parent_step_id=await _parent_step(context),
             delegation_task=instructions, delegation_index=share_index,
         )
@@ -407,7 +408,8 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
         try:
             run = await run_agent(
                 worker, instructions, user=user, thread_id=thread_id,
-                trigger_type='api', caller='orchestrator', depth=depth + 1,
+                trigger_type='api', caller=worker_caller(context)[0],
+                gated_calls=worker_caller(context)[1], depth=depth + 1,
                 log=log,
                 parent_step_id=await _parent_step(context),
                 delegation_task=instructions, delegation_index=share_index,

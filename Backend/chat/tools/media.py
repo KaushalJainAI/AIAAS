@@ -165,6 +165,11 @@ def _prepare(scope, user, args: Dict[str, Any], prompt_cap: int = PROMPT_CHARS):
     from core.safety.content_policy import check_image_prompt
 
     refused = check_image_prompt(prompt)
+    if refused is None:
+        # The model second opinion, only once the patterns passed.
+        from core.safety import moderation
+
+        refused = moderation.check(prompt, where='image prompt')
     if refused is not None:
         raise MediaError(f'{refused.message} Do not retry with different wording.')
 

@@ -55,6 +55,15 @@ class Mission(models.Model):
     wait_for = models.JSONField(default=dict, blank=True)
     next_wake_at = models.DateTimeField(null=True, blank=True)
     last_report = models.TextField(blank=True, default='')
+    #: The run in flight for this mission, or ''. Set by the sweep when it
+    #: launches a run detached, cleared when it reads the finished run back.
+    #: A column rather than "the newest ExecutionLog" so a run is settled
+    #: exactly once, whether it ended here, after a pause, or in another
+    #: process.
+    current_execution_id = models.CharField(max_length=64, blank=True, default='')
+    #: Consecutive runs that changed nothing (no todo change, no file, or a
+    #: failure). Three pause the mission (`service.NO_PROGRESS_RUNS`).
+    no_progress_runs = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
