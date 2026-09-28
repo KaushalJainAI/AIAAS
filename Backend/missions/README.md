@@ -11,7 +11,7 @@ keeps a plan and a notebook file (`/Agents/<name>/missions/<id>/NOTES.md`).
 |---|---|
 | `models.py` | `Mission`: goal, status, plan, budget, deadline, when to wake next |
 | `service.py` | After a run ends: done, waiting, next run, or paused? |
-| `sweep.py` | Starts runs for missions that are due |
+| `sweep.py` | Reads back finished runs, then starts runs for missions that are due |
 | `tasks.py` | Celery entry |
 | `urls.py` | `/api/missions/`: create, list, pause, resume, cancel |
 
@@ -21,9 +21,25 @@ the Activity page in the web app (`src/pages/Runs.tsx`, through
 
 Management command: `run_missions`.
 
-> **Known gap (2026-09-26):** nothing runs the mission sweep in production.
-> The in-process scheduler runs every other periodic job, but this one waits
-> for each run to finish (`start_agent_run_and_wait`), which would hold a
-> web-server thread for up to two hours. Until `sweep.py` starts runs detached
-> (like `agents/scheduler.py::launch`), a mission starts its first run and does
-> not advance. See `NOT_IN_PROCESS` in `agents/scheduler.py`.
+## How one sweep works
+
+The sweep runs every 2 minutes inside the web server (`agents/scheduler.py`,
+`MISSION_SWEEP_SECONDS`). It does two things.
+
+1. **Settle.** A mission with a run out (`current_execution_id`) checks that
+   run. Still running or waiting for an answer? Leave it. Finished? Read it
+   back once: did it call `complete_mission`? `wait_for`? What is the plan
+   now? Then `service.after_run` picks the next step. A failed run goes to
+   `service.after_failed_run`: try again in 10 minutes, pause after three runs
+   in a row that got nowhere.
+2. **Launch.** A mission whose wake time has passed gets its next run. The
+   sweep starts it and does **not** wait for it. The run's goal carries the
+   plan so far, so each run knows where the last one stopped.
+
+A run that is refused (spend cap reached, agent not allowed to run
+unattended) pauses the mission and tells the owner why.
+
+Still open: a waiting mission wakes on its timeout, not on the event it is
+waiting for.
+
+Tests: `tests/test_mission_sweep.py`.

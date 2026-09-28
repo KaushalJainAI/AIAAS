@@ -456,11 +456,10 @@ processes *inside* the backend's 384 MB, which stacked and OOM-killed daphne
 PERIODIC_JOBS` now runs each on its beat interval, read from the same settings,
 under the same lease, each **detached** (`spawn`) so a slow purge never delays
 schedules or lets the lease lapse, and **skipped while its last run is still
-going**. `NOT_IN_PROCESS` names the three it does not run and why: the trigger
-sweep (the loop itself), **missions** (`run_mission_sweep` waits for each run
-via `start_agent_run_and_wait`, up to two hours on a web-server thread — so
-missions still do not advance in production until it gets a detached launch
-path) and the workspace sweep (its own event loop, no engine). A test fails if
+going**. `NOT_IN_PROCESS` names the two it does not run and why: the trigger
+sweep (the loop itself) and the workspace sweep (its own event loop, no
+engine). Missions joined the loop on 2026-09-28 — see "A mission is a chain
+of detached runs". A test fails if
 a beat entry is in neither table. The scheduled-reminder sweep became
 **claim-then-send** in the same change (a conditional UPDATE per firing, handed
 back if delivery fails), because during a rollout the old cron job and the new
@@ -730,9 +729,37 @@ agent's config (graders from an allow-list needing no fixtures; a case naming a
 tool the agent lacks is rejected; each category gets its deterministic anchor)
 and turns real runs + feedback into cases; both save **drafts**
 (`is_active=False`, `needs-review`) the runner skips until accepted on
-`/evals` — **accepting happens on the Evals page only**, never from chat (user decision, 2026-09-24). Built out in the next section (`EVAL_ENVIRONMENTS_PLAN.md`: judge-built test worlds; expected answers set by the judge only). Known gap: a worker delegated *from* an eval run runs as
-`caller='orchestrator'` and can still pause. Tests:
-`eval/tests/test_eval_mode.py`.
+`/evals` — **accepting happens on the Evals page only**, never from chat (user decision, 2026-09-24). Built out in the next section (`EVAL_ENVIRONMENTS_PLAN.md`: judge-built test worlds; expected answers set by the judge only). A worker delegated *from* an eval run
+(`invoke_subagent`, `run_agent`, `start_tasks`) inherits `caller='eval'` and
+the eval's gated-call policy through `chat/tools/agents.py::worker_caller`
+(2026-09-28) — it used to run as `orchestrator`, so it could pause on an
+approval nobody answers and its cost counted against the real spend cap. In a
+world eval the delegation tools are withheld anyway; this matters for cases run
+outside a world. Tests: `eval/tests/test_eval_mode.py`,
+`eval/tests/test_delegated_eval_workers.py`.
+
+**A mission is a chain of detached runs (2026-09-28).** The mission loop had
+never been connected: the sweep passed `mission_id=` to
+`start_agent_run_and_wait`, which did not take it (so every launch raised),
+`missions/service.py::after_run` had no caller, the mission tools read
+`context['mission_id']` that nothing set, and the sweep waited for each run, so
+production never ran it. Now `missions/sweep.py::sweep` does two passes.
+**Settle**: a mission whose `current_execution_id` names a finished run is read
+back once (`complete_mission` / `wait_for` from the trace, todos, spend) and
+`after_run` decides done / waiting / next / paused; a failed or timed-out run
+goes to `after_failed_run` instead (a failed run's empty plan would otherwise
+read as "no open todos" = done), which retries after 10 minutes and pauses after
+three runs without progress; a paused run (it asked a question) is left until it
+ends — resume keeps its execution id. **Launch**: due missions are claimed by a
+conditional UPDATE (two sweeps start one run) and started **detached** with
+`caller='mission'` and the plan in the goal; a refusal (spend cap, not
+unattended) pauses the mission with the reason. `mission_id` rides
+`start_agent_run` → `ExecutionLog.mission` → `TurnContext.mission_id` → the
+tool context, and a resumed run reads it back from its log. It runs in
+`PERIODIC_JOBS` every `MISSION_SWEEP_SECONDS` (120); Celery and
+`manage.py run_missions` call `run_mission_sweep()`, which waits. Still open:
+nothing wakes a waiting mission on its *event* — only its timeout does. Tests:
+`missions/tests/test_mission_sweep.py`.
 
 **An eval runs inside a world the judge built (2026-09-24).**
 `EvalWorld` is one fake situation per suite (brief, surfaces, fixtures,
@@ -2460,9 +2487,18 @@ messages (`OUTBOUND_AI_DISCLOSURE`). **No CAPTCHA bypass** in `browser_act`
 beat `logs.redact_old_run_detail`, `manage.py purge_run_detail`): after
 `RUN_DETAIL_RETENTION_DAYS` (180) a finished run's turn reasoning and step
 payloads are cleared, the run record kept; paused runs never age. Published
-pages carry an AI notice. Open, and listed in the doc: pattern-based content
-policy (no model moderation yet), TOFU pins, no C2PA, DPDP consent/export
+pages carry an AI notice. **Model moderation** (2026-09-28,
+`core/safety/moderation.py`): after the patterns pass, image prompts (tool and
+Imagine) and published pages are classified by `openai/gpt-oss-safeguard-20b`
+against *our* three-category policy, on the platform key. It can only refuse
+more, fails open (the patterns already ran), caches verdicts 10 min, and is off
+when `CONTENT_MODERATION_MODEL` is blank (as in tests). Not on every chat
+message — a second model call per turn costs latency where users wait most.
+Llama Guard 4 was measured and rejected: it flagged "nude lipstick" and filed a
+nerve-agent recipe under S5 (defamation). Open, and listed in the doc: chat
+messages are pattern-only, TOFU pins, no C2PA, DPDP consent/export
 before May 2027, no robots.txt check. Tests: `core/tests/test_content_policy.py`,
+`core/tests/test_moderation.py`,
 `chat/tests/test_safety_guards.py`, `mcp_integration/tests/test_tool_pins.py`,
 `logs/tests/test_retention.py`.
 
@@ -2508,6 +2544,9 @@ SOLUTION_CAPTURE_MODEL=            # Blank = CONTEXT_SUMMARY_MODEL
 RUN_DETAIL_RETENTION_DAYS=180      # Finished runs lose reasoning + tool payloads after this (record kept)
 OUTBOUND_DAILY_CAP=100             # Messages an account's agents may send per 24 h, all channels
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
+CONTENT_MODERATION_MODEL=openai/gpt-oss-safeguard-20b  # Model check on image prompts + pages; blank = off
+CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns already ran)
+MISSION_SWEEP_SECONDS=120          # Mission sweep interval (in-process scheduler)
 SENTRY_DSN=                        # Error reporting for web + worker; blank = off (workflow_backend/observability.py)
 SENTRY_TRACES_SAMPLE_RATE=0        # Performance tracing; off by default on the small box
 BACKUP_S3_BUCKET=                  # manage.py backup_db uploads here when set; BACKUP_DIR / BACKUP_KEEP for local copies

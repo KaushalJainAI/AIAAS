@@ -101,6 +101,7 @@ subagents, which the user configures tool by tool.
 | Control | What it does | Code |
 |---|---|---|
 | Content policy | The platform's own floor for three categories where **we** carry the legal duty: sexual content involving minors, sexual deepfakes of real people, and mass-casualty (CBRN) weapon instructions. Runs on chat and agent requests, image prompts (chat tool and Imagine page), outbound messages and published pages. Deterministic, disguise-aware, logged by category, never quotes the request back. | `core/safety/content_policy.py` |
+| Model moderation | A second opinion after the patterns pass, on image prompts and published pages only: `openai/gpt-oss-safeguard-20b` classifies against our own three-category policy (not the model's taxonomy). Can only refuse more; fails open; verdicts cached 10 min; platform key; `CONTENT_MODERATION_MODEL` blank = off. | `core/safety/moderation.py` |
 | AI labels on images | Every generated image gets a visible "AI-generated" tag and metadata (PNG text / EXIF). | `core/safety/labels.py` |
 | AI notices | Published pages say they may be AI-generated. Messages no person reviewed end with "Sent by an AI assistant on behalf of the account owner." | `PublishedPageView.tsx`, `outbound.disclose` |
 | No CAPTCHA bypass | Browser steps may not touch a CAPTCHA; a person solves it through an `ask_user` step. | `chat/tools/browser.py` |
@@ -144,10 +145,12 @@ subagents, which the user configures tool by tool.
 
 Stated plainly, so nobody reads this document as "solved":
 
-1. **Content policy is pattern-based.** It stops the obvious and the disguised,
-   not a determined rephrasing. We rely on each model provider's own safety
-   filter for everything else and for the long tail. A model-based moderation
-   classifier on inputs and outputs is the next step.
+1. **Chat messages get only the pattern check.** Image prompts and published
+   pages also get a model check (`core/safety/moderation.py`, 2026-09-28), but
+   chat requests do not: a second model call on every turn costs latency where
+   users wait most. The model check fails open, so a moderation outage falls
+   back to patterns. We rely on each model provider's own safety filter for the
+   long tail.
 2. **Chat still holds two legs of the trifecta** (it can read the user's data
    and read the web). The third leg (sending) is closed by URL provenance and
    by chat having no send tools, but a few bits can still leak through a short

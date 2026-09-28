@@ -30,6 +30,7 @@ through.
 | `safety/security.py` | Checks each message *you* send for attacks on the model ("ignore your instructions..."). A match refuses the whole request before it is saved; anything else passes through unchanged. It never rewrites your text |
 | `safety/provenance.py` | Defends against attacks hidden in what a *tool* read (a web page, an email). If a result looks like an instruction, `auto` mode asks before anything irreversible for the rest of that turn |
 | `safety/content_policy.py` | Content the platform refuses to make, whoever asks: sexual content involving minors, sexual deepfakes of real people, and weapons of mass destruction. Checked on messages, image prompts, outbound messages and published pages |
+| `safety/moderation.py` | A second check by a small safety model, after the word patterns pass, for image prompts and published pages only. It uses our own three categories, can only refuse more, and lets things through if the model is down |
 | `safety/labels.py` | Puts a visible "AI-generated" tag and AI metadata on every generated image |
 | `safety/outbound.py` | One check for every message an agent sends: the content policy, a daily limit per account, and an "AI assistant" line on messages nobody reviewed |
 

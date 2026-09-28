@@ -521,9 +521,10 @@ The design helps: one door for runs, one funnel for model calls, one registry
 for tools. Each move changes one place.
 
 **K2. What are the known limitations today?**
-Single box and single web process; steering is in-process; missions don't
-advance in production yet (they need a detached launch path); the content
-policy is pattern-based, not model-based; MCP tool pinning is trust-on-first-use.
+Single box and single web process; steering is in-process; a waiting mission
+wakes on its timeout, not on its event; chat messages get only the pattern
+content check (the model check runs on image prompts and published pages);
+MCP tool pinning is trust-on-first-use.
 Solution memory (2026-09-28) is built but not yet deployed; its search
 thresholds are first guesses waiting for an offline test set; and agent runs
 don't carry an organisation yet, so they only search their owner's personal
