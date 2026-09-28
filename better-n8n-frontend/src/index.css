@@ -458,6 +458,82 @@
   }
 }
 
+/* ── Native dropdowns ──
+   A classic `<select>` opens a list the browser draws itself: in the dark
+   theme Chrome paints the chosen option as a pale-blue bar with grey text
+   (the screenshot that prompted this), whatever the page says. Chromium 135+
+   lets the page draw the list instead (`appearance: base-select`), so every
+   native select in the app gets the popover surface and the primary
+   highlight from one rule, with no component changes. Browsers without it
+   keep their native list, which follows the `color-scheme` ThemeContext
+   sets on <html>; the plain option colours below cover what they honour. */
+select option,
+select optgroup {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+  select {
+    /* The call sites set border, radius, padding and background with
+       utilities; these only keep the chosen label and arrow in line. */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: inherit;
+  }
+  select::picker-icon {
+    color: hsl(var(--muted-foreground));
+    transition: rotate 150ms;
+  }
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+  ::picker(select) {
+    margin-block: 4px;
+    padding: 4px;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    background: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+    max-height: 320px;
+  }
+  select option {
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.375rem;
+    background: transparent;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+  select option:hover,
+  select option:focus-visible {
+    /* accent, not secondary: in the dark theme secondary is the popover's
+       own grey, so a hover would be invisible. */
+    background: hsl(var(--accent));
+    outline: none;
+  }
+  select option:checked {
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+    font-weight: 500;
+  }
+  select option:disabled {
+    color: hsl(var(--muted-foreground));
+    cursor: default;
+  }
+  select optgroup {
+    padding-top: 0.25rem;
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    background: transparent;
+  }
+}
+
 /* Stops iOS from re-scaling text when the device is turned to landscape,
    which otherwise makes headings jump a size mid-rotation. */
 html {

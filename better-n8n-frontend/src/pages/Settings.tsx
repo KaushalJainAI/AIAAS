@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Settings as SettingsIcon,
   User,
   Bell,
   Brain,
-  Building2,
   // Shield,  // MVP: unused while the Security tab is hidden
   Palette,
   Code,
@@ -35,7 +34,6 @@ import Select from '../components/ui/Select';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import NotificationsTab from '../components/settings/NotificationsTab';
 import MemoryTab from '../components/settings/MemoryTab';
-import OrganizationTab from '../components/settings/OrganizationTab';
 import { useAIModels } from '../hooks/useAIModels';
 import {
   DEFAULT_EFFORT, EFFORT_LABELS, effortLevelsFor, nearestEffort,
@@ -356,7 +354,6 @@ export default function Settings() {
     { id: 'billing' as const, label: 'Billing', icon: CreditCard },
     { id: 'notifications' as const, label: 'Notifications', icon: Bell },
     { id: 'memory' as const, label: 'Memory', icon: Brain },
-    { id: 'organization' as const, label: 'Organisation', icon: Building2 },
     // MVP: Security is the only tab with no `case` in renderContent(), so it
     // fell through to the "coming soon" default. Hidden rather than built out.
     // The 'security' member stays on SettingsTab and the default branch stays
@@ -927,8 +924,11 @@ export default function Settings() {
         return <NotificationsTab />;
       case 'memory':
         return <MemoryTab />;
+      // Organisation moved to its own page beside Solutions. A persisted or
+      // deep-linked 'organization' tab still lands there rather than on the
+      // "coming soon" default.
       case 'organization':
-        return <OrganizationTab />;
+        return <Navigate to="/solutions?tab=organisation" replace />;
 
       default:
         return (

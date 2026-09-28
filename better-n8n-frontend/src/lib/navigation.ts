@@ -7,7 +7,7 @@ import {
   FileText,
   FlaskConical,
   GraduationCap,
-  Lightbulb,
+  Building2,
   KeyRound,
   LayoutGrid,
   MessageCircle,
@@ -67,7 +67,7 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Improve',
     items: [
-      { icon: Lightbulb, label: 'Solutions', path: '/solutions' },
+      { icon: Building2, label: 'Organisation & Solutions', path: '/solutions' },
       { icon: GraduationCap, label: 'Skills', path: '/skills' },
       { icon: FlaskConical, label: 'Evals', path: '/evals' },
     ],

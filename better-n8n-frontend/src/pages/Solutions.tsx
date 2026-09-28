@@ -1,4 +1,11 @@
 /**
+ * Organisation & Solutions — who you share with, and what you have solved.
+ *
+ * Two tabs (`?tab=solutions|organisation`): the solutions library, and the
+ * organisation settings that used to sit in Settings (create an org, add
+ * people, pick where new chats start). They share a page because the second
+ * decides what the first shows.
+ *
  * Solutions — problems your organisation has already solved.
  *
  * Saved automatically when someone says a fix worked (or gives it a thumbs
@@ -14,11 +21,12 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Lightbulb, Loader2, Search, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Lightbulb, Loader2, Search, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
 
 import orgsService from '../api/orgs';
 import solutionsService, { type ReviewKind, type Solution } from '../api/solutions';
 import PageHeader from '../components/layout/PageHeader';
+import OrganizationTab from '../components/settings/OrganizationTab';
 import { toast } from '../lib/toastStore';
 import { cn } from '../lib/utils';
 
@@ -185,7 +193,49 @@ function Detail({ org, id, onClose }: { org: number | null; id: number; onClose:
   );
 }
 
-export default function Solutions() {
+type Tab = 'solutions' | 'organisation';
+
+const TABS: { id: Tab; label: string; icon: typeof Lightbulb }[] = [
+  { id: 'solutions', label: 'Solutions', icon: Lightbulb },
+  { id: 'organisation', label: 'Organisation', icon: Building2 },
+];
+
+export default function OrganisationAndSolutions() {
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get('tab') === 'organisation' ? 'organisation' : 'solutions';
+  const pick = (next: Tab) => {
+    const q = new URLSearchParams(params);
+    q.delete('id');
+    if (next === 'solutions') q.delete('tab'); else q.set('tab', next);
+    setParams(q, { replace: true });
+  };
+
+  return (
+    <div className="min-h-full bg-background">
+      <PageHeader
+        title="Organisation & Solutions"
+        subtitle="The people you share with, and the problems already solved"
+        icon={Building2}
+      />
+      <div className="px-4 pt-6 md:px-8">
+        <div className="flex gap-1" role="tablist" aria-label="Section">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pick(id)}
+              className={cn('inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[13px] transition-colors',
+                tab === id ? 'border-primary/40 bg-primary/10 font-medium' : 'border-border/60 text-muted-foreground hover:text-foreground')}>
+              <Icon className="h-3.5 w-3.5" /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tab === 'organisation'
+        ? <div className="px-4 py-6 md:px-8"><OrganizationTab /></div>
+        : <SolutionsLibrary />}
+    </div>
+  );
+}
+
+function SolutionsLibrary() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
@@ -209,12 +259,7 @@ export default function Solutions() {
   };
 
   return (
-    <div className="min-h-full bg-background">
-      <PageHeader
-        title="Solutions"
-        subtitle="Problems already solved, so nobody has to solve them twice"
-        icon={Lightbulb}
-      />
+    <div>
       <div className="px-4 py-6 md:px-8">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <select
