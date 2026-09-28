@@ -940,3 +940,67 @@ batch stream updates.
 | Code splitting | `App.tsx` `lazyPage` | Eager auth, lazy everything else |
 | Allow-list validation | `lib/nextPath.ts`, `lib/safeUrl.ts` | Refuse, don't repair |
 | Golden tables across languages | `cron.test.ts` ↔ `test_schedules.py` | One expected output, two implementations |
+| Honest state display | `lib/memory.ts::isHidden` | Show what the system really uses (§11.13) |
+
+---
+
+### 11.13 Recent additions (2026-09-28): showing users the real state
+
+The organisations and solution-memory feature (Part 1 §3.3) added three
+screens. They follow patterns already in this chapter, plus one new rule worth
+naming: **show people what the system actually does, not what they assume.**
+
+```mermaid
+flowchart LR
+    subgraph Settings
+        O["Organisation tab<br/>members, active org"]
+        M["Memory tab<br/>marks facts the model isn't shown"]
+    end
+    subgraph Chat
+        H["ChatHeader badge<br/>Sharing with Acme / Private"]
+        D["ChatSettingsDialog<br/>share_solutions switch"]
+    end
+    S["/solutions page<br/>read, confirm, flag, remove"]
+    O --> API[api/orgs.ts]
+    S --> API2[api/solutions.ts]
+    M --> API3[api/memory.ts]
+    H --> API4[api/chat.ts]
+    D --> API4
+```
+
+**1. The Memory tab shows what the model can't see.** The backend returns
+`in_prompt` for each stored fact, computed by the *same* selection that builds
+the prompt (Part 2 §8.11). The tab greys out facts with `in_prompt: false`, so
+"I told it this and it forgot" becomes visible instead of mysterious. The check
+is written defensively:
+
+```ts
+export function isHidden(memory: UserMemory): boolean {
+  return memory.in_prompt === false;   // only an explicit false counts
+}
+```
+
+An older server sends no field at all, and `undefined` must not be read as
+"hidden". This is §T6's rule (`??` and `===` vs truthiness) applied: **absent
+and false are different values.**
+
+**2. The chat header says where a solution would go.** A badge reads
+"Sharing with ⟨org⟩" or "Private", and the settings dialog has a switch
+(`share_solutions`). Anything the system might share should be visible at the
+place you're working, not buried in settings.
+
+**3. A chat's organisation is shown, never edited.** The backend makes
+`ChatSession.org` read-only. The Organisation tab changes the *active* org,
+which only affects **new** chats, and it says so. The UI matches the backend
+rule rather than offering a control the API would refuse.
+
+**4. The Solutions page** is ordinary React Query (§11.2.1): `useQuery` to
+list, `useMutation` to confirm ("worked"), report a failure, flag as doubtful,
+change who can see it, or remove. Each claim is labelled by kind ("General
+rule", "Steps", "Setting", "Changes often"...) and a stale one is marked
+"check", mirroring the backend's read-time freshness (Part 2 §8.10). The page
+is lazy-loaded (`lazyPage`) and listed in `lib/navigation.ts`.
+
+**Interview line:** "When the system makes a choice the user can't see, like
+which memories fit in the prompt or whether a fix will be shared, I surface
+that choice in the UI from the same code path that makes it."

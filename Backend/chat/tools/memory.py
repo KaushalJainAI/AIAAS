@@ -33,8 +33,8 @@ def _user(context: Dict):
     "function": {
         "name": "remember_about_user",
         "description": (
-            "Store one durable fact about this user so you still know it in "
-            "future conversations. Store something ONLY if it would change how "
+            "Store one durable fact about this user so they never have to tell "
+            "you again. Store something ONLY if it would change how "
             "you answer later: their role or expertise, how they like answers "
             "(short, detailed, code-first), their timezone or language, "
             "long-running projects, tools and stacks they use, constraints "
@@ -115,13 +115,24 @@ async def remember_about_user(args: Dict, context: Dict) -> str:
     if row is None:
         return json.dumps({"error": "Give the fact to remember."})
 
-    return json.dumps({
+    others = await sync_to_async(user_memory.facts_in)(
+        user, row.category, exclude_id=row.id)
+    result = {
         "stored": row.text,
         "category": row.category,
         # Said plainly so the model does not "correct" a repeat by rewording it
         # and creating a near-duplicate of a fact it already had.
         "already_known": not created,
-    })
+    }
+    if others:
+        # The near-duplicates `normalise` cannot see ("works in IST" beside
+        # "is in the IST timezone") are visible here, in the model's own words.
+        result["other_facts_in_category"] = others
+        result["note"] = (
+            "If one of these says the same thing as the fact just stored, or "
+            "is now out of date, remove it with forget_about_user."
+        )
+    return json.dumps(result)
 
 
 @tool({

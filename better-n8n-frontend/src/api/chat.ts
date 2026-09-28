@@ -32,6 +32,15 @@ export interface ChatSession {
    * picker, which behave as 'ask'.
    */
   autonomy?: string;
+  /**
+   * The organisation this chat belongs to, fixed when it was created from the
+   * user's active org (null = personal). Solutions saved from this chat land
+   * in that org and no other.
+   */
+  org?: number | null;
+  org_name?: string | null;
+  /** Whether solutions from this chat are shared with `org`. The per-chat switch. */
+  share_solutions?: boolean;
   created_at: string;
   updated_at: string;
   messages: ChatMessage[];

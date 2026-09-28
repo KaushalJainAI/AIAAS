@@ -64,6 +64,29 @@ logger = logging.getLogger(__name__)
 
 # ── Sessions ─────────────────────────────────────────────────────────────────
 
+def _org_fields(user, data) -> dict:
+    """The org a new chat belongs to, and its starting share setting.
+
+    Taken from the owner's *active* org at creation and never again, so the
+    chat's solutions have one fixed home (`solutions/`). An explicit
+    `share_solutions` on the request wins over the org's default. A failed
+    read means a personal chat — never an org the user may not be in.
+    """
+    try:
+        from core import orgs
+        from core.models import Organization
+
+        org_id = orgs.active_org_id(user)
+        if not org_id:
+            return {'org': None, 'share_solutions': False}
+        org = Organization.objects.get(id=org_id)
+    except Exception:  # noqa: BLE001
+        return {'org': None, 'share_solutions': False}
+    share = data.get('share_solutions')
+    return {'org': org,
+            'share_solutions': org.share_by_default if share is None else bool(share)}
+
+
 class ChatSessionViewSet(viewsets.ModelViewSet):
     """CRUD for standalone chat sessions."""
 
@@ -71,7 +94,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        sessions = ChatSession.objects.filter(user=self.request.user)
+        sessions = ChatSession.objects.filter(user=self.request.user).select_related('org')
         if self.action == 'list':
             return sessions
         # The transcript and each message's attachments, in two queries rather
@@ -89,6 +112,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         # again every morning. An explicit value on the request wins — read
         # from the raw input, because the serializer already filled the model
         # default by validation time and the two are indistinguishable there.
+        extra = _org_fields(self.request.user, self.request.data or {})
         if not (self.request.data or {}).get('autonomy'):
             try:
                 from core.models import UserProfile
@@ -99,9 +123,9 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
                 autonomy = 'ask'
             if autonomy not in ('ask', 'auto', 'plan'):
                 autonomy = 'ask'
-            serializer.save(user=self.request.user, autonomy=autonomy)
+            serializer.save(user=self.request.user, autonomy=autonomy, **extra)
         else:
-            serializer.save(user=self.request.user)
+            serializer.save(user=self.request.user, **extra)
 
     def perform_destroy(self, instance) -> None:
         """Delete the session along with its RAG documents and vector index."""

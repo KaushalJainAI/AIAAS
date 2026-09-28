@@ -778,9 +778,14 @@ class UserMemoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from . import memory as user_memory
         from .models import UserMemory
 
         rows = UserMemory.objects.filter(user=request.user)
+        # The same selection the prompt makes, so the tab can mark a fact that
+        # is stored but not currently shown to the assistant — which is a fact
+        # the user will otherwise end up repeating.
+        shown = user_memory.in_prompt_ids(request.user.id)
         return Response({
             'memories': [
                 {
@@ -789,12 +794,14 @@ class UserMemoryView(APIView):
                     'category': row.category,
                     'source': row.source,
                     'updated_at': row.updated_at,
+                    'in_prompt': row.id in shown,
                 }
                 for row in rows
             ],
             # So a UI can say "24 of 25" rather than leaving the user to guess
             # why an old fact vanished.
             'max_per_category': UserMemory.MAX_PER_CATEGORY,
+            'max_prompt_chars': user_memory.MAX_PROMPT_CHARS,
         })
 
     def delete(self, request, memory_id=None):

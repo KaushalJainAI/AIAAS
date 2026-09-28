@@ -55,11 +55,13 @@ Useful for the "why". The code is the source of truth where they differ.
 | [OFFICE_SUITE_PLAN.md](OFFICE_SUITE_PLAN.md) | All six phases built 2026-09-25: Docs, Sheets and Slides as full-screen apps (TipTap, Univer, CodeMirror), autosave and undo, version history, export, previews for every file type |
 | [CONCURRENCY_LAG_FIX_PLAN.md](CONCURRENCY_LAG_FIX_PLAN.md) | Phases 0–5 built 2026-09-24. Phase 5 only helps after the server is resized; Phase 6 depends on measurements |
 | [VFS_HARDENING_PLAN.md](VFS_HARDENING_PLAN.md) | Built 2026-09-26: concurrent-write locks, stale-write guard, move/copy verbs, read/file search upgrades |
+| [PROMPT_AND_MEMORY_PLAN.md](PROMPT_AND_MEMORY_PLAN.md) | Built 2026-09-28: chat no longer sends earlier turns twice, user memory keeps "who you are" first and shows what fits, and both system prompts fixed (charts, modes, questions, dates, untrusted sources) |
 
 ## Plans in progress or not started
 
 | Doc | Status |
 |---|---|
+| [SOLUTION_MEMORY_PLAN.md](SOLUTION_MEMORY_PLAN.md) | Mostly built 2026-09-28: organisations, the solution library, auto-capture, freshness labels, "doubtful" flags, `/solutions`. Benchmark suite (S5) not built |
 | [CUSTOM_TOOLS_PLAN.md](CUSTOM_TOOLS_PLAN.md) | Approved, being built: user-made tools |
 | [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Approved, being built |
 | [EVAL_EXPANSION_PLAN.md](EVAL_EXPANSION_PLAN.md) | Eval datasets for every agent |

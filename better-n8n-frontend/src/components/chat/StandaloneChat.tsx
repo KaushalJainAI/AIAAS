@@ -927,6 +927,10 @@ export default function StandaloneChat() {
       setCurrentSession(prev => (prev ? { ...prev, ...updated } : updated));
       if ('memory_enabled' in patch) {
         toast.success(patch.memory_enabled ? 'Memory on' : 'Memory off for this chat');
+      } else if ('share_solutions' in patch) {
+        toast.success(patch.share_solutions
+          ? 'Solutions from this chat will be shared with your organisation'
+          : 'Solutions from this chat stay private');
       } else {
         toast.success('Settings saved');
         setShowSessionSettings(false);

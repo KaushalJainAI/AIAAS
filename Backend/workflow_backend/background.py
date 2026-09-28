@@ -79,6 +79,21 @@ def spawn(
     return loop.create_task(_detached(coro), name=name, context=contextvars.Context())
 
 
+def run_in_thread(coro: Coroutine[Any, Any, Any], *, name: str | None = None) -> None:
+    """
+    Start `coro` from *sync* code — a DRF view, a signal — on a thread of its own.
+
+    `spawn()` needs a running event loop, which a sync request does not have.
+    This gives the job its own loop on a daemon thread, under the same
+    `_detached` wrapper, so it gets its own executor and closes its database
+    connection when it ends rather than leaking one per job.
+    """
+    import threading
+
+    threading.Thread(target=asyncio.run, args=(_detached(coro),),
+                     daemon=True, name=name).start()
+
+
 async def release_db() -> None:
     """Hand this thread's DB connection back to the pool before a long wait.
 

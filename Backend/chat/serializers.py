@@ -57,6 +57,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
     total_cost_usd = serializers.DecimalField(
         max_digits=12, decimal_places=6, read_only=True, coerce_to_string=True,
     )
+    org_name = serializers.CharField(source='org.name', read_only=True, default=None)
 
     class Meta:
         model = ChatSession
@@ -64,11 +65,15 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             'id', 'title', 'intent', 'llm_provider', 'llm_model', 'llm_effort',
             'system_prompt', 'memory_enabled', 'autonomy', 'total_tokens_used',
             'total_cost_usd', 'cost_source', 'paid_by',
+            'org', 'org_name', 'share_solutions',
             'created_at', 'updated_at', 'messages'
         ]
+        # `org` is fixed at creation (from the active org) and never written
+        # through the API — moving a chat between orgs would move its
+        # solutions' ownership with it.
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'messages', 'total_tokens_used',
-            'total_cost_usd', 'cost_source', 'paid_by',
+            'total_cost_usd', 'cost_source', 'paid_by', 'org', 'org_name',
         ]
 
     def to_representation(self, instance):

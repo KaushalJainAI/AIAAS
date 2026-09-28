@@ -11,6 +11,7 @@ What lives where:
   web           the open web — search, research, fetch, scrape
   knowledge     the user's knowledge bases, through the RAG tiers
   memory        durable facts about the user, across sessions
+  solutions     the org's solved problems: search, save, review (org-scoped)
   planning      the run's own plan (`update_todos`)
   conversation  reading back from this session's own record
   agents        finding and running the user's saved agents
@@ -81,6 +82,7 @@ from . import (  # noqa: F401  — imported for their registration side effect
     publish,
     runs,
     sandbox,
+    solutions,
     talk,
     tasks,
     vision,

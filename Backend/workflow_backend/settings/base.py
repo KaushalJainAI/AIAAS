@@ -216,6 +216,9 @@ INSTALLED_APPS = [
     # app left inert `evals_*` tables and an `evals.0001_initial` row in dev
     # databases, so the new tables must not be named the same thing.
     'eval',
+    # What an organisation has solved, found again by the next person
+    # (`docs/SOLUTION_MEMORY_PLAN.md`).
+    'solutions',
 ]
 
 SITE_ID = 1
@@ -892,6 +895,15 @@ CONTEXT_SUMMARY_PROVIDER = os.environ.get('CONTEXT_SUMMARY_PROVIDER', 'nvidia')
 CONTEXT_SUMMARY_MODEL = os.environ.get(
     'CONTEXT_SUMMARY_MODEL', 'nvidia/nemotron-3.5-lightning-30b-a3b'
 )
+
+# Automatic solution capture (`solutions/capture.py`): the cheap model that
+# decides whether a solved chat is worth keeping and extracts the record.
+# Blank falls through to the context-summary pair, which runs on the platform
+# key. `SOLUTION_CAPTURE_ENABLED=False` stops automatic capture; explicit
+# saves (`save_solution`, the page) keep working.
+SOLUTION_CAPTURE_PROVIDER = os.environ.get('SOLUTION_CAPTURE_PROVIDER', '')
+SOLUTION_CAPTURE_MODEL = os.environ.get('SOLUTION_CAPTURE_MODEL', '')
+SOLUTION_CAPTURE_ENABLED = os.environ.get('SOLUTION_CAPTURE_ENABLED', 'True').lower() in ('1', 'true', 'yes')
 
 # Which model writes an agent's configuration from the builder's chat pane
 # (`agents/views/builder.py`). Blank falls through to the context-summary pair

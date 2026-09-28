@@ -87,11 +87,10 @@ SUMMARY_PREFIX = "[EARLIER WORK IN THIS RUN — SUMMARY]"
 class CurationPolicy:
     """What a caller has asked the curator to be allowed to do.
 
-    Chat leaves this at the default and is therefore unchanged: `enabled=False`
-    means `curate` returns nothing to apply, and the only bound on the window
-    stays `clamp_input`, exactly as before. The agent runtime builds a real
-    policy from `SubAgent.runtime_settings`, so callers differ in configuration
-    rather than in code path.
+    `enabled=False` (the default) means `curate` returns nothing to apply, and
+    the only bound on the window stays `clamp_input`. The agent runtime builds
+    a real policy from `SubAgent.runtime_settings`; chat uses `CHAT_POLICY`, so
+    callers differ in configuration rather than in code path.
     """
 
     enabled: bool = False
@@ -153,6 +152,18 @@ class CurationPolicy:
             recursive=recursive,
             indexing=indexing,
         )
+
+
+#: Chat's policy. A chat turn used to have no curation at all, which was right
+#: while a turn meant a search or two; as the orchestrator (`run_agent`,
+#: `wait_tasks`, `answer_subagent`) one turn can go many iterations. Only the
+#: two free mechanisms: compaction replaces old tool results with a record and
+#: indexing keeps what was cut reachable. The fold is off because it is a paid
+#: model call on a path the user is watching, and chat has no builder toggle
+#: through which anyone chose to pay it.
+CHAT_POLICY = CurationPolicy(
+    enabled=True, compaction=True, recursive=False, indexing=True,
+)
 
 
 @dataclass(slots=True)

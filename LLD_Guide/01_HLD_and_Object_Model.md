@@ -134,6 +134,28 @@ sequenceDiagram
 5. Every model call becomes an `AgentTurn` row, every tool call an `AgentStep`,
    under one `ExecutionLog`.
 
+**Where a chat's earlier turns come from (fixed 2026-09-28).** A chat's
+earlier messages reach the model from **one place only: the database**
+(`ChatMessage`, windowed and summarised). The checkpointer holds only the
+*current* turn, and it's cleared at the start of each new turn
+(`run_turn(fresh_transcript=True)`). Before that fix, the new message was
+appended to every earlier turn still in the checkpoint, so the provider
+received the conversation **twice**: once summarised from the database, once in
+full with every old tool result. The pause-and-resume for approvals still works,
+because the clear happens only on a *new* turn, never on a resume.
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: two copies"]
+        DB1[(ChatMessage history)] --> P1[prompt]
+        CP1[(checkpoint: all earlier turns + tool results)] --> P1
+    end
+    subgraph After["After: one source"]
+        DB2[(ChatMessage history)] --> P2[prompt]
+        CP2[(checkpoint: this turn only)] --> P2
+    end
+```
+
 ### 2.4 HLD decisions worth defending
 
 ```mermaid
@@ -266,5 +288,75 @@ classDiagram
 **Interview line:** "I model *records* as rows so they're queryable, *settings*
 as frozen dataclasses so they can't drift mid-run, and *policy* as one object
 that owns both the offer and the check."
+
+### 3.3 Organisations and solution memory (added 2026-09-28)
+
+A new feature: **what one person in an organisation solved, the next person
+finds again**. Examples: a fix for a failing deploy, or how to reset a VPN
+token. It's the `solutions/` app plus `core.Organization` / `Membership`.
+
+```mermaid
+classDiagram
+    Organization "1" --> "*" Membership : people
+    Membership --> User : with a role
+    User --> Organization : active_org (where new chats start)
+    ChatSession --> Organization : org (fixed at creation)
+    Organization "1" --> "*" Solution : captured in
+    Solution "1" --> "*" SolutionReview : worked / failed / doubtful
+    Solution "1" --> "*" SolutionSignature : error lines
+    Solution "1" --> "*" SolutionTerm : keywords
+    Solution "1" --> "*" SolutionVector : float16 embeddings
+
+    class Organization{
+      name
+      share_by_default
+    }
+    class Membership{
+      role: owner / admin / member
+    }
+    class ChatSession{
+      org
+      share_solutions
+    }
+    class Solution{
+      problem, symptoms
+      root_cause, resolution
+      claims: text + kind
+      environment
+      shared, status
+      valid_as_of
+      confirmations, failures
+      doubtful
+    }
+```
+
+Why it's shaped like this:
+
+- **A chat belongs to one org for its whole life.** `ChatSession.org` is set
+  when the chat is created and can't be changed through the API. So a person
+  who is in two organisations can't carry one org's fixes into the other.
+- **Sharing is a per-chat switch** (`share_solutions`), starting at the org's
+  `share_by_default`. A chat with sharing off saves privately.
+- **Every read goes through one function**, `solutions/access.py::visible`, and
+  a test fails if any other code filters `Solution.objects` (see §8.9).
+- **Freshness isn't stored.** Each claim has a *kind* (`principle`,
+  `procedure`, `versioned`, `config`, `time_sensitive`), and whether it is
+  still safe to state is worked out **when it's read**, from `valid_as_of`
+  (see §8.10).
+- **Search indexes are separate small tables** (signatures, keyword terms,
+  float16 vectors), loaded per scope. One in-memory index per organisation
+  wouldn't fit in the 384 MB container.
+
+```mermaid
+flowchart LR
+    Chat["Chat in org X"] --> V["visible(user, org X)"]
+    V --> S1["X's shared solutions<br/>(only while you're a member)"]
+    V --> S2["your private solutions<br/>captured in X"]
+    V -. "never" .-> Y["anything from org Y"]
+```
+
+**Interview line:** "Org isolation isn't a filter each query remembers to add.
+There's one read function, the org comes from the chat rather than from a tool
+argument, and a test fails if anyone queries the table another way."
 
 ---

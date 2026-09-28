@@ -1105,6 +1105,139 @@ Easy to audit, safe under concurrency. Watch for double counting: images are
 excluded from the ledger total because they already ride in
 `ExecutionLog.cost_usd`.
 
+### 8.9 Choke point: one read door, enforced by a test (added 2026-09-28)
+
+[`solutions/access.py`](../Backend/solutions/access.py)
+
+```mermaid
+flowchart LR
+    T[chat tools] --> V
+    A[REST API] --> V
+    S[search] --> V
+    C[capture dedupe] --> V
+    V["visible(user_id, org_id)<br/>the only read"] --> DB[(Solution table)]
+    X["any other Solution.objects.filter(...)"] -. "test fails" .-> DB
+    style X fill:#fee2e2,stroke:#dc2626
+```
+
+```python
+def visible(user_id, org_id, *, include_inactive=False) -> QuerySet:
+    if not user_id:
+        return Solution.objects.none()
+    if org_id:
+        rule = Q(author_id=user_id, shared=False, org_id=org_id)   # my private rows from this org
+        if is_member(user_id, org_id):                             # checked live, every call
+            rule |= Q(org_id=org_id, shared=True)                   # the org's shared rows
+        else:
+            return Solution.objects.none()                          # left the org: nothing
+    else:
+        rule = Q(author_id=user_id, shared=False, org__isnull=True) # personal chat
+    return Solution.objects.filter(rule)
+```
+
+- **Force:** org isolation is a security boundary, and "every query remembers
+  to add the org filter" fails the first time someone forgets.
+- **Pattern:** a *choke point*. Every reader (tools, API, search, the capture
+  job) starts from `visible()`, and `test_isolation.py::ChokePointTests` fails
+  if `Solution.objects` is filtered anywhere else. The folder tree already used
+  the same idea (`filesystem.resolve_folder`, with its own choke-point test),
+  and so does the frontend: only `src/api/` may call the backend, enforced by
+  lint.
+- **Where the org comes from matters as much as the check.** The tools read
+  `org_id` from the turn's context (the chat's own org), **never from a tool
+  argument**. A model can't ask for another org's data, because there's no
+  parameter to ask with.
+- **Foreign and unknown ids look the same** (`get_visible` returns `None` for
+  both → 404), the same no-oracle rule as the rest of the API.
+
+**Interview line:** "Every read of the table goes through one function that
+checks membership live. A test fails if anyone queries it another way. And the
+org comes from the chat, not from anything the model can type."
+
+### 8.10 Derived state: compute it when you read it (added 2026-09-28)
+
+[`solutions/freshness.py`](../Backend/solutions/freshness.py)
+
+A saved fix contains claims that go stale at different speeds. "Restart the
+worker after changing the env file" (a `principle`) stays true. "The VPN portal
+is at 10.2.0.4" (a `config`) might not. Each claim is stored with a **kind**,
+and each kind has a shelf life:
+
+| Kind | Safe to state without re-checking for |
+|---|---|
+| `principle` | ever |
+| `procedure` | 365 days |
+| `versioned` | 180 days (or never, if your versions differ from the one it was solved on) |
+| `config` | 90 days |
+| `time_sensitive` | 30 days |
+| `ephemeral` | never saved at all |
+
+```python
+def claim_state(kind, as_of, *, now=None, env_mismatch=False) -> str:
+    now = now or timezone.now()
+    days = KINDS.get(clean_kind(kind))
+    if kind == 'versioned' and env_mismatch:
+        return 'check'                      # the version is the thing that moved
+    if days is None:
+        return 'fresh'
+    return 'fresh' if now - as_of <= timedelta(days=days) else 'check'
+```
+
+- **Force:** "is this still true?" depends on *today's* date. A stored
+  `is_stale` column would need a nightly job to keep it right, and would be
+  wrong between runs of that job.
+- **Pattern:** *derived state*. Store the facts (`kind`, `valid_as_of`) and
+  compute the label (`fresh` / `check`) on every read. It's never out of date,
+  and confirming a fix just moves `valid_as_of`.
+- **Label, don't hide.** A stale claim is shown marked `check`, and the prompt
+  rule obliges the model to re-verify it or say it may have changed. An old fix
+  with a warning is worth more than no fix.
+
+**Interview line:** "Freshness is computed at read time from when a claim was
+last verified and how fast its kind goes stale, so no background job has to
+keep a stale flag right."
+
+### 8.11 Fair selection under a budget (fixed 2026-09-28)
+
+[`core/memory.py::_select`](../Backend/core/memory.py)
+
+User memory is a list of short facts ("prefers code first", "works in IST"),
+grouped by category. Only **2,000 characters** of them fit in the system
+prompt. The old code sorted categories **alphabetically** and filled until
+full, so `context` ("anything else") used the space before `profile` ("who they
+are") was reached. That's the opposite of what matters most.
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: alphabetical, fill until full"]
+        B1[context 1] --> B2[context 2] --> B3[context 3] --> B4["...budget gone"]
+        B5["profile: never reached"]
+    end
+    subgraph After["After: categories take turns"]
+        A1[profile 1] --> A2[preference 1] --> A3[project 1] --> A4[context 1]
+        A4 --> A5[profile 2] --> A6[preference 2] --> A7[...]
+    end
+```
+
+- **Round-robin** in priority order (`profile, preference, project, context`),
+  one fact per category per round, newest first within a category. A busy
+  category can't crowd another out entirely. It's the same idea as fair
+  queueing in a network scheduler.
+- **Skip, don't stop:** a fact that doesn't fit is skipped, because a shorter
+  one behind it may still fit.
+- **One selection, two readers:** the prompt and the Memory settings tab both
+  call it, so the tab can mark exactly which facts the model *isn't* seeing
+  (`in_prompt: false`).
+- **Duplicates are matched after normalising** (case, spacing, end
+  punctuation), so "Works in IST." and "works in ist" are one fact.
+- **Eviction is by least recently *saved*,** not used. Tracking every read
+  would cost a database write on every turn. (An earlier design note said
+  "used"; the note was corrected.)
+
+**Interview line:** "When several groups share a fixed budget, fill it
+round-robin in priority order and skip what doesn't fit, rather than filling in
+sort order until it runs out."
+
 ---
 
 ## 9. Concurrency patterns
@@ -1261,6 +1394,35 @@ sandbox injects `SystemExit` into the thread, and **reports honestly** whether
 it died. The production sidecar `killpg`s the whole process group. Lesson: a
 timeout is only real if it frees the resource.
 
+### 9.7 Starting async work from sync code (added 2026-09-28)
+
+[`workflow_backend/background.py::run_in_thread`](../Backend/workflow_backend/background.py)
+
+`spawn()` (§9.1) needs a running event loop. But some triggers arrive in
+**sync** code. For example, a thumbs-up is saved by a sync DRF view, and a
+signal then wants to start the (async) solution-capture job.
+
+```python
+def run_in_thread(coro, *, name=None) -> None:
+    threading.Thread(target=asyncio.run, args=(_detached(coro),),
+                     daemon=True, name=name).start()
+```
+
+```mermaid
+flowchart LR
+    V["sync view saves a thumbs-up"] --> SIG[post_save signal]
+    SIG --> RT["run_in_thread(capture(...))"]
+    RT --> TH["new daemon thread:<br/>asyncio.run(_detached(coro))"]
+    TH --> CL[own executor, DB connection closed at the end]
+```
+
+- It reuses `_detached`, the same wrapper `spawn()` uses, so the job gets its
+  own executor and **closes its database connection** when it ends. A thread
+  per job that forgot this would leak one connection each time.
+- The response goes back at once; the model call happens on the side.
+- *Cost:* a thread per job with no queue. That's fine for a rare event like
+  a thumbs-up, but the wrong tool for anything frequent.
+
 ---
 
 ## 10. Safety as a design property
@@ -1331,5 +1493,8 @@ fix with a general lesson.
 | **Wrong join in an aggregate** | `Count('id')` across a LEFT JOIN tripled run counts and spend | Read the SQL your ORM writes for aggregates |
 | **Order-dependent simulation** | Eval simulated tools before checking scopes | In a proxy chain, the real checks go first |
 | **Budget sized for the old shape** | Recursion limit assumed 2 nodes per iteration; the loop had 4, so runs died at half their limit | Derive limits from the structure, and pin them with a test |
+| **Two sources of truth** | Chat's earlier turns reached the model twice: summarised from the database *and* in full from the checkpoint, because each new message was appended to the old checkpointed transcript. It also made the per-turn tool limit count the whole session's calls (2026-09-28) | Pick one owner for each piece of data; test what actually reaches the provider on turn 3, not each piece alone |
+| **Sort order used as a priority** | Memory categories were cut alphabetically, so "anything else" beat "who they are" | Say the priority explicitly; share a budget round-robin (§8.11) |
+| **Docs describing the design, not the code** | The memory note said eviction was by least recently *used*; the code evicts by least recently *saved* | When you touch the code, re-read its description |
 
 ---

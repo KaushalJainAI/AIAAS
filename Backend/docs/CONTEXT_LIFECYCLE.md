@@ -246,14 +246,33 @@ is copied into every worker's window. Three additions
 
 ---
 
-## 5. Chat is unchanged
+## 5. Chat
 
-`TurnContext.curation` defaults to `None` and every chat turn leaves it there,
-so `curate_node` returns `{}` without reading state or touching the database.
-Chat's history is already bounded by `HISTORY_WINDOW` and its long answers by
-`context_summary`; its transcript is one turn deep. The agent runtime builds a
-real policy from `SubAgent.runtime_settings`. Callers differ in configuration,
-never in code path.
+*(Rewritten 2026-09-28, `PROMPT_AND_MEMORY_PLAN.md` Phase 1.)*
+
+**Earlier turns come from the database, and only from there.** Chat's history
+is bounded by `HISTORY_WINDOW` (20 *messages*, about 10 exchanges) and its long
+answers by `context_summary`. This section used to say the transcript was
+"one turn deep" — it was not: the checkpoint is keyed by session id and the
+`add_messages` reducer appended each new turn to every earlier one, so every
+request carried the conversation twice (once windowed from `ChatMessage`, once
+in full with every old tool result) and the iteration counter spanned the
+session. `run_turn(fresh_transcript=True)` now clears the checkpoint's
+messages at the start of each new chat turn (never on a resume, so approvals
+still resume). When the budget forces `to_wire_history` to drop the oldest
+window messages, the per-turn context update says how many.
+
+**Chat curates too, but only for free.** As the orchestrator, one chat turn
+can run many iterations (`run_agent`, `wait_tasks`, `answer_subagent`), so it
+passes `curation.CHAT_POLICY`: `compaction` and `indexing` on, `recursive`
+off — the fold is a paid model call on a path the user is watching, and chat
+has no builder toggle through which anyone chose to pay it. `recall_context`
+and `read_tool_output` appear once the session has archived something. The
+agent runtime builds its policy from `SubAgent.runtime_settings`. Callers
+differ in configuration, never in code path.
+
+Tests: `chat/tests/test_chat_transcript.py` (what reached the provider on
+turn 3; the iteration budget; a long turn compacting).
 
 All three toggles off is a request to be left alone and is honoured: the run
 falls back to `clamp_input` alone — now segment-aware, so "off" means the old

@@ -173,6 +173,15 @@ class UserProfile(models.Model):
     #: token does not outlive the password it was stolen under.
     tokens_valid_after = models.DateTimeField(null=True, blank=True)
 
+    #: The organisation new chats are started in (`core/orgs.py`). A chat
+    #: copies it once, at creation, and keeps it — switching here never moves
+    #: an existing conversation, or its solutions, into another org. Cleared
+    #: when the user leaves or is removed from that org.
+    active_org = models.ForeignKey(
+        'core.Organization', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+
     # Appearance
     THEME_CHOICES = [
         ('light', 'Light'),
@@ -485,3 +494,60 @@ class UserMemory(models.Model):
 
     def __str__(self):
         return f'{self.user_id}: {self.text[:60]}'
+
+class Organization(models.Model):
+    """A group of people who share what they have solved (`solutions/`).
+
+    Deliberately small. It exists so "someone in my organisation" means a
+    checked set of accounts rather than "everyone on the platform"; it carries
+    no billing, no SSO and no per-org config beyond the sharing default. Every
+    read of org-owned data checks `Membership` live (`core/orgs.py`), so a
+    removed member loses access on their next request, not at token expiry.
+    """
+
+    name = models.CharField(max_length=120)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='+',
+    )
+    #: What a new chat in this org starts with for "share solutions from this
+    #: chat". The person can flip it per chat; this is only the starting value.
+    share_by_default = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class Membership(models.Model):
+    """One person in one organisation, with a role.
+
+    `owner` and `admin` manage members and may edit or retract anyone's
+    solution; `member` reads, contributes and may mark a solution doubtful.
+    """
+
+    ROLE_CHOICES = [
+        ('owner', 'Owner'),
+        ('admin', 'Admin'),
+        ('member', 'Member'),
+    ]
+
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE,
+                            related_name='memberships')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='org_memberships')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['org', 'user'],
+                                    name='unique_org_membership'),
+        ]
+        indexes = [models.Index(fields=['user', 'org'])]
+
+    def __str__(self):
+        return f'{self.user_id} in {self.org_id} ({self.role})'

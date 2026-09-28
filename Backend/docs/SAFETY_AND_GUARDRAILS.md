@@ -71,8 +71,9 @@ subagents, which the user configures tool by tool.
 | URL provenance | Stops the "open `evil.example/?d=<your data>`" leak: a URL the model composed that carries data is refused unless the user or a tool result supplied it. | `provenance.check_fetch`, read tools |
 | No auto-loading images | A remote image in a reply is a link, never an `<img>` (which would fetch on render). | `MarkdownMessage.tsx` |
 | Memory guard | No memory writes in a tainted turn; a "fact" that is an instruction is refused (memory poisoning, ASI06). | `chat/tools/memory.py` |
+| Solution library guard | A fix saved for the whole org rides into every colleague's answers, so it is memory poisoning with a wider blast radius. No saves or reviews in a tainted turn; an exchange that read instruction-shaped text is never auto-captured; a "fix" addressed to an AI is refused; secrets and contact details are scrubbed before storing; results are framed as a colleague's evidence, never instructions; the org boundary is one query door with live membership. | `solutions/api.py`, `solutions/capture.py`, `solutions/access.py`, `chat/tools/solutions.py` |
 | MCP tool pinning | A third party writes MCP tool descriptions. New tools that address an AI are quarantined; tools changed after connection are withheld until the user approves them on Connections (tool poisoning, rug pull, ASI04). Refused at dispatch too. | `mcp_integration/pinning.py`, `MCPToolPin` |
-| Data, not instructions | Web and browser tool descriptions tell the model page text is data. | `chat/tools/browser.py`, `web.py` |
+| Data, not instructions | Web and browser tool descriptions tell the model page text is data. Both system prompts say it for *every* tool result (web, email, file, connector): only the user gives instructions, and a source that tries is mentioned, not obeyed. Defence in depth behind the taint flag — a prompt rule is not a control. | `chat/tools/browser.py`, `web.py`, `chat/turn/prompts.py::CORE_RULES` 2, `agents/agent/runtime.py::build_system_prompt` |
 
 ### Layer 4 — Containment
 
@@ -119,7 +120,7 @@ subagents, which the user configures tool by tool.
 | ASI03 Identity & privilege abuse | Per-user credentials, secret refs, scoped connectors, JWT revocation | Covered |
 | ASI04 Supply chain | MCP tool pinning, stdio off in production, allow-listed env | Covered (TOFU: a server malicious from day one with a plain-looking description is trusted) |
 | ASI05 Code execution | Sandbox container | Covered |
-| ASI06 Memory poisoning | Memory guard, taint flag | Covered for user memory |
+| ASI06 Memory poisoning | Memory guard, taint flag, solution library guard | Covered for user memory and the org solution library |
 | ASI07 Inter-agent comms | Workers run in-process under the same user; a worker's output is a tool result, so the taint flag applies | Covered by design |
 | ASI08 Cascading failures | Depth, budget split, caps, recovery sweep | Covered |
 | ASI09 Human trust exploitation | Plain-language cards, no "always" for worker requests, amber Auto mode | Partly: approval fatigue is a human limit |
@@ -160,6 +161,11 @@ Stated plainly, so nobody reads this document as "solved":
    self-service export and delete, a breach-notification runbook.
 7. **Robots.txt and paywalls** are not checked by the read tools.
 8. **A worker delegated from an eval run** can still pause (see `CLAUDE.md`).
+9. **A wrong solution can spread in an org.** An honest mistake saved as a fix
+   is offered to colleagues until someone says it failed or flags it. The
+   defences are ranking, not removal: failures demote it (two outnumbering
+   confirmations mark it "needs check"), a doubt is shown on every result,
+   and admins can retract it.
 
 ---
 
@@ -203,6 +209,7 @@ A checklist, because every new tool is a new way in:
 | Content policy, labels, outbound | `core/tests/test_content_policy.py` |
 | Memory, image prompts, CAPTCHA, publishing | `chat/tests/test_safety_guards.py` |
 | MCP pinning | `mcp_integration/tests/test_tool_pins.py` |
+| Org boundary, solution guards | `solutions/tests/test_isolation.py`, `test_api.py`, `test_capture.py`, `test_tools.py`; `core/tests/test_orgs.py` |
 | Retention | `logs/tests/test_retention.py` |
 | Chat as manager | `chat/tests/test_orchestrator_scope.py` |
 | Questions, worker approvals | `chat/tests/test_questions.py` |

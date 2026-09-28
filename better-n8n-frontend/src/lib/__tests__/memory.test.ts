@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupMemories } from '../memory';
+import { groupMemories, isHidden } from '../memory';
 import type { UserMemory } from '../../api/memory';
 
 const fact = (id: number, category: string, text = 'fact'): UserMemory => ({
@@ -40,5 +40,16 @@ describe('groupMemories', () => {
 
   it('an empty list groups to nothing', () => {
     expect(groupMemories([])).toEqual([]);
+  });
+});
+
+describe('isHidden', () => {
+  it('marks only a fact the server says is not in the prompt', () => {
+    expect(isHidden({ ...fact(1, 'context'), in_prompt: false })).toBe(true);
+    expect(isHidden({ ...fact(2, 'context'), in_prompt: true })).toBe(false);
+  });
+
+  it('treats a server that sends no flag as showing everything', () => {
+    expect(isHidden(fact(3, 'context'))).toBe(false);
   });
 });

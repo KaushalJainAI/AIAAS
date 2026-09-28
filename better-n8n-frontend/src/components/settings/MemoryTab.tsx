@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Brain, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import memoryService from '../../api/memory';
-import { groupMemories } from '../../lib/memory';
+import { groupMemories, isHidden } from '../../lib/memory';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 /**
@@ -28,6 +28,7 @@ export default function MemoryTab() {
   });
   const memories = data?.memories ?? [];
   const groups = groupMemories(memories);
+  const hiddenCount = memories.filter(isHidden).length;
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['memory'] });
@@ -67,10 +68,17 @@ export default function MemoryTab() {
         <div>
           <h3 className="text-lg font-medium">Memory</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-            What the assistant has learned about you in conversation. It reads
-            this on every turn to personalise answers — remove anything wrong
-            or that you would rather it not keep.
+            What you have told the assistant, so you never have to tell it
+            again. It and your agents read this on every turn — remove anything
+            wrong or that you would rather it not keep.
           </p>
+          {hiddenCount > 0 && (
+            <p className="text-[12px] text-amber-600 dark:text-amber-400 mt-2 max-w-xl">
+              {hiddenCount === 1 ? '1 fact is' : `${hiddenCount} facts are`} stored
+              but not shown to the assistant, because the memory space is full.
+              Remove facts you no longer need to make room.
+            </p>
+          )}
         </div>
         {memories.length > 0 && (
           <button
@@ -114,9 +122,20 @@ export default function MemoryTab() {
                     key={memory.id}
                     className="p-3 rounded-lg border border-border/60 bg-card/60 flex gap-3 items-start"
                   >
-                    <p className="flex-1 min-w-0 text-sm leading-relaxed">
-                      {memory.text}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-sm leading-relaxed ${
+                          isHidden(memory) ? 'text-muted-foreground' : ''
+                        }`}
+                      >
+                        {memory.text}
+                      </p>
+                      {isHidden(memory) && (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                          Not shown to the assistant — memory is full
+                        </p>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={() => forgetOne.mutate(memory.id)}

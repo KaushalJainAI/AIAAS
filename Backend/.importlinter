@@ -37,6 +37,7 @@ root_packages =
     office
     sandbox
     skills
+    solutions
     streaming
     templates
     tools_config
@@ -112,6 +113,7 @@ source_modules =
     office
     sandbox
     skills
+    solutions
     streaming
     voice
 forbidden_modules =
@@ -135,6 +137,7 @@ ignore_imports =
     notifications.tests.** -> **
     sandbox.tests.** -> **
     skills.tests.** -> **
+    solutions.tests.** -> **
     streaming.tests.** -> **
     # `MAX_DELEGATION_DEPTH`, one constant. `agents/agent/orchestrator.py`
     # imports only the standard library, so this pulls in nothing else.
@@ -170,6 +173,7 @@ source_modules =
     notifications
     office
     skills
+    solutions
     streaming
     tools_config
     workspaces

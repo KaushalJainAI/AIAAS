@@ -30,13 +30,14 @@ from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
+    RemoveMessage,
     SystemMessage,
     ToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
+from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
 from langgraph.types import interrupt
 
 from workflow_backend.background import release_db
@@ -366,6 +367,15 @@ class TurnContext:
     #: unattended caller rather than publishing to the open internet while
     #: nobody is watching.
     caller: str = 'chat'
+
+    #: The organisation this conversation belongs to (`ChatSession.org`), or
+    #: None for a personal chat and for agent runs. It scopes the solution
+    #: tools — search reads this org's shared solutions plus the user's own
+    #: private ones from it, and a save lands in it and nowhere else.
+    org_id: int | None = None
+    #: Whether a solution saved from this conversation is shared with `org_id`
+    #: (`ChatSession.share_solutions`, the person's per-chat switch).
+    share_solutions: bool = False
 
     #: Glob list (relative to the project root) this run may write, or None for
     #: unrestricted. Intersected parent → worker most-restrictive-wins, then
@@ -1592,6 +1602,10 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
         # Who started the run. `publish_page` refuses above-`link`
         # visibilities from unattended callers.
         "caller": turn.caller,
+        # The org boundary for the solution tools (`chat/tools/solutions.py`).
+        "org_id": turn.org_id,
+        "share_solutions": turn.share_solutions,
+        "model_label": f"{turn.provider}:{turn.model}",
         # Coding-team scopes (C1/C2). None means unrestricted, as everywhere
         # else — a run that predates the field keeps today's behaviour.
         "write_paths": turn.write_paths,
@@ -2577,6 +2591,7 @@ async def run_turn(
     thread_id: str,
     metadata: dict[str, Any] | None = None,
     tool_trace: list[dict[str, Any]] | None = None,
+    fresh_transcript: bool = False,
 ) -> TurnResult:
     """
     Run the agent to completion (or to an approval pause) and return the result.
@@ -2585,6 +2600,15 @@ async def run_turn(
     should pass a throwaway id: the checkpoint holds its own copy of the
     conversation, so emptying `turn.history` alone would not stop the model
     seeing earlier turns.
+
+    `fresh_transcript` is for a caller whose `turn.history` already carries the
+    earlier turns — chat, whose thread is the session id. Without it the new
+    prompt is *appended* to every earlier turn's checkpointed messages, so the
+    provider got the conversation twice (once windowed and summarised from the
+    database, once in full with every tool result) and `_turn_number` counted
+    the whole session's iterations against this turn's limit. The clear happens
+    only on a new turn, never on a resume, so an approval pause still resumes
+    from its checkpoint. `tests/test_chat_transcript.py` pins it.
     """
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "turn": turn},
@@ -2614,6 +2638,10 @@ async def run_turn(
     # only while nodes are still pending.
     snapshot = await get_graph().aget_state(config)
     resuming = bool(snapshot.values and snapshot.next)
+    if fresh_transcript and not resuming and snapshot.values:
+        initial["messages"] = [
+            RemoveMessage(id=REMOVE_ALL_MESSAGES), *initial["messages"],
+        ]
 
     awaiting_approval = False
     try:

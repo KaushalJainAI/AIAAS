@@ -44,6 +44,17 @@ class RememberTests(TestCase):
         self.assertFalse(created)
         self.assertEqual(UserMemory.objects.filter(user=self.user).count(), 1)
 
+    def test_a_repeat_in_another_case_or_punctuation_is_the_same_fact(self):
+        memory.remember(self.user, "Works in IST", "profile")
+        _, created = memory.remember(self.user, "  works in   IST. ", "profile")
+        self.assertFalse(created)
+        self.assertEqual(UserMemory.objects.filter(user=self.user).count(), 1)
+
+    def test_a_different_fact_is_not_merged(self):
+        memory.remember(self.user, "Works in IST", "profile")
+        _, created = memory.remember(self.user, "Works in PST", "profile")
+        self.assertTrue(created)
+
     def test_a_repeat_refreshes_recency(self):
         """A fact that keeps coming up is evidently worth keeping.
 
@@ -187,6 +198,41 @@ class ForPromptTests(TestCase):
             if line.startswith("- "):
                 self.assertTrue(line.endswith("x"), f"cut mid-fact: {line[-30:]!r}")
 
+    def test_who_they_are_survives_a_full_block(self):
+        """The cut used to follow the categories' names alphabetically, so
+        "Anything else" filled the block before "Who they are" was reached —
+        the one thing memory exists so the user never has to repeat."""
+        for i in range(25):
+            memory.remember(self.user, f"Context detail {i} " + "y" * 90, "context")
+        memory.remember(self.user, "Is a data engineer in Pune", "profile")
+
+        block = memory.for_prompt(self.user.id)
+        self.assertIn("Is a data engineer in Pune", block)
+        self.assertLess(block.index("Who they are"), block.index("Anything else"))
+
+    def test_a_busy_category_cannot_starve_the_others(self):
+        for i in range(25):
+            memory.remember(self.user, f"Project note {i} " + "z" * 90, "project")
+        for i in range(3):
+            memory.remember(self.user, f"Context fact {i}", "context")
+
+        block = memory.for_prompt(self.user.id)
+        for i in range(3):
+            self.assertIn(f"Context fact {i}", block)
+
+    def test_in_prompt_ids_match_what_is_rendered(self):
+        for i in range(40):
+            memory.remember(self.user, f"Fact {i} " + "w" * 100, "context")
+        shown = memory.in_prompt_ids(self.user.id)
+        block = memory.for_prompt(self.user.id)
+        for row in UserMemory.objects.filter(user=self.user):
+            self.assertEqual(row.id in shown, f"- {row.text}" in block, row.text)
+        self.assertTrue(0 < len(shown) < 40)
+
+    def test_the_block_says_what_it_is_for(self):
+        memory.remember(self.user, "Prefers tables", "preference")
+        self.assertIn("do not ask for it again", memory.for_prompt(self.user.id))
+
     def test_another_users_memories_are_never_included(self):
         other = get_user_model().objects.create_user(
             username="stranger", email="s@example.test", password="x"
@@ -263,6 +309,15 @@ class MemoryApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         texts = {m["text"] for m in response.json()["memories"]}
         self.assertEqual(texts, {"Prefers short answers", "Works in IST"})
+
+    def test_the_list_says_which_facts_the_assistant_is_shown(self):
+        for i in range(40):
+            memory.remember(self.user, f"Filler {i} " + "q" * 100, "context")
+        body = self.client.get("/api/memory/").json()
+        flags = {m["text"]: m["in_prompt"] for m in body["memories"]}
+        self.assertTrue(flags["Works in IST"])
+        self.assertIn(False, flags.values())
+        self.assertEqual(body["max_prompt_chars"], memory.MAX_PROMPT_CHARS)
 
     def test_one_fact_can_be_forgotten(self):
         target = UserMemory.objects.get(text="Works in IST")

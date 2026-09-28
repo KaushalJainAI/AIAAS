@@ -6,6 +6,7 @@ import {
   User,
   Bell,
   Brain,
+  Building2,
   // Shield,  // MVP: unused while the Security tab is hidden
   Palette,
   Code,
@@ -34,6 +35,7 @@ import Select from '../components/ui/Select';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import NotificationsTab from '../components/settings/NotificationsTab';
 import MemoryTab from '../components/settings/MemoryTab';
+import OrganizationTab from '../components/settings/OrganizationTab';
 import { useAIModels } from '../hooks/useAIModels';
 import {
   DEFAULT_EFFORT, EFFORT_LABELS, effortLevelsFor, nearestEffort,
@@ -66,7 +68,7 @@ function languageCode(stored: string | undefined): string {
   return hit?.value ?? 'en';
 }
 
-type SettingsTab = 'general' | 'account' | 'notifications' | 'memory' | 'security' | 'appearance' | 'api' | 'insights' | 'billing';
+type SettingsTab = 'general' | 'account' | 'notifications' | 'memory' | 'organization' | 'security' | 'appearance' | 'api' | 'insights' | 'billing';
 
 
 /**
@@ -97,7 +99,7 @@ export default function Settings() {
   // replaced away so a reload keeps the user's own last tab, not the link's.
   useEffect(() => {
     const asked = searchParams.get('tab');
-    const visible: readonly string[] = ['general', 'account', 'insights', 'billing', 'notifications', 'memory', 'appearance', 'api'];
+    const visible: readonly string[] = ['general', 'account', 'insights', 'billing', 'notifications', 'memory', 'organization', 'appearance', 'api'];
     if (asked && visible.includes(asked)) {
       setActiveTab(asked as SettingsTab);
       setSearchParams({}, { replace: true });
@@ -354,6 +356,7 @@ export default function Settings() {
     { id: 'billing' as const, label: 'Billing', icon: CreditCard },
     { id: 'notifications' as const, label: 'Notifications', icon: Bell },
     { id: 'memory' as const, label: 'Memory', icon: Brain },
+    { id: 'organization' as const, label: 'Organisation', icon: Building2 },
     // MVP: Security is the only tab with no `case` in renderContent(), so it
     // fell through to the "coming soon" default. Hidden rather than built out.
     // The 'security' member stays on SettingsTab and the default branch stays
@@ -924,6 +927,8 @@ export default function Settings() {
         return <NotificationsTab />;
       case 'memory':
         return <MemoryTab />;
+      case 'organization':
+        return <OrganizationTab />;
 
       default:
         return (

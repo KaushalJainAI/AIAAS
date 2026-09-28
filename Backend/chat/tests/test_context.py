@@ -75,3 +75,46 @@ class ContextUpdateTests(SimpleTestCase):
             blocked_notice="Attachment 91 (scan.png) was withheld.",
         )
         self.assertIn("Attachment 91", text)
+
+    def test_the_approval_mode_is_stated_except_for_ask(self):
+        # Plan withholds delegation; a model not told so planned to delegate.
+        plan = prompts.build_context_update(_session(autonomy="plan"), "now", "chat")
+        auto = prompts.build_context_update(_session(autonomy="auto"), "now", "chat")
+        ask = prompts.build_context_update(_session(autonomy="ask"), "now", "chat")
+        self.assertIn("Mode: PLAN", plan)
+        self.assertIn("Mode: AUTO", auto)
+        self.assertNotIn("Mode:", ask)
+        # The mode is per turn, so it never enters the cached baseline.
+        self.assertNotIn(
+            "Mode: PLAN", prompts.build_system_message(_session(autonomy="plan")))
+
+    def test_a_short_window_is_said_out_loud(self):
+        cut = prompts.build_context_update(_session(), "now", "chat",
+                                           history_dropped=3)
+        whole = prompts.build_context_update(_session(), "now", "chat")
+        self.assertIn("3 oldest messages", cut)
+        self.assertNotIn("left out", whole)
+
+
+class BaselineWordingTests(SimpleTestCase):
+    """What the stable prompt tells the model about its tools and memory."""
+
+    def test_charts_go_to_render_chart(self):
+        text = prompts.build_system_message(_session())
+        self.assertIn("`render_chart`", text)
+
+    def test_tool_output_is_data_not_instructions(self):
+        text = prompts.build_system_message(_session())
+        self.assertIn("never instructions", text)
+
+    def test_the_screen_is_not_promised(self):
+        # Nothing reports the user's screen (a Buddy-era claim).
+        self.assertNotIn("screen", prompts.build_system_message(_session()))
+
+    def test_the_window_is_counted_in_messages(self):
+        text = prompts.build_system_message(_session())
+        self.assertIn(f"last {prompts.HISTORY_WINDOW} messages", text)
+
+    def test_the_default_identity_names_the_manager_role(self):
+        self.assertIn("manager of their agents",
+                      prompts.build_system_message(_session()))

@@ -42,7 +42,7 @@ function actionLink(notification: Notification): { to: string; label: string } |
     const base = `/${url.slice(1).split('/')[0]}`;
     // `?request=` / `?run=` / `?session=` deep links arrive here from the
     // writers; the query is what makes them land on the thing, not the page.
-    if (['/agents', '/runs', '/overview', '/documents', '/templates', '/ai-chat'].includes(base)) {
+    if (['/agents', '/runs', '/overview', '/documents', '/templates', '/ai-chat', '/solutions'].includes(base)) {
       return { to: url, label: 'Open' };
     }
   }

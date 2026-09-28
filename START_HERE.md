@@ -187,6 +187,7 @@ file-by-file guide.
 
 | App | What it does |
 |---|---|
+| [`solutions/`](Backend/solutions/README.md) | Problems your organisation already solved. The assistant searches here first, saves new fixes when you say they worked, and marks what may be out of date. |
 | [`notifications/`](Backend/notifications/README.md) | The notification bell, approval reminders, the daily digest, reminders you schedule. |
 | [`eval/`](Backend/eval/README.md) | Testing how good an agent is: test cases, graders, benchmarks, and fake "worlds" (simulated mail, calendar, files) so a test never touches real data. |
 | [`imagine/`](Backend/imagine/README.md) | Image, video and audio generation (the Studio page). |

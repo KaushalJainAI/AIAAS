@@ -121,6 +121,7 @@ new config to `base.py`, never to a new top-level `settings.py`.
 | `skills/` | Pluggable skill registry invoked by agents |
 | `tools_config/` | The tool library page and the per-user overlay on it (`ToolConfig`). Serves `/api/tools/`; the catalogue is derived from `chat/tools/registry.py` + `GRANT_TOOLS`, never stored. **Absent row = code default**, so a fresh `migrate` yields zero rows and every tool behaves as before the app existed |
 | `logs/` | Agent observability: `ExecutionLog` (run) → `AgentTurn` (model call, with its full reasoning) → `AgentStep` (tool call), plus `SubAgentRevision` (the config a run executed under) and `logs/revisions.py`. Seven `/api/logs/` endpoints; views are thin and sync, all ORM in `logs/queries.py`. See `Backend/docs/AGENT_OBSERVABILITY.md`. (`NodeExecutionLog` was renamed to `AgentStep` 2026-08-19; `ExecutionLogger`, `AuditEntry` and `OrchestratorThought` are gone — all DAG-era with no writer) |
+| `solutions/` | What an organisation has already solved, found again by the next person: `Solution` records (problem, symptoms, cause, fix, claims with how fast each goes stale), reviews (worked / failed / doubtful, with which model said so), and three small indexes (error signatures, keywords, float16 vectors). **One read door, `access.py::visible`**, checks org membership live; a choke-point test fails on any other `Solution.objects` read. Organisations themselves are `core.Organization`/`Membership` (`core/orgs.py`). See `Backend/docs/SOLUTION_MEMORY_PLAN.md` |
 | `notifications/` | Persistent notifications + the HITL reminder engine (escalation ladder, hourly nudges, daily email digest) |
 | `imagine/` | Media generation (image/video/audio) via OpenRouter; form + conversational agent with HITL |
 | `llm/` | The whole provider layer: vocabulary (`providers.py`), the `AIProvider`/`AIModel` registry, the handler calling convention + registry (`handlers/base.py`, `handlers/registry.py` — the `nodes` app was deleted 2026-08-19 and its two load-bearing files moved here), the five provider handlers (`handlers/llm_providers.py`, `handlers/llm_nodes.py`, `handlers/openai_compatible.py`, `handlers/llm_base.py`), and the access funnel `access.py` (was `chat/turn/llm.py`), plus `context.py` — `ExecutionContext`, what a handler is handed besides its config (was `compiler/schemas.py`; that app held nothing else and was deleted 2026-08-24). Serves `/api/llm/models/` |
@@ -1024,6 +1025,24 @@ is written. Agents **read it and cannot write it** — the tools are chat's alon
 so a scheduled run is personalised without being able to rewrite the person
 while nobody is watching. Tests: `core/tests/test_memory.py`.
 
+**Memory exists so the user never says the same thing twice (2026-09-28).**
+That purpose is now what the code optimises for (`PROMPT_AND_MEMORY_PLAN.md`
+Phase 2). The block was cut after sorting categories by *name*, so `context`
+("Anything else") filled the 1,500 characters before `profile` ("Who they
+are") was reached — the opposite of the per-category cap's intent.
+`core/memory.py::_select` now fills in `CATEGORY_PRIORITY` order
+(`profile, preference, project, context`), **one fact per category per round**,
+skipping a fact that does not fit rather than stopping, under
+`MAX_PROMPT_CHARS = 2_000`. It is the one selection both `for_prompt` and the
+Memory tab read (`in_prompt` on `GET /api/memory/`), so "stored but not shown"
+on screen is exactly what the model is missing. A repeat is matched by
+`normalise` (case, spacing, end punctuation), in `remember` and `forget`
+alike; deeper near-duplicates are the model's job, so `remember_about_user`
+returns the category's other facts. Correcting the paragraph above: eviction
+is by least recently **saved**, not used — tracking reads would cost a write
+on every turn. The block opens with its purpose ("do not ask for it again")
+for chat and agents both; agents see it labelled read-only.
+
 **An agent can be built by describing it, through the same door as the builder.**
 `chat/tools/authoring.py` (`create_agent`, `update_agent`) writes through
 `AgentSerializer` — same validation, same `apply`, same `sync_schedule`, same
@@ -1553,9 +1572,11 @@ the key is a user id and test databases restart their sequences, so cases that
 resolve a witness must `cache.clear()` in `setUp`, the same trap
 `CredentialManager`'s process-global cache documents.
 
-**The system prompt is a baseline, not a scratchpad:** `prompts.build_system_message` may only contain what is stable for the whole session — the session's own prompt, the core rules, the memory rule. Everything that moves goes to `prompts.build_context_update` and rides as a trailing `system` message in history (the shape `llm.clamp_input` already uses for its trim notice), landing after the prior conversation and before the user's prompt. The clock used to sit in the system message, which meant the request prefix differed on *every single turn* and no provider could ever reuse a cached prefix. Memory-off means no prior conversation, not an empty `history` list — the clock is not recall. Tests: `chat/tests/test_context.py`.
+**The system prompt is a baseline, not a scratchpad:** `prompts.build_system_message` may only contain what is stable for the whole session — the session's own prompt, the core rules, the memory rule. Everything that moves goes to `prompts.build_context_update` and rides as a trailing `system` message in history (the shape `llm.clamp_input` already uses for its trim notice), landing after the prior conversation and before the user's prompt. The clock used to sit in the system message, which meant the request prefix differed on *every single turn* and no provider could ever reuse a cached prefix. Memory-off means no prior conversation, not an empty `history` list — the clock is not recall. The update also carries the session's approval mode (`AUTONOMY_NOTES`: `plan`, `review`, `auto`; nothing for `ask`) — the model planned to delegate in `plan`, where delegation is withheld — and, when `to_wire_history` had to drop the oldest window messages for budget, how many. Tests: `chat/tests/test_context.py`.
 
-**A long run curates its own transcript, and what it cuts stays reachable.** An agent run has no conversation, only a transcript that grows: `agent_node` resends `history + to_wire(state["messages"])` every iteration, 40 iterations are allowed, and each tool result may be 64k chars. The only thing between that and the provider was `llm.clamp_input`, which had three faults — it dropped one *message* at a time, so an assistant turn could leave while the `tool` messages answering it stayed (a `tool_call_id` referring to nothing, which providers answer with a **400**, so a long run did not degrade, it died); it summed only `content`, and a tool-calling entry keeps its payload in `tool_calls[].arguments`, so the largest entries scored zero; and it applied a flat 96k to an 8k model. All three are closed in `llm/budget.py`, whose unit is the **segment** (an assistant tool-call turn plus its results, indivisible). Above that, `chat/turn/curation.py` is the deliberate version, wired to the builder's three long-dead toggles: `compaction` replaces old tool *results* with a record naming the call (free), `recursiveContext` folds the oldest steps into **exactly one** running note via a cheap model (the agent's own `summaryModel`, else `CONTEXT_SUMMARY_MODEL` — pinned to NVIDIA because that is the provider the platform holds a key for, so the fold works for a user who has connected nothing; charged to `total_tokens` so it counts against the spend cap), and `indexing` archives everything removed to `ToolOutput` so `recall_context` / `read_tool_output` can fetch it — which is why those two are in `RETRIEVAL_TOOLS`, dispatchable always and *offered* only once the run has stored something. Three properties carry it. It **edits graph state**, not the outgoing copy: replacements carry the ids they replace so `add_messages` substitutes them, or every later turn re-archives the same text. It fires at a **watermark** (0.70 of budget, cutting to 0.45) rather than trickling, because curating every turn would rewrite the request prefix on every call and forfeit prefix caching — the clock-in-the-system-prompt trap. And **with indexing off the notices say the text is gone** rather than naming an id nobody wrote. Chat passes `curation=None` and is untouched. Design: `Backend/docs/CONTEXT_LIFECYCLE.md`. Tests: `chat/tests/test_curation.py`, and `chat/tests/test_curation_e2e.py` — twenty real turns through the real graph against a stub provider, asserting on what actually left for the provider, because every unit test here passes with the pieces wired to each other wrongly.
+**A chat's earlier turns come from one place: the database (2026-09-28).** Chat keys the checkpointer by session id, and `AgentState.messages` uses the `add_messages` reducer, so each new turn's `[HumanMessage]` was *appended* to every earlier turn's checkpointed transcript — and `agent_node` sent `turn.history + checkpoint`. Every request carried the conversation twice: once windowed and summarised from `ChatMessage`, once in full with every old tool call and result, growing without bound (chat had no curation; `prune.py` drops old checkpoint *rows*, never messages in the latest). It also made `_turn_number` count the whole session's iterations against this turn's limit, so a long chat reached the tool-call cap on a turn's first call. `run_turn(fresh_transcript=True)` (chat only) starts a new turn with `RemoveMessage(REMOVE_ALL_MESSAGES)`; a **resume** never clears, so approvals still resume from their checkpoint. Agent runs don't pass it: their thread is new every run. With one turn in the checkpoint, chat now also curates (`curation.CHAT_POLICY`: compaction + indexing, no paid fold), because as the orchestrator one chat turn can run many iterations. Found by a test that asserts on what reached the provider on turn 3; every unit test passed with the bug. Tests: `chat/tests/test_chat_transcript.py`.
+
+**A long run curates its own transcript, and what it cuts stays reachable.** An agent run has no conversation, only a transcript that grows: `agent_node` resends `history + to_wire(state["messages"])` every iteration, 40 iterations are allowed, and each tool result may be 64k chars. The only thing between that and the provider was `llm.clamp_input`, which had three faults — it dropped one *message* at a time, so an assistant turn could leave while the `tool` messages answering it stayed (a `tool_call_id` referring to nothing, which providers answer with a **400**, so a long run did not degrade, it died); it summed only `content`, and a tool-calling entry keeps its payload in `tool_calls[].arguments`, so the largest entries scored zero; and it applied a flat 96k to an 8k model. All three are closed in `llm/budget.py`, whose unit is the **segment** (an assistant tool-call turn plus its results, indivisible). Above that, `chat/turn/curation.py` is the deliberate version, wired to the builder's three long-dead toggles: `compaction` replaces old tool *results* with a record naming the call (free), `recursiveContext` folds the oldest steps into **exactly one** running note via a cheap model (the agent's own `summaryModel`, else `CONTEXT_SUMMARY_MODEL` — pinned to NVIDIA because that is the provider the platform holds a key for, so the fold works for a user who has connected nothing; charged to `total_tokens` so it counts against the spend cap), and `indexing` archives everything removed to `ToolOutput` so `recall_context` / `read_tool_output` can fetch it — which is why those two are in `RETRIEVAL_TOOLS`, dispatchable always and *offered* only once the run has stored something. Three properties carry it. It **edits graph state**, not the outgoing copy: replacements carry the ids they replace so `add_messages` substitutes them, or every later turn re-archives the same text. It fires at a **watermark** (0.70 of budget, cutting to 0.45) rather than trickling, because curating every turn would rewrite the request prefix on every call and forfeit prefix caching — the clock-in-the-system-prompt trap. And **with indexing off the notices say the text is gone** rather than naming an id nobody wrote. Chat passes `curation.CHAT_POLICY` (compaction + indexing, no fold) since 2026-09-28 — see "A chat's earlier turns come from one place". Design: `Backend/docs/CONTEXT_LIFECYCLE.md`. Tests: `chat/tests/test_curation.py`, and `chat/tests/test_curation_e2e.py` — twenty real turns through the real graph against a stub provider, asserting on what actually left for the provider, because every unit test here passes with the pieces wired to each other wrongly.
 
 **A default has to be runnable, and a platform key is what makes it so.**
 The shipped defaults are `openrouter` + `openrouter/free` + `medium` effort
@@ -2379,6 +2400,35 @@ gated every sensitive tool by name until a mid-run switch set the steering
 slot, so the reviewer never saw them. Tests: `chat/tests/test_questions.py`,
 `src/lib/__tests__/question.test.ts`.
 
+**What an organisation solved stays in that organisation (2026-09-28).**
+`core.Organization` + `Membership` (`core/orgs.py`, `/api/orgs/`) reverse the
+2026-08-14 "no org context" decision for one purpose: a junior asking what a
+senior already fixed. A chat takes the owner's **active org at creation and
+keeps it for ever** (`ChatSession.org`, read-only in the API), so a person in
+two orgs cannot carry one org's fix into the other; `share_solutions` is the
+per-chat switch, starting at the org's `share_by_default`. `solutions/access.py::
+visible` is the only read: from org X you see X's shared rows (while a member,
+checked live) and your own private rows *captured in X*; from a personal chat,
+only your org-less private rows. Foreign and unknown ids are the same 404. The
+chat tools (`chat/tools/solutions.py`: `search_solutions`, `get_solution`,
+`save_solution`, `review_solution`, all `ALWAYS_AVAILABLE`, withheld in eval
+worlds) take the org from `TurnContext.org_id`, never from an argument. Capture
+is automatic (`solutions/capture.py`): a thumbs-up or the person saying "that
+worked" (a regex, no model cost) spawns one cheap-model call that decides
+skip / new / same-as / replaces; an exchange that read instruction-shaped text
+is never captured, and writes refuse in a tainted turn (memory poisoning, one
+org wide). Each claim carries a kind (`principle` … `time_sensitive`), and
+freshness is computed **at read time** from `valid_as_of`: stale claims are
+labelled `check`, never hidden, and CORE_RULES 13 obliges the model to verify
+or say "may have changed". The orchestrator can flag a fix **doubtful** with a
+reason; reviews record the model, so a better model later can clear or raise
+it. Search (`solutions/search.py`) is signature + keyword + meaning, merged by
+RRF, re-scored by Wilson track record, and **abstains** below its evidence bar.
+Vectors are float16 rows loaded per scope (an in-memory index per org does
+not fit 384 MB). Agent runs have no `org_id` yet and search only their owner's
+personal library. Tests: `solutions/tests/` (start at `test_isolation.py`),
+`core/tests/test_orgs.py`.
+
 **Guardrails from the external review (2026-09-26).** A web review (OWASP
 Agentic Top 10 2026, LLM Top 10, NIST AI 600-1, the lethal trifecta, MCP tool
 poisoning, memory poisoning, India IT Rules/DPDP/TRAI, EU AI Act Art. 50)
@@ -2452,6 +2502,9 @@ MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once
 MCP_MAX_POOLED_SESSIONS=2          # Live sessions kept (cache policy under the budget)
 MCP_SESSION_TTL=120                # How long an idle connector holds its subprocess
 MCP_ALLOW_STDIO=True               # Local-process MCP servers; deployment defaults False (no Node in image)
+SOLUTION_CAPTURE_ENABLED=True      # Auto-save solved problems (thumbs-up / "that worked")
+SOLUTION_CAPTURE_PROVIDER=         # Blank = CONTEXT_SUMMARY_PROVIDER (platform key)
+SOLUTION_CAPTURE_MODEL=            # Blank = CONTEXT_SUMMARY_MODEL
 RUN_DETAIL_RETENTION_DAYS=180      # Finished runs lose reasoning + tool payloads after this (record kept)
 OUTBOUND_DAILY_CAP=100             # Messages an account's agents may send per 24 h, all channels
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
@@ -2539,6 +2592,8 @@ Detailed technical docs live in `Backend/docs/`:
 - `CONCURRENCY_LAG_FIX_PLAN.md` — The plan (proposed 2026-09-24; Phases 0–5 built 2026-09-24, Phase 5 as the t3.small option — needs the instance resize to take effect; Phase 6 conditional on measurements) for the "lags with several runs, even one user" problem: DB connections held across model calls (pool of 10), the SQLite checkpointer's global lock + full-state serialise on the event loop, per-run/global single-thread `sync_to_async`, memory overcommit on the 913 MB box; Phase 0 measures first
 - `GAP_CLOSURE_PLAN.md` — The plan (proposed 2026-09-24, implemented 2026-09-24) from a codebase-wide gap sweep: digest-only email default, pack availability in Explore, the order-dependent test failures, lint back to zero, Memory and Missions UI, and CLAUDE.md drift
 - `SECURITY_REVIEW_FIX_PLAN.md` — The whole-project security review of 2026-09-25 and its fixes (implemented, undeployed): Google sign-in no longer links into an unverified password account (pre-account takeover), `UserProfile.tokens_valid_after` revokes every JWT on password/email change (`core/auth/revocation.py`, checked by REST, refresh and WebSocket), `token_blacklist` actually installed, no `?token=` HTTP auth, API keys stored as SHA-256, the workspace job hook scoped to its owner and detached, `CSP: sandbox` on file responses. Learning: `learning/15_whole_project_security_review.md`
+- `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
+- `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix
 - `OPENCODE_ZEN_PLAN.md` — The plan (built 2026-09-22; chat-completions answers, streaming and `tool_calls` still need verification with a real Zen key, §8) for OpenCode Zen as a fifth, bring-your-own-key-only LLM provider — no proxy, no platform key (ToS)
 
 ## Frontend-Specific Docs

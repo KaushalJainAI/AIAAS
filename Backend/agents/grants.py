@@ -162,7 +162,11 @@ ALWAYS_AVAILABLE = ('get_current_time', 'update_todos', 'render_chart',
                     'wait_for', 'complete_mission', 'report_progress',
                     'save_dashboard', 'list_user_runs',
                     'schedule_notification', 'list_scheduled_notifications',
-                    'cancel_scheduled_notification', 'ask_user')
+                    'cancel_scheduled_notification', 'ask_user',
+                    # The solution library: scoped by org in the tool itself,
+                    # read or own-library writes only (`chat/tools/solutions.py`).
+                    'search_solutions', 'get_solution', 'save_solution',
+                    'review_solution')
 
 #: Offered only once this run has actually stored something — a tool result too
 #: large to replay, or a step the curator removed. Both read back the run's own

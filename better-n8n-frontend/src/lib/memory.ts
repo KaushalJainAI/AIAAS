@@ -22,6 +22,16 @@ export const MEMORY_CATEGORY_LABELS: Record<string, string> = {
   context: 'Anything else',
 };
 
+/**
+ * A stored fact the assistant is not currently shown, because the prompt's
+ * memory block is full (`core/memory.py::_select`). Only an explicit `false`
+ * counts: a server predating the field sends nothing, and every fact was
+ * shown then as far as this screen can tell.
+ */
+export function isHidden(memory: UserMemory): boolean {
+  return memory.in_prompt === false;
+}
+
 export interface MemoryGroup {
   category: string;
   label: string;

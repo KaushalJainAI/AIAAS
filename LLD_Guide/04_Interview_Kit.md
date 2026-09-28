@@ -185,6 +185,21 @@ def tick(now):
 - *Result:* It caught a second real bug on its first run. Lesson: unit tests per
   hop can pass while the chain connects nowhere.
 
+**Story 4 — The conversation was being sent twice (2026-09-28).**
+- *Situation:* Long chats got slower and more expensive than they should, and
+  the model sometimes hit its per-turn tool limit on the first call.
+- *Task:* Prove it before fixing it.
+- *Action:* Wrote a test that runs three chat turns through the real graph
+  against a stub provider and asserts on **what the provider received on turn
+  3**. It failed. Earlier turns arrived twice: once summarised from the
+  database, and once in full from the checkpoint, because LangGraph's message
+  reducer *appends* each new turn to the old checkpointed transcript. The fix
+  starts each new chat turn with a `RemoveMessage(REMOVE_ALL_MESSAGES)`, and
+  never on an approval resume, so a pause still resumes from its checkpoint.
+- *Result:* One source of truth for history, correct per-turn limits, and
+  chat now also compacts long turns. Lesson: a framework's default merge rule
+  (here, "append") is a design decision you inherit, whether you meant to or not.
+
 ### 15.2 Questions you should be able to answer
 
 **Q: When would you use Strategy vs Template Method?**
@@ -318,8 +333,12 @@ mindmap
 | Admission control | Reserve before spending | `ConnectorSupervisor` | `mcp_integration/supervisor.py` |
 | LRU | Evict least recently used | MCP session pool | `mcp_integration/client.py` |
 | Reducer | Pure `(state, event) → state` | `useChatStream` | `src/hooks/useChatStream.ts` |
+| Choke point | One read function, enforced by a test | `visible(user, org)` | `solutions/access.py` |
+| Derived state | Compute when read, don't store | Solution freshness | `solutions/freshness.py` |
+| Fair selection | Share a budget round-robin | Memory categories | `core/memory.py` |
+| Single source of truth | One owner per piece of data | Chat history from the DB only | `chat/turn/agent.py::run_turn` |
 
-### The ten sentences to remember
+### The twelve sentences to remember
 
 1. Name the force, then the pattern.
 2. Registration is the schema.
@@ -331,3 +350,5 @@ mindmap
 8. Observers must never fail the thing they observe.
 9. A count is not a budget.
 10. A test per hop can pass while the chain connects nowhere.
+11. A boundary is one function everyone must pass, not a filter everyone must remember.
+12. Give each piece of data one owner; two copies will disagree, or be sent twice.

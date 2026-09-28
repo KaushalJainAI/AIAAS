@@ -72,6 +72,20 @@ class ChatSession(models.Model):
         ('plan', 'Plan'),
     ]
     autonomy = models.CharField(max_length=10, default='ask')
+
+    #: The organisation this conversation happened in, copied from the owner's
+    #: active org when the chat is created and never changed afterwards —
+    #: solutions captured here belong to this org and no other, so a person in
+    #: two orgs cannot carry one org's fix into the other (`solutions/`).
+    org = models.ForeignKey(
+        'core.Organization', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    #: Whether solutions from this chat are shared with `org`. Starts at the
+    #: org's `share_by_default`; the person can flip it at any time. Off, a
+    #: solution saved here stays private to its author. Meaningless without an
+    #: org.
+    share_solutions = models.BooleanField(default=False)
     # Token usage tracking
     total_tokens_used = models.IntegerField(default=0)
 

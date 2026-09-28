@@ -17,6 +17,8 @@ export interface UserMemory {
   category: string;
   source: string;
   updated_at: string;
+  /** Whether it fits in the block the assistant is shown. Absent = assume yes. */
+  in_prompt?: boolean;
 }
 
 export interface MemoryList {

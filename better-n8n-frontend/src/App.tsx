@@ -59,6 +59,7 @@ const Runs = lazyPage(() => import('./pages/Runs'));
 const Schedules = lazyPage(() => import('./pages/Schedules'));
 const Settings = lazyPage(() => import('./pages/Settings'));
 const Skills = lazyPage(() => import('./pages/Skills'));
+const Solutions = lazyPage(() => import('./pages/Solutions'));
 const Evals = lazyPage(() => import('./pages/Evals'));
 const PublicAgent = lazyPage(() => import('./pages/PublicAgent'));
 const PublishedPageView = lazyPage(() => import('./pages/PublishedPageView'));
@@ -225,6 +226,7 @@ const AppContent = () => {
                   then runs). /inbox is kept as redirect. */}
               <Route path="/orchestrator" element={<Navigate to="/runs" replace />} />
               <Route path="/skills" element={<Skills />} />
+              <Route path="/solutions" element={<Solutions />} />
               <Route path="/evals" element={<Evals />} />
               <Route path="/imagine" element={<Imagine />} />
               <Route path="/profile" element={<Profile />} />

@@ -29,6 +29,13 @@ from .views import (
     UsageInsightsView,
     UserMemoryView,
 )
+from .org_views import (
+    ActiveOrgView,
+    OrgDetailView,
+    OrgListView,
+    OrgMemberDetailView,
+    OrgMembersView,
+)
 
 
 # Router for viewsets
@@ -42,7 +49,15 @@ urlpatterns = [
     path('memory/', UserMemoryView.as_view(), name='user_memory'),
     path('memory/<int:memory_id>/', UserMemoryView.as_view(), name='user_memory_detail'),
     # Authentication
-    path('auth/register/', UserRegistrationView.as_view(), name='register'),
+    # Organisations: who shares solutions with whom (`core/orgs.py`).
+    path('orgs/', OrgListView.as_view(), name='org_list'),
+    path('orgs/active/', ActiveOrgView.as_view(), name='org_active'),
+    path('orgs/<int:org_id>/', OrgDetailView.as_view(), name='org_detail'),
+    path('orgs/<int:org_id>/members/', OrgMembersView.as_view(), name='org_members'),
+    path('orgs/<int:org_id>/members/<int:user_id>/', OrgMemberDetailView.as_view(),
+         name='org_member_detail'),
+
+    path('auth/register/',UserRegistrationView.as_view(), name='register'),
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='login'),
     path('auth/google/', GoogleLoginView.as_view(), name='google_login'),
     path('auth/token/refresh/', TokenRefreshView.as_view(serializer_class=RevocableTokenRefreshSerializer), name='token_refresh'),

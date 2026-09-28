@@ -128,6 +128,40 @@ export default function ChatSettingsDialog({
               </button>
             </div>
           )}
+          {!isGuest && session.org ? (
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/20 p-3.5">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-foreground">Share solutions with {session.org_name || 'your organisation'}</div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {session.share_solutions
+                    ? 'When a problem gets solved here, colleagues in this organisation can find the fix. Secrets and contact details are removed first.'
+                    : 'Fixes from this chat are saved for you only. Nothing from this chat is shared.'}
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={Boolean(session.share_solutions)}
+                aria-label="Share solutions with the organisation"
+                disabled={saving}
+                onClick={() => onSave({ share_solutions: !session.share_solutions })}
+                className={cn(
+                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5",
+                  "transition-colors duration-300 ease-out",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                  "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                  "disabled:opacity-50",
+                  session.share_solutions ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-5 w-5 shrink-0 rounded-full bg-white shadow-sm transition-transform duration-300 ease-out",
+                    session.share_solutions ? "translate-x-5" : "translate-x-0"
+                  )}
+                />
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">

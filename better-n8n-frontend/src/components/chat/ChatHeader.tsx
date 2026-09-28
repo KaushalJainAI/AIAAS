@@ -8,7 +8,7 @@
  * card colour, and the Topbar's flat 36px icon buttons. It names the
  * conversation rather than the section — the Topbar already says "Ask".
  */
-import { BrainCircuit, Coins, History, Settings2, Shield } from 'lucide-react';
+import { BrainCircuit, Coins, History, Lock, Settings2, Shield, Users } from 'lucide-react';
 
 import type { ChatSession } from '../../api';
 import { costQualifier, describeConversationCost, formatCost } from '../../lib/cost';
@@ -86,6 +86,22 @@ export default function ChatHeader({
            >
              <BrainCircuit className="w-3.5 h-3.5" />
              Memory off
+           </button>
+         )}
+         {/* Whether fixes from this chat reach the organisation. Visible
+             because it is a sharing decision, and a hidden one is how
+             someone shares what they meant to keep. Wider screens only. */}
+         {!isGuest && session?.org && (
+           <button
+             onClick={onShowSettings}
+             title={session.share_solutions
+               ? `Solutions from this chat are shared with ${session.org_name ?? 'your organisation'} — click to change`
+               : 'Solutions from this chat stay private — click to change'}
+             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border
+                        text-[11px] font-semibold text-muted-foreground hover:bg-secondary shrink-0"
+           >
+             {session.share_solutions ? <Users className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+             {session.share_solutions ? `Sharing with ${session.org_name ?? 'org'}` : 'Private'}
            </button>
          )}
          {/* What this conversation has cost so far. In the header, not the

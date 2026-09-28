@@ -20,6 +20,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 
 from workflow_backend.thresholds import (
     ASSISTANT_SUMMARY_WORD_LIMIT,
@@ -32,6 +33,7 @@ from llm import access as llm
 from llm.pricing import combine_sources
 from llm.effort import normalize as normalize_effort
 from . import agent, history, prompts
+from . import curation as _curation
 from .agent import TurnContext, TurnResult
 from .events import Event, EventSink, null_sink
 from chat.models import ChatMessage, ChatSession
@@ -946,6 +948,7 @@ async def run_chat_turn(
     # stay in the DB and return the moment it is switched back on.
     past: list[ChatMessage] = []
     wire_history: list[dict[str, str]] = []
+    history_dropped = 0
     if session.memory_enabled:
         past = await history.load_history(
             session, exclude_id=user_message.id, supports_docs=supports_docs
@@ -953,6 +956,9 @@ async def run_chat_turn(
         wire_history = history.to_wire_history(
             past, max_tokens=MAX_CONTEXT_TOKENS - 4_000
         )
+        history_dropped = max(0, sum(
+            1 for m in past if m.role in ("user", "assistant")
+        ) - len(wire_history))
     else:
         await sink(Event.STATUS, {
             "phase": "memory_off",
@@ -1000,7 +1006,8 @@ async def run_chat_turn(
     # trailing `system` message instead of being concatenated onto the baseline.
     # Folded in, the clock alone made the cached prefix differ on every turn.
     context_update = prompts.build_context_update(
-        session, _now_string(prefs), intent, blocked_notice=blocked_notice
+        session, _now_string(prefs), intent, blocked_notice=blocked_notice,
+        history_dropped=history_dropped,
     )
     if command_resolution is not None and command_resolution.context_block:
         context_update = (
@@ -1074,6 +1081,9 @@ async def run_chat_turn(
         max_iterations=agent.iteration_limit(intent),
         effort=effort or None,
         sink=sink,
+        curation=_curation.CHAT_POLICY,
+        org_id=session.org_id,
+        share_solutions=bool(session.org_id and session.share_solutions),
         **({'tool_source': _reviewer.read_only_source(
             user_id=user.id, memory_enabled=session.memory_enabled,
             session_key=str(session.id), file_scope=file_scope,
@@ -1110,6 +1120,9 @@ async def run_chat_turn(
             thread_id=thread_id,
             metadata=metadata,
             tool_trace=seed_trace,
+            # Earlier turns arrive through `history` (windowed, summarised);
+            # the checkpoint holds this turn only.
+            fresh_transcript=True,
         )
     except llm.LLMUserActionable as exc:
         # Credit can run out mid-turn, and a model can reach end of life between
@@ -1130,8 +1143,22 @@ async def run_chat_turn(
         ),
     )
     await _notify(user, session, assistant_message)
+    await _after_turn_capture(session, question)
 
     return TurnOutcome(user_message=user_message, assistant_message=assistant_message)
+
+
+async def _after_turn_capture(session: ChatSession, question: str) -> None:
+    """If this message says the previous answer worked, capture it as a
+    solution in the background (`solutions/capture.py`). Never fails a turn."""
+    if not getattr(settings, "SOLUTION_CAPTURE_ENABLED", True):
+        return
+    try:
+        from solutions.capture import after_turn
+
+        await after_turn(session.id, question)
+    except Exception:  # noqa: BLE001
+        logger.exception("[Turn] solution capture hook failed")
 
 
 _EMPTY_ANSWER_FALLBACK = (

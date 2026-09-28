@@ -118,6 +118,9 @@ urlpatterns = [
 
     # Workspaces (compute plane: jobs wake the agent on exit)
     path('api/workspaces/', include('workspaces.urls')),
+
+    # Solutions: what an organisation has solved, found again by the next person
+    path('api/solutions/', include('solutions.urls')),
 ]
 
 

@@ -137,6 +137,19 @@ def local_now(prefs: Preferences, now: datetime | None = None) -> str:
     return f"{local.strftime('%A, %B %d, %Y %I:%M %p')} ({prefs.timezone})"
 
 
+def local_today(prefs: Preferences, now: datetime | None = None) -> str:
+    """The date where the user is, without the time.
+
+    For a prompt that must know what "today" and "latest" mean but should not
+    carry a clock: a date is the same for a whole run, a minute is not.
+    """
+    from django.utils import timezone
+
+    now = now or timezone.now()
+    local = now.astimezone(ZoneInfo(prefs.timezone))
+    return f"{local.strftime('%A, %B %d, %Y')} ({prefs.timezone})"
+
+
 def about_user(prefs: Preferences) -> str:
     """The block that goes in the system prompt, or '' when there is nothing.
 

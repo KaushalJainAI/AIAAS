@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
         "type": "function",
         "function": {
             "name": "render_html_artifact",
-            "description": "Render a self-contained HTML/CSS/JS snippet as a live, interactive card in the chat. Use for charts, diagrams, tables, small demos or anything better shown than described. The snippet runs in a locked-down sandbox: it has no network access, no access to the page around it, and no access to the user's session. Inline all CSS and JS — external files will not load.",
+            "description": "Render a self-contained HTML/CSS/JS snippet as a live, interactive card in the chat. Use for diagrams, styled tables, small demos or anything better shown than described — but for a chart of data use render_chart, which draws it for you. The snippet runs in a locked-down sandbox: it has no network access, no access to the page around it, and no access to the user's session. Inline all CSS and JS — external files will not load.",
             "parameters": {
                 "type": "object",
                 "properties": {

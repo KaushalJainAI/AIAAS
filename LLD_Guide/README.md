@@ -6,9 +6,9 @@ classes, patterns, data structures and invariants inside each box, on both the
 **backend** (Django / Python) and the **frontend** (React / TypeScript).
 
 Every pattern links to the real file. Every section ends with a line you can
-say in an interview. Most sections open with a picture: 65 Mermaid diagrams
-(flowcharts, sequence, class and state diagrams, a mind map) plus five drawn
-images in [`diagrams/`](diagrams/). **Look at the picture first, then read.**
+say in an interview. Most sections open with a picture: about 100 Mermaid
+diagrams (flowcharts, sequence, class and state diagrams, a mind map) plus five
+drawn images in [`diagrams/`](diagrams/). **Look at the picture first, then read.**
 
 | Picture | Shows | Used in |
 |---|---|---|
@@ -21,9 +21,27 @@ images in [`diagrams/`](diagrams/). **Look at the picture first, then read.**
 Mermaid renders on GitHub and in VS Code's Markdown preview (install the
 "Markdown Preview Mermaid Support" extension if a block shows as code).
 
-> Written 2026-09-27. This folder sits at the project root, outside the
-> `Backend/` and `better-n8n-frontend/` git repos. Links are relative, so they
-> open in VS Code.
+> Written 2026-09-27, updated 2026-09-28. This folder is part of the AIAAS
+> repository: since 2026-09-27 the backend, the frontend and the project docs
+> are **one git repository** (both old histories merged in). Links are
+> relative, so they open in VS Code and on GitHub.
+
+---
+
+## What changed recently (2026-09-28)
+
+The guide was updated for the work that landed on 2026-09-28. If you have
+already read it, these are the new or changed sections:
+
+| Change in the code | What it teaches | Where in the guide |
+|---|---|---|
+| **Organisations + solution memory** (`solutions/`, `core/orgs.py`): solved problems are saved and found again, only inside the org they came from | A single read door that every query must pass (with a test that enforces it); state computed when read instead of stored; search that refuses to answer on weak evidence | Part 1 §3.3 · Part 2 §8.9, §8.10 · Part 9 §14.7 · Part 10 §O |
+| **Chat sent earlier turns twice** (the database history *and* the checkpoint) | One source of truth; the bug a test on the provider's input caught | Part 1 §2.3 · Part 2 §12 · Part 4 §15.1 story 4 |
+| **User memory picks facts fairly** (categories take turns under a 2,000-char budget; "Who they are" first) | Fair selection under a budget (round-robin) | Part 2 §8.11 · Part 10 §O |
+| **The prompt tells the model the chat's mode** and how many old messages were left out | Put changing facts in the per-turn update, not the cached system prompt | Part 9 §14.1 · Part 10 §O |
+| **`run_in_thread`**: start async work from sync code | Bridging sync and async safely | Part 2 §9.7 |
+| **Frontend**: Solutions page, Organisation settings, a per-chat sharing switch, the Memory tab shows what the model actually sees | Showing users the system's real state | Part 3 §11.13 |
+| **One repository** | — | This README; Part 10 §A5 |
 
 ---
 
@@ -42,6 +60,18 @@ real lines from it, a decoder exercise, and a cheat sheet.
 
 **Suggested path for a beginner:** 5 → 6 → Part 1 → Part 2, then 7 → 8 → Part 3,
 then Part 4.
+
+## Know AI/data science but not software design? Start here
+
+| # | File | What it gives you | Time |
+|---|---|---|---|
+| 9 | [09_Design_Patterns_for_AI_Engineers.md](09_Design_Patterns_for_AI_Engineers.md) | Each pattern explained from something you've used (scikit-learn, PyTorch, Keras callbacks, Hugging Face `AutoModel`, `DataLoader`), then shown in AIAAS; plus AI-specific patterns (context curation, LLM-as-judge, guardrail layers, rank fusion) and the CS underneath | 50 min |
+
+## Preparing for interviews
+
+| # | File | What it gives you |
+|---|---|---|
+| 10 | [10_Probable_Interview_Questions.md](10_Probable_Interview_Questions.md) | ~90 likely questions on this project (overview, HLD, LLD, agents, RAG, evals, data, concurrency, frontend, security, ops, scaling, behavioural, and the 2026-09-28 work on organisations, solution memory and prompts), each with a model answer, level tag and the likely follow-up; numbers to know by heart; questions to ask the interviewer |
 
 ## Reading order (design)
 
@@ -82,6 +112,10 @@ Part 2, §11 in Part 3, §13–16 in Part 4.
 | LRU / bounded caches | MCP pool, credential cache (§9.4) | Run retention + GC (§11.2.3) |
 | Admission control | `ConnectorSupervisor` (§9.3) | — |
 | Allow-list validation | Env passthrough, `SHAREABLE_KEYS` (§10) | `nextPath`, `safeUrl` (§11.7) |
+| Choke point / single read door | `solutions/access.py::visible`, `filesystem.resolve_folder` (§8.9) | only `src/api/` calls the backend (§11.1) |
+| Derived state (computed at read time) | Solution freshness `fresh`/`check` (§8.10) | `in_prompt` shown on the Memory tab (§11.13) |
+| Fair selection under a budget | Memory categories take turns (§8.11) | — |
+| Single source of truth | Chat history only from the database (§12) | Screen state as a fold over events (§11.2.2) |
 
 ---
 
