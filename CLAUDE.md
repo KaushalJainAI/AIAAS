@@ -757,7 +757,9 @@ unattended) pauses the mission with the reason. `mission_id` rides
 `start_agent_run` → `ExecutionLog.mission` → `TurnContext.mission_id` → the
 tool context, and a resumed run reads it back from its log. It runs in
 `PERIODIC_JOBS` every `MISSION_SWEEP_SECONDS` (120); Celery and
-`manage.py run_missions` call `run_mission_sweep()`, which waits. Still open:
+`manage.py run_missions` call `run_mission_sweep()`, which waits. The Activity
+page's Missions section has Pause/Resume again (`MissionsSection.tsx`); resume
+re-arms the wake and resets `no_progress_runs`. Still open:
 nothing wakes a waiting mission on its *event* — only its timeout does. Tests:
 `missions/tests/test_mission_sweep.py`.
 

@@ -380,7 +380,11 @@ async def mission_action(request, mission_id: int, verb: str):
         row.status = status_map[verb]
         if verb == "resume":
             row.next_wake_at = timezone.now()
-            row.save(update_fields=["status", "next_wake_at", "updated_at"])
+            # A person looked and said go on: the stall count starts again,
+            # or a mission paused for no progress re-pauses on its next run.
+            row.no_progress_runs = 0
+            row.save(update_fields=["status", "next_wake_at", "no_progress_runs",
+                                    "updated_at"])
         else:
             row.save(update_fields=["status", "updated_at"])
 

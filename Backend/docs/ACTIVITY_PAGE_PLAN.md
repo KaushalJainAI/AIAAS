@@ -3,6 +3,11 @@
 **Status 2026-09-26:** built. Decision taken: **A** — missions on Activity are
 read-only with Cancel/Delete only (no create form, no pause/resume here).
 
+**Update 2026-09-28:** option B landed — the mission sweep starts runs detached
+and runs in `PERIODIC_JOBS` (`Backend/missions/sweep.py`), so the Activity
+page's Missions section has **Pause/Resume** again. Creating still happens from
+chat (`/goal`, with its confirm sheet), not from a form here.
+
 Goal: `/runs` (Activity) is the one screen where a user sees **everything running,
 waiting, scheduled, or recently done** — agent runs, workers, coding tasks, eval
 sweeps, eval world generation, live chat turns, upcoming and recent cron/scheduled

@@ -1,16 +1,16 @@
 /**
- * Missions on the Activity page — read-only goals with Cancel/Delete only.
+ * Missions on the Activity page: each goal with Pause/Resume, Cancel, Delete.
  *
- * Decision A of the Activity plan: the sweep that moves missions forward does
- * not run in production (it would block a web thread for up to two hours), so
- * this page offers no create form and no pause/resume. A mission is a chain of
- * runs; the rows below already show its links badged with the mission id. This
- * section owns the goal itself — plan progress, spend vs budget, next wake,
- * cancel, delete — and turns back into the full section once missions can run.
+ * A mission is a chain of runs; the rows below already show its links badged
+ * with the mission id. This section owns the goal itself — plan progress,
+ * spend vs budget, next wake. The sweep that moves missions forward runs in
+ * production since 2026-09-28 (`Backend/missions/sweep.py`), so Pause/Resume
+ * are back; Resume re-arms the next run now. Missions are started from chat
+ * with `/goal`, which shows the goal, budget and deadline before anything runs.
  */
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Clock, Loader2, Target, X } from 'lucide-react';
+import { Check, ChevronDown, Clock, Loader2, Pause, Play, Target, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import missionsService, { type Mission } from '../../api/missions';
@@ -31,6 +31,7 @@ function MissionCard({
   onToggle,
   onCancel,
   onDelete,
+  onPauseResume,
   busy,
 }: {
   mission: Mission;
@@ -38,6 +39,7 @@ function MissionCard({
   onToggle: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  onPauseResume: () => void;
   busy: boolean;
 }) {
   const live = mission.status === 'active' || mission.status === 'waiting' || mission.status === 'paused';
@@ -110,6 +112,26 @@ function MissionCard({
             {live && (
               <button
                 type="button"
+                onClick={onPauseResume}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-card text-[12px] font-semibold hover:bg-secondary disabled:opacity-50"
+              >
+                {mission.status === 'paused' ? (
+                  <>
+                    <Play className="w-3.5 h-3.5" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-3.5 h-3.5" />
+                    Pause
+                  </>
+                )}
+              </button>
+            )}
+            {live && (
+              <button
+                type="button"
                 onClick={onCancel}
                 disabled={busy}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-card text-[12px] font-semibold text-destructive hover:bg-secondary disabled:opacity-50"
@@ -169,6 +191,22 @@ export default function MissionsSection() {
     },
   });
 
+  const pauseResume = useMutation({
+    mutationFn: (mission: Mission) =>
+      mission.status === 'paused'
+        ? missionsService.resume(mission.id)
+        : missionsService.pause(mission.id),
+    onSuccess: (_data, mission) => {
+      invalidate();
+      toast.success(mission.status === 'paused' ? 'Mission resumed.' : 'Mission paused.');
+    },
+    onError: (error: unknown) => {
+      const detail = (error as { response?: { data?: { error?: string } } })
+        ?.response?.data?.error;
+      toast.error(detail || 'That did not work.');
+    },
+  });
+
   const remove = useMutation({
     mutationFn: (mission: Mission) => missionsService.remove(mission.id),
     onSuccess: () => {
@@ -225,7 +263,8 @@ export default function MissionsSection() {
                   onToggle={() => setExpandedId((id) => (id === m.id ? null : m.id))}
                   onCancel={() => setCancelling(m)}
                   onDelete={() => setDeleting(m)}
-                  busy={cancel.isPending || remove.isPending}
+                  onPauseResume={() => pauseResume.mutate(m)}
+                  busy={cancel.isPending || remove.isPending || pauseResume.isPending}
                 />
               ))}
             </div>
@@ -248,7 +287,8 @@ export default function MissionsSection() {
                         onToggle={() => setExpandedId((id) => (id === m.id ? null : m.id))}
                         onCancel={() => setCancelling(m)}
                         onDelete={() => setDeleting(m)}
-                        busy={cancel.isPending || remove.isPending}
+                        onPauseResume={() => pauseResume.mutate(m)}
+                        busy={cancel.isPending || remove.isPending || pauseResume.isPending}
                       />
                     ))}
                   </div>

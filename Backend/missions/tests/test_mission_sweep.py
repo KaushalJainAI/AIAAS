@@ -194,3 +194,21 @@ async def _open_log_async(agent, user, goal, mission_id):
     # `_open_log` is already wrapped in `sync_to_async`.
     return await _open_log(agent, user, goal, 'api', 't',
                            caller='mission', mission_id=mission_id)
+
+
+class ResumeTests(TestCase):
+    def test_resume_rearms_and_resets_the_stall_count(self):
+        from rest_framework.test import APIClient
+
+        user = User.objects.create_user(username='r', password='pw')
+        agent = SubAgent.objects.create(user=user, name='A')
+        mission = Mission.objects.create(user=user, agent=agent, goal='g',
+                                         status='paused', no_progress_runs=3)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.post(f'/api/missions/{mission.id}/resume/')
+        self.assertEqual(response.status_code, 200)
+        mission.refresh_from_db()
+        self.assertEqual(mission.status, 'active')
+        self.assertEqual(mission.no_progress_runs, 0)
+        self.assertIsNotNone(mission.next_wake_at)

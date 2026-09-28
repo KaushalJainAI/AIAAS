@@ -869,8 +869,8 @@ start a mission.
 | `/api/missions/` | GET | List the caller's missions | Auth | O(n) | `chat/tests/test_commands.py` | — | Mission | Newest first, capped at 50; carries `open_todos`/`total_todos` so the board renders progress without a second read |
 | `/api/missions/` | POST | Start a mission | Auth | O(1) | `chat/tests/test_commands.py` | — (`goal`, `agent_id`, `budget_inr`, `deadline_days`, `max_runs`) | Mission | Through the same service `start_mission` uses: budget required and positive, agent owned, deadline 1–90 days, max runs 1–100. `/goal`'s confirm sheet calls this |
 | `/api/missions/<id>/` | GET | One mission | Auth (owner) | O(1) | `chat/tests/test_commands.py` | — | Mission | Foreign ids are 404 (never 403 — the ownership-oracle rule) |
-| `/api/missions/<id>/pause/` | POST | Pause a mission | Auth (owner) | O(1) | `chat/tests/test_commands.py` | — | Mission | Chain stops with its notebook intact |
-| `/api/missions/<id>/resume/` | POST | Resume a mission | Auth (owner) | O(1) | `chat/tests/test_commands.py` | — | Mission | Re-arms `next_wake_at` to now |
+| `/api/missions/<id>/pause/` | POST | Pause a mission | Auth (owner) | O(1) | `chat/tests/test_commands.py` | — | Mission | Chain stops with its notebook intact; a run already out finishes and is counted, but the sweep keeps the owner's `paused` (`missions/sweep.py::settle`). Called from the Activity page's Pause button |
+| `/api/missions/<id>/resume/` | POST | Resume a mission | Auth (owner) | O(1) | `chat/tests/test_commands.py` | — | Mission | Re-arms `next_wake_at` to now and resets `no_progress_runs` (a person said go on); the sweep launches it within `MISSION_SWEEP_SECONDS`. Called from the Activity page's Resume button |
 | `/api/missions/<id>/cancel/` | POST | Cancel a mission | Auth (owner) | O(1) | `chat/tests/test_commands.py` | — | Mission | Terminal, like pausing, but final |
 | `/api/missions/<id>/` | DELETE | Delete a stopped mission | Auth (owner) | O(1) | `missions/tests/test_mission_delete.py` | — | Mission | 409 while `active`/`waiting` (cancel first); past runs keep their rows (`mission` FK is SET_NULL). Foreign ids 404 |
 
