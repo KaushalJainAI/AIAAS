@@ -55,7 +55,7 @@ from llm.access import (
     LLMUnavailable,
     LLMUserActionable,
     StreamAccumulator,
-    humanize_provider_body,
+    explain_provider_failure,
     ToolCall,
 )
 
@@ -705,10 +705,13 @@ async def _run_model(
         raise actionable
 
     if accumulator.error and not completion.content:
-        # Everything else — an outage, a malformed request — still reaches the
-        # user, but as a sentence rather than as the provider's JSON. The full
-        # body is in the log line above for whoever has to debug it.
-        sentence = humanize_provider_body(accumulator.error)
+        # Everything else — an outage, a rate limit, a timeout — reaches the
+        # user as what happened and what to do, never as the provider's raw
+        # text. The full body is in the log line above for debugging.
+        sentence = explain_provider_failure(
+            accumulator.error_status, accumulator.error,
+            model=turn.model, provider=turn.provider,
+        )
         return Completion(
             content=f"⚠️ {sentence}",
             usage=completion.usage,
@@ -2601,6 +2604,7 @@ async def run_turn(
     metadata: dict[str, Any] | None = None,
     tool_trace: list[dict[str, Any]] | None = None,
     fresh_transcript: bool = False,
+    resume: bool | None = None,
 ) -> TurnResult:
     """
     Run the agent to completion (or to an approval pause) and return the result.
@@ -2618,6 +2622,13 @@ async def run_turn(
     the whole session's iterations against this turn's limit. The clear happens
     only on a new turn, never on a resume, so an approval pause still resumes
     from its checkpoint. `tests/test_chat_transcript.py` pins it.
+
+    `resume` says whether this call answers a pause. `None` (agent runs) keeps
+    the old inference from the checkpoint; chat passes it explicitly, because
+    its thread outlives any one turn and "nodes still to run" is also what a
+    *stopped* turn leaves behind — Stop cancels the task mid-graph. Inferred,
+    the next message resumed the stopped run: the new text never entered the
+    graph and the old transcript went to the provider again.
     """
     config: RunnableConfig = {
         "configurable": {"thread_id": thread_id, "turn": turn},
@@ -2647,6 +2658,8 @@ async def run_turn(
     # only while nodes are still pending.
     snapshot = await get_graph().aget_state(config)
     resuming = bool(snapshot.values and snapshot.next)
+    if resume is not None:
+        resuming = resuming and resume
     if fresh_transcript and not resuming and snapshot.values:
         initial["messages"] = [
             RemoveMessage(id=REMOVE_ALL_MESSAGES), *initial["messages"],

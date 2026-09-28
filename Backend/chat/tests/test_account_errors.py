@@ -198,6 +198,17 @@ class QuotaExhaustedMidTurn(TestCase):
             ChatMessage.objects.filter(session=self.session, role="assistant").exists()
         )
 
+    def test_a_gateway_timeout_is_explained_not_quoted(self):
+        # Production 2026-09-28: OpenRouter held the stream 61 s, then sent
+        # `{"error": {"message": "error code: 504"}}` and that text was the
+        # whole answer. It has to say what happened and what to do.
+        self._run(error_stream("error code: 504", 504))
+        answer = ChatMessage.objects.get(session=self.session, role="assistant").content
+        self.assertNotIn("error code", answer)
+        self.assertIn("did not reply in time", answer)
+        self.assertIn("HTTP 504", answer)
+        self.assertIn("Send your message again", answer)
+
 
 class RetiredModelTests(TestCase):
     """A model that reached end of life is a pick-another-model message.
@@ -260,6 +271,76 @@ class RetiredModelTests(TestCase):
         self.assertIsNone(
             llm.classify_provider_error(500, "Internal server error", "nvidia", "m")
         )
+
+
+class ExplainProviderFailureTests(TestCase):
+    """Every provider failure reads as what happened and what to do.
+
+    The bodies are the ones production actually received (2026-09-28 audit of
+    failed runs and stored error answers), because a phrase list written from
+    imagination misses the shapes providers really send.
+    """
+
+    OPENROUTER_OVERLOAD = (
+        'OpenRouter API error: {"error":{"message":"Provider returned error","code":503,'
+        '"metadata":{"raw":"{\\"error\\":{\\"code\\":\\"service_overloaded\\",'
+        '\\"message\\":\\"The backend is temporarily overloaded. Please retry.\\"}}",'
+        '"provider_name":"Meta","retry_after_seconds":60}}}'
+    )
+    HTML_401 = ("Perplexity API error: <html>  <head><title>502 Bad Gateway</title></head>"
+                "<body><center><h1>502 Bad Gateway</h1></center><hr><center>openresty"
+                "</center><script>(function(){})()</script></body></html>")
+
+    def explain(self, status, body, **kw):
+        text = llm.explain_provider_failure(status, body, model="m/x", provider="openrouter", **kw)
+        for raw in ("{", "<", "error code", "Provider returned error", "Traceback"):
+            self.assertNotIn(raw, text)
+        return text
+
+    def test_openrouters_nested_reason_is_read(self):
+        self.assertIn("overloaded", self.explain(None, self.OPENROUTER_OVERLOAD))
+
+    def test_a_bare_gateway_timeout(self):
+        text = self.explain(504, "error code: 504")
+        self.assertIn("did not reply in time", text)
+        self.assertIn("HTTP 504", text)
+
+    def test_the_status_is_read_from_the_text_when_none_came_with_it(self):
+        self.assertIn("did not reply in time", self.explain(None, "error code: 504"))
+
+    def test_our_own_timeout(self):
+        self.assertIn("did not reply in time", self.explain(None, "The model took too long to respond."))
+
+    def test_rate_limit_says_how_long_to_wait(self):
+        text = self.explain(429, '{"error":{"message":"Rate limit exceeded","metadata":{"retry_after_seconds":30}}}')
+        self.assertIn("rate limited", text)
+        self.assertIn("30 seconds", text)
+
+    def test_a_model_with_no_endpoints(self):
+        text = self.explain(404, "No endpoints found for meta-llama/llama-3.1-8b-instruct:free.")
+        self.assertIn("not being served", text)
+
+    def test_a_model_that_cannot_use_tools(self):
+        text = self.explain(404, "No endpoints found that support tool use.")
+        self.assertIn("cannot use tools", text)
+
+    def test_context_too_long(self):
+        text = self.explain(400, "This model's maximum context length is 32768 tokens.")
+        self.assertIn("longer than", text)
+        self.assertIn("new chat", text)
+
+    def test_content_refusal(self):
+        self.assertIn("content rules", self.explain(400, '{"error":{"code":"content_filter"}}'))
+
+    def test_an_html_error_page_is_never_shown(self):
+        self.assertIn("problem on its side", self.explain(502, self.HTML_401))
+
+    def test_a_dropped_connection(self):
+        self.assertIn("could not reach", self.explain(None, "OpenRouter error: ConnectError"))
+
+    def test_an_unknown_short_sentence_is_kept_as_the_clue(self):
+        text = self.explain(400, '{"error":{"message":"Invalid tool schema"}}')
+        self.assertIn("Invalid tool schema", text)
 
 
 class HumanizeProviderBodyTests(TestCase):

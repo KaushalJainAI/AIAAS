@@ -132,6 +132,14 @@ def start(
     return run
 
 
+#: Shown when a turn fails for a reason nobody anticipated — a bug on our side.
+UNEXPECTED_FAILURE = (
+    "Something went wrong on our side while answering, so this turn stopped. "
+    "It has been logged. Send your message again; if it keeps happening, "
+    "start a new chat."
+)
+
+
 async def _drive(run: ChatRun, work: Callable[[EventSink], Awaitable[None]]) -> None:
     """Run the turn, translating its outcome into the run's terminal state."""
     try:
@@ -141,8 +149,11 @@ async def _drive(run: ChatRun, work: Callable[[EventSink], Awaitable[None]]) -> 
         # persist whatever was streamed before finishing the run off.
         raise
     except Exception as exc:  # noqa: BLE001 — the frame is the error report
+        # The exception text is ours (a stack's last line, an ORM message) and
+        # means nothing to the person waiting; it stays in the log and on
+        # `run.error`, and the browser gets what happened and what to do.
         logger.exception("[Run] Turn failed for session %s", run.key)
-        await run.emit(Event.ERROR, message=str(exc))
+        await run.emit(Event.ERROR, message=UNEXPECTED_FAILURE)
         finish(run, "error", str(exc))
     else:
         finish(run, "done")
@@ -163,13 +174,17 @@ def finish(run: ChatRun, status: RunStatus, error: str | None = None) -> None:
     if leftovers := steering.drain_messages(run.key):
         logger.info("[Run] Returning %d unread steer(s) for session %s", len(leftovers), run.key)
         run._append(Event.STEERS_RETURNED, {"messages": leftovers})
-        try:
-            from logs.signals_api import record_signal
+        # Detached and async: this runs on the event loop, where the sync
+        # `record_signal` raised SynchronousOnlyOperation on every returned
+        # steer (production log, 2026-09-28). Telemetry never blocks `finish`.
+        from logs.signals_api import arecord_signal
 
-            record_signal(run.user_id, 'steers_returned', session_id=run.key,
-                          detail={'count': len(leftovers)})
-        except Exception:  # noqa: BLE001
-            pass
+        signal = arecord_signal(run.user_id, 'steers_returned', session_id=run.key,
+                                count=len(leftovers))
+        try:
+            spawn(signal, name=f"steers-returned:{run.key}")
+        except Exception:  # noqa: BLE001 — no running loop (sync callers)
+            signal.close()
     for queue in run.listeners:
         queue.put_nowait(_SENTINEL)
     _arm_gc(run)

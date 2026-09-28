@@ -663,42 +663,34 @@ export default function StandaloneChat() {
     }
   };
 
+  /**
+   * Take a message back: it and everything after it leave the conversation,
+   * and its text goes back in the box. It used to keep the message and delete
+   * only the answers after it (`rewind_after`), while still copying the text
+   * into the box — so sending it put the same message in the history twice.
+   */
   const handleRewindAfterMessage = async (messageId: number) => {
     if (!conversationId) return;
-    
-    // Safety: If it's a timestamp ID, we can't rewind in the backend yet.
-    // We just handle it locally.
-    if (messageId > 1000000000000) {
-      const targetIndex = messages.findIndex(m => m.id === messageId);
-      if (targetIndex !== -1) {
-        const targetMessage = messages[targetIndex];
-        setMessages(messages.slice(0, targetIndex + 1));
-        setInput(targetMessage.content);
-        setTimeout(() => textareaRef.current?.focus(), 50);
-      }
-      return;
-    }
+    const targetIndex = messages.findIndex(m => m.id === messageId);
+    if (targetIndex === -1) return;
+    const targetMessage = messages[targetIndex];
 
-    try {
-      setDeletingMsgId(messageId);
-      await chatService.deleteMessage(conversationId, messageId, false, true);
-      
-      const targetIndex = messages.findIndex(m => m.id === messageId);
-      if (targetIndex !== -1) {
-        const targetMessage = messages[targetIndex];
-        setMessages(messages.slice(0, targetIndex + 1));
-        setInput(targetMessage.content);
-        setTimeout(() => {
-          textareaRef.current?.focus();
-        }, 50);
+    // A timestamp id was never saved, so there is nothing on the server.
+    if (messageId <= 1000000000000) {
+      try {
+        setDeletingMsgId(messageId);
+        await chatService.deleteMessage(conversationId, messageId, true);
+      } catch (err) {
+        console.error('Failed to take the message back', err);
+        toast.error('Could not take the message back');
+        return;
+      } finally {
+        setDeletingMsgId(null);
       }
-      toast.success('Message ready to edit');
-    } catch (err) {
-      console.error('Failed to reverse context', err);
-      toast.error('Failed to reverse context');
-    } finally {
-      setDeletingMsgId(null);
     }
+    setMessages(messages.slice(0, targetIndex));
+    setInput(targetMessage.content);
+    setTimeout(() => textareaRef.current?.focus(), 50);
   };
 
   const handleEditMessage = async (messageId: number, content: string) => {
@@ -1471,8 +1463,20 @@ export default function StandaloneChat() {
    * closing `done` frame carries whatever was written, saved as a partial
    * answer, so the stream ends itself and the transcript keeps the text.
    */
+  // After a steer the box empties, so the send button turns into Stop at once
+  // while the steer waits for the next tool boundary — which on a slow model
+  // is 30-60 s away. A second click "to make sure" then cancelled the run and
+  // bounced the steer back (production, 2026-09-28). With a steer queued,
+  // Stop asks for a second press.
+  const stopArmedAt = useRef(0);
   const stopGeneration = async () => {
     if (!conversationId) return;
+    if (queuedSteers > 0 && Date.now() - stopArmedAt.current > 4000) {
+      stopArmedAt.current = Date.now();
+      toast.info('Your message is queued and will be read at the next step. Press Stop again to stop the run instead.');
+      return;
+    }
+    stopArmedAt.current = 0;
     setIsLoading(false);
     clearStreamStatus();
     try {

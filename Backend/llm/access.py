@@ -18,6 +18,7 @@ and the matching `tool` results pass straight through.
 from __future__ import annotations
 
 import json
+import re
 import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Iterable
@@ -206,6 +207,136 @@ def humanize_provider_body(text: str) -> str:
     # error:" — and is worth keeping in front of the sentence.
     prefix = raw[:start].strip()
     return f"{prefix} {detail}".strip() if prefix else detail
+
+
+def _provider_texts(body: str) -> list[str]:
+    """Every sentence in a provider error, nested ones included.
+
+    OpenRouter wraps the real reason twice: `{"error": {"message": "Provider
+    returned error", "metadata": {"raw": "{\"error\": {\"message\": \"The
+    backend is temporarily overloaded\"}}"}}}`. The outer sentence says
+    nothing, so the raw one is decoded and read too.
+    """
+    out: list[str] = []
+
+    def walk(node: Any, depth: int = 0) -> None:
+        if depth > 6:
+            return
+        if isinstance(node, dict):
+            for value in node.values():
+                walk(value, depth + 1)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, depth + 1)
+        elif isinstance(node, str):
+            text = node.strip()
+            if text.startswith("{"):
+                try:
+                    walk(json.loads(text), depth + 1)
+                    return
+                except ValueError:
+                    pass
+            if text:
+                out.append(text)
+
+    raw = (body or "").strip()
+    start = raw.find("{")
+    if start != -1:
+        try:
+            walk(json.loads(raw[start:]))
+        except ValueError:
+            pass
+    out.append(raw)
+    return out
+
+
+def _status_in(body: str) -> int | None:
+    """A status code the body states (`"code": 503`, `error code: 504`)."""
+    # The digits must be followed by a non-digit (or the end) so "5040 ms"
+    # is not read as a 504.
+    match = re.search(r'(?:"code"\s*:\s*|error code:?\s*|\()([1-5]\d\d)(?!\d)', body or "")
+    return int(match.group(1)) if match else None
+
+
+def _retry_after(body: str) -> int | None:
+    match = re.search(r'retry[_ -]after(?:_seconds)?"?\s*[:=]\s*"?(\d+)', body or "", re.I)
+    return int(match.group(1)) if match else None
+
+
+def explain_provider_failure(
+    status: int | None, body: str, *, model: str = "", provider: str = "",
+) -> str:
+    """The sentence a person sees when a model call fails. Never the raw body.
+
+    Raw provider text reached the user as the assistant's answer: "error code:
+    504", "Provider returned error", a whole HTML error page. None of it says
+    what happened or what to do, and it reads as our crash. Each case here
+    says both, in the order they are checked — the most specific first.
+    Credential, credit and retired-model failures never get here; they are
+    `classify_provider_error`'s, and raise instead of being shown as an answer.
+    """
+    texts = _provider_texts(body)
+    text = " ".join(texts).lower()
+    status = status or _status_in(body)
+    label = PROVIDER_LABELS.get(provider, provider).split(" (")[0] if provider else "the provider"
+    who = f"The model {model}" if model else "The model"
+    again = "Send your message again"
+
+    if status == 429 or any(p in text for p in ("rate limit", "rate-limit", "too many requests", "rate_limit")):
+        wait = _retry_after(body)
+        when = f"about {wait} seconds" if wait and wait < 600 else "a minute"
+        return (f"{who} is getting more requests than {label} allows right now "
+                f"(rate limited). Wait {when} and send your message again, "
+                "or pick a different model.")
+    if any(p in text for p in ("context length", "context_length", "maximum context",
+                               "context window", "too many tokens", "prompt is too long",
+                               "input is too long", "reduce the length")) or status == 413:
+        return (f"This conversation is now longer than {model or 'this model'} can read "
+                "at once. Start a new chat, or pick a model with a larger context "
+                "window, and ask again.")
+    if any(p in text for p in ("support tool", "tool use", "tools are not supported",
+                               "does not support tools", "function calling")):
+        return (f"{who} cannot use tools on {label}, and this chat needs them "
+                "(search, files, agents). Pick a different model.")
+    if status == 404 or any(p in text for p in ("no endpoints found", "not a valid model",
+                                                "model not found", "model_not_found",
+                                                "does not exist")):
+        return (f"{who} is not being served by {label} right now. Pick a different "
+                "model and send your message again.")
+    if any(p in text for p in ("content_filter", "content filter", "flagged",
+                               "moderation", "safety system", "violat")):
+        return (f"{label[:1].upper() + label[1:]} declined to answer this request "
+                "under its own content rules. Rephrasing the request, or picking a "
+                "different model, usually helps.")
+    if status == 503 or any(p in text for p in ("overloaded", "capacity", "temporarily unavailable",
+                                                "service unavailable")):
+        return (f"{who} is overloaded at its provider right now, so this turn stopped "
+                f"before an answer. Nothing was wrong with your question. {again} in "
+                "a minute, or pick a different model.")
+    if status in (504, 524, 408) or any(p in text for p in ("timed out", "timeout",
+                                                            "took too long", "gateway time")):
+        code = f" (HTTP {status})" if status else ""
+        return (f"{who} did not reply in time at its provider{code}, so this turn "
+                f"stopped before an answer. Nothing was wrong with your question. "
+                f"{again}, or pick a faster model if it keeps happening.")
+    if any(p in text for p in ("connecterror", "connection", "name resolution",
+                               "remoteprotocolerror", "network", "unreachable")):
+        return (f"We could not reach {label} (a network problem between our server and "
+                f"theirs). Nothing was wrong with your question. {again} in a moment.")
+    if status is not None and 500 <= status <= 599 or "provider returned error" in text:
+        code = f" (HTTP {status})" if status else ""
+        return (f"{label[:1].upper() + label[1:]} had a problem on its side{code}, so "
+                f"this turn stopped before an answer. {again}; if it keeps happening, "
+                "pick a different model.")
+
+    # Unrecognised: keep the provider's own sentence when it is one — a short
+    # line of prose, never markup or a stack of JSON — since it may be the only
+    # clue there is.
+    detail = humanize_provider_body(body)
+    if detail and len(detail) <= 200 and "<" not in detail and "{" not in detail:
+        return f"{label[:1].upper() + label[1:]} could not answer: {detail}. {again}, or pick a different model."
+    return (f"{label[:1].upper() + label[1:]} returned an error it did not explain. "
+            f"{again}; if it keeps happening, pick a different model.")
 
 
 def classify_provider_error(
@@ -645,9 +776,10 @@ async def complete(
         )
         if actionable is not None:
             raise actionable
-        raise RuntimeError(
-            f"{provider} call failed: {humanize_provider_body(result.error or '')}"
-        )
+        raise RuntimeError(explain_provider_failure(
+            getattr(result, "status_code", None), result.error or "",
+            model=model, provider=provider,
+        ))
 
     data = result.data
     usage = normalize_usage(

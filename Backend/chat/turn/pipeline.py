@@ -1123,6 +1123,10 @@ async def run_chat_turn(
             # Earlier turns arrive through `history` (windowed, summarised);
             # the checkpoint holds this turn only.
             fresh_transcript=True,
+            # Only an answer to a pause continues the graph. Anything else is a
+            # new turn, even when a stopped one left nodes pending.
+            resume=bool(request.approve_tool_call or request.reject_tool_call
+                        or request.answer_tool_call),
         )
     except llm.LLMUserActionable as exc:
         # Credit can run out mid-turn, and a model can reach end of life between

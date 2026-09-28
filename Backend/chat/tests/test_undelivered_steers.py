@@ -70,6 +70,37 @@ class UndeliveredSteersTests(SimpleTestCase):
         kinds = [kind for kind, _ in run.frames]
         self.assertLess(kinds.index(Event.DONE), kinds.index(Event.STEERS_RETURNED))
 
+    def test_the_quality_signal_is_written_off_the_event_loop(self):
+        # `finish` runs on the loop; the sync writer raised
+        # SynchronousOnlyOperation there on every returned steer (production
+        # log, 2026-09-28) and the signal was never recorded.
+        from unittest.mock import patch
+
+        calls: list[tuple] = []
+
+        async def fake(user_id, kind, **kwargs):
+            calls.append((user_id, kind, kwargs))
+
+        async def go():
+            with patch("logs.signals_api.arecord_signal", fake):
+                answering = asyncio.Event()
+                release = asyncio.Event()
+
+                async def work(sink):
+                    answering.set()
+                    await release.wait()
+                    await sink(Event.DONE, {})
+
+                run = runs.start("signal", user_id=7, work=work)
+                await answering.wait()
+                steering.post("signal", "one more thing")
+                release.set()
+                await run.task
+                await asyncio.sleep(0)  # let the detached write run
+
+        async_to_sync(go)()
+        self.assertEqual(calls, [(7, "steers_returned", {"session_id": "signal", "count": 1})])
+
     def test_it_is_not_kept_for_the_next_turn(self):
         self._turn_that_ignores_a_steer()
 
@@ -80,6 +111,10 @@ class UndeliveredSteersTests(SimpleTestCase):
         run = self._turn_that_ignores_a_steer(fail=True)
 
         self.assertEqual(run.status, "error")
+        # The exception text is ours; the browser gets a sentence instead.
+        [error] = _frames_of(run, Event.ERROR)
+        self.assertEqual(error["message"], runs.UNEXPECTED_FAILURE)
+        self.assertNotIn("provider went away", error["message"])
         [returned] = _frames_of(run, Event.STEERS_RETURNED)
         self.assertEqual(len(returned["messages"]), 2)
 

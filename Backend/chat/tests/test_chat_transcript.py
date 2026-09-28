@@ -186,3 +186,30 @@ class ChatTranscriptTests(TestCase):
         sent = self._payload(provider.requests[before])
         self.assertIn("short summary", sent)
         self.assertNotIn("LONGANSWER LONGANSWER", sent)
+
+    def test_the_message_after_a_stop_starts_a_new_turn(self):
+        # Stop cancels the run's task wherever it is, so the checkpoint keeps
+        # nodes still to run. `run_turn` read that as "paused for an approval"
+        # and resumed: the new message never entered the graph, the model
+        # carried on with the stopped task, and its whole transcript went to
+        # the provider again (production 2026-09-28: a steer re-sent after
+        # Stop arrived as `it=4` of the old turn).
+        import asyncio
+        import contextlib
+
+        async def cancelled_tool(name, args, context) -> str:
+            raise asyncio.CancelledError  # what Stop does to the run's task
+
+        provider = _Provider()
+        with patch("chat.tools.execute_tool", cancelled_tool), \
+             contextlib.suppress(asyncio.CancelledError):
+            self._turn("stopped question about zebras-alpha", provider)
+
+        provider.tool_once = False
+        before = len(provider.requests)
+        self._turn("fresh question about owls-gamma", provider)
+
+        sent = self._payload(provider.requests[before])
+        self.assertIn("fresh question about owls-gamma", sent)
+        self.assertEqual(sent.count("stopped question about zebras-alpha"), 1, sent)
+        self.assertNotIn("call_z", sent)

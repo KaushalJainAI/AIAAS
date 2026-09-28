@@ -611,7 +611,7 @@ export default function ChatMessageItem({
                 onClick={() => onRewind(message.id as number)}
                 disabled={deleting}
                 className="text-muted-foreground hover:text-emerald-500 transition-colors p-2 md:p-1.5 hover:bg-success-subtle rounded-lg disabled:opacity-50"
-                title="Reverse context (keep this message, delete answers)"
+                title="Take back (removes this message and everything after it, and puts the text back in the box)"
               >
                 <ArrowUpFromLine className="w-4 h-4" />
               </button>

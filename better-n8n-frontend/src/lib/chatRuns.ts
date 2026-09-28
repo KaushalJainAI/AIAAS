@@ -19,6 +19,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { StreamRequestError, type SseEvent } from '../api/sse';
+import { describeStreamFailure } from './streamErrors';
 
 export type RunStatus = 'running' | 'done' | 'error' | 'aborted';
 
@@ -172,7 +173,12 @@ export function startChatRun(
       finish(
         run,
         'error',
-        err instanceof Error ? err.message : 'Failed to get response',
+        // Never the raw transport text ("Stream request failed: 502",
+        // "Failed to fetch"): what happened and what to do instead.
+        describeStreamFailure(
+          err instanceof StreamRequestError ? err.status : undefined,
+          err instanceof Error ? err.message : undefined,
+        ),
         err instanceof StreamRequestError ? err.code : undefined,
       );
     },

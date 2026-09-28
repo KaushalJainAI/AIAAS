@@ -174,7 +174,11 @@ async def stream_guest_chat(
                 yield {"type": "error", "message": "The demo is rate-limited right now. Try again shortly."}
                 return
             if response.status_code >= 500:
-                yield {"type": "error", "message": f"Upstream service error ({response.status_code})."}
+                from llm.access import explain_provider_failure
+
+                body = (await response.aread()).decode("utf-8", "replace")[:2000]
+                yield {"type": "error", "message": explain_provider_failure(
+                    response.status_code, body)}
                 return
             if response.status_code != 200:
                 from llm.access import humanize_provider_body
@@ -197,13 +201,12 @@ async def stream_guest_chat(
                         ),
                     }
                     return
-                yield {
-                    "type": "error",
-                    "message": (
-                        f"Upstream API error {response.status_code}: "
-                        f"{humanize_provider_body(body)}"
-                    ),
-                }
+                from llm.access import explain_provider_failure
+
+                logger.warning("Guest chat provider error %s: %s",
+                               response.status_code, humanize_provider_body(body))
+                yield {"type": "error", "message": explain_provider_failure(
+                    response.status_code, body)}
                 return
 
             # The provider quirks — `data:` framing, reasoning keys, tags
