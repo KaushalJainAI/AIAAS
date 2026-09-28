@@ -73,6 +73,12 @@ then Part 4.
 |---|---|---|
 | 10 | [10_Probable_Interview_Questions.md](10_Probable_Interview_Questions.md) | ~90 likely questions on this project (overview, HLD, LLD, agents, RAG, evals, data, concurrency, frontend, security, ops, scaling, behavioural, and the 2026-09-28 work on organisations, solution memory and prompts), each with a model answer, level tag and the likely follow-up; numbers to know by heart; questions to ask the interviewer |
 
+## How we know it works
+
+| # | File | What it gives you | Time |
+|---|---|---|---|
+| 11 | [11_How_We_Test.md](11_How_We_Test.md) | Every kind of test in the project and why it exists: fake-model unit tests, end-to-end tests through the real agent graph, tests that enforce the architecture, frontend/backend contract tests, concurrency and security tests, the frontend stack, and the real-model benchmark (capability vs guardrail, pass@1 vs pass^k); the latest results; the CI setup; interview answers | 30 min |
+
 ## Reading order (design)
 
 | # | File | What it covers | Time |

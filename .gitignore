@@ -100,6 +100,11 @@ api_validation_report.md
 *.tar.gz
 *.zip
 
+# ── Presentation Assets ──────────────────────────────────────────────
+presentation/
+prsentation/
+!/AIAAS_Architecture_Technical_Overview.pptx
+
 # ── Editors & OS ─────────────────────────────────────────────────────
 .vscode/
 .idea/
