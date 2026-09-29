@@ -118,34 +118,6 @@ class ExecutionStatisticsTests(LogsTestBase):
         )
 
 
-class WorkflowMetricsTests(LogsTestBase):
-    def test_reports_per_tool_success_rates(self):
-        url = reverse('logs:workflow_metrics', args=[self.agent.id])
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['workflow_name'], 'Test Agent')
-        self.assertEqual(response.data['total_executions'], 2)
-        self.assertEqual(response.data['success_rate'], 50.0)
-        # Keyed by tool, which is the unit an agent actually has: "read_url
-        # always fails" is actionable in a way a call id never was.
-        rates = response.data['tool_success_rates']
-        self.assertEqual(rates['web_search']['success_rate'], 100.0)
-        self.assertEqual(rates['read_url']['success_rate'], 0)
-        self.assertEqual(response.data['error_hotspots'][0]['tool'], 'read_url')
-
-    def test_recent_executions_use_the_workflow_wire_names(self):
-        url = reverse('logs:workflow_metrics', args=[self.agent.id])
-        recent = self.client.get(url).data['recent_executions'][0]
-        self.assertEqual(recent['workflow_id'], self.agent.id)
-        self.assertEqual(recent['workflow_name'], 'Test Agent')
-        self.assertNotIn('subagent_id', recent)
-
-    def test_other_users_agent_is_not_found(self):
-        theirs = SubAgent.objects.create(user=self.other, name='Theirs')
-        url = reverse('logs:workflow_metrics', args=[theirs.id])
-        self.assertEqual(self.client.get(url).status_code, status.HTTP_404_NOT_FOUND)
-
-
 class CostBreakdownTests(LogsTestBase):
     def test_totals_and_breakdowns(self):
         response = self.client.get(reverse('logs:cost_breakdown'))

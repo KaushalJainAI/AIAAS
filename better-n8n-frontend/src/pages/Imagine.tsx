@@ -22,6 +22,7 @@ import {
   Info,
   Loader2,
   MessageSquare,
+  Pencil,
   Plus,
   Settings2,
   Palette,
@@ -107,6 +108,8 @@ export default function Imagine() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
   const [showAgentHistory, setShowAgentHistory] = useState(false);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
 
   const {
     capabilities,
@@ -224,6 +227,7 @@ export default function Imagine() {
                 <div
                   key={c.id}
                   onClick={() => {
+                    if (renamingId === c.id) return;
                     void agent.switchConversation(c.id);
                     setShowAgentHistory(false);
                   }}
@@ -234,15 +238,51 @@ export default function Imagine() {
                 >
                   <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-60" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium">{c.title || 'Untitled'}</div>
+                    {renamingId === c.id ? (
+                      <input
+                        autoFocus
+                        value={renameDraft}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.currentTarget.blur();
+                          } else if (e.key === 'Escape') {
+                            setRenamingId(null);
+                          }
+                        }}
+                        onBlur={() => {
+                          const title = renameDraft.trim();
+                          setRenamingId(null);
+                          if (title && title !== c.title) {
+                            void agent.renameConversation(c.id, title);
+                          }
+                        }}
+                        className="w-full rounded border border-primary/40 bg-background px-1.5 py-0.5 text-xs font-medium"
+                      />
+                    ) : (
+                      <div className="truncate text-xs font-medium">{c.title || 'Untitled'}</div>
+                    )}
                     <div className="truncate text-[11px] text-muted-foreground">{c.last_message ? `${c.last_message.role === 'user' ? 'You: ' : ''}${c.last_message.content.slice(0, 44)}` : 'No messages'}</div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenameDraft(c.title || '');
+                      setRenamingId(c.id);
+                    }}
+                    aria-label="Rename conversation"
+                    className="rounded-md p-1 opacity-0 group-hover:opacity-100 hover:bg-muted"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!confirm('Delete this conversation?')) return;
                       void agent.deleteConversation(c.id);
                     }}
+                    aria-label="Delete conversation"
                     className="rounded-md p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-white"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

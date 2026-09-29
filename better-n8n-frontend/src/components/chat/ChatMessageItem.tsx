@@ -28,6 +28,8 @@ import {
   RotateCcw,
   Trash2,
   Video,
+  Volume2,
+  VolumeX,
   Zap,
 } from 'lucide-react';
 
@@ -58,11 +60,17 @@ interface ChatMessageItemProps {
   deleting: boolean;
   /** Show the "copied" tick on the copy button. */
   copied: boolean;
+  /** This message is the one currently being read aloud. */
+  isSpeaking: boolean;
+  /** The speaker button is waiting on `/api/chat/speak/` for this message. */
+  speakLoading: boolean;
   isPanelOpen: (panel: MessagePanel, messageId: number | undefined) => boolean;
   togglePanel: (panel: MessagePanel, messageId: number) => void;
   /** A confirm sheet on a command card is being submitted. */
   confirmBusy: boolean;
   onCopy: () => void;
+  /** Read this message aloud, or stop if it's already playing. */
+  onSpeak: (messageId: number, text: string) => void;
   onDelete: (messageId: number) => void;
   /** Regenerate from this message (deletes it and what follows). */
   onRewrite: (messageId: number) => void;
@@ -80,10 +88,13 @@ export default function ChatMessageItem({
   animate,
   deleting,
   copied,
+  isSpeaking,
+  speakLoading,
   isPanelOpen,
   togglePanel,
   confirmBusy,
   onCopy,
+  onSpeak,
   onDelete,
   onRewrite,
   onRewind,
@@ -589,6 +600,19 @@ export default function ChatMessageItem({
             >
               {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
             </button>
+            {message.role === 'assistant' && message.content.trim() && (
+              <button
+                onClick={() => onSpeak(message.id as number, message.content)}
+                className="text-muted-foreground hover:text-primary transition-colors p-2 md:p-1.5 hover:bg-primary/5 rounded-lg"
+                title={isSpeaking ? 'Stop reading aloud' : 'Read aloud'}
+              >
+                {speakLoading
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : isSpeaking
+                    ? <VolumeX className="w-4 h-4 text-primary" />
+                    : <Volume2 className="w-4 h-4" />}
+              </button>
+            )}
             {message.role !== 'user' && (
               <button
                 onClick={() => onRewrite(message.id as number)}

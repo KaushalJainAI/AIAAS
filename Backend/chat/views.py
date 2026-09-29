@@ -431,11 +431,15 @@ def upload_file(request, session_id: str):
         is_large_file=len(text) > IS_LARGE_FILE_THRESHOLD,
     )
 
-    if file_type in ("pdf", "pptx", "text") and text:
-        try:
-            attachments.index_for_rag(request.user, upload, attachment, text)
-        except Exception:
-            logger.exception("[Upload] RAG indexing failed for %s", upload.name)
+    # Every upload gets a Document row: the file library is the single source
+    # of truth for bytes + extracted text, and the attachment points at it.
+    # Text-bearing types are indexed for RAG inside index_for_rag; images and
+    # formats with no reader still get the row (status `stored`) so the file
+    # is kept, listed and re-readable rather than living only on the chat row.
+    try:
+        attachments.index_for_rag(request.user, upload, attachment, text)
+    except Exception:
+        logger.exception("[Upload] Document store failed for %s", upload.name)
 
     preview = (
         f"\n\nContext summary ({len(text)} chars):\n{text[:LARGE_FILE_PREVIEW_LENGTH]}..."
@@ -504,6 +508,51 @@ async def transcribe_clip(request):
         "text": result.get("text") or "",
         "language": result.get("language") or "",
         "duration_s": result.get("duration_s") or 0,
+    })
+
+
+class SpeakThrottle(UserRateThrottle):
+    scope = "speak"
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([SpeakThrottle])
+async def speak_text(request):
+    """Speak one reply's text, for the composer's speaker button.
+
+    Transport only, like `transcribe_clip`'s mirror image: nothing is saved to
+    the workspace and no spend is recorded here — that is what the
+    `text_to_speech` agent tool is for. This is the ad-hoc "read this back to
+    me" path, and it degrades on the client to the browser's own voice when
+    no engine is configured here (503).
+    """
+    import base64
+
+    from voice.tts import TTS_MAX_CHARS, TTSError, synthesize, tts_available
+
+    if not tts_available():
+        return Response(
+            {"error": "Voice output is not set up on this server.", "code": "tts_unavailable"},
+            status=503,
+        )
+    text = str(request.data.get("text") or "").strip()
+    if not text:
+        return Response({"error": "No text was sent."}, status=400)
+    if len(text) > TTS_MAX_CHARS:
+        return Response(
+            {"error": f"That is {len(text):,} characters; one call speaks at most "
+                      f"{TTS_MAX_CHARS:,}. Split it into parts."},
+            status=400,
+        )
+    voice = str(request.data.get("voice") or "").strip()
+    try:
+        data, ext = await synthesize(text, voice)
+    except TTSError as exc:
+        return Response({"error": str(exc)}, status=502)
+    return Response({
+        "audio_base64": base64.b64encode(data).decode("ascii"),
+        "format": ext,
     })
 
 

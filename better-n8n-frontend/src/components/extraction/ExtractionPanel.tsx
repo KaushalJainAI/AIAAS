@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ScanText, Plus, AlertTriangle, CheckCircle2, Loader2, Upload, Check, X, SlidersHorizontal, Wand2,
+  Pencil, Trash2,
 } from 'lucide-react';
 import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
@@ -36,14 +37,17 @@ const FILTERS: { id: RowStatus | ''; label: string }[] = [
   { id: 'rejected', label: 'Rejected' },
 ];
 
-function NewSchemaForm({ onDone }: { onDone: () => void }) {
+function NewSchemaForm({ initial, onDone }: { initial?: ExtractionSchema; onDone: () => void }) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState('');
-  const [fieldText, setFieldText] = useState('vendor\ndate\ngstin\ntotal');
+  const editing = Boolean(initial);
+  const [name, setName] = useState(initial?.name ?? '');
+  const [fieldText, setFieldText] = useState(
+    initial ? initial.fields.map((f) => f.name).join('\n') : 'vendor\ndate\ngstin\ntotal'
+  );
 
-  const create = useMutation({
-    mutationFn: () =>
-      extractionService.createSchema({
+  const save = useMutation({
+    mutationFn: () => {
+      const body = {
         name: name.trim(),
         // One field per line is the fastest way to define a table by hand.
         fields: fieldText
@@ -51,15 +55,19 @@ function NewSchemaForm({ onDone }: { onDone: () => void }) {
           .map((l) => l.trim())
           .filter(Boolean)
           .map((n) => ({ name: n, type: 'string' as const })),
-      }),
+      };
+      return editing && initial
+        ? extractionService.updateSchema(initial.id, body)
+        : extractionService.createSchema(body);
+    },
     onSuccess: (s) => {
       queryClient.invalidateQueries({ queryKey: ['extraction-schemas'] });
-      toast.success(`${s.name} created`);
+      toast.success(editing ? `${s.name} updated` : `${s.name} created`);
       onDone();
     },
     onError: (err: { response?: { data?: Record<string, unknown> } }) => {
       const first = err.response?.data && Object.values(err.response.data)[0];
-      toast.error(String(Array.isArray(first) ? first[0] : (first ?? 'Could not create that schema.')));
+      toast.error(String(Array.isArray(first) ? first[0] : (first ?? 'Could not save that schema.')));
     },
   });
 
@@ -88,11 +96,11 @@ function NewSchemaForm({ onDone }: { onDone: () => void }) {
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => create.mutate()}
-          disabled={!name.trim() || create.isPending}
+          onClick={() => save.mutate()}
+          disabled={!name.trim() || save.isPending}
           className="px-4 py-1.5 text-sm font-semibold rounded bg-primary text-primary-foreground disabled:opacity-50"
         >
-          Create
+          {editing ? 'Save' : 'Create'}
         </button>
         <button
           onClick={onDone}
@@ -613,7 +621,9 @@ function ReviewQueue() {
 }
 
 export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' }) {
+  const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [editingSchema, setEditingSchema] = useState<ExtractionSchema | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -625,11 +635,24 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
   const flagged = schemas.reduce((n, s) => n + s.review_count, 0);
   const selected = schemas.find((s) => s.id === selectedId) ?? schemas[0] ?? null;
 
+  const removeSchema = useMutation({
+    mutationFn: (id: number) => extractionService.removeSchema(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['extraction-schemas'] });
+      if (selectedId === id) setSelectedId(null);
+      toast.success('Schema deleted');
+    },
+    onError: () => toast.error('Could not delete that schema.'),
+  });
+
   if (mode === 'review') return <ReviewQueue />;
 
   return (
     <div>
       {creating && <NewSchemaForm onDone={() => setCreating(false)} />}
+      {editingSchema && (
+        <NewSchemaForm initial={editingSchema} onDone={() => setEditingSchema(null)} />
+      )}
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-12">
@@ -665,15 +688,40 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
               const SrcIcon = sourceIcon[s.source_kind] ?? Upload;
               const active = selected?.id === s.id;
               return (
-                <button
+                <div
                   key={s.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedId(s.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(s.id); }}
                   className={cn(
-                    'block text-left bg-card border rounded p-4 transition-colors',
+                    'group relative block text-left bg-card border rounded p-4 transition-colors cursor-pointer',
                     active ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-border-strong hover:bg-secondary/40'
                   )}
                 >
-                  <h3 className="font-semibold mb-1 truncate">{s.name}</h3>
+                  <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setEditingSchema(s); }}
+                      aria-label={`Edit ${s.name}`}
+                      className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!confirm(`Delete "${s.name}"? Its extracted rows go with it.`)) return;
+                        removeSchema.mutate(s.id);
+                      }}
+                      aria-label={`Delete ${s.name}`}
+                      className="p-1 rounded hover:bg-destructive-subtle text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <h3 className="font-semibold mb-1 truncate pr-12">{s.name}</h3>
                   <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground mb-3">
                     <SrcIcon className="w-3 h-3" />
                     {sourceLabel[s.source_kind] ?? 'Manual upload'}
@@ -700,7 +748,7 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
                       {Math.round(s.confidence_threshold * 100)}%
                     </span>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>

@@ -51,6 +51,7 @@ import { Button } from '../components/ui/Button';
 import {
   MyToolsSection,
   NewToolDialog,
+  SharedToolsSection,
 } from '../components/tools/CustomTools';
 import toolsService, {
   type ToolCategory,
@@ -897,7 +898,10 @@ export default function Tools() {
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-8 custom-scrollbar">
         {!searching && (
-          <MyToolsSection onNew={() => setShowNewTool(true)} />
+          <>
+            <MyToolsSection onNew={() => setShowNewTool(true)} />
+            <SharedToolsSection />
+          </>
         )}
 
         {visible.length === 0 && (

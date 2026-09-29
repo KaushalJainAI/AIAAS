@@ -130,7 +130,12 @@ def extract_text(data: bytes, file_type: str) -> str:
 # ── Indexing ─────────────────────────────────────────────────────────────────
 
 def index_for_rag(user, upload, attachment: ChatAttachment, text: str) -> None:
-    """Register the file in the user knowledge base and index it in background."""
+    """Store the file as a Document row and index it in background.
+
+    Every chat upload gets the row; text-bearing types are chunked + embedded
+    by process_document, while images and formats with no reader land as
+    `stored` (kept, listed, re-readable) rather than living only on the chat.
+    """
     import threading
 
     from inference.models import Document

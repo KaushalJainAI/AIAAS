@@ -361,6 +361,10 @@ STT_MAX_UPLOAD_BYTES = int(os.environ.get('STT_MAX_UPLOAD_BYTES', str(10 * 1024 
 STT_REMOTE_URL = os.environ.get('STT_REMOTE_URL', '')
 STT_API_TOKEN = os.environ.get('STT_API_TOKEN', '')
 TTS_ENGINE = os.environ.get('TTS_ENGINE', 'none')
+#: Only read by the `openrouter` engine — Kokoro-82M, natural voices at
+#: roughly $4/1M characters (2026-09-29).
+TTS_MODEL = os.environ.get('TTS_MODEL', 'hexgrad/kokoro-82m')
+TTS_VOICE = os.environ.get('TTS_VOICE', 'af_heart')
 TTS_REMOTE_URL = os.environ.get('TTS_REMOTE_URL', '')
 TTS_API_TOKEN = os.environ.get('TTS_API_TOKEN', '')
 ESIGN_ENGINE = os.environ.get('ESIGN_ENGINE', 'none')
@@ -493,6 +497,8 @@ REST_FRAMEWORK = {
         # The chat mic: one clip per request. What bounds its spend, since a
         # clip costs ~₹0.02 and the ledger counts whole rupees.
         'transcribe': '120/hour',
+        # The speaker button: one reply's text per request.
+        'speak': '120/hour',
         'password_reset': '10/hour',
         'password_change': '10/hour',
         'guest_chat_min': '3/minute',

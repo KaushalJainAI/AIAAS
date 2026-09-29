@@ -209,6 +209,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 #: read whole parts into memory (N2). Real documents sit far below this.
 ZIP_UNCOMPRESSED_LIMIT = 200 * 1024 * 1024
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000    # Increase field limit for complex workflows
+#: Largest attachment sent to a model as raw bytes (base64 file block) rather
+#: than extracted text. Above this the run falls back to extracted text, which
+#: is cheaper and cache-friendly: base64 inflates ~33% and a blob re-billed on
+#: every iteration of a 40-turn run is how a context window disappears.
+CHAT_RAW_FILE_MAX_BYTES = 10 * 1024 * 1024
 
 # ==================== Subprocess & Internal Timeouts ====================
 IMPORT_CHECK_TIMEOUT_SECONDS = 15  # Import checking timeout

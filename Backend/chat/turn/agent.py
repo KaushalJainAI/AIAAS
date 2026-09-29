@@ -41,7 +41,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
 from langgraph.types import interrupt
 
 from workflow_backend.background import release_db
-from workflow_backend.thresholds import MAX_TOOL_ITERATIONS
+from workflow_backend.thresholds import CHAT_RAW_FILE_MAX_BYTES, MAX_TOOL_ITERATIONS
 
 from asgiref.sync import sync_to_async
 from decimal import Decimal
@@ -527,27 +527,49 @@ def _turn_number(messages: Sequence[BaseMessage]) -> int:
 
 # ── Vision / attachments ─────────────────────────────────────────────────────
 
-#: Substring hints for models absent from the AIModel registry (new OpenRouter
-#: entries, mostly). The registry is authoritative; this only avoids silently
-#: dropping images for a model nobody has catalogued yet.
-_VISION_HINTS = (
-    "vision", "-vl", "gpt-4o", "gpt-5", "gemini", "claude-", "grok-4",
-    "llama-4", "pixtral", "qwen-vl", "llava", "kimi",
-)
+#: Document kinds eligible for a raw `file` block when the model takes
+#: document input. Mirrors the encoder's `_RAW_DOCUMENT_TYPES` by kind name;
+#: the encoder owns the wire shape, this owns the per-model decision.
+_RAW_CAPABLE_TYPES = frozenset({"pdf", "pptx", "docx", "xlsx", "text"})
+
+#: Providers whose wire format carries raw file blocks (all share
+#: `openai_compatible.encode_image_attachments`). Ollama builds its own
+#: image-only messages and has no file shape, so its models always get the
+#: extracted-text fallback whatever the catalogue claims.
+_RAW_FILE_PROVIDERS = frozenset({"openrouter", "openai", "nvidia", "opencode"})
+
+
+async def _model_caps(model: str) -> tuple[bool, bool]:
+    """(supports_image, supports_document) for `model` from the registry.
+
+    Read by value alone: `AIModel.value` is unique across the whole catalogue,
+    so the provider adds nothing and a wrong provider slug must not hide the
+    row. Unknown or inactive models get `(False, False)` — text fallback plus
+    the witness pointer — because guessing raw support for an uncatalogued id
+    is how a turn 400s on its first token.
+    """
+    from llm.models import AIModel
+
+    entry = await AIModel.objects.filter(value=model, is_active=True).afirst()
+    if entry is None:
+        logger.debug("[Vision] %s not in registry; no raw file support", model)
+        return False, False
+    return bool(entry.supports_image_input), bool(entry.supports_document_input)
 
 
 async def supports_vision(model: str, provider: str) -> bool:
-    """Whether `model` accepts image input."""
-    from llm.models import AIModel
+    """Whether `model` accepts image input (registry, by model value)."""
+    supports_image, _ = await _model_caps(model)
+    return supports_image
 
-    entry = await AIModel.objects.filter(value=model, provider__slug=provider).afirst()
-    if entry is not None:
-        return entry.supports_image_input
 
-    lowered = model.lower()
-    guessed = any(hint in lowered for hint in _VISION_HINTS)
-    logger.debug("[Vision] %s not in registry; hint match=%s", model, guessed)
-    return guessed
+def _attachment_bytes(att) -> int | None:
+    """Known on-disk size of an attachment, or None when unstated."""
+    size = getattr(att, 'file_size', None)
+    try:
+        return int(size) if size else None
+    except (TypeError, ValueError):
+        return None
 
 
 async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> str:
@@ -595,25 +617,45 @@ async def prepare_attachments(
     user_id: int | None = None,
 ) -> tuple[tuple[Any, ...], str]:
     """
-    Split attachments into (files passed to the model, text appended to prompt).
+    Split attachments into (files sent raw, text appended to prompt).
 
-    Vision models get the files. Text-only models get extracted text instead, so
-    an upload is never silently ignored.
+    Raw-vs-text is decided per the `AIModel` capability flags for this model
+    value: images go raw when it takes image input, documents
+    (pdf/office/text) go raw as `file` blocks when it takes document input on
+    an OpenAI-protocol provider — otherwise each falls back to extracted text
+    (or the witness pointer for images), so an upload is never silently
+    ignored and a raw-incompatible model never receives a block it 400s on.
+    Oversized files fall back to text for the same reason: base64 inflates a
+    blob past what the turn can carry.
     """
     if not attachments:
         return (), ""
 
-    if await supports_vision(model, provider):
-        return tuple(attachments), ""
-
     from chat.vision import witness_available
 
+    supports_image, supports_document = await _model_caps(model)
+    raw_docs_allowed = supports_document and provider in _RAW_FILE_PROVIDERS
     witness = await witness_available(user_id)
-    described = [
-        await _describe_attachment_for_text_model(a, witness=witness)
-        for a in attachments
-    ]
-    return (), "\n\n## Uploaded files\n" + "\n\n".join(described)
+
+    raw: list[Any] = []
+    described: list[str] = []
+    for att in attachments:
+        kind = (getattr(att, 'file_type', None) or "other").lower()
+        size = _attachment_bytes(att)
+        too_big = size is not None and size > CHAT_RAW_FILE_MAX_BYTES
+        if kind == "image" and supports_image and not too_big:
+            raw.append(att)
+        elif kind in _RAW_CAPABLE_TYPES and raw_docs_allowed and not too_big:
+            raw.append(att)
+        else:
+            described.append(
+                await _describe_attachment_for_text_model(att, witness=witness)
+            )
+
+    text = ""
+    if described:
+        text = "\n\n## Uploaded files\n" + "\n\n".join(described)
+    return tuple(raw), text
 
 
 # ── Agent node ───────────────────────────────────────────────────────────────

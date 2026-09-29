@@ -18,6 +18,9 @@ interface ChatSettingsDialogProps {
   saving: boolean;
   onSave: (patch: Partial<ChatSession>) => void;
   onClose: () => void;
+  /** Client-side only — read aloud is a browser preference, not server state. */
+  readAloud: boolean;
+  onToggleReadAloud: () => void;
 }
 
 export default function ChatSettingsDialog({
@@ -28,6 +31,8 @@ export default function ChatSettingsDialog({
   saving,
   onSave,
   onClose,
+  readAloud,
+  onToggleReadAloud,
 }: ChatSettingsDialogProps) {
   return (
     <div
@@ -162,6 +167,36 @@ export default function ChatSettingsDialog({
               </button>
             </div>
           ) : null}
+
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/20 p-3.5">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-foreground">Read replies aloud</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Speaks each reply as it finishes, using the same voice as the speaker button.
+                Stored in this browser only.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={readAloud}
+              aria-label="Read replies aloud"
+              onClick={onToggleReadAloud}
+              className={cn(
+                "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5",
+                "transition-colors duration-300 ease-out",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                readAloud ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span
+                className={cn(
+                  "h-5 w-5 shrink-0 rounded-full bg-white shadow-sm transition-transform duration-300 ease-out",
+                  readAloud ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">

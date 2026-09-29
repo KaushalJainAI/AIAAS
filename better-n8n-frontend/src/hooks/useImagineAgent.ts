@@ -294,6 +294,11 @@ export function useImagineAgent() {
     [state.conversationId, reset]
   );
 
+  const renameConversation = useCallback(async (id: number, title: string) => {
+    const updated = await imagineAgent.updateConversation(id, { title });
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: updated.title } : c)));
+  }, []);
+
   return {
     ...state,
     isConnected,
@@ -303,6 +308,7 @@ export function useImagineAgent() {
     newConversation,
     switchConversation,
     deleteConversation,
+    renameConversation,
     sendMessage,
     resume,
     loadConversation,

@@ -8,6 +8,7 @@ from .views import (
     execute_tool_view,
     send_message,
     send_message_stream,
+    speak_text,
     steer_message_stream,
     stop_message_stream,
     transcribe_clip,
@@ -31,6 +32,7 @@ urlpatterns = [
     path('sessions/<str:session_id>/messages/<int:message_id>/', delete_message, name='delete_message'),
     path('sessions/<str:session_id>/upload/', upload_file, name='upload_file'),
     path('transcribe/', transcribe_clip, name='transcribe_clip'),
+    path('speak/', speak_text, name='speak_text'),
 
     # Slash commands (P10, §18): the palette, completion, and action runs.
     path('commands/', command_views.command_list, name='command_list'),

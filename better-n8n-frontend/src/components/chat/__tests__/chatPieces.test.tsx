@@ -12,6 +12,7 @@ import type { ChatSessionSummary } from '../../../api/chat';
 import type { PendingToolCall } from '../../../hooks/useChatStream';
 import ChatHistorySidebar from '../ChatHistorySidebar';
 import ChatHeader from '../ChatHeader';
+import ChatMessageItem from '../ChatMessageItem';
 import ChatSettingsDialog from '../ChatSettingsDialog';
 import ToolApprovalCard from '../ToolApprovalCard';
 
@@ -148,12 +149,33 @@ describe('ChatSettingsDialog', () => {
         saving={false}
         onSave={onSave}
         onClose={vi.fn()}
+        readAloud={false}
+        onToggleReadAloud={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByText('Save'));
     expect(onSave).toHaveBeenCalledWith({ system_prompt: 'Answer in French.' });
     fireEvent.click(screen.getByLabelText('Toggle memory'));
     expect(onSave).toHaveBeenCalledWith({ memory_enabled: false });
+  });
+
+  it('toggles hands-free mode without touching the server draft', () => {
+    const onToggle = vi.fn();
+    render(
+      <ChatSettingsDialog
+        session={session()}
+        isGuest={false}
+        promptDraft=""
+        onPromptDraftChange={vi.fn()}
+        saving={false}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        readAloud={false}
+        onToggleReadAloud={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Read replies aloud'));
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
   it('guests see memory as locked', () => {
@@ -166,10 +188,53 @@ describe('ChatSettingsDialog', () => {
         saving={false}
         onSave={vi.fn()}
         onClose={vi.fn()}
+        readAloud={false}
+        onToggleReadAloud={vi.fn()}
       />,
     );
     expect(screen.getByText('Login required')).toBeTruthy();
     expect(screen.queryByLabelText('Toggle memory')).toBeNull();
+  });
+});
+
+describe('ChatMessageItem speaker button', () => {
+  const base = (over: Record<string, unknown> = {}) => ({
+    message: {
+      id: 7, role: 'assistant', content: 'Hello there', metadata: {},
+      created_at: new Date().toISOString(),
+    } as unknown as import('../../../api').StandaloneChatMessage,
+    index: 1,
+    animate: false,
+    deleting: false,
+    copied: false,
+    isSpeaking: false,
+    speakLoading: false,
+    isPanelOpen: () => false,
+    togglePanel: vi.fn(),
+    confirmBusy: false,
+    onCopy: vi.fn(),
+    onSpeak: vi.fn(),
+    onDelete: vi.fn(),
+    onRewrite: vi.fn(),
+    onRewind: vi.fn(),
+    onEdit: vi.fn(),
+    onCommandConfirm: vi.fn(),
+    ...over,
+  });
+
+  it('calls onSpeak with (id, content), like onCopy pins its own args', () => {
+    const props = base();
+    render(<ChatMessageItem {...props} />);
+    fireEvent.click(screen.getByTitle('Read aloud'));
+    expect(props.onSpeak).toHaveBeenCalledWith(7, 'Hello there');
+  });
+
+  it('keeps the speaker button while waiting on /api/chat/speak/', () => {
+    const props = base({ speakLoading: true });
+    render(<ChatMessageItem {...props} />);
+    // Loading swaps the icon for a spinner; the affordance stays put.
+    expect(screen.getByTitle('Read aloud')).toBeTruthy();
+    expect(props.onSpeak).not.toHaveBeenCalled();
   });
 });
 

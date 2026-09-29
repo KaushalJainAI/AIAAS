@@ -48,17 +48,6 @@ def execution_statistics(request):
 @extend_schema(responses={200: OpenApiTypes.OBJECT})
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def workflow_metrics(request, workflow_id: int):
-    """Detailed metrics for one agent, including per-tool success rates."""
-    metrics = queries.agent_metrics(request.user, workflow_id)
-    if metrics is None:
-        return Response({"error": "Agent not found"}, status=404)
-    return Response(metrics)
-
-
-@extend_schema(responses={200: OpenApiTypes.OBJECT})
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
 def cost_breakdown(request):
     """Token and credit usage breakdown."""
     params = _validated(AnalyticsFilterSerializer, request)

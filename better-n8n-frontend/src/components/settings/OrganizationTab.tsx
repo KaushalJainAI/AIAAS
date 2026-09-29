@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, Loader2, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import orgsService, { type Org } from '../../api/orgs';
+import orgsService, { type Org, type OrgRole } from '../../api/orgs';
 import { useAuth } from '../../contexts/authState';
 
 /**
@@ -39,6 +39,12 @@ function Members({ org }: { org: Org }) {
     onSuccess: refresh,
     onError: (e) => toast.error(errorText(e, 'Could not remove them.')),
   });
+  const changeRole = useMutation({
+    mutationFn: ({ userId, role }: { userId: number; role: OrgRole }) =>
+      orgsService.setRole(org.id, userId, role),
+    onSuccess: refresh,
+    onError: (e) => toast.error(errorText(e, 'Could not change their role.')),
+  });
 
   if (isLoading) return <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mt-3" />;
   return (
@@ -50,7 +56,20 @@ function Members({ org }: { org: Org }) {
               <p className="truncate">{m.name}</p>
               <p className="text-[12px] text-muted-foreground truncate">{m.email}</p>
             </div>
-            <span className="text-[12px] text-muted-foreground capitalize">{m.role}</span>
+            {manager && m.role !== 'owner' ? (
+              <select
+                value={m.role}
+                disabled={changeRole.isPending}
+                onChange={(e) => changeRole.mutate({ userId: m.user_id, role: e.target.value as OrgRole })}
+                aria-label={`Role for ${m.email}`}
+                className="px-1.5 py-1 rounded border border-border bg-background text-[12px] capitalize"
+              >
+                <option value="admin">Admin</option>
+                <option value="member">Member</option>
+              </select>
+            ) : (
+              <span className="text-[12px] text-muted-foreground capitalize">{m.role}</span>
+            )}
             {manager && m.role !== 'owner' && (
               <button
                 type="button"

@@ -103,10 +103,99 @@ def image_mime_for(filename: str) -> str:
     }.get(ext, "image/jpeg")
 
 
+#: Office / text extensions mimetypes often misses (notably on Windows).
+_DOCUMENT_MIME_OVERRIDES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".xml": "application/xml",
+    ".html": "text/html",
+    ".md": "text/plain",
+    ".txt": "text/plain",
+    ".yml": "application/x-yaml",
+    ".yaml": "application/x-yaml",
+}
+
+
+def file_mime_for(filename: str) -> str:
+    """Mime type for a document attachment sent as a raw file block."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext in _DOCUMENT_MIME_OVERRIDES:
+        return _DOCUMENT_MIME_OVERRIDES[ext]
+    guessed, _ = mimetypes.guess_type(filename or "")
+    return guessed or "application/octet-stream"
+
+
+#: Attachment kinds eligible for a raw `file` block. Mirrors
+#: `chat.turn.history._TEXT_EXTRACTED_TYPES` without importing it — `llm` sits
+#: below `chat` in the layering and must not import it (import contracts).
+_RAW_DOCUMENT_TYPES = frozenset({"pdf", "pptx", "docx", "xlsx", "text"})
+
+
+def _read_raw_bytes(att, *, provider: str, max_bytes: int) -> tuple[bytes, str] | None:
+    """File bytes + filename for a raw file block, or None with a warning.
+
+    Size is checked before *and* after the read: `file_size` may be stale and
+    the blob inflates ~33% in base64, so an oversized file must fall back to
+    extracted text rather than 400 the whole turn.
+    """
+    from workflow_backend.thresholds import CHAT_RAW_FILE_MAX_BYTES
+
+    cap = max_bytes or CHAT_RAW_FILE_MAX_BYTES
+    try:
+        file_path = att.file.path if hasattr(att.file, 'path') else att.file.name
+        if not validate_attachment_path(file_path):
+            logger.warning(
+                "Blocked path traversal in %s attachment: %s",
+                provider, getattr(att, 'filename', '?'),
+            )
+            return None
+        try:
+            if os.path.getsize(file_path) > cap:
+                logger.info(
+                    "Attachment %s too large for raw send (%s bytes); "
+                    "caller should fall back to extracted text",
+                    getattr(att, 'filename', '?'), provider,
+                )
+                return None
+        except OSError:
+            pass
+        with open(file_path, "rb") as fh:
+            data = fh.read(cap + 1)
+        if len(data) > cap:
+            logger.info(
+                "Attachment %s too large for raw send; "
+                "caller should fall back to extracted text",
+                getattr(att, 'filename', '?'),
+            )
+            return None
+        return data, getattr(att, 'filename', '') or file_path
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        logger.warning(
+            "Skipping unreadable attachment %s for %s: %s",
+            getattr(att, 'filename', '?'), provider, exc,
+        )
+        return None
+
+
 def encode_image_attachments(
     attachments: list, *, provider: str, prompt: str,
 ) -> list[dict[str, Any]] | str:
-    """Build OpenAI multimodal `content` from image attachments.
+    """Build OpenAI multimodal `content` from attachments.
+
+    Images go as `image_url` blocks, documents (pdf/office/text) as OpenRouter
+    `file` blocks (`file_data` as a data URL — passed straight to the model
+    when it natively takes files, parsed by OpenRouter otherwise). Which kinds
+    arrive here is decided per the `AIModel` capability flags in
+    `chat.turn.agent.prepare_attachments`; this function only encodes what it
+    was handed, best-effort — one unreadable file never fails the turn.
 
     Returns the plain prompt string when there is nothing to attach, so callers
     can pass the result straight through as the message content — the models
@@ -118,42 +207,60 @@ def encode_image_attachments(
     handler. Making it mandatory means a new subclass cannot inherit someone
     else's identity by omission.
     """
+    from workflow_backend.thresholds import CHAT_RAW_FILE_MAX_BYTES
+
     if not attachments:
         return prompt
 
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
     for att in attachments:
-        if getattr(att, 'file_type', None) != 'image':
-            logger.info(
-                "Skipping unsupported attachment type %s for %s",
-                getattr(att, 'file_type', '?'), provider,
-            )
-            continue
-        try:
-            file_path = att.file.path if hasattr(att.file, 'path') else att.file.name
-            if not validate_attachment_path(file_path):
+        kind = (getattr(att, 'file_type', None) or "other").lower()
+        if kind == 'image':
+            try:
+                file_path = att.file.path if hasattr(att.file, 'path') else att.file.name
+                if not validate_attachment_path(file_path):
+                    logger.warning(
+                        "Blocked path traversal in %s attachment: %s",
+                        provider, getattr(att, 'filename', '?'),
+                    )
+                    continue
+                with open(file_path, "rb") as fh:
+                    b64 = base64.b64encode(fh.read()).decode('utf-8')
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{image_mime_for(getattr(att, 'filename', '') or file_path)}"
+                               f";base64,{b64}",
+                    },
+                })
+            except (OSError, ValueError, UnicodeDecodeError) as exc:
+                # One unreadable file must not fail the whole request, but it must
+                # not vanish either: a silently dropped attachment looks to the
+                # user like the model ignored what they sent.
                 logger.warning(
-                    "Blocked path traversal in %s attachment: %s",
-                    provider, getattr(att, 'filename', '?'),
+                    "Skipping unreadable attachment %s for %s: %s",
+                    getattr(att, 'filename', '?'), provider, exc,
                 )
+            continue
+        if kind in _RAW_DOCUMENT_TYPES:
+            raw = _read_raw_bytes(
+                att, provider=provider, max_bytes=CHAT_RAW_FILE_MAX_BYTES)
+            if raw is None:
                 continue
-            with open(file_path, "rb") as fh:
-                b64 = base64.b64encode(fh.read()).decode('utf-8')
+            data, filename = raw
+            b64 = base64.b64encode(data).decode('utf-8')
             content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{image_mime_for(getattr(att, 'filename', '') or file_path)}"
-                           f";base64,{b64}",
+                "type": "file",
+                "file": {
+                    "filename": filename,
+                    "file_data": f"data:{file_mime_for(filename)};base64,{b64}",
                 },
             })
-        except (OSError, ValueError, UnicodeDecodeError) as exc:
-            # One unreadable file must not fail the whole request, but it must
-            # not vanish either: a silently dropped attachment looks to the
-            # user like the model ignored what they sent.
-            logger.warning(
-                "Skipping unreadable attachment %s for %s: %s",
-                getattr(att, 'filename', '?'), provider, exc,
-            )
+            continue
+        logger.info(
+            "Skipping unsupported attachment type %s for %s",
+            getattr(att, 'file_type', '?'), provider,
+        )
 
     return content if len(content) > 1 else prompt
 

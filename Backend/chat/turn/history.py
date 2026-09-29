@@ -25,9 +25,11 @@ from chat.models import ChatAttachment, ChatMessage, ChatSession
 
 logger = logging.getLogger(__name__)
 
-#: Attachment kind → the AIModel capability flag required to send it.
-#: pdf/pptx/docx/xlsx/text are absent on purpose: they are read as extracted
-#: text, so they ride in as ordinary tokens and need no special support.
+#: Attachment kind → the AIModel capability flag required to send it raw.
+#: pdf/pptx/docx/xlsx/text are absent on purpose: they always have an
+#: extracted-text fallback, so they are sendable on every model and
+#: `agent.prepare_attachments` decides raw (`file` block, needs
+#: `supports_document_input`) versus text per the same registry flags.
 _REQUIRED_CAPABILITY = {
     "image": "supports_image_input",
     "video": "supports_video_input",

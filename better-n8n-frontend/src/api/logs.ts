@@ -297,27 +297,6 @@ export interface DailyTrendPoint {
 }
 
 /**
- * Mirrors `logs.queries.agent_metrics`. `success_rate` is already a percentage,
- * and `tool_success_rates` is keyed by tool name, mapping to an object.
- */
-export interface WorkflowMetrics {
-  workflow_id: number;
-  workflow_name: string;
-  total_executions: number;
-  success_rate: number;
-  avg_duration_ms: number;
-  total_tokens_used: number;
-  recent_executions: ExecutionLog[];
-  revision_count: number;
-  /** Keyed by tool name: "read_url fails half the time" is the actionable read. */
-  tool_success_rates: Record<
-    string,
-    { success_rate: number; total_runs: number }
-  >;
-  error_hotspots: { tool: string; error_count: number }[];
-}
-
-/**
  * Mirrors `logs.views.cost_breakdown`. `by_workflow` keeps the `workflow_id` /
  * `workflow_name` wire names used everywhere else in `/api/logs/`, and
  * `by_tool` is a list, not a mapping.
@@ -376,16 +355,6 @@ export interface CostBreakdown {
 }
 
 export const logsService = {
-
-  /**
-   * Get workflow metrics
-   */
-  async getWorkflowMetrics(workflowId: number): Promise<WorkflowMetrics> {
-    const response = await apiClient.get<WorkflowMetrics>(
-      `/logs/insights/workflow/${workflowId}/`
-    );
-    return response.data;
-  },
 
   /**
    * Get cost breakdown

@@ -5,13 +5,13 @@
  * runtime, and "New tool" writes a row they read. Rows are private to the
  * caller.
  *
- * Sharing (publish / install-from-link) stays on the backend; it is hidden
- * from this UI for v1 to keep tool creation to one minimal form. Re-adding
- * it means re-adding the share/install dialogs here, nothing else moves.
+ * Sharing (publish / withdraw) is wired here too: `ShareToolDialog` reads and
+ * writes the same `/share/` endpoint `datasources/sharing.py` always exposed —
+ * a snapshot without secrets, never the live row.
  *
  * Kept out of `Tools.tsx` so the code-owned catalogue page stays about the
- * catalogue: this file owns the "My tools" section plus the create / edit
- * dialog.
+ * catalogue: this file owns the "My tools" section plus the create / edit /
+ * share dialogs.
  */
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,8 +20,10 @@ import {
   Database,
   Globe,
   KeyRound,
+  Loader2,
   Pencil,
   Plus,
+  Share2,
   Trash2,
   X,
 } from 'lucide-react';
@@ -32,10 +34,17 @@ import datasourcesService, {
   type CustomToolKind,
   type DataConnection,
 } from '../../api/datasources';
+import type { ShareVisibility } from '../../api/templates';
 import { credentialsService } from '../../api/credentials';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Modal, ModalBody, ModalFooter } from '../ui/Modal';
+
+const VISIBILITY_LABELS: Record<ShareVisibility, string> = {
+  link: 'Anyone with the link',
+  platform: 'Anyone signed in',
+  public: 'Public — no account needed',
+};
 
 const TOOLS_KEY = ['custom-tools'] as const;
 const API_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
@@ -550,6 +559,162 @@ export function NewToolDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Share dialog
+// ---------------------------------------------------------------------------
+
+export function ShareToolDialog({ kind, id, name, onClose }: {
+  kind: CustomToolKind;
+  id: number;
+  name: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [tagline, setTagline] = useState('');
+  const [description, setDescription] = useState('');
+  const [visibility, setVisibility] = useState<ShareVisibility>('platform');
+  const [error, setError] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
+
+  const preview = useQuery({
+    queryKey: ['tool-share', kind, id],
+    queryFn: async () => {
+      const data = await datasourcesService.sharePreview(kind, id);
+      if (!touched) {
+        setTagline(data.tagline || name);
+        setDescription(data.description || '');
+        setVisibility(data.visibility || 'platform');
+      }
+      return data;
+    },
+  });
+
+  const publish = useMutation({
+    mutationFn: () =>
+      datasourcesService.publish(kind, id, {
+        tagline: tagline.trim(),
+        description: description.trim() || undefined,
+        visibility,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tool-share', kind, id] });
+      toast.success(preview.data?.published ? 'Listing updated.' : 'Shared.');
+    },
+    onError: (e: unknown) => setError(apiErrorMessage(e, 'Could not share this tool.')),
+  });
+
+  const withdraw = useMutation({
+    mutationFn: () => datasourcesService.withdraw(kind, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tool-share', kind, id] });
+      toast.success('Withdrawn — no longer listed.');
+    },
+    onError: (e: unknown) => toast.error(apiErrorMessage(e, 'Could not withdraw this tool.')),
+  });
+
+  const published = preview.data?.published ?? false;
+
+  return (
+    <Modal size="md" label="Share tool" onClose={onClose}>
+      <div className="p-5 border-b border-border flex items-start justify-between gap-4 shrink-0">
+        <div>
+          <h2 className="font-semibold text-lg">Share “{name}”</h2>
+          <p className="text-[13px] text-muted-foreground mt-1">
+            Publishes a snapshot — your credential never travels. Whoever installs it links
+            their own.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1 rounded hover:bg-secondary text-muted-foreground shrink-0"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <ModalBody>
+        {preview.isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm py-6">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {error && (
+              <div className="px-3 py-2 rounded bg-destructive-subtle border border-destructive/20 text-[13px] text-destructive">
+                {error}
+              </div>
+            )}
+            {published && preview.data && (
+              <div className="px-3 py-2 rounded bg-secondary/60 border border-border text-[12px] text-muted-foreground space-y-0.5">
+                <p>Listed as <span className="font-mono text-foreground">{preview.data.slug}</span></p>
+                <p>{preview.data.install_count} install{preview.data.install_count === 1 ? '' : 's'} · version {preview.data.version}</p>
+              </div>
+            )}
+            <Field label="One-line description">
+              <input
+                autoFocus
+                value={tagline}
+                onChange={(e) => { setTouched(true); setTagline(e.target.value); }}
+                placeholder="What this connects to, in a few words"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Description (optional)">
+              <textarea
+                value={description}
+                onChange={(e) => { setTouched(true); setDescription(e.target.value); }}
+                rows={3}
+                className={inputClass}
+              />
+            </Field>
+            <Field
+              label="Visibility"
+              hint="Who can find and install this. Never defaults to public."
+            >
+              <select
+                value={visibility}
+                onChange={(e) => { setTouched(true); setVisibility(e.target.value as ShareVisibility); }}
+                className={inputClass}
+              >
+                {(Object.keys(VISIBILITY_LABELS) as ShareVisibility[]).map((v) => (
+                  <option key={v} value={v}>{VISIBILITY_LABELS[v]}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        )}
+      </ModalBody>
+
+      <ModalFooter>
+        {published && (
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={withdraw.isPending}
+            onClick={() => withdraw.mutate()}
+          >
+            {!withdraw.isPending && 'Withdraw'}
+          </Button>
+        )}
+        <Button variant="secondary" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          loading={publish.isPending}
+          disabled={!tagline.trim()}
+          onClick={() => { setError(null); publish.mutate(); }}
+        >
+          {!publish.isPending && (published ? 'Update listing' : 'Share')}
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // "My tools" section
 // ---------------------------------------------------------------------------
 
@@ -565,6 +730,7 @@ export function MyToolsSection({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Row | null>(null);
   const [deleting, setDeleting] = useState<Row | null>(null);
+  const [sharing, setSharing] = useState<Row | null>(null);
 
   const apis = useQuery({
     queryKey: [...TOOLS_KEY, 'api'],
@@ -664,6 +830,15 @@ export function MyToolsSection({
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
+                  onClick={() => setSharing(row)}
+                  title="Share"
+                  aria-label={`Share ${row.row.name}`}
+                  className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => setEditing(row)}
                   title="Edit"
                   aria-label={`Edit ${row.row.name}`}
@@ -692,6 +867,14 @@ export function MyToolsSection({
           onClose={() => setEditing(null)}
         />
       )}
+      {sharing && (
+        <ShareToolDialog
+          kind={sharing.kind}
+          id={sharing.row.id}
+          name={sharing.row.name}
+          onClose={() => setSharing(null)}
+        />
+      )}
       {deleting && (
         <ConfirmDialog
           title={`Delete "${deleting.row.name}"?`}
@@ -701,6 +884,86 @@ export function MyToolsSection({
           onConfirm={() => remove.mutate(deleting)}
           onCancel={() => setDeleting(null)}
         />
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Shared by others" — browse and install
+// ---------------------------------------------------------------------------
+
+export function SharedToolsSection() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['tools-shared'],
+    queryFn: () => datasourcesService.listShared(),
+    staleTime: 60 * 1000,
+  });
+  const items = data?.results ?? [];
+
+  const install = useMutation({
+    mutationFn: (slug: string) => datasourcesService.installShared(slug),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: TOOLS_KEY });
+      if (res.credentials_needed.length > 0) {
+        const needs = res.credentials_needed.map((n) => `${n.slug}.${n.field}`).join(', ');
+        toast.success(`Installed "${res.tool.name}".`, {
+          description: `Link a credential to use it: ${needs} (Credentials page).`,
+        });
+      } else {
+        toast.success(`Installed "${res.tool.name}".`);
+      }
+    },
+    onError: (e: unknown) => toast.error(apiErrorMessage(e, 'Could not install this tool.')),
+  });
+
+  if (isLoading) {
+    return <div className="h-16 rounded-lg bg-card border border-border/60 animate-pulse" />;
+  }
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">Shared by others</h2>
+        <p className="text-[12px] text-muted-foreground mt-0.5">
+          Installing makes your own private copy. Credentials never come with it.
+        </p>
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-lg bg-card border border-border/60 px-4 py-6 text-center">
+          <Share2 className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
+          <p className="text-sm font-semibold">Nothing shared yet</p>
+          <p className="text-[12px] text-muted-foreground mt-1">
+            Share one of your own tools above to be the first.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-lg bg-card border border-border/60 divide-y divide-border/60">
+          {items.map((t) => (
+            <div key={t.slug} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="p-1.5 bg-primary/10 rounded-md shrink-0">
+                {t.tool_kind === 'api'
+                  ? <Globe className="w-4 h-4 text-primary" />
+                  : <Database className="w-4 h-4 text-primary" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold truncate">{t.name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  {t.tagline} · by {t.author} · {t.install_count} install{t.install_count === 1 ? '' : 's'}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={install.isPending && install.variables === t.slug}
+                onClick={() => install.mutate(t.slug)}
+              >
+                {!(install.isPending && install.variables === t.slug) && 'Install'}
+              </Button>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );

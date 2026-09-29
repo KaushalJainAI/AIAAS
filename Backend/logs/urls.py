@@ -13,7 +13,6 @@ app_name = 'logs'
 urlpatterns = [
     # Insights / analytics
     path('insights/stats/', views.execution_statistics, name='execution_statistics'),
-    path('insights/workflow/<int:workflow_id>/', views.workflow_metrics, name='workflow_metrics'),
     path('insights/costs/', views.cost_breakdown, name='cost_breakdown'),
     path('insights/overview/', views.insights_overview, name='insights_overview'),
 

@@ -2551,7 +2551,9 @@ CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns alrea
 MISSION_SWEEP_SECONDS=120          # Mission sweep interval (in-process scheduler)
 STT_ENGINE=openrouter              # Chat mic + transcribe_audio; `none` = off (voice/stt.py)
 STT_MODEL=openai/whisper-large-v3-turbo  # OpenRouter STT model, ~$0.012/hour of audio
-TTS_ENGINE=none                    # text_to_speech; off until an engine is chosen
+TTS_ENGINE=none                    # text_to_speech + /api/chat/speak/; `openrouter` = Kokoro on the platform key (voice/tts.py)
+TTS_MODEL=hexgrad/kokoro-82m       # OpenRouter TTS model, ~$4/1M characters
+TTS_VOICE=af_heart                 # Default Kokoro voice when a call doesn't name one
 SENTRY_DSN=                        # Error reporting for web + worker; blank = off (workflow_backend/observability.py)
 SENTRY_TRACES_SAMPLE_RATE=0        # Performance tracing; off by default on the small box
 BACKUP_S3_BUCKET=                  # manage.py backup_db uploads here when set; BACKUP_DIR / BACKUP_KEEP for local copies

@@ -490,6 +490,18 @@ export const chatService = {
     return response.data;
   },
 
+  /**
+   * `transcribe`'s mirror image: one reply's text, spoken. Starts no turn and
+   * saves nothing — 503 when no engine is configured, which the caller reads
+   * as "fall back to the browser's own voice."
+   */
+  async speak(text: string, voice?: string): Promise<{ audioBase64: string; format: string }> {
+    const response = await apiClient.post<{ audio_base64: string; format: string }>(
+      '/chat/speak/', { text, voice },
+    );
+    return { audioBase64: response.data.audio_base64, format: response.data.format };
+  },
+
   // --- Guest (unauthenticated) chat ---
   //
   // The backend pins guest chat to one provider and one model

@@ -71,6 +71,7 @@ import GuestBanner from './GuestBanner';
 import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatHeader from './ChatHeader';
 import ChatMessageItem from './ChatMessageItem';
+import { useSpeech } from '../../hooks/useSpeech';
 import ChatSettingsDialog from './ChatSettingsDialog';
 import ToolApprovalCard from './ToolApprovalCard';
 import QuestionCard from './QuestionCard';
@@ -142,6 +143,13 @@ export default function StandaloneChat() {
   // mounts without the entrance animation every other message gets.
   const [settledId, setSettledId] = useState<number | string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const speech = useSpeech();
+  // Hands-free mode: a browser-only preference (localStorage), not server
+  // state — same rule as every other per-viewer convenience in this app.
+  const [readAloud, setReadAloud] = usePersistedState<boolean>('chat.readAloud', false);
+  // The last reply hands-free mode already spoke, so re-renders and refetches
+  // never re-fire it. Keyed by message id, which is stable once saved.
+  const lastAutoSpokenRef = useRef<number | string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   // Auth and guest conversations are independent: a guest reusing an auth
   // session id (or vice versa) hits a 404 because the lookup is user-scoped,
@@ -174,6 +182,21 @@ export default function StandaloneChat() {
   const showMic = !isGuest && voiceInputSupported();
   /** Session ids whose turn is still streaming, including backgrounded ones. */
   const runningKeys = useRunningChatKeys();
+
+  // Hands-free: when a turn settles and the toggle is on, read the newest
+  // saved assistant reply once. Guarded by id so it never re-fires on
+  // unrelated re-renders, and skipped while the user is already listening
+  // to something else. Numeric ids only — optimistic rows have no audio yet.
+  useEffect(() => {
+    if (!readAloud || isLoading) return;
+    if (speech.speakingId !== null || speech.loadingId !== null) return;
+    const latest = [...messages].reverse().find(
+      (m) => m.role === 'assistant' && typeof m.id === 'number' && m.content?.trim(),
+    );
+    if (!latest || latest.id === lastAutoSpokenRef.current) return;
+    lastAutoSpokenRef.current = latest.id;
+    speech.toggle(latest.id as number, latest.content);
+  }, [readAloud, isLoading, messages, speech]);
 
   // --- Slash commands (P10, §18) ---
   // The palette opens on a leading `/`; chips carry resolved ids so the
@@ -1571,6 +1594,8 @@ export default function StandaloneChat() {
             saving={isSavingSettings}
             onSave={handleSaveSessionSettings}
             onClose={() => setShowSessionSettings(false)}
+            readAloud={readAloud}
+            onToggleReadAloud={() => setReadAloud((v) => !v)}
           />
         )}
 
@@ -1670,6 +1695,8 @@ export default function StandaloneChat() {
                     animate={message.id !== settledId}
                     deleting={deletingMsgId === message.id}
                     copied={copiedId === `msg-${index}`}
+                    isSpeaking={speech.speakingId === message.id}
+                    speakLoading={speech.loadingId === message.id}
                     isPanelOpen={isPanelOpen}
                     togglePanel={togglePanel}
                     confirmBusy={confirmBusy}
@@ -1678,6 +1705,7 @@ export default function StandaloneChat() {
                       setCopiedId(`msg-${index}`);
                       setTimeout(() => setCopiedId(null), 2000);
                     }}
+                    onSpeak={(messageId, text) => speech.toggle(messageId, text)}
                     onDelete={handleDeleteMessage}
                     onRewrite={handleRewriteMessage}
                     onRewind={handleRewindAfterMessage}

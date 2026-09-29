@@ -127,58 +127,6 @@ def execution_statistics(user, *, days: int, agent_id: int | None = None) -> dic
     }
 
 
-def agent_metrics(user, agent_id: int) -> dict[str, Any] | None:
-    """Per-agent detail. None when the agent does not exist or is not theirs."""
-    from agents.models import SubAgent
-
-    agent = SubAgent.objects.filter(id=agent_id, user=user).first()
-    if agent is None:
-        return None
-
-    executions = ExecutionLog.objects.filter(subagent=agent).exclude(caller='eval')
-    total = executions.count()
-    completed = executions.filter(status='completed').count()
-    aggregates = executions.aggregate(
-        avg_duration=Avg('duration_ms'), total_tokens=Sum('tokens_used')
-    )
-
-    steps = AgentStep.objects.filter(execution__subagent=agent).exclude(execution__caller='eval')
-    tool_stats = steps.values('tool').annotate(
-        total=Count('id'), success=Count('id', filter=Q(status='completed'))
-    )
-
-    return {
-        "workflow_id": agent_id,
-        "workflow_name": agent.name,
-        "total_executions": total,
-        "avg_duration_ms": round(aggregates['avg_duration'] or 0),
-        "success_rate": _percent(completed, total),
-        "total_tokens_used": aggregates['total_tokens'] or 0,
-        "revision_count": SubAgentRevision.objects.filter(subagent=agent).count(),
-        "recent_executions": [
-            _execution_row(row)
-            for row in executions.select_related('subagent').order_by('-created_at')[:10]
-        ],
-        # Keyed by tool name, because that is the unit an agent actually has:
-        # "knowledge_base_search fails half the time" is actionable, and it is
-        # the reading the old node-keyed version could not give.
-        "tool_success_rates": {
-            row['tool']: {
-                "success_rate": _percent(row['success'], row['total']),
-                "total_runs": row['total'],
-            }
-            for row in tool_stats
-        },
-        # Tools that fail most often.
-        "error_hotspots": list(
-            steps.filter(status='failed')
-            .values('tool')
-            .annotate(error_count=Count('id'))
-            .order_by('-error_count')[:5]
-        ),
-    }
-
-
 def _source_of(total: int, unpriced: int, billed: int) -> str:
     """The honest label for a sum of `total` runs, from two counts.
 
