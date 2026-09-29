@@ -67,7 +67,7 @@ function Section({ icon: Icon, title, hint, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-border rounded bg-card mb-4 break-inside-avoid">
+    <section className="border border-border rounded bg-card break-inside-avoid">
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
         <Icon className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-[13px] font-semibold">{title}</h3>
@@ -853,7 +853,10 @@ export default function AgentBuilder() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-bg-1">
-        <div className="max-w-3xl mx-auto space-y-4">
+        {/* Single column on phones; two across on desktop so the board uses
+            the width instead of centering a narrow strip in it. Fragments
+            flatten, so each Section below is a grid item directly. */}
+        <div className="max-w-6xl mx-auto space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
 
             {tab === 'basics' && <>
             <Section icon={Bot} title="Identity">
