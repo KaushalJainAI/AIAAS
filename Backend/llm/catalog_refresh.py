@@ -68,21 +68,36 @@ SUGGESTED_SUCCESSORS = {
     'deepseek/deepseek-v4-pro': 'deepseek/deepseek-v4.1-flash',
     'deepseek/deepseek-v4-flash': 'deepseek/deepseek-v4-flash-0731',
     'deepseek/deepseek-v4-pro-0813': 'deepseek/deepseek-v4.1-flash',
-    'google/gemini-3.6-flash': 'google/gemini-3.7-flash',
-    'google/gemini-3.5-flash-lite': 'google/gemini-3.7-flash',
-    'openai/gpt-4o-mini': 'openai/gpt-5.6-luna',
+    # 3.6 and 3.7 both go straight to 3.8, not to each other. Chaining them
+    # (3.6 -> 3.7 -> 3.8) reads like a tidy migration path and is not one:
+    # 3.7 was itself retired on 2026-09-23, so the first hop already pointed
+    # at a dead row. A hint is read by a person deciding what to switch to, and
+    # there is no second hop when they follow it.
+    'google/gemini-3.6-flash': 'google/gemini-3.8-flash',
+    'google/gemini-3.5-flash-lite': 'google/gemini-3.8-flash',
+    'google/gemini-3.7-flash': 'google/gemini-3.8-flash',
     'google/gemini-3.1-pro-preview': 'google/gemini-3.8-flash',
+    'openai/gpt-4o-mini': 'openai/gpt-6-luna',
     'meta/muse-spark-1.2': 'meta/muse-spark-1.3',
     'mistralai/mistral-small-2603': 'qwen/qwen3.7-flash',
     'meta-llama/llama-4-maverick': 'meta-llama/llama-4-scout',
     'openai/gpt-5.6-sol': 'openai/gpt-6-sol',
     'openai/gpt-5.6-sol-pro': 'openai/gpt-6-sol-pro',
+    # The rest of the GPT-5.6 line, retired 2026-09-28: GPT-6 took those
+    # tiers at a lower price, so a hint pointing at a 5.6 row would send the
+    # owner to a model that is itself retired — the hint would resolve to a
+    # second dead row rather than a working one.
+    'openai/gpt-5.6-luna': 'openai/gpt-6-luna',
+    'openai/gpt-5.6-luna-pro': 'openai/gpt-6-luna-pro',
+    'openai/gpt-5.6-terra': 'openai/gpt-6-sol',
+    'openai/gpt-5.6-terra-pro': 'openai/gpt-6-sol-pro',
     'anthropic/claude-opus-5': 'anthropic/claude-opus-5.5',
     'anthropic/claude-fable-5': 'anthropic/claude-fable-5.1',
+    'anthropic/claude-sonnet-5': 'anthropic/claude-sonnet-5.5',
     'meta/muse-spark-1.2-contributor': 'meta/muse-spark-1.3-contributor',
     'deepseek/deepseek-v4-flash-vision-exp': 'deepseek/deepseek-v4.1-flash',
-    'google/gemini-3.7-flash': 'google/gemini-3.8-flash',
-    'x-ai/grok-4.5': 'x-ai/grok-4.6',
+    'x-ai/grok-4.5': 'x-ai/grok-4.7',
+    'x-ai/grok-4.6': 'x-ai/grok-4.7',
     'moonshotai/kimi-k2.7-code': 'minimax/minimax-m3',
     'meta/muse-glimmer-30b': 'meta-llama/llama-4-scout',
 }

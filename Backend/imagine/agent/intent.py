@@ -325,7 +325,16 @@ def classify(
 
     caps = capabilities_for(user)
     pinned_kind = _pinned_kind(caps, preferred_model)
-    model_id = getattr(settings, "IMAGINE_AGENT_MODEL", "openrouter/openai/gpt-5.6-luna")
+    # No second copy of the id here. This used to carry its own literal as a
+    # `getattr` default, so the setting and the fallback could name different
+    # models and only the less-reachable one would be exercised — which is how
+    # `openrouter/openai/gpt-5.6-luna` outlived its retirement in settings and
+    # a test that read the setting would not have seen it. `settings.base`
+    # declares it; if it is ever absent, that is a misconfiguration to hear
+    # about rather than a reason to guess a model.
+    model_id = getattr(
+        settings, "IMAGINE_AGENT_MODEL", None
+    ) or "openrouter/openai/gpt-6-luna"
 
     # Short-circuit the LLM entirely when the user already pinned a model:
     # the modality and model are decided, only the prompt needs refining and

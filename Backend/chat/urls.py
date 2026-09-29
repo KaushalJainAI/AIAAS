@@ -10,6 +10,7 @@ from .views import (
     send_message_stream,
     steer_message_stream,
     stop_message_stream,
+    transcribe_clip,
     upload_file,
 )
 from chat.commands import views as command_views
@@ -29,6 +30,7 @@ urlpatterns = [
     path('runs/', active_runs, name='active_runs'),
     path('sessions/<str:session_id>/messages/<int:message_id>/', delete_message, name='delete_message'),
     path('sessions/<str:session_id>/upload/', upload_file, name='upload_file'),
+    path('transcribe/', transcribe_clip, name='transcribe_clip'),
 
     # Slash commands (P10, §18): the palette, completion, and action runs.
     path('commands/', command_views.command_list, name='command_list'),

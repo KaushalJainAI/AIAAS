@@ -71,7 +71,35 @@ Never type a model id from memory. The table of ids the project relies on is
 in `CLAUDE.md` ("Model IDs"). Otherwise, look it up in the `AIModel` table and
 prefer a row with `is_active=True`.
 
+The catalogue itself is `Backend/populate_models.py` — a script, run at every
+backend boot, not a migration. Three things about it are worth knowing before
+you edit it:
+
+- **A price is a real input, not a label.** `input_price_per_million` and
+  `output_price_per_million` are what `agents/spend.py::rupees_for` charges a
+  run against and what `check_guardrails` refuses on. A stale figure does not
+  look stale: it makes the picker show a wrong cost and the spend cap refuse
+  runs that were affordable. Re-verify against the provider's live model list,
+  which for OpenRouter is `GET https://openrouter.ai/api/v1/models` (no key
+  needed) — it carries per-token pricing, the context window, input
+  modalities, and the `supported_parameters` that say whether a model really
+  serves `tools`, `reasoning` and `reasoning_effort`.
+- **`AIModel.value` is globally unique, not unique per provider.** Two seed
+  rows sharing a value do not collide loudly: the second overwrites the first
+  and re-points its provider, so a model is simply *missing* from the picker
+  with no error. `_assert_unique_values` fails the seed if that happens.
+- **Retiring means editing two lists.** Removing a row from the provider block
+  without adding it to `RETIRED_MODEL_VALUES` leaves it merely unlisted; the
+  retirement list is what sets `is_active=False` and `retired_at` on an
+  instance that already has the row, so an existing agent keeps a disabled row
+  rather than a dangling id. `llm/catalog_refresh.py::SUGGESTED_SUCCESSORS`
+  is a third list, and it rots on its own — a hint pointing at a retired model
+  sends the owner to a second dead row.
+
+`llm/tests/test_seed_catalogue.py` checks the first and second, and
+`test_refresh.py::SuggestSuccessorTests` checks the third.
+
 ## Tests
 
-`llm/tests/`: `test_effort.py`, `test_effort_funnel.py`, `test_stream_retry.py`
-and others.
+`llm/tests/`: `test_effort.py`, `test_effort_funnel.py`, `test_stream_retry.py`,
+`test_seed_catalogue.py` and others.

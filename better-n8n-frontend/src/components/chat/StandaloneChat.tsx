@@ -20,7 +20,6 @@ import {
   Image as ImageIcon,
   Video,
   File as FileIcon,
-  Mic,
   Shield,
   ChevronDown,
   BrainCircuit,
@@ -78,6 +77,9 @@ import QuestionCard from './QuestionCard';
 import type { QuestionAnswer } from '../../lib/question';
 import { SendButton } from '../ui/SendButton';
 import { apiErrorMessage } from '../../lib/apiError';
+import { appendTranscript } from '../../lib/voice';
+import { useVoiceInput, voiceInputSupported } from '../../hooks/useVoiceInput';
+import { VoiceInputButton } from './VoiceInputButton';
 import { nextChatMode, toChatMode } from '../../lib/chatMode';
 import CommandPalette from './CommandPalette';
 import CommandCard from './CommandCard';
@@ -161,6 +163,15 @@ export default function StandaloneChat() {
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Dictation lands in the composer, not in a turn: the person reads what was
+  // heard before it is sent. Guests have no mic — the endpoint needs an account.
+  const onVoiceText = useCallback((text: string) => {
+    setInput(prev => appendTranscript(prev, text));
+    textareaRef.current?.focus();
+  }, [setInput]);
+  const onVoiceError = useCallback((message: string) => toast.error(message), []);
+  const voice = useVoiceInput({ onText: onVoiceText, onError: onVoiceError });
+  const showMic = !isGuest && voiceInputSupported();
   /** Session ids whose turn is still streaming, including backgrounded ones. */
   const runningKeys = useRunningChatKeys();
 
@@ -2726,14 +2737,19 @@ export default function StandaloneChat() {
                         </span>
                       )}
 
-                      {/* Voice button. Hidden on very narrow phones where it
-                          collides with the model picker and send button. */}
-                      <button
-                        className="hidden min-[380px]:flex w-8 h-8 rounded-full items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
-                        title="Voice input"
-                      >
-                        <Mic className="w-4 h-4" />
-                      </button>
+                      {/* Voice input. Hidden on very narrow phones where it
+                          collides with the model picker and send button, for
+                          guests, and in browsers that cannot record. */}
+                      {showMic && (
+                        <div className="hidden min-[380px]:flex">
+                          <VoiceInputButton
+                            state={voice.state}
+                            startedAt={voice.startedAt}
+                            onToggle={voice.toggle}
+                            onCancel={voice.cancel}
+                          />
+                        </div>
+                      )}
 
                       {/* While a turn runs the button means two different
                           things, decided by whether there is text to send:

@@ -2549,6 +2549,9 @@ OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | alwa
 CONTENT_MODERATION_MODEL=openai/gpt-oss-safeguard-20b  # Model check on image prompts + pages; blank = off
 CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns already ran)
 MISSION_SWEEP_SECONDS=120          # Mission sweep interval (in-process scheduler)
+STT_ENGINE=openrouter              # Chat mic + transcribe_audio; `none` = off (voice/stt.py)
+STT_MODEL=openai/whisper-large-v3-turbo  # OpenRouter STT model, ~$0.012/hour of audio
+TTS_ENGINE=none                    # text_to_speech; off until an engine is chosen
 SENTRY_DSN=                        # Error reporting for web + worker; blank = off (workflow_backend/observability.py)
 SENTRY_TRACES_SAMPLE_RATE=0        # Performance tracing; off by default on the small box
 BACKUP_S3_BUCKET=                  # manage.py backup_db uploads here when set; BACKUP_DIR / BACKUP_KEEP for local copies
@@ -2591,6 +2594,40 @@ Before writing any model id into code, settings, docs or a command: check it
 against this table, and if it isn't here, look it up in `nodes_aimodel`
 (`AIModel.objects.filter(value__icontains=...)`) and prefer the row with
 `is_active=True`. Never type a model id from memory.
+
+**The catalogue is refreshed, not typed** (`populate_models.py`, a boot script
+rather than a migration). The six waves of curation are in that file's own
+comment block; the current one is 2026-09-28, verified against
+`GET https://openrouter.ai/api/v1/models` — which needs no key and carries
+per-token pricing, context windows, input modalities, and the
+`supported_parameters` that say whether a model really serves `tools` and
+`reasoning_effort`. **A price here is an input, not a label**:
+`agents/spend.py::rupees_for` charges runs against it and `check_guardrails`
+refuses on it, so drift makes the picker show a wrong cost *and* the spend cap
+refuse runs that were affordable. The 2026-09-28 pass found eleven rows
+mispriced, the worst being `z-ai/glm-5.3` carrying its launch price of
+$1.40/$4.40 against a live $0.1785/$2.805.
+
+That pass also retired the whole GPT-5.6 line and `anthropic/claude-sonnet-5`,
+which took `EFFORT_WITH_MINIMAL` out of the seed: those tiers were the only
+rows serving a rung below `low`, and the GPT-6 family that replaced them does
+not. The constant stays in `llm/effort.py`. Four ids elsewhere named retired
+models and were moved with them (`OpenAINode.default_model`,
+`inference/engine.py`'s RAG default, `IMAGINE_AGENT_MODEL` in settings *and*
+in a second literal inside `imagine/agent/intent.py`).
+
+**A value is unique across the whole catalogue, not per provider.** NVIDIA's
+Nemotron 3 Ultra is `nvidia/nemotron-3-ultra-550b-a55b` on both NIM and
+OpenRouter, so seeding both did not raise: the second overwrote the first and
+re-pointed its provider FK, and the OpenRouter row was simply never in the
+picker. `_assert_unique_values` now fails the seed on that, and
+`llm/tests/test_seed_catalogue.py` fails on the two things that rot silently —
+a duplicate value, and a value in both the provider block and
+`RETIRED_MODEL_VALUES` (written then deactivated on every boot).
+`llm/catalog_refresh.py::SUGGESTED_SUCCESSORS` is a **third** list and rots on
+its own: three hints chained into other retired models, so a dead model was
+recommended as a dead replacement. `test_refresh.py::SuggestSuccessorTests`
+now refuses a hint that is retired or unseeded.
 
 ---
 

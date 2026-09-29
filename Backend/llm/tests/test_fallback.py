@@ -28,9 +28,9 @@ class GetFallbackTests(TestCase):
             _fallback.get_fallback(), ('openrouter', 'openrouter/free'))
 
     def test_a_saved_row_wins_over_the_default(self):
-        _fallback.set_fallback('openai', 'gpt-5.6-luna')
+        _fallback.set_fallback('openai', 'gpt-6-luna')
         self.assertEqual(
-            _fallback.get_fallback(), ('openai', 'gpt-5.6-luna'))
+            _fallback.get_fallback(), ('openai', 'gpt-6-luna'))
 
     def test_a_blank_model_in_the_row_falls_back_to_the_default(self):
         ModelFallback.objects.create(pk=1, provider='openrouter', model='')
@@ -40,11 +40,11 @@ class GetFallbackTests(TestCase):
     def test_saving_clears_the_cache(self):
         self.assertEqual(
             _fallback.get_fallback(), ('openrouter', 'openrouter/free'))
-        _fallback.set_fallback('openai', 'gpt-5.6-luna')
+        _fallback.set_fallback('openai', 'gpt-6-luna')
         # No cache.clear() here: saving must invalidate on its own, or a
         # staff edit would need a restart to take effect.
         self.assertEqual(
-            _fallback.get_fallback(), ('openai', 'gpt-5.6-luna'))
+            _fallback.get_fallback(), ('openai', 'gpt-6-luna'))
 
     def test_saving_a_retired_model_warns_but_saves(self):
         provider = AIProvider.objects.create(name='OR', slug='openrouter')
@@ -109,11 +109,11 @@ class ResolveWithFallbackTests(TestCase):
             ('openrouter', 'openrouter/free', False, ''))
 
     def test_a_custom_fallback_row_is_honoured(self):
-        _fallback.set_fallback('openai', 'gpt-5.6-luna')
+        _fallback.set_fallback('openai', 'gpt-6-luna')
         provider, model, substituted, reason = (
             _fallback.resolve_with_fallback('openrouter', 'old/busted'))
         self.assertTrue(substituted)
-        self.assertEqual((provider, model), ('openai', 'gpt-5.6-luna'))
+        self.assertEqual((provider, model), ('openai', 'gpt-6-luna'))
         self.assertIn('retired', reason)
 
 

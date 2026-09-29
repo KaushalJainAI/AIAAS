@@ -1097,9 +1097,11 @@ class RAGPipeline:
             'temperature': 0.3,
         }
         # Omit rather than guess a model id for providers other than OpenAI;
-        # the handler falls back to its own configured default.
+        # the handler falls back to its own configured default. (The one id
+        # named here follows the seed: it was `gpt-5.6-luna`, retired
+        # 2026-09-28. See `llm/handlers/llm_providers.py::default_model`.)
         if llm_type == 'openai':
-            config['model'] = 'gpt-5.6-luna'
+            config['model'] = 'gpt-6-luna'
         try:
             result = await handler.execute({}, config, context)
             if result.success:

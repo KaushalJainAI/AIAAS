@@ -480,6 +480,16 @@ export const chatService = {
     return response.data;
   },
 
+  /** One recorded clip from the mic, as text for the composer. Starts no turn. */
+  async transcribe(clip: Blob, filename: string): Promise<{ text: string; language: string }> {
+    const formData = new FormData();
+    formData.append('audio', clip, filename);
+    const response = await apiClient.post<{ text: string; language: string }>(
+      '/chat/transcribe/', formData, { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    return response.data;
+  },
+
   // --- Guest (unauthenticated) chat ---
   //
   // The backend pins guest chat to one provider and one model

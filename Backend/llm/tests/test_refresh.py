@@ -23,6 +23,21 @@ from llm.models import AIModel, AIProvider, ModelFallbackNotice
 from agents.models import SubAgent
 from notifications.models import Notification
 
+#: Vendor namespaces OpenRouter routes under. A hint naming one of these is
+#: asking for an OpenRouter row; anything else is an OpenAI-provider twin,
+#: which a refresh never sees (it diffs `openrouter` alone).
+_OPENROUTER_NAMESPACES = (
+    'anthropic/', 'bytedance-seed/', 'deepseek/', 'google/', 'inception/',
+    'inclusionai/', 'meta-llama/', 'meta/', 'minimax/', 'mistralai/',
+    'moonshotai/', 'nvidia/', 'openai/', 'qwen/', 'stepfun/',
+    'thinkingmachines/', 'upstage/', 'x-ai/', 'xiaomi/', 'z-ai/',
+    'stealth/', 'poolside/', 'amazon/',
+)
+
+
+def _is_openrouter_id(value):
+    return value.startswith(_OPENROUTER_NAMESPACES)
+
 
 def live_entry(value, *, prompt='0.000002', completion='0.000006',
                context=1000000, modalities=None, params=None, name=None):
@@ -82,6 +97,46 @@ class SuggestSuccessorTests(SimpleTestCase):
     def test_no_match_is_blank_not_a_guess(self):
         self.assertEqual(
             _refresh._suggest_successor('acme/x', {'other/y'}), '')
+
+    def test_no_hint_points_at_a_model_the_seed_retired(self):
+        """A successor that is itself retired is worse than no successor.
+
+        `SUGGESTED_SUCCESSORS` is a second place a rename is recorded, and it
+        rots independently of the seed. When the GPT-5.6 tiers were retired the
+        hints still named `gpt-5.6-luna` and `grok-4.6`, so an agent pinned to
+        a dead model was told to move to another dead model — the notification
+        said "use this instead" and substituting it produced a second retired
+        row and the same failure. The hint is written by hand and applied by
+        nobody, so nothing else would have caught it.
+        """
+        import populate_models
+
+        retired = set(populate_models.RETIRED_MODEL_VALUES)
+        for old, new in _refresh.SUGGESTED_SUCCESSORS.items():
+            self.assertNotIn(
+                new, retired,
+                f'{old} hints at {new}, which is itself in '
+                f'RETIRED_MODEL_VALUES — the owner is sent to a second dead '
+                f'model instead of a working one',
+            )
+            self.assertNotEqual(
+                old, new, f'{old} hints at itself')
+
+    def test_a_hinted_successor_is_one_the_seed_actually_carries(self):
+        """The other half: a hint to a model nobody offers is no hint at all."""
+        from llm.tests.test_seed_catalogue import _seeded_values
+
+        seeded = {value for value, _ in _seeded_values()}
+        for old, new in _refresh.SUGGESTED_SUCCESSORS.items():
+            # A refresh only diffs `openrouter`, so only OpenRouter-routed
+            # ids are seeded under that name; the OpenAI-provider twins of the
+            # same models exist and are not what a hint resolves to.
+            if not _is_openrouter_id(new):
+                continue
+            self.assertIn(
+                new, seeded,
+                f'{old} hints at {new}, which the seed does not carry',
+            )
 
 
 class RefreshApplyTests(TestCase):

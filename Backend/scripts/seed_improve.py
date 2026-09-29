@@ -63,7 +63,7 @@ AGENTS = [
         "context": "Reads invoices from Gmail, reconciles them against the vendor "
                    "master, and chases anything overdue by more than 30 days.",
         "llm_provider": "openrouter",
-        "llm_model": "anthropic/claude-sonnet-5",
+        "llm_model": "anthropic/claude-sonnet-5.5",
         "tool_grants": {"codeExecution": True, "fileOps": True, "rag": True,
                         "shell": False, "webSearch": True, "scrape": False},
         "agent_context": {"connectors": connector_ids("Gmail", "Google Sheets"),
@@ -79,7 +79,7 @@ AGENTS = [
         "context": "Classifies inbound tickets, drafts a first reply and routes "
                    "anything it is not confident about to a human.",
         "llm_provider": "openrouter",
-        "llm_model": "openai/gpt-5.6-luna",
+        "llm_model": "openai/gpt-6-luna",
         "tool_grants": {"codeExecution": False, "fileOps": False, "rag": True,
                         "shell": False, "webSearch": True, "scrape": True},
         "agent_context": {"connectors": connector_ids("Slack"), "knowledgeBases": [],
@@ -112,7 +112,7 @@ AGENTS = [
         "context": "Audits Drive for files nothing has opened in three years and "
                    "proposes what to archive.",
         "llm_provider": "openrouter",
-        "llm_model": "openai/gpt-5.6-terra",
+        "llm_model": "openai/gpt-6-sol",
         "tool_grants": {"codeExecution": False, "fileOps": True, "rag": False,
                         "shell": False, "webSearch": False, "scrape": False},
         "agent_context": {"connectors": connector_ids("Google Drive", "Google Sheets"), "knowledgeBases": [],

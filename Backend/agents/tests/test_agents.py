@@ -32,7 +32,7 @@ def config(**overrides):
         'name': 'Finance agent',
         'brief': 'Reads invoices and chases what is overdue.',
         'provider': 'openrouter',
-        'model': 'anthropic/claude-sonnet-5',
+        'model': 'anthropic/claude-sonnet-5.5',
         'temperature': 0,
         'tools': {'codeExecution': True, 'rag': True},
         'autonomy': 'ask',

@@ -35,7 +35,13 @@ class OpenAINode(OpenAICompatibleLLMNode):
     provider_slug = "openai"
     api_label = "OpenAI"
     base_url = "https://api.openai.com/v1"
-    default_model = "gpt-5.6-luna"
+    # The last-resort id for a call that names no model. Was `gpt-5.6-luna`,
+    # retired 2026-09-28 — so this default pointed at a model the seed had
+    # deactivated, and a call reaching here without a model id would have
+    # failed on a 404 from OpenAI rather than on anything of ours. `gpt-6-luna`
+    # is the same tier at half the price ($0.10/$0.50 vs $0.20/$1.20) and the
+    # same 1.05M context.
+    default_model = "gpt-6-luna"
     image_endpoint = "https://api.openai.com/v1/images/generations"
 
 

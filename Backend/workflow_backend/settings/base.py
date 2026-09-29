@@ -349,9 +349,15 @@ BROWSER_SESSION_MAX_SECONDS = int(os.environ.get('BROWSER_SESSION_MAX_SECONDS', 
 # ---------------------------------------------------------------------------
 # Voice and e-sign
 # ---------------------------------------------------------------------------
-# One-door engines, all `none` by default: with no engine the tools are not
-# offered, never offered-then-refusing. Heavy work never runs on the app box.
-STT_ENGINE = os.environ.get('STT_ENGINE', 'none')
+# One-door engines: with no engine the tools are not offered, never
+# offered-then-refusing. Heavy work never runs on the app box. Speech-to-text
+# defaults to OpenRouter on the platform key (see `voice/stt.py`; unavailable
+# while OPENROUTER_API_KEY is unset); the rest default to `none`.
+STT_ENGINE = os.environ.get('STT_ENGINE', 'openrouter')
+STT_MODEL = os.environ.get('STT_MODEL', 'openai/whisper-large-v3-turbo')
+#: The chat mic's cap on one clip. ~2 minutes of browser Opus is well under;
+#: a bigger body is refused before anything is sent or spent.
+STT_MAX_UPLOAD_BYTES = int(os.environ.get('STT_MAX_UPLOAD_BYTES', str(10 * 1024 * 1024)))
 STT_REMOTE_URL = os.environ.get('STT_REMOTE_URL', '')
 STT_API_TOKEN = os.environ.get('STT_API_TOKEN', '')
 TTS_ENGINE = os.environ.get('TTS_ENGINE', 'none')
@@ -484,6 +490,9 @@ REST_FRAMEWORK = {
         'chat': '20/hour',
         'stream': '20/minute',
         'imagine_generate': '30/hour',
+        # The chat mic: one clip per request. What bounds its spend, since a
+        # clip costs ~₹0.02 and the ledger counts whole rupees.
+        'transcribe': '120/hour',
         'password_reset': '10/hour',
         'password_change': '10/hour',
         'guest_chat_min': '3/minute',
@@ -846,7 +855,12 @@ CANVAS_AGENT_MODEL = os.environ.get('CANVAS_AGENT_MODEL', 'nvidia/nemotron-3-sup
 
 # NOTE: OpenRouter API keys are loaded per-user from the encrypted `credentials`
 # vault (slug 'openrouter'). Do not reintroduce an OPEN_ROUTER_KEY setting.
-IMAGINE_AGENT_MODEL = os.environ.get('IMAGINE_AGENT_MODEL', 'openrouter/openai/gpt-5.6-luna')
+# NOTE: the default is `openrouter/openai/gpt-6-luna` — the GPT-5.6 Luna
+# tier it replaces was retired 2026-09-28 (GPT-6 Luna is the same tier at half
+# the price), so the old default named a model the seed no longer carries.
+# The `openrouter/` prefix is the provider routing hint this setting takes;
+# `populate_models.py` seeds the bare `openai/gpt-6-luna` under OpenRouter.
+IMAGINE_AGENT_MODEL = os.environ.get('IMAGINE_AGENT_MODEL', 'openrouter/openai/gpt-6-luna')
 IMAGINE_HITL_COST_THRESHOLD = float(os.environ.get('IMAGINE_HITL_COST_THRESHOLD', '0.10'))
 
 

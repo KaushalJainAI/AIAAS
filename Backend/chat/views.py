@@ -23,10 +23,12 @@ from rest_framework.decorators import (
     api_view as sync_api_view,
     parser_classes,
     permission_classes,
+    throttle_classes,
 )
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from workflow_backend.thresholds import (
     DOCUMENT_EXTRACT_CAP,
@@ -455,6 +457,53 @@ def upload_file(request, session_id: str):
         "attachment": ChatAttachmentSerializer(attachment).data,
         "extracted_text_length": len(text),
         "message": f'File "{upload.name}" uploaded successfully.',
+    })
+
+
+# ── Voice input ──────────────────────────────────────────────────────────────
+
+class TranscribeThrottle(UserRateThrottle):
+    scope = "transcribe"
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser])
+@throttle_classes([TranscribeThrottle])
+async def transcribe_clip(request):
+    """Turn one recorded clip from the chat mic into text.
+
+    Transport only, and deliberately not a turn: the text comes back to the
+    composer, where the person reads and edits it before sending — a misheard
+    word sent straight to the agent would be acted on. Nothing is stored; the
+    clip lives only as long as this request.
+    """
+    from django.conf import settings
+
+    from voice.stt import STTError, audio_format, stt_available, transcribe
+
+    if not stt_available():
+        return Response(
+            {"error": "Voice input is not set up on this server.", "code": "stt_unavailable"},
+            status=503,
+        )
+    upload = request.FILES.get("audio")
+    if not upload:
+        return Response({"error": "No audio was sent."}, status=400)
+    if upload.size > settings.STT_MAX_UPLOAD_BYTES:
+        return Response({"error": "That recording is too long. Keep it under two minutes."},
+                        status=413)
+    if audio_format(upload.name) is None:
+        return Response({"error": "That audio format is not supported."}, status=400)
+    language = str(request.data.get("language") or "").strip()[:12]
+    try:
+        result = await transcribe(upload.read(), upload.name, language=language)
+    except STTError as exc:
+        return Response({"error": str(exc)}, status=502)
+    return Response({
+        "text": result.get("text") or "",
+        "language": result.get("language") or "",
+        "duration_s": result.get("duration_s") or 0,
     })
 
 
