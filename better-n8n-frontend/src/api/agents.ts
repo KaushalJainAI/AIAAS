@@ -39,22 +39,6 @@ export interface AgentRunStarted {
   unserved_grants: string[];
 }
 
-/** One knob the configuring model wants moved, in the board's own shape. */
-export interface AgentProposalChange {
-  /** Dotted path into AgentConfig, e.g. "tools.codeExecution". */
-  path: string;
-  label: string;
-  value: unknown;
-  why: string;
-}
-
-export interface AgentProposal {
-  reply: string;
-  changes: AgentProposalChange[];
-  /** 'model' from the server; the client sets 'rules' on its local fallback. */
-  source?: string;
-}
-
 /** What the server accepts. Everything read-only is stripped by the caller. */
 export type AgentInput = Partial<AgentConfig> & Pick<AgentConfig, 'name'>;
 
@@ -139,36 +123,6 @@ const agentsService = {
   setWorkerAutonomy: async (executionId: string, level: 'review' | 'ask' | 'auto' | 'full'):
     Promise<{ autonomy: string; execution_id: string }> => {
     const { data } = await apiClient.post(`/orchestrator/runs/${executionId}/autonomy/`, { level });
-    return data;
-  },
-
-  /**
-   * The builder's chat: a description in, knob changes out.
-   *
-   * Nothing is saved — the server proposes against the board we send it, and
-   * the user still presses Save. It answers 503 when no model could be
-   * reached, which is why the caller keeps its local rule-based `propose()`:
-   * a builder that cannot reach a model should degrade, not stop.
-   */
-  configure: async (
-    message: string,
-    config: Partial<AgentConfig>,
-    history: { role: string; text: string }[] = [],
-    /** A saved agent's id, so the server keeps the exchange for next time. */
-    agentId: number | null = null,
-  ): Promise<AgentProposal> => {
-    const { data } = await apiClient.post<AgentProposal>(
-      '/orchestrator/agents/configure/',
-      { message, config, history, ...(agentId != null ? { agent_id: agentId } : {}) },
-    );
-    return data;
-  },
-
-  /** The builder conversation kept for a saved agent, oldest first. */
-  builderChat: async (id: number | string): Promise<{
-    messages: { role: 'user' | 'agent'; text: string; changes: AgentProposalChange[] }[];
-  }> => {
-    const { data } = await apiClient.get(`/orchestrator/agents/${id}/builder-chat/`);
     return data;
   },
 

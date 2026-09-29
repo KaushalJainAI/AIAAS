@@ -10,7 +10,7 @@
  * Proposing a config you cannot see or override would be the wrong trade —
  * the point of the board is that the agent's choices stay inspectable.
  */
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -47,12 +47,10 @@ import RunAgentDialog from '../components/agents/RunAgentDialog';
 import ConnectorToolPicker from '../components/agents/ConnectorToolPicker';
 import AgentScorecard from '../components/agents/AgentScorecard';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { propose, applyChanges, type Change } from '../lib/agentProposals';
 import {
   TOOL_PERMISSION_COPY, countToolPermissions, pruneToolPermissions,
   toggleToolPermission,
 } from '../lib/toolPermissions';
-import { SendButton } from '../components/ui/SendButton';
 import { Switch } from '../components/ui/Switch';
 import TriggerModal from '../components/schedules/TriggerModal';
 import triggersService, { type Trigger } from '../api/triggers';
@@ -61,8 +59,6 @@ import { EFFORT_LABELS } from '../hooks/useEffortSelection';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '../hooks/useChatModelSelection';
 import { useAuth } from '../contexts/authState';
 import SidebarMenuButton from '../components/layout/SidebarMenuButton';
-
-type Msg = { role: 'user' | 'agent'; text: string; changes?: Change[] };
 
 /* ---------- small building blocks ---------- */
 
@@ -236,20 +232,15 @@ function RevisionHistory({ agentId, onRestored }: {
 }
 
 
-/** Wraps a control so a knob the agent just moved is visibly flagged. */
-function Knob({ path, touched, label, hint, children }: {
-  path: string; touched: Set<string>; label: string; hint?: string; children: React.ReactNode;
+/** One labeled control on the board. `path` is the field's own key — not
+ *  read here, just carried onto the DOM so a field can be found by it. */
+function Knob({ path, label, hint, children }: {
+  path: string; label: string; hint?: string; children: React.ReactNode;
 }) {
-  const isNew = touched.has(path);
   return (
-    <div className={cn('rounded -mx-2 px-2 py-1.5 transition-colors', isNew && 'bg-agent-subtle')}>
+    <div data-field={path} className="rounded -mx-2 px-2 py-1.5">
       <div className="flex items-center gap-2 mb-1">
         <label className="text-[13px] font-medium text-foreground">{label}</label>
-        {isNew && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-agent">
-            <Bot className="w-3 h-3" />set by agent
-          </span>
-        )}
         {hint && <span className="ml-auto text-[11px] text-muted-foreground">{hint}</span>}
       </div>
       {children}
@@ -405,6 +396,21 @@ function delegationBlocker(a: { status?: string; allowUnattended?: boolean }): s
   return null;
 }
 
+/* ---------- tabs ----------
+ *
+ * The board used to sit beside a chat rail that proposed edits; with that
+ * gone the board gets the full page width, and the ~13 sections are grouped
+ * into a few tabs instead of one long two-column scroll. */
+type TabId = 'basics' | 'behavior' | 'tools' | 'automation' | 'history';
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'basics', label: 'Basics' },
+  { id: 'behavior', label: 'Behavior' },
+  { id: 'tools', label: 'Tools & access' },
+  { id: 'automation', label: 'Automation & safety' },
+  { id: 'history', label: 'History' },
+];
+
 /* ---------- page ---------- */
 
 export default function AgentBuilder() {
@@ -417,17 +423,9 @@ export default function AgentBuilder() {
   const agentId = isNew ? null : Number(id);
 
   const [cfg, setCfg] = useState<AgentConfig>(DEFAULT_AGENT);
-  const [touched, setTouched] = useState<Set<string>>(new Set());
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput] = useState('');
-  /* Which pane is on screen below `lg`, where the chat and the knob board
-     cannot both fit. Ignored at `lg` and above, where both are rendered. */
-  const [mobilePane, setMobilePane] = useState<'chat' | 'settings'>('chat');
-  /** A turn is in flight. One at a time: the proposal is against a snapshot of
-   *  the board, so a second send while the first is out would propose against a
-   *  config that is about to change under it. */
-  const [pending, setPending] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  /** Which group of sections is on screen. Pure display filtering — every
+   *  tab shares the same `cfg`. */
+  const [tab, setTab] = useState<TabId>('basics');
   const { user } = useAuth();
 
   // The account default from Settings (UserProfile). A new agent starts here,
@@ -441,10 +439,9 @@ export default function AgentBuilder() {
   // *derived* for display — the seeding effect below reads `user.llm_effort`
   // directly, so a third constant here was dead and failed the build.)
   // Seed a blank board once from the account default. Guarded so it never
-  // stomps an edit, a builder-chat proposal, or the loaded agent.
-  // State rather than a ref, and applied during render rather than in an
-  // effect: the board is seeded before it first paints instead of flashing the
-  // platform default and then re-rendering.
+  // stomps the loaded agent. State rather than a ref, and applied during
+  // render rather than in an effect: the board is seeded before it first
+  // paints instead of flashing the platform default and then re-rendering.
   const [userDefaultsApplied, setUserDefaultsApplied] = useState(false);
   /** What a new agent starts from: the account's own choices in Settings.
    *  Temperature and timezone were stored there and never reached a new agent;
@@ -460,7 +457,7 @@ export default function AgentBuilder() {
   });
   if (isNew && !userDefaultsApplied && user) {
     setUserDefaultsApplied(true);
-    if (touched.size === 0) setCfg((c) => {
+    setCfg((c) => {
       if (c.provider !== DEFAULT_AGENT.provider || c.model !== '' || c.effort !== DEFAULT_AGENT.effort) return c;
       return { ...c, ...accountDefaults() };
     });
@@ -556,15 +553,6 @@ export default function AgentBuilder() {
   // board first and then overwrite it, and any edit made in that gap would be
   // silently discarded.
   const [loadedId, setLoadedId] = useState<number | null>(null);
-  // The conversation that configured this agent, kept server-side so a reload
-  // does not throw away the reason behind every knob it moved. Seeded once,
-  // and only into an empty pane — never over a conversation in progress.
-  const { data: savedChat } = useQuery({
-    queryKey: ['agent-builder-chat', agentId],
-    queryFn: () => agentsService.builderChat(agentId!),
-    enabled: agentId != null,
-    staleTime: Infinity,
-  });
   // The newest revision, so the scorecard can say a score is from an older
   // configuration. Shares the inline history's query key, so no extra request.
   const { data: newestRevisions } = useQuery({
@@ -573,25 +561,13 @@ export default function AgentBuilder() {
     enabled: agentId != null,
   });
   const latestRevision = newestRevisions?.results?.[0]?.number ?? null;
-  const [chatSeeded, setChatSeeded] = useState(false);
   // React Router keeps this component mounted across `/agents/:id` changes
-  // (Duplicate navigates to the copy), so the pane has to be reset by hand or
-  // one agent's conversation would carry on under another's name.
-  const [chatFor, setChatFor] = useState(agentId);
-  if (chatFor !== agentId) {
-    setChatFor(agentId);
-    setMessages([]);
-    setChatSeeded(false);
-    setTouched(new Set());
-  }
-  if (!chatSeeded && savedChat) {
-    setChatSeeded(true);
-    if (messages.length === 0 && savedChat.messages.length > 0) {
-      setMessages(savedChat.messages.map((m) => ({
-        role: m.role, text: m.text,
-        changes: m.changes.length ? (m.changes as Change[]) : undefined,
-      })));
-    }
+  // (Duplicate navigates to the copy), so the active tab has to be reset by
+  // hand or one agent's tab would carry over onto another's board.
+  const [tabFor, setTabFor] = useState(agentId);
+  if (tabFor !== agentId) {
+    setTabFor(agentId);
+    setTab('basics');
   }
   const [running, setRunning] = useState(false);
   if (existing && loadedId !== existing.id) {
@@ -617,7 +593,6 @@ export default function AgentBuilder() {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       queryClient.invalidateQueries({ queryKey: ['agent', id] });
       toast.success(isNew ? `${agent.name} created` : 'Saved');
-      setTouched(new Set());
       // Adopt what the server stored, not what was sent: it normalises (tag
       // order, connector shape), and a board that differs from the saved copy
       // by normalisation alone would read as unsaved forever.
@@ -714,10 +689,6 @@ export default function AgentBuilder() {
     [activeProvider, effectiveModel]
   );
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, pending]);
-
   const set = <K extends keyof AgentConfig>(k: K, v: AgentConfig[K]) =>
     setCfg((c) => ({ ...c, [k]: v }));
   const setTool = (k: keyof AgentConfig['tools'], v: boolean) =>
@@ -728,54 +699,6 @@ export default function AgentBuilder() {
   const setToolPermission = (tool: string, mode: ToolPermissionMode) =>
     setCfg((c) => ({ ...c, toolPermissions: toggleToolPermission(c.toolPermissions, tool, mode) }));
 
-  /* The chat pane is a *model* configuring the agent, with the local rule table
-     as its fallback.
-
-     The rules stay because they are the only thing that works when no model can
-     be reached — but they are the fallback and not the feature: they moved a
-     knob only when the description happened to contain a word in their table,
-     so a brief that named its source, its job and its cadence could still be
-     answered with "I couldn't tell which knobs that should move". The server
-     sees the account's real connections, knowledge bases and skills, so it can
-     name ids the browser has no way to guess, and it validates every value it
-     proposes against the same serializer that will validate the save. */
-  const send = async (text: string) => {
-    if (!text.trim() || pending) return;
-    setMessages((m) => [...m, { role: 'user', text }]);
-    setInput('');
-    setPending(true);
-    // Captured before the await: `cfg` in this closure is the board the user
-    // was looking at when they pressed send, which is what the proposal is
-    // against — and what `applyChanges` must be applied to below.
-    const history = messages.map((m) => ({ role: m.role, text: m.text }));
-    // Propose against what the board shows: a blank model runs as the account
-    // default (see `displayProvider`/`effectiveModel`), so the proposal must
-    // be too, or the builder re-proposes the default as a change every turn.
-    const visibleCfg = { ...cfg, provider: displayProvider, model: effectiveModel };
-    try {
-      const proposal = await agentsService.configure(text, visibleCfg, history, agentId);
-      apply(proposal.reply, proposal.changes as Change[]);
-    } catch {
-      const { reply, changes } = propose(text, visibleCfg, connectorOptions);
-      apply(
-        changes.length
-          ? `${reply}
-
-(The configuring model was unreachable, so this is the local rule set — check each change.)`
-          : "I couldn't reach the model that configures agents, and the local rules didn't recognise that. Try naming what it reads, what it does with it, and whether it may act without you.",
-        changes,
-      );
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const apply = (reply: string, changes: Change[]) => {
-    setCfg((c) => applyChanges(c, changes));
-    setTouched(new Set(changes.map((c) => c.path)));
-    setMessages((m) => [...m, { role: 'agent', text: reply, changes }]);
-  };
-
   const reset = () => {
     if (existing) {
       setCfg({ ...DEFAULT_AGENT, ...existing });
@@ -785,8 +708,6 @@ export default function AgentBuilder() {
       // own default from under them.
       setCfg({ ...DEFAULT_AGENT, ...accountDefaults() });
     }
-    setTouched(new Set());
-    setMessages([]);
   };
 
   const submit = () => {
@@ -901,114 +822,37 @@ export default function AgentBuilder() {
         </div>
       </header>
 
-      {/* Below `lg` the two panes cannot share the width, so they take turns.
-          Before this the knob board was flatly `hidden lg:block`: on a phone or
-          a portrait tablet the builder was a chat box with no way to see or set
-          a single field — not even the agent's name. */}
-      <div className="lg:hidden flex border-b border-border shrink-0">
-        {(['chat', 'settings'] as const).map((pane) => (
+      {/* Creation lives in the /agents/new wizard; this page is the full
+          settings board, grouped into a few tabs so a long list of sections
+          doesn't have to be scrolled through in one pass. */}
+      <div className="flex gap-4 overflow-x-auto border-b border-border px-4 md:px-6 shrink-0">
+        {TABS.filter((t) => t.id !== 'history' || (!isNew && agentId != null)).map((t) => (
           <button
-            key={pane}
-            onClick={() => setMobilePane(pane)}
+            key={t.id}
+            onClick={() => setTab(t.id)}
             className={cn(
-              'flex-1 py-2.5 text-[13px] font-semibold capitalize border-b-2 -mb-px transition-colors',
-              mobilePane === pane
+              'shrink-0 py-2.5 text-[13px] font-semibold border-b-2 -mb-px transition-colors',
+              tab === t.id
                 ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground',
+                : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >
-            {pane === 'chat' ? 'Assistant' : 'Settings'}
+            {t.label}
           </button>
         ))}
       </div>
 
-      <div className="flex-1 flex min-h-0">
-        {/* ---- builder edit assistant (creation lives in /agents/new wizard) ---- */}
-        <div className={cn(
-          'w-full lg:w-[420px] xl:w-[460px] border-r border-border flex-col min-h-0',
-          mobilePane === 'chat' ? 'flex' : 'hidden lg:flex',
-        )}>
-          <div className="px-4 pt-3">
-            <p className="text-xs text-muted-foreground border border-border rounded p-2 bg-muted">
-              New agents are created in the <Link to="/agents/new" className="underline font-semibold">creation wizard</Link> —
-              questions, proposal, approval, then a starter eval. This pane is edit-only history.
-            </p>
-          </div>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 ? (
-              <div className="pt-4">
-                <div className="w-10 h-10 rounded bg-agent-subtle border border-agent-line flex items-center justify-center mb-3">
-                  <Bot className="w-5 h-5 text-agent" />
-                </div>
-                <h2 className="font-semibold mb-1">What should change?</h2>
-                <p className="text-[13px] text-muted-foreground leading-relaxed mb-4">
-                  Say it in plain language. I'll propose settings changes on the right and explain why
-                  I picked each one — nothing is saved until you press Save, and you can override all of it.
-                </p>
-              </div>
-            ) : (
-              messages.map((msg, i) => (
-                <div key={i} className={cn('flex', msg.role === 'user' && 'justify-end')}>
-                  <div className={cn('max-w-[92%] rounded px-3 py-2',
-                    msg.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-card border border-border')}>
-                    <p className="text-[13px] leading-relaxed">{msg.text}</p>
-                    {msg.changes && msg.changes.length > 0 && (
-                      <ul className="mt-2 pt-2 border-t border-border space-y-1.5">
-                        {msg.changes.map((c) => (
-                          <li key={c.path} className="text-[12px]">
-                            <span className="font-semibold text-agent">{c.label}</span>
-                            <span className="text-muted-foreground"> — {c.why}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-            {pending && (
-              <div className="flex">
-                <div className="max-w-[92%] rounded px-3 py-2 bg-card border border-border
-                                flex items-center gap-2 text-[13px] text-muted-foreground">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Working out the settings…
-                </div>
-              </div>
-            )}
-          </div>
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-bg-1">
+        <div className="max-w-3xl mx-auto space-y-4">
 
-          <div className="border-t border-border p-3">
-            <div className="flex gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send(input)}
-                disabled={pending}
-                placeholder={pending ? 'Working…' : 'Describe a change…'}
-                className="flex-1 h-10 px-3 rounded border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
-              />
-              <SendButton onClick={() => send(input)} disabled={!input.trim() || pending} />
-            </div>
-          </div>
-        </div>
-
-        {/* ---- knob board ---- */}
-        <div className={cn(
-          'flex-1 overflow-y-auto p-4 md:p-6 bg-bg-1',
-          mobilePane === 'settings' ? 'block' : 'hidden lg:block',
-        )}>
-          <div className="max-w-[1600px]">
-            <div className="2xl:columns-2 2xl:gap-4">
-
+            {tab === 'basics' && <>
             <Section icon={Bot} title="Identity">
-              <Knob path="name" touched={touched} label="Name">
+              <Knob path="name" label="Name">
                 <input value={cfg.name} onChange={(e) => set('name', e.target.value)}
                   placeholder="Finance agent"
                   className="w-full h-9 px-3 rounded border border-input bg-background text-sm" />
               </Knob>
-              <Knob path="brief" touched={touched} label="Brief" hint="What it is for, in one or two sentences">
+              <Knob path="brief" label="Brief" hint="What it is for, in one or two sentences">
                 <textarea value={cfg.brief} onChange={(e) => set('brief', e.target.value)}
                   rows={3} placeholder="Reads invoices from Gmail and chases anything overdue…"
                   className="w-full px-3 py-2 rounded border border-input bg-background text-sm resize-none" />
@@ -1019,17 +863,17 @@ export default function AgentBuilder() {
                   been on the model since the start and reachable only through
                   Django admin, so every agent built here was blank to the
                   parent trying to pick one. */}
-              <Knob path="description" touched={touched} label="One-line summary"
+              <Knob path="description" label="One-line summary"
                     hint="how other agents recognise it">
                 <input value={cfg.description}
                   onChange={(e) => set('description', e.target.value)}
                   placeholder="Chases overdue invoices and reports what is stuck."
                   className="w-full h-9 px-3 rounded border border-input bg-background text-sm" />
               </Knob>
-              <Knob path="tags" touched={touched} label="Tags" hint="for grouping and search">
+              <Knob path="tags" label="Tags" hint="for grouping and search">
                 <TagInput value={cfg.tags} onChange={(v) => set('tags', v)} />
               </Knob>
-              <Knob path="status" touched={touched} label="Status">
+              <Knob path="status" label="Status">
                 <Choice<AgentStatus>
                   value={cfg.status} onChange={(v) => set('status', v)}
                   options={(Object.keys(STATUS_COPY) as AgentStatus[]).map((id) => ({
@@ -1040,7 +884,7 @@ export default function AgentBuilder() {
 
             <Section icon={Brain} title="Model">
               <div className="grid sm:grid-cols-2 gap-3">
-                <Knob path="provider" touched={touched} label="Provider">
+                <Knob path="provider" label="Provider">
                   <Select
                     value={displayProvider}
                     onChange={(slug) => {
@@ -1052,7 +896,7 @@ export default function AgentBuilder() {
                     options={providers.map((p) => ({ value: p.slug, label: p.name }))}
                   />
                 </Knob>
-                <Knob path="model" touched={touched} label="Model">
+                <Knob path="model" label="Model">
                   <Select
                     value={effectiveModel}
                     onChange={(v) => set('model', v)}
@@ -1079,7 +923,7 @@ export default function AgentBuilder() {
                   agent on a non-reasoning model showed no sign the setting
                   exists, which reads as a missing feature rather than as an
                   unsupported model. */}
-              <Knob path="effort" touched={touched} label="Reasoning effort"
+              <Knob path="effort" label="Reasoning effort"
                     hint={effortLevels.length ? (cfg.effort || 'model default') : 'not supported'}>
                 {effortLevels.length > 0 ? (
                   <>
@@ -1110,7 +954,7 @@ export default function AgentBuilder() {
                   </p>
                 )}
               </Knob>
-              <Knob path="temperature" touched={touched} label="Temperature"
+              <Knob path="temperature" label="Temperature"
                     hint={cfg.temperature <= 0.2 ? 'deterministic' : cfg.temperature >= 0.7 ? 'varied' : 'balanced'}>
                 <div className="flex items-center gap-3">
                   <input type="range" min={0} max={2} step={0.1} value={cfg.temperature}
@@ -1123,7 +967,9 @@ export default function AgentBuilder() {
                 </p>
               </Knob>
             </Section>
+            </>}
 
+            {tab === 'behavior' && <>
             {/* File access is enforced; the resource knobs below are not. They
                 used to share one section under a single "not yet applied"
                 banner, which became a lie the moment the virtual filesystem
@@ -1131,7 +977,7 @@ export default function AgentBuilder() {
                 people to ignore it on the ones that are not. */}
             <Section icon={FolderLock} title="Files"
               hint="Which of your files it can reach">
-              <Knob path="fileAccess" touched={touched} label="File access">
+              <Knob path="fileAccess" label="File access">
                 <Choice<FileAccess>
                   value={cfg.fileAccess} onChange={(v) => set('fileAccess', v)}
                   options={(Object.keys(FILE_ACCESS_COPY) as FileAccess[]).map((id) => ({
@@ -1153,7 +999,7 @@ export default function AgentBuilder() {
                 enforced. */}
             <Section icon={Timer} title="Run limit"
               hint="How long one run may take">
-              <Knob path="maxRunSeconds" touched={touched} label="Time limit" hint="per run">
+              <Knob path="maxRunSeconds" label="Time limit" hint="per run">
                 <div className="flex items-center gap-2">
                   <Timer className="w-4 h-4 text-muted-foreground" />
                   <input type="number" min={1} max={120} step={1}
@@ -1189,7 +1035,7 @@ export default function AgentBuilder() {
                   model landed — `contracts.resolve` at the top and tail of
                   every run, `run_fanout` when a parent delegates a list — and
                   until now only the seeded stock agents could set either. */}
-              <Knob path="outputContract" touched={touched} label="Result shape">
+              <Knob path="outputContract" label="Result shape">
                 <Choice<OutputContract>
                   value={cfg.outputContract} onChange={(v) => set('outputContract', v)}
                   options={(Object.keys(CONTRACT_COPY) as OutputContract[]).map((id) => ({
@@ -1201,7 +1047,7 @@ export default function AgentBuilder() {
                   reshaped.
                 </p>
               </Knob>
-              <Knob path="fanoutParallel" touched={touched} label="Fan-out width"
+              <Knob path="fanoutParallel" label="Fan-out width"
                     hint="when another agent hands it a list">
                 <div className="flex items-center gap-1.5">
                   {[null, 2, 4, 8].map((n) => (
@@ -1218,7 +1064,9 @@ export default function AgentBuilder() {
                 </div>
               </Knob>
             </Section>
+            </>}
 
+            {tab === 'tools' && <>
             <Section icon={Wrench} title="Tools">
               <p className="px-2 text-[12px] text-muted-foreground -mt-2 mb-1">
                 Built-in tools are included with your workspace. See the{' '}
@@ -1245,7 +1093,7 @@ export default function AgentBuilder() {
                 ['shell', 'Code in projects', 'Read, test, commit, open a PR — in its projects below.'],
                 ['subAgents', 'Delegate to other agents', 'Hand whole tasks to agents you have built. Narrow which ones below.'],
               ] as const).map(([k, label, hint]) => (
-                <Knob key={k} path={`tools.${k}`} touched={touched} label="">
+                <Knob key={k} path={`tools.${k}`} label="">
                   {UNSERVED_TOOLS.has(k) ? (
                     // Nothing serves this grant yet (`runtime.UNSERVED_GRANTS`),
                     // so a working switch would promise a tool no run is handed.
@@ -1269,7 +1117,7 @@ export default function AgentBuilder() {
             </Section>
 
             <Section icon={Plug} title="Context it is given">
-              <Knob path="connectors" touched={touched} label="Connections"
+              <Knob path="connectors" label="Connections"
                     hint={cfg.connectors.length ? `${cfg.connectors.length} selected` : undefined}>
                 <MultiSelect
                   options={connectorOptions.map((c) => ({ id: String(c.id), label: c.label }))}
@@ -1324,7 +1172,7 @@ export default function AgentBuilder() {
                 )}
               </Knob>
               {grantedTools.length > 0 && (
-                <Knob path="toolScope" touched={touched} label="Which tools"
+                <Knob path="toolScope" label="Which tools"
                       hint={cfg.toolScope.length ? `${cfg.toolScope.length} of ${grantedTools.length}` : 'all of them'}>
                   <MultiSelect
                     options={grantedTools}
@@ -1341,7 +1189,7 @@ export default function AgentBuilder() {
                 </Knob>
               )}
               {grantedTools.length > 0 && (
-                <Knob path="toolPermissions" touched={touched} label="Per-tool rules"
+                <Knob path="toolPermissions" label="Per-tool rules"
                       hint={(() => {
                         const n = countToolPermissions(
                           cfg.toolPermissions, grantedTools.map((t) => t.id));
@@ -1383,7 +1231,7 @@ export default function AgentBuilder() {
                 </Knob>
               )}
               {cfg.tools.browser && (
-                <Knob path="browserDomains" touched={touched} label="Sites it may act on"
+                <Knob path="browserDomains" label="Sites it may act on"
                       hint={cfg.browserDomains.length ? `${cfg.browserDomains.length} site${cfg.browserDomains.length === 1 ? '' : 's'}` : 'read only'}>
                   <input
                     value={cfg.browserDomains.join(', ')}
@@ -1396,7 +1244,7 @@ export default function AgentBuilder() {
                 </Knob>
               )}
               {cfg.tools.subAgents && (
-                <Knob path="delegatesTo" touched={touched} label="Delegates to"
+                <Knob path="delegatesTo" label="Delegates to"
                       hint={cfg.delegatesTo.length ? `${cfg.delegatesTo.length} selected` : undefined}>
                   <MultiSelect
                     options={otherAgents.map((a) => ({
@@ -1418,7 +1266,7 @@ export default function AgentBuilder() {
                   </p>
                 </Knob>
               )}
-              <Knob path="skills" touched={touched} label="Skills"
+              <Knob path="skills" label="Skills"
                     hint={cfg.skills.length ? `${cfg.skills.length} selected` : undefined}>
                 <MultiSelect
                   options={skills.map((s) => ({
@@ -1433,12 +1281,14 @@ export default function AgentBuilder() {
                   emptyText="None yet — write one in Skills first."
                 />
               </Knob>
-              <Knob path="useEnvironment" touched={touched} label="">
+              <Knob path="useEnvironment" label="">
                 <Toggle on={cfg.useEnvironment} onChange={(v) => set('useEnvironment', v)}
                   label="Environment" hint="Current time and place, for anything schedule- or locale-aware." />
               </Knob>
             </Section>
+            </>}
 
+            {tab === 'automation' && <>
             <Section icon={Clock} title="When it runs">
               {/* Schedules live on rows the Schedules page owns, listed here
                   through the same modal — not a second editor writing back a
@@ -1455,7 +1305,7 @@ export default function AgentBuilder() {
                   hasPrompt={Boolean((cfg.brief || '').trim())}
                 />
               )}
-              <Knob path="allowUnattended" touched={touched} label="">
+              <Knob path="allowUnattended" label="">
                 <Toggle on={cfg.allowUnattended} onChange={(v) => set('allowUnattended', v)}
                   label="Can run automatically"
                   hint="Needed for schedules and when another agent calls it." />
@@ -1463,7 +1313,7 @@ export default function AgentBuilder() {
             </Section>
 
             <Section icon={ShieldCheck} title="Safety">
-              <Knob path="autonomy" touched={touched} label="Autonomy">
+              <Knob path="autonomy" label="Autonomy">
                 <Choice<Autonomy>
                   value={cfg.autonomy} onChange={(v) => set('autonomy', v)}
                   options={(Object.keys(AUTONOMY_COPY) as Autonomy[]).map((id) => ({
@@ -1486,14 +1336,14 @@ export default function AgentBuilder() {
                   in the Inbox, or turning notifications off would quietly mean
                   abandoning it. Saying so is what stops someone reading the
                   toggle as "let it run without me". */}
-              <Knob path="notifyOnHitl" touched={touched} label="">
+              <Knob path="notifyOnHitl" label="">
                 <Toggle on={cfg.notifyOnHitl} onChange={(v) => set('notifyOnHitl', v)}
                   label="Notify me when it stops to ask"
                   hint={cfg.notifyOnHitl
                     ? 'Pings you when it pauses, then again after an hour and a day.'
                     : "No pings for this agent — it still waits in your Inbox and in the daily summary."} />
               </Knob>
-              <Knob path="spendCapRupees" touched={touched} label="Spend cap" hint="per month">
+              <Knob path="spendCapRupees" label="Spend cap" hint="per month">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">₹</span>
                   <input type="number" min={0} step={50} value={cfg.spendCapRupees}
@@ -1502,22 +1352,22 @@ export default function AgentBuilder() {
                 </div>
               </Knob>
             </Section>
+            </>}
 
-            {!isNew && agentId != null && (
+            {tab === 'history' && !isNew && agentId != null && <>
               <Section icon={FlaskConical} title="Evaluation"
                        hint="How it scores on your test suites">
                 <AgentScorecard agentId={agentId} currentRevision={latestRevision} />
               </Section>
-            )}
 
-            {!isNew && agentId != null && (
               <Section icon={History} title="Change history"
                        hint="Which configuration produced which runs">
                 <RevisionHistory agentId={agentId}
-                  onRestored={(agent) => { setCfg({ ...DEFAULT_AGENT, ...agent }); setTouched(new Set()); }} />
+                  onRestored={(agent) => setCfg({ ...DEFAULT_AGENT, ...agent })} />
               </Section>
-            )}
+            </>}
 
+            {tab === 'behavior' && <>
             <Section icon={Layers} title="Context lifecycle" hint="For long runs">
               <p className="text-[12px] text-muted-foreground -mt-1">
                 A long run carries its whole transcript into every step, so eventually it
@@ -1532,7 +1382,7 @@ export default function AgentBuilder() {
                 label="Smart summarization"
                 hint="When compaction is not enough, fold the oldest steps into one running summary. Costs a small model call each time." />
               {cfg.recursiveContext && (
-                <Knob path="summaryModel" touched={touched} label="Summarizing model"
+                <Knob path="summaryModel" label="Summarizing model"
                       hint="Left as default, a small NVIDIA model runs on the platform key — nothing to connect.">
                   <Select
                     value={cfg.summaryModel}
@@ -1576,23 +1426,22 @@ export default function AgentBuilder() {
                 label="Save and recall"
                 hint="Store whatever is cut, so the agent can search it back mid-run. Off means removed text is gone for good." />
             </Section>
+            </>}
 
-            </div>
-
-            <div className="flex items-center gap-2 pb-8">
-              <button
-                onClick={submit}
-                disabled={save.isPending}
-                className="px-4 py-2 text-sm font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                {isNew ? 'Create agent' : 'Save changes'}
-              </button>
-              <button onClick={() => navigate('/agents')}
-                className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary">
-                Cancel
-              </button>
-            </div>
-          </div>
         </div>
+      </div>
+
+      <div className="border-t border-border bg-bg-1 px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
+        <button
+          onClick={submit}
+          disabled={save.isPending}
+          className="px-4 py-2 text-sm font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          {isNew ? 'Create agent' : 'Save changes'}
+        </button>
+        <button onClick={() => navigate('/agents')}
+          className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary">
+          Cancel
+        </button>
       </div>
       {confirmDelete && (
         <ConfirmDialog
