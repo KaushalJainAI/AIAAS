@@ -62,10 +62,8 @@ import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 
 /* ---------- small building blocks ---------- */
 
-function Section({ icon: Icon, title, hint, notEnforced, children }: {
+function Section({ icon: Icon, title, hint, children }: {
   icon: typeof Cpu; title: string; hint?: string;
-  /** Why this section's settings are saved but do not yet change a run. */
-  notEnforced?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -73,16 +71,8 @@ function Section({ icon: Icon, title, hint, notEnforced, children }: {
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
         <Icon className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-[13px] font-semibold">{title}</h3>
-        {notEnforced && (
-          <span className="text-[10px] uppercase tracking-wide font-semibold text-warning border border-warning/40 rounded px-1.5 py-0.5">
-            Coming soon
-          </span>
-        )}
         {hint && <span className="text-[12px] text-muted-foreground ml-auto">{hint}</span>}
       </header>
-      {notEnforced && (
-        <p className="px-4 pt-3 text-[12px] text-muted-foreground">{notEnforced}</p>
-      )}
       <div className="p-4 space-y-3">{children}</div>
     </section>
   );
@@ -411,6 +401,23 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'history', label: 'History' },
 ];
 
+/** Which tab holds each config field, so a save the server rejects can bring
+ *  the offending field on screen instead of naming it on a tab you can't see.
+ *  Keys are the AgentConfig names the serializer reports errors under. */
+const FIELD_TAB: Partial<Record<string, TabId>> = {
+  name: 'basics', brief: 'basics', description: 'basics', tags: 'basics',
+  status: 'basics', provider: 'basics', model: 'basics', effort: 'basics',
+  temperature: 'basics',
+  fileAccess: 'behavior', maxRunSeconds: 'behavior', outputContract: 'behavior',
+  fanoutParallel: 'behavior', compaction: 'behavior', recursiveContext: 'behavior',
+  summaryModel: 'behavior', summaryProvider: 'behavior', indexing: 'behavior',
+  tools: 'tools', connectors: 'tools', toolScope: 'tools', toolPermissions: 'tools',
+  browserDomains: 'tools', delegatesTo: 'tools', skills: 'tools',
+  useEnvironment: 'tools',
+  allowUnattended: 'automation', autonomy: 'automation',
+  notifyOnHitl: 'automation', spendCapRupees: 'automation',
+};
+
 /* ---------- page ---------- */
 
 export default function AgentBuilder() {
@@ -604,6 +611,8 @@ export default function AgentBuilder() {
     onError: (err: { response?: { data?: Record<string, unknown> } }) => {
       const data = err.response?.data;
       const first = data && Object.entries(data)[0];
+      const errorTab = first && FIELD_TAB[first[0]];
+      if (errorTab) setTab(errorTab);
       toast.error(
         first ? `${first[0]}: ${String(Array.isArray(first[1]) ? first[1][0] : first[1])}`
               : 'Could not save this agent.'
@@ -712,6 +721,7 @@ export default function AgentBuilder() {
 
   const submit = () => {
     if (!cfg.name.trim()) {
+      setTab('basics');
       toast.error('Give the agent a name first.');
       return;
     }
@@ -740,7 +750,7 @@ export default function AgentBuilder() {
   // What actually happened, once there is something to report. Before the first
   // run there is no honest number, so the line says what to do instead.
   const subtitle = () => {
-    if (isNew) return 'Describe what you want, or adjust the settings yourself';
+    if (isNew) return 'Set it up across the tabs below, then create it';
     if (!existing) return 'Loading…';
     if (!existing.runs) return 'Not run yet';
     const pct = Math.round((existing.unattended / existing.runs) * 100);

@@ -273,6 +273,15 @@ function ToolRow({
             {tool.displayName}
           </span>
           {tool.locked && <Lock className="w-3 h-3 text-muted-foreground shrink-0" />}
+          {tool.unserved && (
+            <Chip
+              className="bg-destructive-subtle text-destructive border-border"
+              title="Not available yet — no run is ever handed this tool."
+            >
+              <AlertCircle className="w-2.5 h-2.5" />
+              Unavailable
+            </Chip>
+          )}
           <span className="shrink-0">
             <EffectBadge effect={tool.effect} />
           </span>
@@ -606,18 +615,22 @@ function ToolDrawer({
           >
             <div className="flex-1">
               <p className="text-sm font-semibold">
-                {tool.locked
-                  ? 'Always available'
-                  : tool.enabled
-                    ? 'Available to your assistant'
-                    : 'Switched off'}
+                {tool.unserved
+                  ? 'Not available yet'
+                  : tool.locked
+                    ? 'Always available'
+                    : tool.enabled
+                      ? 'Available to your assistant'
+                      : 'Switched off'}
               </p>
               <p className="text-[12px] text-muted-foreground mt-0.5">
-                {tool.locked
-                  ? 'The assistant is told to call this by name when a result is too large to replay, so it cannot be switched off.'
-                  : tool.enabled
-                    ? 'Offered to every agent whose grants cover it, and in chat.'
-                    : 'Not offered to any agent, and refused if one asks for it anyway.'}
+                {tool.unserved
+                  ? 'Nothing serves this tool yet, whatever the switch says — no run is ever handed it.'
+                  : tool.locked
+                    ? 'The assistant is told to call this by name when a result is too large to replay, so it cannot be switched off.'
+                    : tool.enabled
+                      ? 'Offered to every agent whose grants cover it, and in chat.'
+                      : 'Not offered to any agent, and refused if one asks for it anyway.'}
               </p>
             </div>
             <div className="pt-1">
