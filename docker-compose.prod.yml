@@ -1,4 +1,6 @@
-# Production stack for aiaas.kaushaljain.com (EC2 t3.small: 2 GB RAM / 8GB disk).
+# Production stack for aiaas.kaushaljain.com. Live on a GCP e2-medium (4 GB RAM,
+# shared with NGU) since 2026-10-01, where TLS is a shared edge-caddy and the
+# `caddy` service below is left out (DEPLOYMENT.md §3). Memory tuned for that VM.
 #
 # THIS is the production compose file. It replaced docker-compose.ec2.yml
 # (SQLite, Celery, an older host; deleted 2026-09-19) and differed from it in
@@ -19,8 +21,8 @@ services:
     # 96 -> 64 MB: this box holds channels traffic + cache only, and the data
     # cap is what stops a burst from eating the host. mem_limit is the RSS
     # ceiling on top (fragmentation + fork-for-save needs headroom over data).
-    command: redis-server --save 60 1 --maxmemory 64mb --maxmemory-policy allkeys-lru
-    mem_limit: 128m
+    command: redis-server --save 60 1 --maxmemory 128mb --maxmemory-policy allkeys-lru
+    mem_limit: 192m
     logging:
       driver: json-file
       options:
@@ -54,13 +56,19 @@ services:
       - .env
     command: >
       postgres
-      -c shared_buffers=40MB
-      -c effective_cache_size=128MB
-      -c work_mem=2MB
-      -c maintenance_work_mem=16MB
-      -c max_connections=25
+      -c shared_buffers=128MB
+      -c effective_cache_size=384MB
+      -c work_mem=8MB
+      -c maintenance_work_mem=64MB
+      -c max_connections=40
       -c wal_compression=on
-    mem_limit: 256m
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+    # 2026-10-01, 4 GB VM: the 69 MB database fits in shared_buffers, so
+    # reads stop going to disk; 40 connections = app pool 16 + headroom for
+    # psql, migrations and pg_dump. SSD disk, hence random_page_cost 1.1.
+    mem_limit: 512m
+    shm_size: 256m
     logging:
       driver: json-file
       options:
@@ -113,8 +121,11 @@ services:
     # Uncapped before: one leak could take the whole box. Daphne is a
     # single process sitting at ~100-220 MB, so 384m caps the worst case
     # without touching steady state.
-    mem_limit: 384m
-    mem_reservation: 192m
+    # 384m -> 768m (2026-10-01, 4 GB VM): daphne idled at 220 MB, 57% of
+    # the old cap, so one large office render or long transcript was an
+    # OOM kill away from a 502 for everyone.
+    mem_limit: 768m
+    mem_reservation: 256m
     logging:
       driver: json-file
       options:
@@ -128,7 +139,7 @@ services:
       # the boot preload only defers building a light object to first use.
       PRELOAD_EMBEDDER: "False"
       PUBLIC_URL: https://aiaas.kaushaljain.com
-      ALLOWED_HOSTS: "aiaas.kaushaljain.com,13.127.148.207,localhost,127.0.0.1,backend"
+      ALLOWED_HOSTS: "aiaas.kaushaljain.com,34.0.5.162,localhost,127.0.0.1,backend"
       CSRF_TRUSTED_ORIGINS: "https://aiaas.kaushaljain.com"
       CORS_ALLOWED_ORIGINS: "https://aiaas.kaushaljain.com"
       # CORS_ALLOW_ALL_ORIGINS was "True" here, which overrides the allow-list
@@ -160,26 +171,21 @@ services:
       # which exhausted Postgres here, but it also meant every request connected
       # and authenticated from scratch. The pool keeps a few open and caps the
       # process hard at DB_POOL_MAX_SIZE, which must stay under the db service's
-      # max_connections=25 with room for psql and migrations. Each Postgres
-      # backend is ~5-10 MB of the db container's 256m.
+      # max_connections=40 with room for psql and migrations. Each Postgres
+      # backend is ~5-10 MB of the db container's 512m.
       DB_POOL: "True"
       DB_POOL_MIN_SIZE: "2"
-      DB_POOL_MAX_SIZE: "10"
-      # Run state lives in Postgres (2026-09-24, Phase 2). The SQLite saver
-      # serialised the whole transcript on the event loop and wrote it under
-      # one process-wide lock on every super-step (G2); the Postgres saver has
-      # no global lock and stores each channel blob once per version.
-      # Connection math — the sum must stay under the db service's
-      # max_connections=25 with room for psql and migrations: app pool
-      # DB_POOL_MAX_SIZE=10 + checkpointer AGENT_CHECKPOINT_POOL_MAX=4 = 14.
-      # Do not raise either without re-adding this sum.
+      DB_POOL_MAX_SIZE: "16"
+      # Run state lives in Postgres (live since 2026-10-01). SQLite serialised
+      # every run's checkpoint writes behind one lock. Needs a backend image
+      # from 2026-10-01 or later: before it, the saver never opened its pool
+      # (every turn failed with PoolClosed), never created its tables, and
+      # held a process-wide lock anyway (chat/turn/checkpoints.py::
+      # _pooled_saver_class). Connection sum: app pool 16 + checkpointer 4,
+      # under max_connections=40. No AGENT_CHECKPOINT_DSN: it falls back to
+      # DATABASE_URL, then to Django's own default database.
       AGENT_CHECKPOINTER: "postgres"
       AGENT_CHECKPOINT_POOL_MAX: "4"
-      # No AGENT_CHECKPOINT_DSN here: it falls back to DATABASE_URL, then to
-      # Django's own default database — the saver cannot land anywhere but the
-      # app's database (chat/turn/checkpoints.py::_dsn_from_django_db). The old
-      # checkpoints.sqlite3 stays on backend_data for a week for paused runs
-      # whose state never migrates, then delete it.
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
