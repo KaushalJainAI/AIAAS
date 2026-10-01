@@ -26,13 +26,14 @@ from workflow_backend.thresholds import (
     ASSISTANT_SUMMARY_WORD_LIMIT,
     FOLLOW_UPS_SLOW_TURN_SECONDS,
     MAX_CONTEXT_TOKENS,
+    PACE_ITERATIONS,
 )
 
 from chat import vision
 from llm import access as llm
 from llm.pricing import combine_sources
 from llm.effort import normalize as normalize_effort
-from . import agent, history, prompts
+from . import agent, history, pace, prompts
 from . import curation as _curation
 from .agent import TurnContext, TurnResult
 from .events import Event, EventSink, null_sink
@@ -69,14 +70,6 @@ _SLASH_COMMANDS = {
     "/video": "video",
     "/research": "research",
 }
-
-#: Openers that reliably mean "look this up", used only when the client did not
-#: state an intent. Getting it wrong is cheap — the agent can still search.
-_SEARCH_OPENERS = (
-    "what is", "who is", "when did", "how to", "latest", "current",
-    "news about", "tell me about", "search for", "look up", "find",
-    "what are the", "define", "explain", "compare",
-)
 
 #: Phrases meaning "this question is about our conversation, not the world".
 #: Narrow on purpose: a false positive costs one indexed scan, a false negative
@@ -229,13 +222,11 @@ def classify_intent(content: str) -> tuple[str, str]:
             return intent, remainder.strip()
         return "chat", text
 
-    lowered = text.lower()
-    # Recall wins over the search openers, which overlap badly with it: "what is
-    # my name" starts with "what is" but is a question about this conversation,
-    # not the world. Getting this wrong now costs a real web search, because an
-    # explicit search intent is seeded rather than left to the model.
-    if any(lowered.startswith(opener) for opener in _SEARCH_OPENERS):
-        return ("chat" if looks_like_recall(text) else "search"), text
+    # Nothing is inferred from how a message opens. "what is", "explain" and
+    # "compare" used to mean `search`, and a search intent is *seeded* — a full
+    # web search before the first model call — so ordinary questions paid for a
+    # search they did not need. Only a mode the user picked is an intent now;
+    # an opener is at most a hint about the turn's pace (`pace.starting_tier`).
     return "chat", text
 
 
@@ -766,11 +757,11 @@ class _PhaseTimer:
     def total_ms(self) -> int:
         return int((time.monotonic() - self._t0) * 1000)
 
-    def log(self, intent: str) -> None:
+    def log(self, intent: str, tier: str = "-") -> None:
         detail = " ".join(f"{k}={v}ms" for k, v in self.marks.items() if v)
         logger.info(
-            "[Latency] pre-model total=%dms intent=%s %s",
-            self.total_ms, intent, detail,
+            "[Latency] pre-model total=%dms intent=%s pace=%s %s",
+            self.total_ms, intent, tier, detail,
         )
 
 
@@ -986,8 +977,17 @@ async def run_chat_turn(
     sendable, blocked = await history.partition_attachments(
         candidates, model=model, witness=witness
     )
+    # How much time this turn is worth, from what is certain before the model
+    # runs. A starting point only: the model's own tool calls promote a turn
+    # that turns out to be a long job (`pace.py`).
+    tier = pace.starting_tier(
+        intent, question, has_attachments=bool(sendable or blocked),
+        starts_work=bool(
+            command_resolution is not None and command_resolution.start),
+    )
     metadata: dict[str, Any] = {
         "intent": intent, "model": model, "provider": provider, "effort": effort,
+        "pace": pace.start(tier),
     }
 
     blocked_notice = ""
@@ -1078,7 +1078,10 @@ async def run_chat_turn(
         history=tuple(wire_history),
         attachments=attachments,
         memory_enabled=session.memory_enabled,
-        max_iterations=agent.iteration_limit(intent),
+        # The hard ceiling, which is `deep` for every chat turn because any of
+        # them may be promoted to it. The cap actually applied each pass comes
+        # from the turn's pace in `metadata`.
+        max_iterations=PACE_ITERATIONS[pace.DEEP],
         effort=effort or None,
         sink=sink,
         curation=_curation.CHAT_POLICY,
@@ -1110,7 +1113,7 @@ async def run_chat_turn(
 
     seed_text, seed_trace = await _seed_intent_tool(intent, question, turn, metadata)
     phases.mark("intent_seed")
-    phases.log(intent)
+    phases.log(intent, tier)
 
     turn_started = time.monotonic()
     try:
@@ -1137,6 +1140,14 @@ async def run_chat_turn(
         logger.warning("[Turn] Provider error for user %s: %s", user.id, exc)
         raise TurnError(str(exc)) from exc
     turn_elapsed_s = time.monotonic() - turn_started
+    # One line per turn: the pace it started at, where it ended, and what that
+    # cost. `quick>deep` is a promoted turn; a `quick` that took a long time or
+    # many calls is the thing this line exists to make greppable.
+    logger.info(
+        "[Latency] turn total=%dms pace=%s tool_calls=%d",
+        int(turn_elapsed_s * 1000), pace.summary(result.metadata),
+        len(result.tool_trace),
+    )
 
     assistant_message = await _persist_answer(
         session=session, user=user, turn=turn, result=result,

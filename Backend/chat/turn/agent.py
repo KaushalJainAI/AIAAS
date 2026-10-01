@@ -48,7 +48,7 @@ from decimal import Decimal
 
 from llm import access as llm
 from llm.usage import EMPTY_USAGE, TokenUsage
-from . import checkpoints, prompts, todos
+from . import checkpoints, pace, prompts, todos
 from .events import Event, EventSink, null_sink
 from llm.access import (
     Completion,
@@ -848,7 +848,13 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     # are served by withholding tools below — a run stopped any other way has
     # paid for every tool call it made and returns none of what they found.
     out_of_time = turn.deadline is not None and turn.deadline.wrapping_up
-    at_limit = iteration >= turn.max_iterations - 1 or out_of_time
+    # The cap follows the turn's pace, read from `metadata` on every pass
+    # because a turn that plans or delegates is promoted mid-run (`pace.py`).
+    # `max_iterations` stays the hard ceiling, and is the whole cap for a
+    # caller that sets no pace.
+    tier = pace.current(state.get("metadata"))
+    limit = pace.cap(tier, turn.max_iterations)
+    at_limit = iteration >= limit - 1 or out_of_time
 
     await turn.sink(Event.STATUS, {
         "phase": "thinking",
@@ -873,6 +879,13 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     # is the cached prefix for the whole session.
     if (plan := todos.render(state.get("metadata", {}).get("todos") or [])):
         history.append({"role": "system", "content": plan})
+
+    # The budget, said out loud. A cap the model only meets when tools vanish
+    # cannot shape how it spends the rounds before that. Same trailing shape as
+    # the plan above and for the same reason; skipped on the last pass, where
+    # the continuation nudge already says to answer.
+    if not at_limit and (budget := pace.render(tier, iteration, limit)):
+        history.append({"role": "system", "content": budget})
 
     # Withholding tools on the last permitted iteration is what forces an answer
     # instead of a loop that runs out of budget mid-tool-call.
@@ -1795,6 +1808,13 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     await _plan_calls(batch)
     await _dispatch_calls(batch)
     results = await _record_results(batch)
+    # A plan or a delegation is the model saying this is a long job. Judged on
+    # the calls that actually ran, so a refused one promotes nothing.
+    if pace.promote(batch.meta, [call.name for call, _ in batch.planned],
+                    iteration=batch.iteration):
+        logger.info("[Pace] %s promoted by %s at step %d",
+                    pace.summary(batch.meta),
+                    batch.meta["pace"]["promoted_by"], batch.iteration)
     return {"messages": results, "metadata": batch.meta, "tool_trace": batch.trace}
 
 

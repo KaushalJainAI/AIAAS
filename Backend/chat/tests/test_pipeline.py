@@ -310,17 +310,17 @@ class ChatTurnTests(TestCase):
         self.assertTrue(recorder.of(Event.IMAGES_UPDATE))
         self.assertTrue(outcome.assistant_message.metadata["images"])
 
-    def test_a_recall_question_is_not_a_web_search(self):
-        # "what is my name" matches the "what is" search opener but is a
-        # question about this conversation. Searching the web for it is both
-        # wrong and, now that search intent is seeded, expensive.
+    def test_an_opener_is_never_a_web_search(self):
+        # A search intent is seeded: a full web search before the first model
+        # call. "what is", "explain" and "compare" used to be read as one, so
+        # ordinary questions paid for a search nobody asked for. How a message
+        # opens is now only a hint about the turn's pace (`test_pace.py`).
         from chat.turn.pipeline import classify_intent
 
         for question in ("what is my name", "what did i say earlier",
-                         "what was the number I gave you"):
+                         "what is a monad", "explain recursion",
+                         "compare rust and go"):
             self.assertEqual(classify_intent(question)[0], "chat", question)
-
-        self.assertEqual(classify_intent("what is a monad")[0], "search")
 
     def test_plain_chat_does_not_search(self):
         # Only explicit intents are seeded; ordinary chat stays model-driven.
@@ -526,10 +526,10 @@ class PreModelLatencyInstrumentTests(ChatTurnTests):
         """The finding this instrument exists to make visible.
 
         `_seed_intent_tool` runs a full `web_search` *before* the first model
-        call, and `classify_intent` routes a large share of ordinary questions
-        ("what is", "how to", "tell me about") into it. That cost belongs to the
-        pre-model segment and has to show up there, or the seeding phase stays
-        as invisible as it has been.
+        call. That cost belongs to the pre-model segment and has to show up
+        there. It is what showed that `classify_intent` was routing ordinary
+        questions ("what is", "how to", "tell me about") into a search; only
+        an explicit search is seeded now.
         """
         import asyncio
 
@@ -541,8 +541,26 @@ class PreModelLatencyInstrumentTests(ChatTurnTests):
         with patch("chat.tools.execute_tool", _slow_tool):
             with patch("llm.access.stream", text_stream("ok")):
                 with self.assertLogs("chat.turn.pipeline", level="INFO") as logs:
-                    self._run("tell me about rust", recorder)
+                    self._run("/search rust", recorder)
 
         line = next(m for m in logs.output if "[Latency] pre-model" in m)
         self.assertIn("intent=search", line)
+        self.assertIn("pace=quick", line)
         self.assertIn("intent_seed=", line)
+
+    def test_an_ordinary_question_is_not_seeded(self):
+        seen: list[str] = []
+
+        async def _tool(name, args, context) -> str:
+            seen.append(name)
+            return "{}"
+
+        with patch("chat.tools.execute_tool", _tool):
+            with patch("llm.access.stream", text_stream("ok")):
+                with self.assertLogs("chat.turn.pipeline", level="INFO") as logs:
+                    self._run("tell me about rust", Recorder())
+
+        self.assertEqual(seen, [])
+        line = next(m for m in logs.output if "[Latency] pre-model" in m)
+        self.assertIn("intent=chat", line)
+        self.assertIn("pace=quick", line)

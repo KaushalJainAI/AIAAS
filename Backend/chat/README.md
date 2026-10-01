@@ -31,7 +31,7 @@ Full design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md).
 
 | Folder | What is in it |
 |---|---|
-| `turn/` | Running one turn: `pipeline` (the steps), `agent` (the loop), `prompts`, `history`, `curation` (shrink long runs), `steering` (messages mid-run), `todos` (the run's plan), `reviewer` (auto-mode judge), `checkpoints` (where run state is saved), `runs` (turns that outlive the request), `events` (what is streamed) |
+| `turn/` | Running one turn: `pipeline` (the steps), `agent` (the loop), `prompts`, `history`, `curation` (shrink long runs), `steering` (messages mid-run), `todos` (the run's plan), `pace` (quick / standard / deep, and the budget the model is told), `reviewer` (auto-mode judge), `checkpoints` (where run state is saved), `runs` (turns that outlive the request), `events` (what is streamed) |
 | `tools/` | One file per topic. See the list below |
 | `commands/` | Slash commands. `registry.py` declares them, `resolve.py` parses them, one file per group |
 | `transport/` | Streaming the events over HTTP |

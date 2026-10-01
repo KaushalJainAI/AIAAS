@@ -280,7 +280,7 @@ Then:
 | `json_value` | a field of a JSON file, or of the list item matching `select` | `path`, `select`, `field`, `equals`, `tolerance` |
 | `csv_value` / `csv_rows` | a cell in the row matching `match` / the number of data rows | `path`, `match`, `column`, `equals`, `tolerance` |
 | `no_error` | the run finished cleanly (a pause counts as an error here) | none |
-| `max_tokens` / `max_duration_ms` | cost and latency budgets | `value` |
+| `max_tokens` / `max_duration_ms` / `max_tool_calls` | cost, latency and tool-call budgets | `value` |
 | `json_key` / `contract` | structured output from an agent with an output contract | `key`, `equals` |
 | `llm_judge` | a model scores the answer against `reference` | `rubric`, `threshold` |
 

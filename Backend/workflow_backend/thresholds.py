@@ -87,6 +87,13 @@ WEB_SEARCH_MAX_RETRIES = 5
 IMAGE_SEARCH_MAX_RESULTS = 6
 VIDEO_SEARCH_MAX_RESULTS = 4
 MAX_TOOL_ITERATIONS = 12
+#: Model calls a chat turn may make at each pace (`chat/turn/pace.py`). The
+#: last one is always the answer, so `quick` is two tool rounds and a reply.
+#: `deep` is also the turn's hard ceiling: it sizes the graph's step budget,
+#: because any turn may be promoted to it.
+PACE_ITERATIONS = {"quick": 3, "standard": MAX_TOOL_ITERATIONS, "deep": 36}
+#: A message longer than this is not a quick lookup, whatever it opens with.
+PACE_QUICK_MAX_CHARS = 240
 
 # ==================== Deep Research Limits ====================
 DEEP_RESEARCH_LINK_MIN = 20

@@ -137,6 +137,13 @@ class StructureAndBehaviourTests(SimpleTestCase):
         self.assertFalse(tokens_ok)
         self.assertTrue(time_ok)
 
+    def test_a_tool_call_budget(self):
+        trace = [{'tool': 'web_search'}, {'tool': 'read_url'}, {'tool': 'read_url'}]
+        _, _, within = grade([{'type': 'max_tool_calls', 'value': 3}], tool_trace=trace)
+        _, _, over = grade([{'type': 'max_tool_calls', 'value': 2}], tool_trace=trace)
+        self.assertTrue(within)
+        self.assertFalse(over)
+
 
 class FoldingTests(SimpleTestCase):
     def test_a_case_passes_only_when_every_grader_passes(self):

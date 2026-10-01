@@ -21,6 +21,7 @@ understand this page you understand how agents run too.
 | `chat/turn/curation.py` | Shrinking a long run so it fits the model's memory |
 | `chat/turn/steering.py` | Messages you send while a run is working |
 | `chat/turn/todos.py` | The run's own plan (its todo list) |
+| `chat/turn/pace.py` | How much time a turn is worth: quick, standard or deep, and the budget the model is told |
 | `chat/turn/reviewer.py` | In `auto` mode, a second model decides whether a risky call needs you |
 | `chat/turn/events.py` | The list of events streamed to the browser |
 | `chat/turn/extraction.py` | Backup parser for weak models that write tool calls as plain text |
@@ -44,7 +45,8 @@ POST /api/chat/sessions/<id>/message/stream/
              3. save your message
              4. load history, your saved memories, attachments
              5. build the system prompt + a "context update" message
-             6. maybe search first (web search / earlier messages)
+             6. pick the turn's starting pace (chat/turn/pace.py)
+                search first only if you picked Search or Research
              7. chat/turn/agent.py  run_turn   ← the AI loop, below
              8. suggest follow-up questions (a small separate model call)
              9. save the answer, with sources, cost and trace
@@ -73,6 +75,34 @@ agent ──► tools ──► curate ──► steering ──► agent ... (u
 The loop stops when the model answers without asking for a tool, or when it
 hits its iteration limit. At the limit it is told to answer with what it has,
 so a long run ends with a partial answer instead of an error.
+
+## Pace: quick questions stay quick, long jobs get room
+
+A lookup and a multi-step job should not get the same loop. Every chat turn
+runs at one of three paces (`chat/turn/pace.py`):
+
+| Pace | Model calls | Starts here when |
+|---|---|---|
+| `quick` | 3 (two tool rounds, then the answer) | you picked Search, Image or Video, or the message is a short lookup ("what is…", "who is…") |
+| `standard` | 12 | everything else, and any message with an attachment |
+| `deep` | 36 | you picked Research, or typed a command that starts a run (`/agent`) |
+
+Three rules:
+
+1. **The model is told its budget on every pass**, as a trailing message:
+   which pace it is in and how many tool rounds are left. One round before the
+   end it is told the next reply must be the answer.
+2. **The model promotes itself.** Calling `update_todos`, delegating to an
+   agent or starting `deep_research` moves the turn to `deep`
+   (`PROMOTING_TOOLS`). Nothing classifies the message up front: that would
+   add a model call to every turn. Promotion is one-way.
+3. **The pace is stored in `metadata['pace']`**, so it survives an approval
+   pause and is saved on the answer. `[Latency] turn ... pace=quick>deep`
+   in the log shows where each turn started and ended.
+
+Agent runs and evals set no pace and are unchanged. The numbers live in
+`workflow_backend/thresholds.py::PACE_ITERATIONS`. Tests:
+`chat/tests/test_pace.py`.
 
 ## Design choices to keep
 

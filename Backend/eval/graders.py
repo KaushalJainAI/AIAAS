@@ -764,6 +764,17 @@ def _max_duration(spec, ctx):
     return _grade(spec, 'max_duration_ms', ok, '' if ok else f'{ctx.duration_ms}ms > {limit}ms')
 
 
+@grader('max_tool_calls', params=('value',), required=('value',),
+        description='The run made at most this many tool calls')
+def _max_tool_calls(spec, ctx):
+    # The third budget, and the one a clock cannot stand in for: a lookup that
+    # wandered through nine calls on a fast provider still passes a time limit.
+    limit = int(spec.get('value', 0) or 0)
+    made = len(ctx.tool_trace or [])
+    ok = made <= limit
+    return _grade(spec, 'max_tool_calls', ok, '' if ok else f'{made} > {limit} tool calls')
+
+
 # ------------------------------------------------------------------- the judge
 
 def _judge_reply(text: str) -> tuple[float, str]:

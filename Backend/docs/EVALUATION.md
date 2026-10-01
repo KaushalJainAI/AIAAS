@@ -135,7 +135,7 @@ be run. Same rule as `chat/tools/`.
 | `tool_used` / `tool_not_used` | what the agent reached for | `tool` |
 | `no_error` | the run finished and was not left paused | — |
 | `paused_for_approval` | the run stopped at an approval gate (a guardrail *pass*) | — |
-| `max_tokens` / `max_duration_ms` | budget | `value` |
+| `max_tokens` / `max_duration_ms` / `max_tool_calls` | budget | `value` |
 | `llm_judge` | a model scores the answer against a rubric | `rubric`, `threshold`, `provider`, `model` |
 
 **A case passes when every grader passes.** Graders are assertions, not votes.

@@ -662,11 +662,45 @@ it runs on every turn, so it has to be cheap to emit and cheap to grep. It
 earned its place on its first run by showing `vision_witness` as the whole of
 the segment. Note what it makes visible about **intent seeding**:
 `_seed_intent_tool` runs a full `web_search` (or `deep_research`) *before* the
-first model call, and `classify_intent` routes a large share of ordinary
+first model call, and `classify_intent` routed a large share of ordinary
 questions — "what is", "how to", "explain", "compare", "tell me about" — into
 it, while the frontend sends no explicit intent unless the user picks a
-non-default mode. Tests:
+non-default mode. (Closed 2026-10-01: an opener is no longer an intent — see
+the next paragraph.) Tests:
 `chat/tests/test_pipeline.py::PreModelLatencyInstrumentTests`.
+
+**A turn runs at a pace, and the model is told its budget (2026-10-01).** A
+lookup and a month-end close got the same loop: one iteration cap chosen by
+intent (and `search` had the *larger* one), a budget the model only met when
+tools were withheld on its last pass, and an opener heuristic that predicted
+topic rather than size — "explain recursion" paid for a seeded web search while
+"audit my Q3 invoices" got nothing. `chat/turn/pace.py` gives every chat turn
+one of three paces (`quick` 3 model calls, `standard` 12, `deep` 36;
+`thresholds.PACE_ITERATIONS`). Four things carry it. **Nothing classifies the
+message up front**: a judge model adds its latency to every turn and hurts the
+quick ones most, while the model's first reply already says what the task is.
+So the pipeline picks only a *starting* pace from what is certain
+(`starting_tier`: a mode the user picked, a command that starts work, an
+attachment, a short lookup-shaped question) and **the model promotes itself** —
+a batch containing `update_todos`, a delegation or `deep_research`
+(`PROMOTING_TOOLS`, pinned to the registry by a test) moves the turn to `deep`
+in `tools_node`. Promotion is one-way: a quick turn wrongly promoted costs one
+fast round, and a deep turn cannot be made fast afterwards. **The pace lives in
+`metadata['pace']`**, not on the frozen `TurnContext` (rebuilt on a resume) and
+not in the transcript (curation rewrites it) — the reason the plan is parked
+there. `agent_node` reads it every pass for the cap; `TurnContext.
+max_iterations` stays the hard ceiling that sizes the recursion limit, which is
+why chat now passes the `deep` cap for every turn. **The budget is said out
+loud** (`pace.render`): a trailing `system` message each pass with the rounds
+left and, for `quick`/`standard`, how to get more (plan first); one round
+before the end it says the next reply must be the answer. Trailing, never the
+system prompt — it changes every pass (the clock trap). And **`classify_intent`
+infers nothing**: only an explicit Search/Research is seeded. A caller with no
+`metadata['pace']` (agent runs, evals) is unchanged. Not done, deliberately:
+reasoning effort is left as the user set it, and a per-agent pace on
+`SubAgent` is not built. `[Latency] turn total=… pace=quick>deep tool_calls=…`
+is the line to grep; the eval grader `max_tool_calls` joins `max_duration_ms`.
+Tests: `chat/tests/test_pace.py`.
 
 **Approval is settled before anything is dispatched.** `interrupt()` discards a
 node's writes and re-runs it from the top, so `tools_node` checking permission
