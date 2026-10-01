@@ -48,6 +48,31 @@ CAPABILITY_FIELDS = (
 )
 
 
+def offered_in_picker(model) -> bool:
+    """Whether an active row is one a user may pick.
+
+    A chat model is offered only if it reads images (2026-10-01). Attachments
+    are sent raw when the model takes them, so a text-only pick is a chat where
+    a screenshot silently becomes a description of a screenshot.
+
+    This is a second gate after `is_active`, and it has to be: three text-only
+    rows must stay active because the platform itself calls them — the context
+    fold and guest model, and the two handler defaults — and a retired row is
+    substituted by `llm/fallback.py`. So "active" means *callable*, and this
+    means *offered*.
+
+    Rows that are not chat models are untouched: an embedding model or an
+    image, video or audio generator is not judged by what a chat model reads.
+    """
+    is_chat = model.supports_text_generation and not (
+        model.supports_embedding_generation
+        or model.supports_image_generation
+        or model.supports_video_generation
+        or model.supports_audio_generation
+    )
+    return model.supports_image_input or not is_chat
+
+
 @method_decorator(never_cache, name='get')
 class AIModelListView(APIView):
     """
@@ -96,6 +121,8 @@ class AIModelListView(APIView):
 
             model_data = []
             for m in provider.models.filter(is_active=True):
+                if not offered_in_picker(m):
+                    continue
                 # Model is available if its provider is fully available, or if
                 # the model is free and a platform key can actually pay for it.
                 # The old rule (`provider_slug != 'ollama'`) treated every free

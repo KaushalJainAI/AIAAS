@@ -82,9 +82,11 @@ class PickerAvailabilityTests(TestCase):
             slug='opencode', defaults={'name': 'OpenCode Zen', 'is_active': True},
         )
         AIModel.objects.update_or_create(
-            value='opencode/big-pickle',
-            defaults={'provider': self.provider, 'name': 'Big Pickle',
-                      'is_active': True, 'is_free': True},
+            value='opencode/space-bunny-free',
+            # Image input, because the picker offers no text-only chat model.
+            defaults={'provider': self.provider, 'name': 'Space Bunny Free',
+                      'is_active': True, 'is_free': True,
+                      'supports_image_input': True},
         )
 
     def _opencode_models(self):

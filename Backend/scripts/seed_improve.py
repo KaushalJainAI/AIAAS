@@ -112,7 +112,7 @@ AGENTS = [
         "context": "Audits Drive for files nothing has opened in three years and "
                    "proposes what to archive.",
         "llm_provider": "openrouter",
-        "llm_model": "openai/gpt-6-sol",
+        "llm_model": "openai/gpt-6.1-sol",
         "tool_grants": {"codeExecution": False, "fileOps": True, "rag": False,
                         "shell": False, "webSearch": False, "scrape": False},
         "agent_context": {"connectors": connector_ids("Google Drive", "Google Sheets"), "knowledgeBases": [],

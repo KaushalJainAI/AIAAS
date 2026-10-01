@@ -71,6 +71,8 @@ class ModelListPayloadTests(TestCase):
             defaults={
                 'provider': self.provider, 'name': 'Free Model',
                 'is_active': True, 'is_free': True, 'supports_tool_calling': True,
+                # A chat model is only offered when it reads images.
+                'supports_image_input': True,
             },
         )
 
@@ -103,7 +105,7 @@ class ModelListPayloadTests(TestCase):
             defaults={
                 'provider': self.provider, 'name': 'Reasoner', 'is_active': True,
                 'is_free': True, 'effort_levels': ['high', 'low'],
-                'default_effort': 'low',
+                'default_effort': 'low', 'supports_image_input': True,
             },
         )
         models = {
@@ -138,7 +140,7 @@ class ModelListPayloadTests(TestCase):
             defaults={
                 'provider': self.provider, 'name': 'Drifted', 'is_active': True,
                 'is_free': True, 'effort_levels': ['low', 'banana'],
-                'default_effort': 'nonsense',
+                'default_effort': 'nonsense', 'supports_image_input': True,
             },
         )
         entry = next(
@@ -149,6 +151,53 @@ class ModelListPayloadTests(TestCase):
         )
         self.assertEqual(entry['effort_levels'], ['low'])
         self.assertEqual(entry['default_effort'], '')
+
+    def _offered_values(self):
+        return {
+            m['value']
+            for p in self.client.get(reverse('ai-models')).json()['providers']
+            for m in p['models']
+        }
+
+    def test_a_text_only_chat_model_is_not_offered(self):
+        """Active means callable; offered means it also reads images.
+
+        The context-fold model and the handler defaults are text-only and must
+        stay active, because a retired row is substituted by the fallback. So
+        the picker needs its own gate, or those rows are on every user's list.
+        """
+        AIModel.objects.update_or_create(
+            value='test/text-only',
+            defaults={
+                'provider': self.provider, 'name': 'Text Only',
+                'is_active': True, 'is_free': True, 'supports_tool_calling': True,
+            },
+        )
+        offered = self._offered_values()
+        self.assertNotIn('test/text-only', offered)
+        self.assertIn('test/free-model', offered)
+        # Still active: hiding a row from the picker must not retire it.
+        self.assertTrue(AIModel.objects.get(value='test/text-only').is_active)
+
+    def test_rows_that_are_not_chat_models_are_not_judged_by_image_input(self):
+        AIModel.objects.update_or_create(
+            value='test/embedder',
+            defaults={
+                'provider': self.provider, 'name': 'Embedder', 'is_active': True,
+                'is_free': True, 'supports_embedding_generation': True,
+            },
+        )
+        AIModel.objects.update_or_create(
+            value='test/video-maker',
+            defaults={
+                'provider': self.provider, 'name': 'Video Maker',
+                'is_active': True, 'is_free': True,
+                'supports_video_generation': True,
+            },
+        )
+        offered = self._offered_values()
+        self.assertIn('test/embedder', offered)
+        self.assertIn('test/video-maker', offered)
 
     def test_requires_authentication(self):
         self.client.force_authenticate(user=None)

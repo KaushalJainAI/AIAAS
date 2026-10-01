@@ -37,45 +37,64 @@ EMPTY_CAPABILITIES: Capabilities = {"image": [], "video": [], "audio": []}
 #: Models surfaced first in the picker. Everything else stays reachable via
 #: search — this list only decides what a user sees before they type. Ordered:
 #: the first entry present in the live catalog becomes the default selection.
-#: Curated 2026-09-23 against the live /images/models + /videos/models
-#: endpoints: GPT Image 2.5 (Sunburst precision / Flare speed) replaces GPT
-#: Image 2, Hailuo 3 Max replaces Hailuo 3 ($0.05-0.08/s vs $0.13/s), Flux.2
-#: Max joins Pro, Wan 3.0 (+Prime fast tier) and FLUX.3 Video join video,
-#: Nano Banana 2 Lite is the budget image tier. Anything absent from the live
-#: catalog is skipped by `default_model_id`, never offered.
+#: Anything absent from the live catalog is skipped by `default_model_id`,
+#: never offered.
+#:
+#: Re-curated 2026-10-01. Every id is live on /images/models or /videos/models
+#: that day, and the order is the Artificial Analysis blind-vote arena (Elo)
+#: with price beside it, newest generation first where two are close.
+#:
+#: Image: GPT Image 2.5 Sunburst (1197) and Flare (1190) lead; Grok Imagine
+#: Image 2.0 (1155) and MAI-Image-2.6 (1150, about $0.04 an image) follow, then
+#: Nano Banana 2 (1125), Muse Image (1114 at about $0.01 — the value pick),
+#: MAI-Image-2.6 Flash, Nano Banana 2 Lite, Qwen Image 3 Pro and Seedream 5
+#: Pro. Recraft V4.1 Flash is the newest listing (2026-09-23) and is unranked,
+#: so it sits last with the design-layout model. Gone: FLUX.2 Max and Pro
+#: (1021 and older, at $0.07), Nano Banana Pro (1101 at twice Nano Banana 2's
+#: price) and Seedream 5 Lite (unranked, no reason to surface it).
+#:
+#: Video: Wan 3.0 leads (1159) and starts at $0.05/s with sound, so it is the
+#: default; Hailuo 3 Max (1141 at $0.05-0.08/s) is the value pick, then
+#: Seedance 2.5 (1146, the expensive one), FLUX.3 Video (1130), Wan 3.0 Prime
+#: (the fast tier), Seedance 2.0, Grok Imagine Video 1.5, HappyHorse 1.1 and
+#: Kling 3.0 Pro. Veo 3.1 Fast and Lite stay at the end as the cheap Google
+#: tier: they were the default, and rank 19th and 21st now. Gone: Sora 2 Pro —
+#: OpenAI switched the Sora API off on 2026-09-24 — and Kling 3.0 Std.
+#:
+#: Audio: Gemini 3.8 Flash TTS (1270) is the default.
 RECOMMENDED: Dict[str, List[str]] = {
     "image": [
         "openai/gpt-image-2.5-sunburst",
-        "google/gemini-3.1-flash-image",
-        "bytedance-seed/seedream-5-0-pro",
-        "black-forest-labs/flux.2-max",
-        "meta/muse-image",
-        "google/gemini-3-pro-image",
-        "qwen/qwen-image-3-pro",
-        "black-forest-labs/flux.2-pro",
-        "microsoft/mai-image-2.6-flash",
         "openai/gpt-image-2.5-flare",
-        "bytedance-seed/seedream-5-0-lite",
-        "google/gemini-3.1-flash-lite-image",
         "x-ai/grok-imagine-image-2.0",
+        "microsoft/mai-image-2.6",
+        "google/gemini-3.1-flash-image",
+        "meta/muse-image",
+        "microsoft/mai-image-2.6-flash",
+        "google/gemini-3.1-flash-lite-image",
+        "qwen/qwen-image-3-pro",
+        "bytedance-seed/seedream-5-0-pro",
+        "recraft/recraft-v4.1-flash",
         "inclusionai/ming-image-0.1-design",
     ],
     "video": [
-        "google/veo-3.1-fast",
-        "bytedance/seedance-2.5",
-        "openai/sora-2-pro",
-        "minimax/hailuo-3-max",
         "alibaba/wan-3.0",
-        "alibaba/wan-3.0-prime",
-        "kwaivgi/kling-v3.0-pro",
-        "kwaivgi/kling-v3.0-std",
+        "minimax/hailuo-3-max",
+        "bytedance/seedance-2.5",
         "black-forest-labs/flux-3-video",
+        "alibaba/wan-3.0-prime",
+        "bytedance/seedance-2.0",
+        "x-ai/grok-imagine-video-1.5",
+        "alibaba/happyhorse-1.1",
+        "kwaivgi/kling-v3.0-pro",
+        "google/veo-3.1-fast",
         "google/veo-3.1-lite",
     ],
     "audio": [
-        "openai/gpt-4o-mini-tts",
-        "minimax/speech-2.8-hd",
-        "google/gemini-3.1-flash-tts-preview",
+        "google/gemini-3.8-flash-tts",
+        "qwen/qwen-audio-3.0-tts-plus",
+        "google/gemini-3.8-flash-lite-tts",
+        "hexgrad/kokoro-82m",
     ],
 }
 
@@ -83,37 +102,47 @@ RECOMMENDED: Dict[str, List[str]] = {
 #: `voices` is provider-specific and unobtainable from the API; an empty list
 #: means "this model takes a free-form voice id", which the UI renders as a
 #: text field rather than a chip row.
+#:
+#: Re-curated 2026-10-01. There is still no listing endpoint, but
+#: `GET /api/v1/models/<id>/endpoints` answers per id, so every row here was
+#: probed that day and answers 200 with modality `text->speech`. Two rows did
+#: not and are gone: `openai/gpt-4o-mini-tts` — which was the *default*, so the
+#: first thing the audio panel offered was a model that could not be called —
+#: and `mistralai/voxtral-mini-tts`. Ranked by the Artificial Analysis speech
+#: arena (Elo), with price per million characters: Gemini 3.8 Flash TTS 1270
+#: at ~$16, Qwen-Audio-3.0-TTS Plus 1257 at ~$20, Gemini 3.8 Flash-Lite TTS
+#: 1240 at ~$11, Grok Voice 1134 at $15, Kokoro 1064 at $0.62. MiniMax Speech
+#: 2.8 HD and Turbo left on price: 1170 and 1151 at $100 and $60, under models
+#: that cost a sixth as much. Gemini 3.1 Flash TTS Preview left for its own
+#: successor. No row declares `supports_instructions` any more — only the
+#: OpenAI speech models took that field.
 TTS_MODELS: List[Dict[str, Any]] = [
     {
-        "id": "openai/gpt-4o-mini-tts",
-        "name": "OpenAI: GPT-4o Mini TTS",
-        "description": "Low-latency English-first speech with steerable delivery.",
-        "voices": ["alloy", "echo", "fable", "onyx", "nova", "shimmer", "coral", "sage"],
-        "supports_speed": True,
-        # "steerable delivery" is this: the OpenAI speech models take a free-text
-        # `instructions` field ("speak in a warm, unhurried tone"). No other
-        # family here accepts it, so it is declared rather than assumed.
-        "supports_instructions": True,
-    },
-    {
-        "id": "minimax/speech-2.8-hd",
-        "name": "MiniMax: Speech 2.8 HD",
-        "description": "High-fidelity multilingual speech, strong prosody on long text.",
-        "voices": [],
-        "supports_speed": True,
-    },
-    {
-        "id": "minimax/speech-2.8-turbo",
-        "name": "MiniMax: Speech 2.8 Turbo",
-        "description": "Faster, cheaper sibling of Speech 2.8 HD.",
-        "voices": [],
-        "supports_speed": True,
-    },
-    {
-        "id": "google/gemini-3.1-flash-tts-preview",
-        "name": "Google: Gemini 3.1 Flash TTS",
-        "description": "Multi-speaker capable speech from the Gemini Flash family.",
+        "id": "google/gemini-3.8-flash-tts",
+        "name": "Google: Gemini 3.8 Flash TTS",
+        "description": "The best-rated voice we serve. Expressive, multi-speaker capable.",
         "voices": ["Puck", "Charon", "Kore", "Fenrir", "Aoede"],
+        "supports_speed": False,
+    },
+    {
+        "id": "qwen/qwen-audio-3.0-tts-plus",
+        "name": "Qwen: Qwen-Audio-3.0-TTS Plus",
+        "description": "Close second on quality; strong on Chinese and mixed-language text.",
+        "voices": [],
+        "supports_speed": False,
+    },
+    {
+        "id": "google/gemini-3.8-flash-lite-tts",
+        "name": "Google: Gemini 3.8 Flash-Lite TTS",
+        "description": "Cheaper, faster sibling of Gemini 3.8 Flash TTS.",
+        "voices": ["Puck", "Charon", "Kore", "Fenrir", "Aoede"],
+        "supports_speed": False,
+    },
+    {
+        "id": "x-ai/grok-voice-tts-1.0",
+        "name": "xAI: Grok Voice TTS 1.0",
+        "description": "Conversational delivery from xAI's voice stack.",
+        "voices": [],
         "supports_speed": False,
     },
     {
@@ -124,25 +153,11 @@ TTS_MODELS: List[Dict[str, Any]] = [
         "supports_speed": True,
     },
     {
-        "id": "mistralai/voxtral-mini-tts",
-        "name": "Mistral: Voxtral Mini TTS",
-        "description": "20+ languages with five built-in voices.",
-        "voices": ["Eve", "Ara", "Rex", "Sal", "Leo"],
-        "supports_speed": False,
-    },
-    {
         "id": "hexgrad/kokoro-82m",
         "name": "hexgrad: Kokoro 82M",
-        "description": "Small open-weight TTS — cheapest option for bulk narration.",
+        "description": "Small open-weight TTS — by far the cheapest, for bulk narration.",
         "voices": [],
         "supports_speed": True,
-    },
-    {
-        "id": "x-ai/grok-voice-tts-1.0",
-        "name": "xAI: Grok Voice TTS 1.0",
-        "description": "Conversational delivery from xAI's voice stack.",
-        "voices": [],
-        "supports_speed": False,
     },
 ]
 

@@ -62,12 +62,13 @@ VARIANT_SUFFIXES = (':free', ':batch', ':nitro', ':online', ':floor')
 #: Known renames, for the `replaced_by` hint. A hint only — nothing applies it
 #: automatically, and staff can edit it in admin.
 SUGGESTED_SUCCESSORS = {
-    'qwen/qwen3.8-max': 'qwen/qwen3.8-max-0902',
-    'qwen/qwen3.8-2.4t-a95b': 'qwen/qwen3.8-max-0902',
-    'inception/mercury-2.5-preview': 'inception/mercury-2.5',
+    'inception/mercury-2.5-preview': 'deepseek/deepseek-v4.1-flash',
+    'inception/mercury-2.5': 'deepseek/deepseek-v4.1-flash',
     'deepseek/deepseek-v4-pro': 'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4-flash': 'deepseek/deepseek-v4-flash-0731',
+    'deepseek/deepseek-v4-flash': 'deepseek/deepseek-v4.1-flash',
+    'deepseek/deepseek-v4-flash-0731': 'deepseek/deepseek-v4.1-flash',
     'deepseek/deepseek-v4-pro-0813': 'deepseek/deepseek-v4.1-flash',
+    'deepseek/deepseek-v4-flash-vision-exp': 'deepseek/deepseek-v4.1-flash',
     # 3.6 and 3.7 both go straight to 3.8, not to each other. Chaining them
     # (3.6 -> 3.7 -> 3.8) reads like a tidy migration path and is not one:
     # 3.7 was itself retired on 2026-09-23, so the first hop already pointed
@@ -77,29 +78,52 @@ SUGGESTED_SUCCESSORS = {
     'google/gemini-3.5-flash-lite': 'google/gemini-3.8-flash',
     'google/gemini-3.7-flash': 'google/gemini-3.8-flash',
     'google/gemini-3.1-pro-preview': 'google/gemini-3.8-flash',
+    # OpenAI. GPT-6 Sol retired 2026-10-01 for GPT-6.1 Sol at the same price,
+    # so every hint that pointed at it moved with it — the 5.6 tiers included.
     'openai/gpt-4o-mini': 'openai/gpt-6-luna',
-    'meta/muse-spark-1.2': 'meta/muse-spark-1.3',
-    'mistralai/mistral-small-2603': 'qwen/qwen3.7-flash',
-    'meta-llama/llama-4-maverick': 'meta-llama/llama-4-scout',
-    'openai/gpt-5.6-sol': 'openai/gpt-6-sol',
-    'openai/gpt-5.6-sol-pro': 'openai/gpt-6-sol-pro',
-    # The rest of the GPT-5.6 line, retired 2026-09-28: GPT-6 took those
-    # tiers at a lower price, so a hint pointing at a 5.6 row would send the
-    # owner to a model that is itself retired — the hint would resolve to a
-    # second dead row rather than a working one.
     'openai/gpt-5.6-luna': 'openai/gpt-6-luna',
     'openai/gpt-5.6-luna-pro': 'openai/gpt-6-luna-pro',
-    'openai/gpt-5.6-terra': 'openai/gpt-6-sol',
-    'openai/gpt-5.6-terra-pro': 'openai/gpt-6-sol-pro',
+    'openai/gpt-5.6-sol': 'openai/gpt-6.1-sol',
+    'openai/gpt-5.6-sol-pro': 'openai/gpt-6.1-sol-pro',
+    'openai/gpt-5.6-terra': 'openai/gpt-6.1-sol',
+    'openai/gpt-5.6-terra-pro': 'openai/gpt-6.1-sol-pro',
+    'openai/gpt-6-sol': 'openai/gpt-6.1-sol',
+    'openai/gpt-6-sol-pro': 'openai/gpt-6.1-sol-pro',
+    'openai/gpt-6-astra': 'openai/gpt-6.1-sol',
+    'openai/gpt-6-astra-pro': 'openai/gpt-6.1-sol-pro',
+    # Anthropic. Fable 5.1 and Haiku 4.5 retired 2026-10-01.
     'anthropic/claude-opus-5': 'anthropic/claude-opus-5.5',
-    'anthropic/claude-fable-5': 'anthropic/claude-fable-5.1',
+    'anthropic/claude-fable-5': 'anthropic/claude-opus-5.5',
+    'anthropic/claude-fable-5.1': 'anthropic/claude-opus-5.5',
     'anthropic/claude-sonnet-5': 'anthropic/claude-sonnet-5.5',
+    'anthropic/claude-haiku-4.5': 'anthropic/claude-sonnet-5.5',
+    # Qwen. The Max line retired 2026-10-01 under Muse Spark 1.3, which is
+    # what beat it; the smaller rows fold into 3.8 Flash.
+    'qwen/qwen3.8-max': 'meta/muse-spark-1.3',
+    'qwen/qwen3.8-2.4t-a95b': 'meta/muse-spark-1.3',
+    'qwen/qwen3.8-max-0902': 'meta/muse-spark-1.3',
+    'qwen/qwen3.8-max-prime': 'meta/muse-spark-1.3',
+    'qwen/qwen3.8-27b': 'qwen/qwen3.8-flash',
+    'qwen/qwen3.7-plus': 'qwen/qwen3.8-flash',
+    'qwen/qwen3.8-omni-flash': 'qwen/qwen3.8-flash',
+    'meta/muse-spark-1.2': 'meta/muse-spark-1.3',
     'meta/muse-spark-1.2-contributor': 'meta/muse-spark-1.3-contributor',
-    'deepseek/deepseek-v4-flash-vision-exp': 'deepseek/deepseek-v4.1-flash',
+    'meta/muse-glimmer-30b': 'meta-llama/llama-4-scout',
+    'meta-llama/llama-4-maverick': 'meta-llama/llama-4-scout',
+    'mistralai/mistral-small-2603': 'qwen/qwen3.7-flash',
+    'upstage/solar-mini4': 'qwen/qwen3.7-flash',
+    'nvidia/nemotron-3.5-lightning': 'qwen/qwen3.7-flash',
     'x-ai/grok-4.5': 'x-ai/grok-4.7',
     'x-ai/grok-4.6': 'x-ai/grok-4.7',
-    'moonshotai/kimi-k2.7-code': 'minimax/minimax-m3',
-    'meta/muse-glimmer-30b': 'meta-llama/llama-4-scout',
+    'moonshotai/kimi-k2.7-code': 'xiaomi/mimo-v2.6-pro',
+    'moonshotai/kimi-k3': 'xiaomi/mimo-v2.6-pro',
+    'minimax/minimax-m3': 'deepseek/deepseek-v4.1-flash',
+    'thinkingmachines/inkling': 'deepseek/deepseek-v4.1-flash',
+    'thinkingmachines/inkling-small': 'deepseek/deepseek-v4.1-flash',
+    'z-ai/glm-5.3': 'z-ai/glm-5.3-flash',
+    'stepfun/step-3.7-flash': 'z-ai/glm-5.3-flash',
+    'bytedance-seed/seed-2-1-turbo': 'z-ai/glm-5.3-flash',
+    'openrouter/pareto-code': 'openrouter/auto',
 }
 
 
@@ -275,6 +299,7 @@ def _apply(live: list[dict]) -> dict:
             'first (it runs at every backend boot).'
         )
     live_by_value = {e['value']: e for e in live}
+    forced_values = set(RETIRED_MODEL_VALUES)
     held = AIModel.objects.filter(provider=provider)
     held_by_value = {m.value: m for m in held}
 
@@ -310,9 +335,18 @@ def _apply(live: list[dict]) -> dict:
             row.is_free = entry['is_free']
             changed = True
         row.last_seen_at = now
-        if row.retired_at is not None or not row.is_active:
-            # Back upstream (or staff reactivated it while it was listed):
-            # re-list, clear the retirement.
+        if row.retired_at is not None and value not in forced_values:
+            # Retired for being missing upstream, and now it is back: re-list
+            # and clear the retirement.
+            #
+            # Only that case. This used to re-list anything inactive, which
+            # undid three separate decisions on the second refresh: a `live`
+            # row waiting for staff to switch it on (so the first refresh
+            # added ~300 gated rows and the next one offered them all), a row
+            # the seed pruned, and a row someone switched off in admin. None
+            # of those has a `retired_at`, and none of them is this function's
+            # to reverse. A forced id is skipped too — it would be re-listed
+            # here and retired again forty lines down, on every refresh.
             row.is_active, row.retired_at = True, None
             changed = True
         # An explicit staff successor stands; otherwise refresh the hint.

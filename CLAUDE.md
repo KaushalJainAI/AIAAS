@@ -2614,9 +2614,54 @@ against this table, and if it isn't here, look it up in `nodes_aimodel`
 (`AIModel.objects.filter(value__icontains=...)`) and prefer the row with
 `is_active=True`. Never type a model id from memory.
 
+**A chat model is offered only if it reads images (2026-10-01, seventh wave).**
+The user's rule, and it cut the catalogue from 77 active rows to 41 (38 of
+them offered in the picker): a row
+stays only if it takes image input *and* is very cheap for what it does, very
+capable, or very fast, latest generation first. Evidence was the live
+OpenRouter `/v1/models` listing (462 models), the Artificial Analysis
+Intelligence Index and its measured tokens/second, models.dev for the Zen and
+direct-OpenAI ids, and a real image plus a tool call sent to each NIM
+candidate with the production key. In: GPT-6.1 Sol (+Pro), MiMo V2.6 Pro
+UltraSpeed, Ling 3.0 Flash VL, LongCat 2.5 Preview on Zen, Qwen 3.8 27B and
+Qwen 3.5 9B on Ollama. Out: every text-only chat row, and the rows beaten on
+price, intelligence, speed and date by one that stays — among them GPT-6
+Astra and Claude Fable 5.1 (both $10/$50, both under Opus 5.5 at $4/$20),
+Haiku 4.5, the Qwen3.8 Max line, Kimi K3 and MiniMax M3. The reason for each
+is beside its id in `RETIRED_MODEL_VALUES`. Three things carry the rule.
+**"Active" means callable, "offered" means it also reads images**: three
+text-only rows must stay active because the platform calls them (the context
+fold and guest model, `NvidiaNode.default_model`, `OpenRouterNode.
+default_model`) and a retired row is substituted by `llm/fallback.py`, so
+`llm/views.py::offered_in_picker` is a second gate on the picker and
+`test_seed_catalogue.py::ImageInputRuleTests.PLUMBING` names those three —
+adding a text-only chat row fails a test unless it is added there on purpose.
+Embedding and image/video/audio generation rows are not judged by it.
+**The refresh no longer re-lists what someone switched off**:
+`catalog_refresh._apply` re-activated any inactive row it saw live, so the
+second refresh would have offered every one of the ~300 `live` rows the first
+one created "for staff to activate", plus anything the seed pruned. It now
+re-lists only a row with a `retired_at` that is not in the forced list.
+(Production has never run a refresh — no cron, no OpenRouter platform key —
+which is the only reason this had not happened.) And **Llama 3.2 11B Vision
+claims image input only**: it reads an image in 0.5 s and answers 400 when
+tools are sent with one. NIM lists DeepSeek V4.1 Flash and Kimi K3, but both
+timed out at 90 s with the production key and are not seeded there;
+`meta/muse-glimmer-30b` on NIM answered in ~1 s with image and tool call and is
+the candidate if keyless users need a stronger model than Nano Omni (its id is
+in `RETIRED_MODEL_VALUES` from its OpenRouter days, so adding it means lifting
+that and clearing `retired_at`). Media moved in the same pass
+(`imagine/services/catalog.py`): `RECOMMENDED` is ordered by the Artificial
+Analysis blind-vote arenas, the video default is Wan 3.0 instead of Veo 3.1
+Fast, Sora 2 Pro is gone (OpenAI switched the API off 2026-09-24), and the
+speech list lost two ids OpenRouter no longer serves — one of them,
+`openai/gpt-4o-mini-tts`, was the *default*. A TTS id can be checked with
+`GET /api/v1/models/<id>/endpoints`, which answers per id even though no
+listing endpoint exists.
+
 **The catalogue is refreshed, not typed** (`populate_models.py`, a boot script
-rather than a migration). The six waves of curation are in that file's own
-comment block; the current one is 2026-09-28, verified against
+rather than a migration). The seven waves of curation are in that file's own
+comment block; the 2026-09-28 one was verified against
 `GET https://openrouter.ai/api/v1/models` — which needs no key and carries
 per-token pricing, context windows, input modalities, and the
 `supported_parameters` that say whether a model really serves `tools` and

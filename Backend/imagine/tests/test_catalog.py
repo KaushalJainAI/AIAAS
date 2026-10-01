@@ -168,14 +168,40 @@ class CatalogNormalizationTests(TestCase):
 
     def test_audio_declares_formats_speed_range_and_instructions(self):
         caps = self._fetch()
-        gpt = catalog.find_model(caps, "audio", "openai/gpt-4o-mini-tts")
-        self.assertEqual(gpt["response_formats"], ["mp3", "pcm"])
+        kokoro = catalog.find_model(caps, "audio", "hexgrad/kokoro-82m")
+        self.assertEqual(kokoro["response_formats"], ["mp3", "pcm"])
         # The documented range for this endpoint. The slider ran 0.25-4.0,
         # which belongs to a different API.
-        self.assertEqual(gpt["speed_range"], {"min": 0.5, "max": 2.0})
-        self.assertTrue(gpt["supports_instructions"])
-        kokoro = catalog.find_model(caps, "audio", "hexgrad/kokoro-82m")
+        self.assertEqual(kokoro["speed_range"], {"min": 0.5, "max": 2.0})
         self.assertFalse(kokoro["supports_instructions"])
+        # A model that takes no speed gets no range, rather than a slider that
+        # moves nothing.
+        gemini = catalog.find_model(caps, "audio", "google/gemini-3.8-flash-tts")
+        self.assertIsNone(gemini["speed_range"])
+        # `instructions` is still carried when a row declares it. No curated
+        # row does since the OpenAI speech models left OpenRouter, so the
+        # normalizer is asked directly.
+        steerable = catalog.normalize_audio_model(
+            {"id": "x/steerable", "supports_instructions": True})
+        self.assertTrue(steerable["supports_instructions"])
+
+    def test_the_default_of_each_kind_is_a_model_the_catalog_holds(self):
+        """The first recommended id is what a new user is handed.
+
+        The audio default used to be `openai/gpt-4o-mini-tts`, which OpenRouter
+        had stopped serving — so the panel opened on a model every call to
+        which failed. Audio is curated in this module, so that one can be
+        pinned here; image and video are checked against the fixture.
+        """
+        caps = self._fetch()
+        audio_ids = {m["id"] for m in catalog.TTS_MODELS}
+        for model_id in catalog.RECOMMENDED["audio"]:
+            self.assertIn(model_id, audio_ids)
+        self.assertEqual(
+            catalog.default_model_id("audio", caps["audio"]),
+            catalog.RECOMMENDED["audio"][0])
+        for kind in ("image", "video"):
+            self.assertIsNotNone(catalog.default_model_id(kind, caps[kind]))
 
     def test_video_carries_durations_and_audio_support(self):
         caps = self._fetch()
@@ -188,10 +214,10 @@ class CatalogNormalizationTests(TestCase):
         """TTS models are absent from every OpenRouter discovery endpoint."""
         caps = self._fetch()
         ids = {m["id"] for m in caps["audio"]}
-        self.assertIn("openai/gpt-4o-mini-tts", ids)
-        gpt = catalog.find_model(caps, "audio", "openai/gpt-4o-mini-tts")
-        self.assertIn("alloy", gpt["voices"])
-        self.assertTrue(gpt["supports_speed"])
+        self.assertIn("google/gemini-3.8-flash-tts", ids)
+        gemini = catalog.find_model(caps, "audio", "google/gemini-3.8-flash-tts")
+        self.assertIn("Kore", gemini["voices"])
+        self.assertFalse(gemini["supports_speed"])
 
     def test_provider_is_populated(self):
         """The UI renders this field; it used to be absent and render blank."""

@@ -201,11 +201,55 @@ class RefreshApplyTests(TestCase):
         self.assertTrue(self.hand.is_active)
 
     def test_a_model_back_upstream_is_relisted(self):
+        # Retired by a refresh that did not see it, then seen again.
+        self._run([live_entry('keep/me')])
         self.gone.refresh_from_db()
-        self._run([live_entry('gone/model')])
+        self.assertFalse(self.gone.is_active)
+        self.assertIsNotNone(self.gone.retired_at)
+
+        self._run([live_entry('keep/me'), live_entry('gone/model')])
         self.gone.refresh_from_db()
         self.assertTrue(self.gone.is_active)
         self.assertIsNone(self.gone.retired_at)
+
+    def test_a_discovered_row_stays_gated_on_the_next_refresh(self):
+        """The staff gate has to survive a second run.
+
+        A new upstream id is created inactive so that one refresh cannot put
+        300 models in every picker. Re-listing "anything inactive that is live"
+        offered every one of them on the refresh after that.
+        """
+        entries = [live_entry('keep/me'), live_entry('gone/model'),
+                   live_entry('brand/new')]
+        self._run(entries)
+        self.assertFalse(AIModel.objects.get(value='brand/new').is_active)
+
+        summary = self._run(entries)
+        new = AIModel.objects.get(value='brand/new')
+        self.assertFalse(new.is_active)
+        self.assertIsNone(new.retired_at)
+        self.assertEqual(summary['added'], 0)
+
+    def test_a_row_switched_off_without_a_retirement_is_left_off(self):
+        # What the seed's prune and a staff edit in admin both produce:
+        # inactive, no `retired_at`. Live has no standing to reverse either.
+        AIModel.objects.filter(pk=self.kept.pk).update(is_active=False)
+        self._run([live_entry('keep/me'), live_entry('gone/model')])
+        self.kept.refresh_from_db()
+        self.assertFalse(self.kept.is_active)
+
+    def test_a_forced_id_is_not_relisted_and_retired_again_every_run(self):
+        from django.utils import timezone
+        from populate_models import RETIRED_MODEL_VALUES
+
+        forced = RETIRED_MODEL_VALUES[0]
+        AIModel.objects.create(
+            provider=self.provider, name='Forced', value=forced,
+            is_active=False, retired_at=timezone.now())
+        summary = self._run([live_entry('keep/me'), live_entry('gone/model'),
+                             live_entry(forced)])
+        self.assertFalse(AIModel.objects.get(value=forced).is_active)
+        self.assertNotIn(forced, [r['value'] for r in summary['retired']])
 
     def test_a_forced_id_retires_even_when_live_lists_it(self):
         from populate_models import RETIRED_MODEL_VALUES

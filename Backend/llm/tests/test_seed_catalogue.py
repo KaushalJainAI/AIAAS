@@ -203,8 +203,8 @@ class SeedRowShapeTests(SimpleTestCase):
     #: rather than per token, so a per-million figure for either would be a
     #: number we invented. They also have no text context window, being image
     #: and video endpoints rather than chat models.
-    ROUTERS = ('openrouter/auto', 'openrouter/free', 'openrouter/pareto-code')
-    PER_UNIT = ('gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'sora-2-pro')
+    ROUTERS = ('openrouter/auto', 'openrouter/free')
+    PER_UNIT = ('gpt-image-2.5-sunburst', 'gpt-image-2.5-flare')
 
     def test_every_paid_row_declares_a_price(self):
         # `llm/pricing.py` reads `is_free` to tell a genuinely free model from
@@ -265,4 +265,78 @@ class SeedRowShapeTests(SimpleTestCase):
                 context, 4096,
                 f'{value} ({name}, {slug}) declares a context window below '
                 f'the smallest window we offer',
+            )
+
+
+class ImageInputRuleTests(SimpleTestCase):
+    """A chat model is seeded only if it reads images (2026-10-01).
+
+    The exceptions are the rows the platform itself calls. They are named here
+    rather than detected, so adding a text-only row is a deliberate edit to
+    this set and not something a new provider block can do by accident.
+    """
+
+    #: Text-only and seeded on purpose. `llm/views.py::offered_in_picker`
+    #: keeps them out of the picker; they stay active because a retired row is
+    #: substituted by `llm/fallback.py`.
+    PLUMBING = {
+        # `CONTEXT_SUMMARY_MODEL`, and the guest chat model.
+        'nvidia/nemotron-3.5-lightning-30b-a3b',
+        # `NvidiaNode.default_model`.
+        'nvidia/nemotron-3-super-120b-a12b',
+        # `OpenRouterNode.default_model` and its 404-retry `FALLBACK_MODEL`.
+        'nvidia/nemotron-3-super-120b-a12b:free',
+    }
+
+    def _caps(self, kwargs):
+        node = kwargs.get('caps')
+        declared = {}
+        if node is not None:
+            declared = eval(  # noqa: S307 — our own seed file, our own constants
+                compile(ast.Expression(node), str(SEED_PATH), 'eval'),
+                vars(populate_models),
+            ) or {}
+        return {**populate_models.DEFAULT_CAPS, **declared}
+
+    def _is_chat(self, caps):
+        return caps['text_generation'] and not (
+            caps['embedding_generation'] or caps['image_generation']
+            or caps['video_generation'] or caps['audio_generation']
+        )
+
+    def test_every_chat_row_reads_images_or_is_named_plumbing(self):
+        for slug, name, value, kwargs in _rows():
+            caps = self._caps(kwargs)
+            if not self._is_chat(caps) or value in self.PLUMBING:
+                continue
+            self.assertTrue(
+                caps['image_input'],
+                f'{value} ({name}, {slug}) is a chat model that does not read '
+                f'images. Retire it, or add it to PLUMBING with the code that '
+                f'calls it',
+            )
+
+    def test_the_plumbing_rows_are_seeded_and_really_are_text_only(self):
+        # Otherwise the set rots into a list of ids nobody carries, or shields
+        # a row that would have passed the rule on its own.
+        rows = {value: kwargs for _, _, value, kwargs in _rows()}
+        for value in self.PLUMBING:
+            self.assertIn(value, rows, f'{value} is exempted but not seeded')
+            self.assertFalse(self._caps(rows[value])['image_input'])
+
+    def test_the_picker_rule_agrees_with_the_seed_rule(self):
+        # Two spellings of one rule, in two files. Fed the same rows, they
+        # must reach the same answer.
+        from types import SimpleNamespace
+
+        from llm.views import offered_in_picker
+
+        field = populate_models.CAPABILITY_FIELD_MAP
+        for _, _, value, kwargs in _rows():
+            caps = self._caps(kwargs)
+            row = SimpleNamespace(**{field[k]: v for k, v in caps.items()})
+            self.assertEqual(
+                offered_in_picker(row), value not in self.PLUMBING,
+                f'{value}: the picker and the seed disagree about whether '
+                f'this row is offered',
             )
