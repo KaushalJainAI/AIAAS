@@ -126,8 +126,109 @@ def _sqlite():
     return saver
 
 
-def _postgres():
+#: How long the first use waits for the pool's first connection before failing.
+POOL_OPEN_TIMEOUT = 30.0
+
+
+def _pooled_saver_class():
+    """`AsyncPostgresSaver` made usable with a pool it has to open itself.
+
+    Built lazily so importing this module never imports the postgres extra.
+    The library saver has two gaps here, and both were found by switching it on
+    in production (2026-10-01), where every turn failed at once:
+
+    - **Nothing opens the pool.** It is built with `open=False` because opening
+      needs a running loop and the graph is compiled from sync code, and the
+      saver never opens it itself, so the first query raised `PoolClosed`.
+      Here the first query opens it, inside the loop that will use it.
+    - **Nothing creates the tables.** `setup()` "MUST be called directly by the
+      user", and only the recovery sweep did, which returns early when there is
+      nothing to recover. Here the first query runs the migrations, once, under
+      a lock, so concurrent first turns cannot race them.
+
+    And one that made the switch pointless: `_cursor` holds a **process-wide
+    `asyncio.Lock`** around every query. That lock exists for a single shared
+    connection, which one coroutine at a time may use. A pool hands each borrow
+    its own connection, so here the lock is dropped and runs checkpoint in
+    parallel, up to the pool size — the whole reason for leaving SQLite, whose
+    one lock queued every run behind every other.
+
+    `_cursor` is private API. `langgraph-checkpoint-postgres` is pinned exactly
+    in requirements, and `chat/tests/test_checkpoints.py` drives this against a
+    real Postgres when one is configured, so an upgrade that changes it fails a
+    test rather than production.
+    """
+    import asyncio
+    from contextlib import asynccontextmanager
+
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg.rows import dict_row
+
+    class PooledPostgresSaver(AsyncPostgresSaver):
+        def __init__(self, pool, **kwargs):
+            super().__init__(pool, **kwargs)
+            self._ready = False
+            self._ready_lock = asyncio.Lock()
+
+        async def setup(self) -> None:
+            await self._ensure_ready()
+
+        async def _ensure_ready(self) -> None:
+            if self._ready:
+                return
+            async with self._ready_lock:
+                if self._ready:
+                    return
+                await self.conn.open(wait=True, timeout=POOL_OPEN_TIMEOUT)
+                await self._migrate()
+                self._ready = True
+                logger.info('[Checkpoints] Postgres checkpointer ready')
+
+        async def _migrate(self) -> None:
+            # The library's own `setup()` body, over the unlocked cursor.
+            async with self._pool_cursor() as cur:
+                await cur.execute(self.MIGRATIONS[0])
+                results = await cur.execute(
+                    'SELECT v FROM checkpoint_migrations ORDER BY v DESC LIMIT 1'
+                )
+                row = await results.fetchone()
+                version = -1 if row is None else row['v']
+                for v, migration in zip(
+                    range(version + 1, len(self.MIGRATIONS)),
+                    self.MIGRATIONS[version + 1:],
+                ):
+                    await cur.execute(migration)
+                    await cur.execute(
+                        'INSERT INTO checkpoint_migrations (v) VALUES (%s)', (v,)
+                    )
+
+        @asynccontextmanager
+        async def _cursor(self, *, pipeline: bool = False):
+            await self._ensure_ready()
+            async with self._pool_cursor(pipeline=pipeline) as cur:
+                yield cur
+
+        @asynccontextmanager
+        async def _pool_cursor(self, *, pipeline: bool = False):
+            async with self.conn.connection() as conn:
+                if pipeline and self.supports_pipeline:
+                    async with conn.pipeline(), conn.cursor(
+                        binary=True, row_factory=dict_row
+                    ) as cur:
+                        yield cur
+                elif pipeline:
+                    async with conn.transaction(), conn.cursor(
+                        binary=True, row_factory=dict_row
+                    ) as cur:
+                        yield cur
+                else:
+                    async with conn.cursor(binary=True, row_factory=dict_row) as cur:
+                        yield cur
+
+    return PooledPostgresSaver
+
+
+def _postgres():
     from psycopg_pool import AsyncConnectionPool
 
     dsn = (
@@ -142,16 +243,19 @@ def _postgres():
         )
 
     # Small on purpose (G2 pool math): the app pool holds up to
-    # `DB_POOL_MAX_SIZE` (10 in prod) and the server allows `max_connections`
-    # (25), with room needed for psql and migrations — so the saver gets 4.
+    # `DB_POOL_MAX_SIZE` (16 in prod) and the server allows `max_connections`
+    # (40), with room needed for psql and migrations — so the saver gets 4.
     # Overridable per deploy, but raise it and the sum must still fit.
     max_size = int(os.environ.get('AGENT_CHECKPOINT_POOL_MAX', '4'))
-    # `open=False`: opening a pool needs a running loop, and this is called at
-    # import time while the graph is compiled. The saver opens it on first use.
+    # `open=False`: opening a pool needs a running loop, and this is called
+    # while the graph is compiled. `PooledPostgresSaver` opens it on first use.
+    # `check` tests a connection before handing it out, so a Postgres restart
+    # (a deploy recreates `db`) costs one reconnect, not a failed turn.
     pool = AsyncConnectionPool(conninfo=dsn, min_size=1, max_size=max_size,
                                open=False,
+                               check=AsyncConnectionPool.check_connection,
                                kwargs={'autocommit': True, 'prepare_threshold': 0})
-    saver = AsyncPostgresSaver(pool)
+    saver = _pooled_saver_class()(pool)
     logger.info('[Checkpoints] Postgres checkpointer configured (pool max=%d)', max_size)
     return saver
 

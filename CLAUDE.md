@@ -1768,6 +1768,23 @@ to resume and no state behind them. Dev defaults to `sqlite`; `settings/test.py`
 pins `memory`, since one shared checkpoint file across a test run leaks state
 between cases that reuse thread ids.
 
+**Production checkpoints are in Postgres, through our own saver (2026-10-01).**
+Switched on as-is, the library `AsyncPostgresSaver` failed every chat turn with
+`PoolClosed`. Three things were wrong. Its pool is built `open=False`, because
+the graph is compiled from sync code, and nothing ever opened it. `setup()`
+"MUST be called by the user", and only the recovery sweep called it, which
+returns early when there is nothing to recover. And its `_cursor` holds a
+process-wide `asyncio.Lock` around every query, so a pool would have queued
+every run behind every other, the same way SQLite did. `_pooled_saver_class`
+opens the pool and migrates once, under a lock, on first use inside the loop.
+It then borrows one pooled connection per query with no global lock, and the
+pool uses `check=check_connection`, so a `db` restart costs one reconnect.
+`_cursor` is private API, so `langgraph-checkpoint-postgres` stays pinned
+exactly. Tests: `chat/tests/test_checkpoints.py::PooledPostgresSaverTests`. They
+run against a real server via `AGENT_CHECKPOINT_TEST_DSN`, fail on the old code
+with the production error, and must run on Linux: psycopg async cannot use the
+Windows event loop.
+
 **A run whose process died is swept up, not left running for ever.**
 `agents/recovery.py` finds `running` rows and either resumes or closes them.
 The orphan test uses **only the row and the agent's own declared
