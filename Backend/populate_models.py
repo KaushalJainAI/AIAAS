@@ -87,11 +87,8 @@ RETIRED_MODEL_VALUES = [
     "qwen/qwen3-235b-a22b",
     "microsoft/phi-4-mini-instruct",
     # Pruned 2026-08-24 — superseded by newer tier, not 404 but irrelevant.
-    "google/gemini-3.6-flash",              # superseded by gemini-3.8-flash
-    "google/gemini-3.5-flash-lite",         # superseded by gemini-3.8-flash
     "deepseek/deepseek-r1",                 # superseded by deepseek-v4.1-flash
     "x-ai/grok-4.20-multi-agent",           # superseded by grok-4.6
-    "qwen/qwen3.6-plus",                    # superseded by qwen3.8-max / 27b
     "qwen/qwen3-32b",                       # superseded by qwen3.8-27b dense
     "inception/mercury-2",                  # low usage, no price/perf edge vs kimi-k3
     # NIM — older Nemotron gens superseded by Nemotron 3 Nano/Super/Ultra
@@ -108,22 +105,18 @@ RETIRED_MODEL_VALUES = [
     "deepseek-ai/deepseek-v4-pro",           # 410 — EOL on NIM
     "deepseek-ai/deepseek-v4-flash",         # 410 — EOL on NIM
     "mistralai/mistral-medium-3.5-128b",     # 410 — EOL on NIM
-    "moonshotai/kimi-k2.6",                  # 404 — not entitled for this account
+    # (moonshotai/kimi-k2.6 re-listed 2026-10-08: it is on OpenRouter live
+    # with image input, so the NIM entitlement note no longer retires it.)
     # OpenAI direct — superseded by GPT-6 tiers
     "gpt-4o",                               # superseded by gpt-5.6-terra/sol
     "o3",                                   # superseded by o4-mini / gpt-5.6 reasoning
     # Ollama local — tiny or superseded
     "deepseek-r1:1.5b",                     # superseded by 8b/32b, too small for R1 quality
     "qwen2.5-coder:32b",                    # superseded by qwen3.6:latest,    # Pruned 2026-09-02 -- not cost-efficient / fast / intelligent, superseded by 2026-08/09 open-source wave
-    "openai/gpt-4o-mini",                   # superseded by gpt-5.6-luna ($0.20/$1.20, 1.5M ctx, far smarter)
     "gpt-4o-mini",                          # openai provider duplicate of above
-    "google/gemini-3.1-pro-preview",        # superseded by gemini-3.8-flash ($0.75 vs $2/12, faster)
-    "deepseek/deepseek-v4-pro",             # superseded by v4.1-flash (native multimodal, 7x cheaper; vendor routes pro->flash after Sep 14)
-    "deepseek/deepseek-v4-flash",           # superseded by v4-flash-0731 ($0.07 vs $0.22)
-    "deepseek/deepseek-v4-pro-0813",        # superseded by v4.1-flash ($0.15 vs $1.12, native multimodal; vendor routes pro->flash after Sep 14 noon BJT)
     # Gemma family -- small, not competitive vs Qwen/DeepSeek/NVIDIA (pruned per user 2026-09-02)
+    # (gemma-4-31b-it is seeded; the :free variant never was and stays out.)
     "google/gemma-4-31b-it:free",
-    "google/gemma-4-31b-it",
     "gemma4:latest",
     "gemma4:4b",
     # Pruned 2026-09-12 (verified against OpenRouter /v1/models live) — dead or
@@ -131,61 +124,20 @@ RETIRED_MODEL_VALUES = [
     "qwen/qwen3.8-max",                     # 404 on OR — replaced by max-0902 snapshot
     "qwen/qwen3.8-2.4t-a95b",               # same $2/$6 tier older, superseded by max-0902
     "inception/mercury-2.5-preview",        # delisted from OR — superseded by mercury-2.5 GA
-    # Pruned 2026-09-23 (verified against OpenRouter /v1/models live
-    # 2026-09-23; each loses on all four axes — price, speed, intelligence,
-    # knowledge cutoff — to a row that stays).
-    "meta/muse-spark-1.2",                  # same $1.25/$4.25 as 1.3, older, weaker
+    # (muse-spark-1.2 and llama-4-maverick retired again by the ninth wave;
+    # mistral-small-2603 stays seeded. o4-mini stays retired.)
     "o4-mini",                              # $1.10/$4.40 200K reasoning-only vs Luna $0.20/$1.20 1.5M
-    "mistralai/mistral-small-2603",         # $0.15/$0.60 262K vs Qwen3.7 Flash $0.03/$0.13 1M
-    "meta-llama/llama-4-maverick",          # middle child: Scout keeps budget-long-ctx,
-                                            # Qwen3.8 Flash beats it at $0.15/$0.47
-    # Pruned 2026-09-23 (second cut) — GPT-6 Sol holds the $2/$10 tier now,
-    # so the whole 5.6 Sol line is strictly dominated at identical price.
-    "openai/gpt-5.6-sol",
-    "openai/gpt-5.6-sol-pro",
-    "gpt-5.6-sol",
-    "gpt-5.6-sol-pro",
-    # Pruned 2026-09-23 (third cut) — Opus 5.5 (GA 2026-09-22, $4/$20, Jun
-    # 2026 cutoff) retires the Opus line and the base Fable. Fable 5.1 stays
-    # as the latest Fable available.
-    "anthropic/claude-opus-5",
-    "anthropic/claude-fable-5",
     "gpt-image-2",                          # superseded by gpt-image-2.5-sunburst/flare
-    # Pruned 2026-09-23 (fourth cut) — each loses on cost, speed and
-    # intelligence to a row that stays, with no unique capability.
-    "meta/muse-spark-1.2-contributor",      # same $0.10/$0.20 as 1.3-contributor, older checkpoint
-    "deepseek/deepseek-v4-flash-vision-exp",  # $0.22/$0.66 exp, beaten by v4.1-flash $0.15/$0.60
-    "google/gemini-3.7-flash",              # same $0.75/$3.75 as 3.8-flash, older, no cache tier
-    "x-ai/grok-4.5",                        # same $2/$6 as 4.6, older
-    "moonshotai/kimi-k2.7-code",            # $0.66/$3.40 262K vs mimo-pro $0.435/$0.87 1M
-    "meta/muse-glimmer-30b",                # $0.30 131K vs minimax-m3 $0.30 1M
     "phi4:latest",                          # local: dominated by qwen3:8b (32K, effort control)
     "mistral:7b",                           # local: dominated by qwen3:8b (newer, toggleable)
-    # Pruned 2026-09-28 (verified live against OpenRouter /v1/models the same
-    # day). Ten rows, and every one of them is *strictly dominated*: a newer or
-    # equal model in the same tier costs less, or costs the same at a better
-    # cutoff, and none of them carries a capability the replacement lacks. The
-    # bar is deliberately "loses on all four axes to a row that stays", because
-    # a row that merely ties is still a second price for the same model in the
-    # picker — which is the failure this catalogue has already had twice.
-    "anthropic/claude-sonnet-5",            # Sonnet 5.5 is the same $2/$10 at the same
-                                            # 1M (released 2026-09-28, one day later)
-    "x-ai/grok-4.6",                        # Grok 4.7: $1.60/$4.80 vs $2/$6 at the same
-                                            # 500K, and better on AA Intelligence Index,
-                                            # AA-Briefcase (+111 Elo) and CursorBench 4.0
-    # The GPT-5.6 line, OpenRouter and direct-API twins alike. GPT-6 Luna is
-    # $0.10/$0.50 against 5.6 Luna's $0.20/$1.20, and GPT-6 Sol is $2/$10
-    # against 5.6 Terra's $2/$12 — same or better context in both cases.
-    "openai/gpt-5.6-luna",
-    "openai/gpt-5.6-luna-pro",
-    "openai/gpt-5.6-terra",
-    "openai/gpt-5.6-terra-pro",
-    "gpt-5.6-luna",
-    "gpt-5.6-luna-pro",
-    "gpt-5.6-terra",
-    "gpt-5.6-terra-pro",
+    # (The 2026-09-28 sixth wave — Sonnet 5, Grok 4.6 and all eight GPT-5.6
+    # rows — briefly re-listed under the eighth-wave full catalogue, then
+    # retired again by the ninth wave with the other outdated generations.)
     # Pruned 2026-10-01 (seventh wave; every OpenRouter id verified live
     # against /v1/models the same day). Two reasons, kept apart on purpose.
+    # (The "beaten on price/intelligence/speed/date" half briefly re-listed
+    # under the eighth-wave full catalogue, then retired again by the ninth
+    # wave with the other outdated generations.)
     #
     # Text-only — the catalogue now offers only chat models that read images:
     "openrouter/pareto-code",               # text-only router, and no tool support
@@ -207,28 +159,127 @@ RETIRED_MODEL_VALUES = [
     "deepseek-r1:32b",
     "qwen3:8b",
     "gpt-realtime-1.5",                     # audio websocket model, never called here
-    # Beaten on price, intelligence (AA Intelligence Index, 2026-09-30),
-    # speed and release date by a row that stays:
-    "openai/gpt-6-sol",                     # GPT-6.1 Sol: same $2/$10, index 51.8 vs 47.5
-    "openai/gpt-6-sol-pro",
-    "openai/gpt-6-astra",                   # $10/$50, index 52.7 vs Opus 5.5 at $4/$20, 57.6
-    "openai/gpt-6-astra-pro",
-    "anthropic/claude-fable-5.1",           # $10/$50, index 53.4 vs Opus 5.5 at $4/$20, 57.6
-    "anthropic/claude-haiku-4.5",           # index 17 at $1/$5; GPT-6 Luna is 37 at $0.10/$0.50
-    "qwen/qwen3.8-max-0902",                # index 45 at 39 tok/s vs Muse Spark 1.3: 48, 174 tok/s, cheaper
-    "qwen/qwen3.8-max-prime",               # the same weights at twice the price
-    "qwen/qwen3.8-27b",                     # index 34 at $0.42/$3 vs GLM-5.3 Flash: 42 at $0.15/$0.50
-    "qwen/qwen3.7-plus",                    # index 25 at $0.32/$1.28
-    "qwen/qwen3.8-omni-flash",              # a second row at the Qwen3.8 Flash price
-    "moonshotai/kimi-k3",                   # index 44, 34 tok/s, $10 out vs MiMo V2.6 Pro: 46 at $0.87
-    "minimax/minimax-m3",                   # index 29 vs DeepSeek V4.1 Flash: 39.5, faster, cheaper
-    "stepfun/step-3.7-flash",               # $0.20/$1.15, 262K vs GLM-5.3 Flash
+    # Image input but no structured output — the output contracts
+    # (`agents/contracts.py`) need it, so these stay out of the seed (the
+    # refresh may still surface them as gated `live` rows):
     "thinkingmachines/inkling",             # index 25 at $1/$4.05, no structured output
     "thinkingmachines/inkling-small",       # index 26 vs DeepSeek V4.1 Flash, which is also faster
-    "bytedance-seed/seed-2-1-turbo",        # loses 3 of 4 shared benchmarks to GLM-5.3 Flash at 3x+ the price
     "meta/llama-3.2-90b-vision-instruct",   # NIM: timed out at 90 s four times running
     "llama4:scout",                         # local: 18 months old, index 8
     "opencode/mimo-v2.5-free",              # superseded by mimo-v2.6-flash-free
+    # Gone upstream 2026-10-08 (missing from /v1/models live; was the one
+    # free *named* row — `openrouter/free` remains the free tier):
+    "stealth/space-bunny-alpha",
+    # Pruned 2026-10-08 (ninth wave) — outdated generations with a newer
+    # generation covering their tier. All verified live the same day; retired
+    # for being superseded, not dead.
+    # Anthropic: latest per tier is Haiku 5.5 / Sonnet 5.5 / Opus 5.5.
+    "anthropic/claude-fable-5",
+    "anthropic/claude-fable-5.1",
+    "anthropic/claude-haiku-4.5",
+    "anthropic/claude-opus-4.5",
+    "anthropic/claude-opus-4.6",
+    "anthropic/claude-opus-4.7",
+    "anthropic/claude-opus-4.8",
+    "anthropic/claude-opus-5",
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-sonnet-5",
+    # ByteDance: Seed 2.x current.
+    "bytedance-seed/seed-1.6",
+    "bytedance-seed/seed-1.6-flash",
+    # DeepSeek: V4.1 Flash current.
+    "deepseek/deepseek-v4-flash-vision-exp",
+    # Google: 3.8 Flash + Nano Banana 2.1 + Gemma 4 current.
+    "google/gemini-2.5-flash",
+    "google/gemini-2.5-flash-lite",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-pro-preview",
+    "google/gemini-3-flash-preview",
+    "google/gemini-3-pro-image",
+    "google/gemini-3.1-flash-lite",
+    "google/gemini-3.1-flash-lite-preview",
+    "google/gemini-3.1-pro-preview",
+    "google/gemini-3.1-pro-preview-customtools",
+    "google/gemini-3.5-flash",
+    "google/gemini-3.5-flash-lite",
+    "google/gemini-3.6-flash",
+    "google/gemini-3.7-flash",
+    "google/gemma-3-12b-it",
+    "google/gemma-3-27b-it",
+    # xAI: Grok 4.7 current.
+    "x-ai/grok-4.20",
+    "x-ai/grok-4.3",
+    "x-ai/grok-4.5",
+    "x-ai/grok-4.6",
+    # Meta: Spark 1.3 current (also the eval judge); Scout stays as reviewer.
+    "meta/muse-glimmer-30b",
+    "meta/muse-spark-1.1",
+    "meta/muse-spark-1.2",
+    "meta/muse-spark-1.2-contributor",
+    "meta-llama/llama-4-maverick",
+    # Xiaomi: MiMo V2.6 current.
+    "xiaomi/mimo-v2.5",
+    # Z.ai: GLM 5.x current.
+    "z-ai/glm-4.5v",
+    "z-ai/glm-4.6v",
+    # Qwen: 3.7 Flash (ultra-cheap) + 3.8 line + 3-VL rows current.
+    "qwen/qwen3.5-122b-a10b",
+    "qwen/qwen3.5-27b",
+    "qwen/qwen3.5-35b-a3b",
+    "qwen/qwen3.5-397b-a17b",
+    "qwen/qwen3.5-9b",
+    "qwen/qwen3.5-flash-02-23",
+    "qwen/qwen3.5-plus-02-15",
+    "qwen/qwen3.5-plus-20260420",
+    "qwen/qwen3.6-27b",
+    "qwen/qwen3.6-35b-a3b",
+    "qwen/qwen3.6-flash",
+    "qwen/qwen3.6-plus",
+    "qwen/qwen3.7-plus",
+    # OpenAI: GPT-6.1 Sol + Luna + Astra current; 4.x/5.x and o-series out.
+    "openai/gpt-4-turbo",
+    "openai/gpt-4.1",
+    "openai/gpt-4.1-mini",
+    "openai/gpt-4.1-nano",
+    "openai/gpt-4o",
+    "openai/gpt-4o-2024-05-13",
+    "openai/gpt-4o-2024-08-06",
+    "openai/gpt-4o-2024-11-20",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o-mini-2024-07-18",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "openai/gpt-5-nano",
+    "openai/gpt-5-pro",
+    "openai/gpt-5.1",
+    "openai/gpt-5.1-codex",
+    "openai/gpt-5.1-codex-max",
+    "openai/gpt-5.1-codex-mini",
+    "openai/gpt-5.2",
+    "openai/gpt-5.2-chat",
+    "openai/gpt-5.2-codex",
+    "openai/gpt-5.2-pro",
+    "openai/gpt-5.3-codex",
+    "openai/gpt-5.4",
+    "openai/gpt-5.4-mini",
+    "openai/gpt-5.4-nano",
+    "openai/gpt-5.4-pro",
+    "openai/gpt-5.5",
+    "openai/gpt-5.5-pro",
+    "openai/gpt-5.6-luna",
+    "openai/gpt-5.6-luna-pro",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol-pro",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-terra-pro",
+    "openai/gpt-6-sol",
+    "openai/gpt-6-sol-pro",
+    "openai/o1",
+    "openai/o3",
+    "openai/o3-pro",
+    "openai/o4-mini",
+    "openai/o4-mini-high",
     # Not callable at all:
     "sora-2-pro",                           # OpenAI switched the Sora API off on 2026-09-24
     "gpt-6-sol",                            # direct twin of the retired OpenRouter row
@@ -501,10 +552,56 @@ def populate():
     # active (a retired row is substituted by `llm/fallback.py`) and are kept
     # out of the picker by `llm/views.py::offered_in_picker`.
     #
-    # Coverage target: every user can pick along three axes without duplicates:
+    # Addendum 2026-10-08 (eighth wave — full catalogue). The rule changed
+    # again, at the user's direction: seed **every** live OpenRouter id with
+    # image input + tool calling + structured output (173 rows, read from the
+    # live /v1/models endpoint the same day: 467 models, 359 after dropping
+    # the `:free`/`:batch`/`:nitro`/`:online`/`:floor`/alias variants),
+    # including the 41 rows earlier waves pruned as superseded or
+    # non-competitive. A model that is live, reads images and can call tools
+    # is offered; ranking it is the picker's job, not the seed's. Still out:
+    # text-only ids (the image-input rule stands), the 9 image+tools rows
+    # with no structured output (Inkling pair, Opus 4.1, Sonnet 4, the four
+    # Nova rows, Pareto 26.10 Preview — the output contracts need it), and
+    # the text-only routers (Pareto Code, Fusion, Bodybuilder).
+    #
+    # New since 2026-10-01: Claude Haiku 5.5 (2026-10-07, $0.10/$0.50 base
+    # tier up to 100K prompt, then $0.50/$2.50 — the seed carries the base
+    # tier; first Haiku with effort settings, default medium, AA index 43)
+    # and Mistral Large 4 (2026-10-06 public preview, MoE, preview sale
+    # $0.68/$2.09). Both read images and call tools, both verified live.
+    #
+    # Re-priced from live: Sonnet 5.5 cache reads halved $0.20 -> $0.10
+    # (Anthropic cut them 2026-10-07, ~20% cheaper agentic work) and DeepSeek
+    # V4.1 Flash up to $0.0351/$1.00 cached $0.01 (the cheapest of 32
+    # endpoints moved; the median is ~$0.21/$0.80). Gone: Space Bunny Alpha
+    # (delisted upstream — `openrouter/free` is the free tier again). Nano
+    # Banana 2.1 reads images and calls tools so it seeds as a chat row at
+    # its text rates; its per-image output billing is not represented here.
+    #
+    # Addendum 2026-10-08 (ninth wave — retire the outdated generations).
+    # The full catalogue flooded the picker with prior generations (GPT-4o,
+    # the whole GPT-5 line, Gemini 2.5–3.7, Claude 4.x, Qwen 3.5/3.6), so
+    # ~96 rows retire again under one rule: a newer generation from the same
+    # vendor covers the tier. What stays is latest per family plus the cheap
+    # and fast picks — Haiku/Sonnet/Opus 5.5, GPT-6.1 Sol + Luna + Astra,
+    # Gemini 3.8 Flash, Grok 4.7, Spark 1.3, MiMo V2.6, DeepSeek V4.1 Flash,
+    # GLM-5.3 Flash, Qwen 3.7/3.8 Flash, Ling VL, Haiku 5.5, Mistral Large 4
+    # and the current single-vendor rows. Dated snapshots go with the base
+    # id they snapshot (retiring gpt-4o but keeping gpt-4o-2024-05-13 would
+    # be nonsense). Successor hints in `llm/catalog_refresh.py` cover every
+    # newly retired id whose target is obvious (minis to Luna, pros to Sol
+    # Pro, everything else to the family's current row).
+    #
+    # Effort stays declared only where verified
+    # (Haiku 5.5 joins Opus/Sonnet 5.5 as TOGGLEABLE; Mistral Large 4 is
+    # STANDARD); the other ~150 rows carry none, which is the safe silence.
+    #
+    # Coverage target (seventh wave, kept for the curated reasoning): every
+    # user can pick along three axes without duplicates:
     #   intelligence — Opus 5.5 (57.6) / Sonnet 5.5 (56.0) / GPT-6.1 Sol (51.8)
     #                  / Muse Spark 1.3 (48.1) / Grok 4.7 (46.5)
-    #   cost — $0 (Free Router, Space Bunny Alpha) -> $0.021/$0.06 (Ling VL)
+    #   cost — $0 (Free Router) -> $0.021/$0.06 (Ling VL)
     #          -> $0.03/$0.13 (Qwen3.7 Flash) -> $0.10/$0.20 (Muse Contributor)
     #          -> $0.435/$0.87 (MiMo V2.6 Pro, index 46)
     #   speed — Gemini 3.8 Flash (~220 tok/s) / DeepSeek V4.1 Flash (~209)
@@ -568,113 +665,129 @@ def populate():
                 # a new chat starts on. No `none`: a router cannot promise the
                 # model it picks is one whose thinking can be switched off.
                 #
-                # Both routers take images (verified 2026-10-01 against
-                # OpenRouter /v1/models live: auto is text+image+file+audio+
-                # video, free is text+image), so both pass the image-input
-                # rule. Pareto Code is text-only with no tool support and
-                # retires below.
-                m("Auto Router", "openrouter/auto", caps=MULTIMODAL_CAPS, input_price="0.0000", output_price="0.0000", context=0, effort=EFFORT_STANDARD),
-                m("Free Models Router", "openrouter/free", True, VISION_CAPS, input_price="0.0000", output_price="0.0000", context=0, effort=EFFORT_STANDARD),
-                # --- Free, named ---
-                # Space Bunny Alpha: anonymous ("stealth") model, $0/$0, 1M ctx,
-                # text+image+video -> text, tools + reasoning effort (verified
-                # live 2026-10-01). The one free row that is a *named* model
-                # rather than a lottery, so an agent pinned to it keeps a 1M
-                # window and image input. The weights are unattributed and can
-                # change under the same id, so nothing load-bearing is pinned
-                # to it.
-                m("Space Bunny Alpha", "stealth/space-bunny-alpha", True, {**VISION_CAPS, "video_input": True},
-                  input_price="0.0000", output_price="0.0000", context=1000000, effort=EFFORT_TOGGLEABLE,
-                  description="Free, anonymous, 1M context, reads images and video, tool-calling. Fast with strong coding — but the weights are deliberately unattributed, so the model behind this id can change without notice. Good for trying things; don't pin a production run to it."),
-                # --- OpenAI via OpenRouter ---
-                # GPT-6.1 Sol (released 2026-09-29, verified live 2026-10-01:
-                # 1.05M ctx, $2/$10 cached $0.10 write $2.50, text+image+file).
-                # Replaces GPT-6 Sol at the same price: AA Intelligence Index
-                # 51.8 against 47.5, and the cache read is half. The Pro twin is
-                # the same checkpoint served with reasoning.mode=pro.
-                m("OpenAI GPT-6.1 Sol", "openai/gpt-6.1-sol", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="2.5000", context=1050000, effort=EFFORT_STANDARD),
-                m("OpenAI GPT-6.1 Sol Pro", "openai/gpt-6.1-sol-pro", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="2.5000", context=1050000, effort=EFFORT_STANDARD),
-                # GPT-6 Luna: the cheap fast tier — $0.10/$0.50 cached $0.01
-                # write $0.125, 1.05M ctx, ~125 tok/s, AA index 37.
-                m("OpenAI GPT-6 Luna", "openai/gpt-6-luna", caps={**VISION_CAPS, "document_input": True}, input_price="0.1000", output_price="0.5000", cached_price="0.0100", cache_write_price="0.1250", context=1050000, effort=EFFORT_STANDARD),
-                m("OpenAI GPT-6 Luna Pro", "openai/gpt-6-luna-pro", caps={**VISION_CAPS, "document_input": True}, input_price="0.1000", output_price="0.5000", cached_price="0.0100", cache_write_price="0.1250", context=1050000, effort=EFFORT_STANDARD),
-                # --- Anthropic via OpenRouter (Opus 5.5 > Sonnet 5.5) ---
-                # Opus 5.5 (GA 2026-09-22): $4/$20 cached $0.20 write $5, 1M
-                # ctx. Top of the AA Intelligence Index at 57.6. Default effort
-                # is medium (the vendor's default, so it is stored).
+                # All four take images (verified 2026-10-08 against OpenRouter
+                # /v1/models live: auto/auto-beta are text+image+file+audio+
+                # video, free is text+image, jev-router is text+image+file+
+                # audio+video), so all pass the image-input rule. Pareto Code,
+                # Fusion and Bodybuilder are text-only with no tool support and
+                # stay out (pareto-code retires below).
+                m("Auto Router", "openrouter/auto", caps=MULTIMODAL_CAPS, input_price="0.0000", output_price="0.0000", context=2000000, effort=EFFORT_STANDARD),
+                m("Auto Router (Beta)", "openrouter/auto-beta", caps=MULTIMODAL_CAPS, input_price="0.0000", output_price="0.0000", context=2000000, effort=EFFORT_STANDARD),
+                m("Free Models Router", "openrouter/free", True, VISION_CAPS, input_price="0.0000", output_price="0.0000", context=200000, effort=EFFORT_STANDARD),
+                # --- Third-party router ---
+                m("TypeSafe Jev Router", "typesafe/jev-router", caps=MULTIMODAL_CAPS, input_price="0.0000", output_price="0.0000", context=1000000, effort=EFFORT_STANDARD),
+                # --- Full catalogue (eighth wave, 2026-10-08; pruned ninth wave) ---
+                # Every live OpenRouter id with image input + tool calling +
+                # structured output (173 rows, verified against /v1/models live
+                # 2026-10-08, 467 models), minus the outdated generations the
+                # ninth wave retired below (prior-gen rows with a newer
+                # generation covering their tier). Names, prices, cache tiers
+                # and context windows are the live figures; caps follow the
+                # live input modalities; effort stays empty except where
+                # verified (a declared rung puts `reasoning_effort` on the
+                # wire, so an unverified claim is a 400, not a feature).
+                # --- anthropic (latest per tier; older generations retire below) ---
+                m("Anthropic Claude Haiku 5.5", "anthropic/claude-haiku-5.5", caps={**VISION_CAPS, "document_input": True}, input_price="0.1000", output_price="0.5000", cached_price="0.0100", cache_write_price="0.1250", context=1000000, effort=EFFORT_TOGGLEABLE, default_effort="medium", description="Cheapest fast Claude: $0.10/$0.50 up to 100K prompt, then $0.50/$2.50 - the seed carries the base tier."),
                 m("Anthropic Claude Opus 5.5", "anthropic/claude-opus-5.5", caps={**VISION_CAPS, "document_input": True}, input_price="4.0000", output_price="20.0000", cached_price="0.2000", cache_write_price="5.0000", context=1000000, effort=EFFORT_TOGGLEABLE, default_effort="medium"),
-                # Sonnet 5.5 (released 2026-09-28): $2/$10 cached $0.20 write
-                # $2.50, 1M ctx, AA index 56.0.
-                m("Anthropic Claude Sonnet 5.5", "anthropic/claude-sonnet-5.5", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.2000", cache_write_price="2.5000", context=1000000, effort=EFFORT_TOGGLEABLE),
-                # --- Google via OpenRouter ---
-                # Gemini 3.8 Flash (GA 2026-09-02): $0.75/$3.75 cached $0.075,
-                # 1.05M ctx, text+image+file+audio+video, ~220 tok/s — the
-                # fastest row above AA index 40. Intro pricing runs through
-                # 2026-12-31, then $1.50/$7.50 — revisit in January 2027.
-                # Thinking levels LOW/MEDIUM/HIGH; MINIMAL is a native-API
-                # validation error, so EFFORT_STANDARD, not TOGGLEABLE.
-                m("Google Gemini 3.8 Flash", "google/gemini-3.8-flash", caps=MULTIMODAL_CAPS, input_price="0.7500", output_price="3.7500", cached_price="0.0750", context=1048576, effort=EFFORT_STANDARD),
-                # --- xAI via OpenRouter ---
-                # Grok 4.7 (released 2026-09-21). Re-priced 2026-10-01 against
-                # OpenRouter /v1/models live: $2/$6 cached $0.50, 500K ctx — the
-                # seed carried $1.60/$4.80, which was the launch discount.
-                # EFFORT_STANDARD: no way to switch thinking off.
-                m("xAI Grok 4.7", "x-ai/grok-4.7", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.5000", context=500000, effort=EFFORT_STANDARD),
-                # --- Meta via OpenRouter ---
-                # Muse Spark 1.3 (2026-09-02): $1.25/$4.25 cached $0.15, 1.05M
-                # ctx, text+image+video+file. AA index 48 at ~174 tok/s, which
-                # is why Qwen3.8 Max retired below — it lost on all four axes.
-                # Contributor is the same checkpoint at $0.10/$0.20 in exchange
-                # for Meta training on prompts and completions; it is also the
-                # eval judge (`EVAL_JUDGE_MODEL`).
+                m("Anthropic Claude Sonnet 5.5", "anthropic/claude-sonnet-5.5", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="2.5000", context=1000000, effort=EFFORT_TOGGLEABLE),
+                # --- bytedance-seed (2.x current; 1.6 retired below) ---
+                m("ByteDance Seed 2.1 Turbo", "bytedance-seed/seed-2-1-turbo", caps={**VISION_CAPS, "video_input": True}, input_price="0.5000", output_price="2.5000", context=262144),
+                m("ByteDance Seed-2.0-Code", "bytedance-seed/seed-2.0-code", caps={**VISION_CAPS, "video_input": True}, input_price="0.5000", output_price="3.0000", context=262144),
+                m("ByteDance Seed-2.0-Lite", "bytedance-seed/seed-2.0-lite", caps={**VISION_CAPS, "video_input": True}, input_price="0.2500", output_price="2.0000", context=262144),
+                m("ByteDance Seed-2.0-Mini", "bytedance-seed/seed-2.0-mini", caps={**VISION_CAPS, "video_input": True}, input_price="0.1000", output_price="0.4000", context=262144),
+                # --- cohere ---
+                m("Cohere Command A+", "cohere/command-a-plus", caps=VISION_CAPS, input_price="0.3000", output_price="1.5000", cached_price="0.1500", context=192000),
+                # --- deepseek (V4.1 Flash current; vision-exp retired below) ---
+                m("DeepSeek V4.1 Flash", "deepseek/deepseek-v4.1-flash", caps=VISION_CAPS, input_price="0.0351", output_price="1.0000", cached_price="0.0100", context=1048576, effort=EFFORT_TOGGLEABLE, description="Cheapest of 32 serving endpoints; the median is ~$0.21/$0.80. Real spend is taken from usage.cost wherever reported."),
+                # --- fireworks ---
+                m("Fireworks Ember-1", "fireworks/ember-1", caps=VISION_CAPS, input_price="3.0000", output_price="15.0000", cached_price="0.3000", context=1048576),
+                # --- google (3.8 Flash + Nano Banana 2.1 current; older gens retire below) ---
+                m("Google Gemini 3.8 Flash", "google/gemini-3.8-flash", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="0.7500", output_price="3.7500", cached_price="0.0750", cache_write_price="0.0417", context=1048576, effort=EFFORT_STANDARD),
+                m("Google Nano Banana 2.1", "google/gemini-nano-banana-2.1", caps=VISION_CAPS, input_price="1.5000", output_price="7.5000", context=65536),
+                # Gemma 4 current; Gemma 3 retired below.
+                m("Google Gemma 4 26B A4B", "google/gemma-4-26b-a4b-it", caps={**VISION_CAPS, "video_input": True}, input_price="0.0900", output_price="0.3000", cached_price="0.0500", context=262144),
+                m("Google Gemma 4 31B", "google/gemma-4-31b-it", caps={**VISION_CAPS, "video_input": True}, input_price="0.0900", output_price="0.3400", cached_price="0.0500", context=262144),
+                # --- inclusionai ---
+                m("inclusionAI Ling 3.0 Flash VL", "inclusionai/ling-3.0-flash-vl", caps={**VISION_CAPS, "video_input": True}, input_price="0.0210", output_price="0.0616", cached_price="0.0042", context=262144),
+                # --- meta ---
+                # --- meta (Spark 1.3 current, also the eval judge; older gens retire below) ---
                 m("Meta Muse Spark 1.3", "meta/muse-spark-1.3", caps={**VISION_CAPS, "video_input": True, "document_input": True}, input_price="1.2500", output_price="4.2500", cached_price="0.1500", context=1048576),
                 m("Meta Muse Spark 1.3 Contributor", "meta/muse-spark-1.3-contributor", caps={**VISION_CAPS, "video_input": True, "document_input": True}, input_price="0.1000", output_price="0.2000", cached_price="0.0020", context=1048576),
-                # Llama 4 Scout: old (2025-04) and weak as a chat model, kept
-                # because it is the chat `auto` reviewer (`AUTO_REVIEWER_MODEL`)
-                # — non-reasoning, ~0.8 s to first token, stable verdicts.
+                # --- meta-llama (Scout stays: the chat `auto` reviewer; Maverick retired below) ---
                 m("Meta Llama 4 Scout", "meta-llama/llama-4-scout", caps=VISION_CAPS, input_price="0.1000", output_price="0.3000", context=1310720),
-                # --- Xiaomi via OpenRouter (open weights) ---
-                # MiMo V2.6, verified live 2026-10-01: text+image+audio+video,
-                # 1.05M ctx. Pro is the value pick of the whole catalogue — AA
-                # index 46 at $0.435/$0.87. Flash is 38 at $0.14/$0.28.
-                # UltraSpeed (2026-09-21) is the same Pro checkpoint served
-                # about 10x faster by the vendor's own account, at 10x the
-                # price. No effort claim: the listing carries `reasoning` but
-                # not `reasoning_effort`.
-                m("Xiaomi MiMo V2.6 Pro", "xiaomi/mimo-v2.6-pro", caps={**VISION_CAPS, "audio_input": True, "video_input": True}, input_price="0.4350", output_price="0.8700", cached_price="0.0036", context=1050000),
-                m("Xiaomi MiMo V2.6 Flash", "xiaomi/mimo-v2.6-flash", caps={**VISION_CAPS, "audio_input": True, "video_input": True}, input_price="0.1400", output_price="0.2800", cached_price="0.0028", context=1050000),
-                m("Xiaomi MiMo V2.6 Pro UltraSpeed", "xiaomi/mimo-v2.6-pro-ultraspeed", caps={**VISION_CAPS, "audio_input": True, "video_input": True}, input_price="4.3500", output_price="8.7000", cached_price="0.0360", context=1048576,
-                  description="The MiMo V2.6 Pro checkpoint on a fast serving tier — about 10x the speed by Xiaomi's own figure, at 10x the price. Pick it when the wait matters more than the bill."),
-                # --- DeepSeek via OpenRouter (MIT open weights) ---
-                # V4.1 Flash (2026-09-10): first native-multimodal DeepSeek,
-                # text+image, 1.05M ctx, ~209 tok/s with ~1 s to first token,
-                # AA index 39.5. It is also what the benchmark agents run on
-                # (`eval/benchmarks/agents.py::BENCHMARK_MODEL`).
-                # Re-priced 2026-10-01 against OpenRouter /v1/models live:
-                # $0.0155/$0.396 cached $0.0029. That figure is the cheapest of
-                # 32 serving endpoints (the median is $0.21/$0.80), and it is
-                # what the weekly refresh writes, so the seed carries the same
-                # number rather than fight it. Real spend is taken from
-                # OpenRouter's own `usage.cost` wherever it is reported.
-                m("DeepSeek V4.1 Flash", "deepseek/deepseek-v4.1-flash", caps={**VISION_CAPS, "numeric_input": True, "numeric_generation": True}, input_price="0.0155", output_price="0.3960", cached_price="0.0029", context=1048576, effort=EFFORT_TOGGLEABLE),
-                # --- Z.ai via OpenRouter (open weights) ---
-                # GLM-5.3 Flash: $0.15/$0.50 cached $0.03, 1.05M ctx (the seed
-                # said 1.31M), text+image+video, AA index 41.8.
-                m("Z.ai GLM-5.3 Flash", "z-ai/glm-5.3-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="0.5000", cached_price="0.0300", context=1048576, effort=EFFORT_TOGGLEABLE),
-                # --- Qwen via OpenRouter ---
-                # Qwen3.8 Flash: $0.15/$0.47, 1M ctx, text+image+video, AA
-                # index 39.8. Qwen3.7 Flash is the ultra-cheap long-context row
-                # at $0.03/$0.13 with the same 1M window.
-                m("Qwen3.8 Flash", "qwen/qwen3.8-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="0.4700", cached_price="0.0160", cache_write_price="0.2000", context=1000000, effort=EFFORT_TOGGLEABLE),
+                # --- minimax ---
+                m("MiniMax M3", "minimax/minimax-m3", caps={**VISION_CAPS, "video_input": True}, input_price="0.3000", output_price="1.2000", cached_price="0.0600", context=1048576),
+                # --- mistralai ---
+                m("Mistral Ministral 3 14B 2512", "mistralai/ministral-14b-2512", caps=VISION_CAPS, input_price="0.2000", output_price="0.2000", cached_price="0.0200", context=262144),
+                m("Mistral Ministral 3 3B 2512", "mistralai/ministral-3b-2512", caps=VISION_CAPS, input_price="0.1000", output_price="0.1000", cached_price="0.0100", context=131072),
+                m("Mistral Ministral 3 8B 2512", "mistralai/ministral-8b-2512", caps=VISION_CAPS, input_price="0.1500", output_price="0.1500", cached_price="0.0150", context=262144),
+                m("Mistral Large 3 2512", "mistralai/mistral-large-2512", caps={**VISION_CAPS, "document_input": True}, input_price="0.5000", output_price="1.5000", cached_price="0.0500", context=262144),
+                m("Mistral Large 4", "mistralai/mistral-large-4-0", caps=VISION_CAPS, input_price="0.6800", output_price="2.0900", cached_price="0.0700", context=524288, effort=EFFORT_STANDARD, description="Mistral Large 4 public preview (2026-10-06): open-weight-bound MoE, preview sale $0.68/$2.09."),
+                m("Mistral Medium 3", "mistralai/mistral-medium-3", caps={**VISION_CAPS, "document_input": True}, input_price="0.4000", output_price="2.0000", cached_price="0.0400", context=131072),
+                m("Mistral Medium 3.5", "mistralai/mistral-medium-3-5", caps={**VISION_CAPS, "document_input": True}, input_price="1.5000", output_price="7.5000", context=262144),
+                m("Mistral Medium 3.1", "mistralai/mistral-medium-3.1", caps={**VISION_CAPS, "document_input": True}, input_price="0.4000", output_price="2.0000", cached_price="0.0400", context=131072),
+                m("Mistral Small 4", "mistralai/mistral-small-2603", caps=VISION_CAPS, input_price="0.1500", output_price="0.6000", cached_price="0.0150", context=262144),
+                m("Mistral Small 3.1 24B", "mistralai/mistral-small-3.1-24b-instruct", caps=VISION_CAPS, input_price="0.3510", output_price="0.5550", context=128000),
+                m("Mistral Small 3.2 24B", "mistralai/mistral-small-3.2-24b-instruct", caps=VISION_CAPS, input_price="0.0938", output_price="0.2500", context=256000),
+                # --- moonshotai ---
+                m("MoonshotAI Kimi K2.5", "moonshotai/kimi-k2.5", caps=VISION_CAPS, input_price="0.4500", output_price="2.2500", cached_price="0.0700", context=262144),
+                m("MoonshotAI Kimi K2.6", "moonshotai/kimi-k2.6", caps=VISION_CAPS, input_price="0.4650", output_price="2.4500", cached_price="0.0975", context=262144),
+                m("MoonshotAI Kimi K2.7 Code", "moonshotai/kimi-k2.7-code", caps=VISION_CAPS, input_price="0.6712", output_price="3.3500", cached_price="0.1800", context=262144),
+                m("MoonshotAI Kimi K3", "moonshotai/kimi-k3", caps={**VISION_CAPS, "video_input": True}, input_price="0.6200", output_price="12.3000", cached_price="0.4300", context=1048576),
+                # --- nex-agi ---
+                m("Nex-N2.5-Pro", "nex-agi/nex-n2.5-pro", caps=VISION_CAPS, input_price="0.0750", output_price="0.2500", cached_price="0.0150", context=262144),
+                # --- openai (GPT-6.1 Sol + Luna current, Astra flagship; 4.x/5.x
+                # and the o-series retire below, GPT-6 Sol superseded by 6.1) ---
+                m("OpenAI GPT-6 Astra", "openai/gpt-6-astra", caps={**VISION_CAPS, "document_input": True}, input_price="10.0000", output_price="50.0000", cached_price="1.0000", cache_write_price="12.5000", context=1050000),
+                m("OpenAI GPT-6 Astra Pro", "openai/gpt-6-astra-pro", caps={**VISION_CAPS, "document_input": True}, input_price="10.0000", output_price="50.0000", cached_price="1.0000", cache_write_price="12.5000", context=1050000),
+                m("OpenAI GPT-6 Luna", "openai/gpt-6-luna", caps={**VISION_CAPS, "document_input": True}, input_price="0.1000", output_price="0.5000", cached_price="0.0100", cache_write_price="0.1250", context=1050000, effort=EFFORT_STANDARD),
+                m("OpenAI GPT-6 Luna Pro", "openai/gpt-6-luna-pro", caps={**VISION_CAPS, "document_input": True}, input_price="0.1000", output_price="0.5000", cached_price="0.0100", cache_write_price="0.1250", context=1050000, effort=EFFORT_STANDARD),
+                m("OpenAI GPT-6.1 Sol", "openai/gpt-6.1-sol", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="2.5000", context=1050000, effort=EFFORT_STANDARD),
+                m("OpenAI GPT-6.1 Sol Pro", "openai/gpt-6.1-sol-pro", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="2.5000", context=1050000, effort=EFFORT_STANDARD),
+                m("OpenAI GPT Chat Latest", "openai/gpt-chat-latest", caps={**VISION_CAPS, "document_input": True}, input_price="5.0000", output_price="30.0000", cached_price="0.5000", context=400000),
+                # --- perceptron ---
+                m("Perceptron Mk1.5", "perceptron/perceptron-mk1.5", caps={**VISION_CAPS, "video_input": True, "audio_input": True}, input_price="0.1500", output_price="1.5000", context=36864),
+                # --- prism-ml ---
+                m("PrismML Ternary Bonsai 2 27B", "prism-ml/ternary-bonsai-2-27b", caps=VISION_CAPS, input_price="0.0750", output_price="0.5000", cached_price="0.0375", context=262144),
+                # --- qwen ---
+                m("Qwen3 VL 235B A22B Instruct", "qwen/qwen3-vl-235b-a22b-instruct", caps=VISION_CAPS, input_price="0.2100", output_price="1.9000", cached_price="0.1000", context=262144),
+                m("Qwen3 VL 235B A22B Thinking", "qwen/qwen3-vl-235b-a22b-thinking", caps=VISION_CAPS, input_price="0.4000", output_price="4.0000", context=131072),
+                m("Qwen3 VL 30B A3B Instruct", "qwen/qwen3-vl-30b-a3b-instruct", caps=VISION_CAPS, input_price="0.1500", output_price="0.6000", context=262144),
+                m("Qwen3 VL 30B A3B Thinking", "qwen/qwen3-vl-30b-a3b-thinking", caps=VISION_CAPS, input_price="0.2000", output_price="2.4000", context=262144),
+                m("Qwen3 VL 32B Instruct", "qwen/qwen3-vl-32b-instruct", caps=VISION_CAPS, input_price="0.1040", output_price="0.4160", context=131072),
+                m("Qwen3 VL 8B Instruct", "qwen/qwen3-vl-8b-instruct", caps=VISION_CAPS, input_price="0.1170", output_price="0.4550", context=262144),
+                m("Qwen3 VL 8B Thinking", "qwen/qwen3-vl-8b-thinking", caps=VISION_CAPS, input_price="0.1800", output_price="2.1000", context=131072),
+                # Qwen 3.5/3.6 lines retired below; 3.7 Flash stays as the
+                # ultra-cheap long-context pick, 3.7 Plus retires (covered by
+                # 3.8 Flash at a lower price).
                 m("Qwen3.7 Flash", "qwen/qwen3.7-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.0300", output_price="0.1300", cached_price="0.0060", cache_write_price="0.0380", context=1000000, effort=EFFORT_TOGGLEABLE),
-                # --- InclusionAI via OpenRouter (open weights) ---
-                # Ling 3.0 Flash VL (2026-09-10, verified live 2026-10-01):
-                # $0.021/$0.0616 cached $0.0042, 262K ctx, text+image+video,
-                # tools + structured output. The cheapest image-reading row
-                # here, and quick: ~142 tok/s, AA index 25. Earlier passes left
-                # Ling out for having no usage signal; it is on the Artificial
-                # Analysis board now. No effort claim (`reasoning` only).
-                m("Ling 3.0 Flash VL", "inclusionai/ling-3.0-flash-vl", caps={**VISION_CAPS, "video_input": True}, input_price="0.0210", output_price="0.0616", cached_price="0.0042", context=262144),
+                m("Qwen3.8 27B", "qwen/qwen3.8-27b", caps={**VISION_CAPS, "video_input": True}, input_price="0.4250", output_price="2.5500", cached_price="0.0850", cache_write_price="0.5312", context=1000000),
+                m("Qwen3.8 Flash", "qwen/qwen3.8-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="0.4700", cached_price="0.0160", cache_write_price="0.2000", context=1000000, effort=EFFORT_TOGGLEABLE),
+                m("Qwen3.8 Max (0902)", "qwen/qwen3.8-max-0902", caps={**VISION_CAPS, "video_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.2500", cache_write_price="2.5000", context=1000000),
+                m("Qwen3.8 Max Prime", "qwen/qwen3.8-max-prime", caps={**VISION_CAPS, "video_input": True}, input_price="4.0000", output_price="12.0000", cached_price="0.5000", context=1000000),
+                m("Qwen3.8 Omni Flash", "qwen/qwen3.8-omni-flash", caps={**VISION_CAPS, "video_input": True, "audio_input": True}, input_price="0.1500", output_price="0.4700", cached_price="0.0160", context=1000000),
+                # --- rekaai ---
+                m("Reka Edge", "rekaai/reka-edge", caps={**VISION_CAPS, "video_input": True}, input_price="0.1000", output_price="0.1000", context=16384),
+                # --- sakana ---
+                m("Sakana Fugu Max", "sakana/fugu-max", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.2500", context=1000000),
+                m("Sakana Fugu Ultra", "sakana/fugu-ultra", caps=VISION_CAPS, input_price="5.0000", output_price="30.0000", cached_price="0.5000", context=1000000),
+                m("Sakana Fugu Ultra v2", "sakana/fugu-ultra-v2", caps={**VISION_CAPS, "document_input": True}, input_price="5.0000", output_price="30.0000", cached_price="0.5000", context=1000000),
+                m("Sakana Namazu", "sakana/sakana-namazu", caps={**VISION_CAPS, "document_input": True}, input_price="0.9500", output_price="4.0000", cached_price="0.1500", context=262144),
+                # --- stepfun ---
+                m("StepFun Step 3.7 Flash", "stepfun/step-3.7-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.2000", output_price="1.1500", cached_price="0.0400", context=262144),
+                # --- unbiased ---
+                m("Pareto", "unbiased/pareto", caps=VISION_CAPS, input_price="2.5000", output_price="7.5000", cached_price="0.2500", context=262144),
+                # --- x-ai (4.7 current; older numbered gens retire below) ---
+                m("SpaceXAI Grok 4.7", "x-ai/grok-4.7", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.5000", context=500000, effort=EFFORT_STANDARD),
+                m("SpaceXAI Grok Build 0.1", "x-ai/grok-build-0.1", caps={**VISION_CAPS, "document_input": True}, input_price="1.0000", output_price="2.0000", cached_price="0.2000", context=256000),
+                # --- xiaomi (V2.6 current; V2.5 retired below) ---
+                m("Xiaomi MiMo-V2.6-Flash", "xiaomi/mimo-v2.6-flash", caps={**VISION_CAPS, "video_input": True, "audio_input": True}, input_price="0.1400", output_price="0.2800", cached_price="0.0028", context=1050000),
+                m("Xiaomi MiMo-V2.6-Pro", "xiaomi/mimo-v2.6-pro", caps={**VISION_CAPS, "video_input": True, "audio_input": True}, input_price="0.4350", output_price="0.8700", cached_price="0.0036", context=1050000),
+                m("Xiaomi MiMo-V2.6-Pro-UltraSpeed", "xiaomi/mimo-v2.6-pro-ultraspeed", caps={**VISION_CAPS, "video_input": True, "audio_input": True}, input_price="4.3500", output_price="8.7000", cached_price="0.0360", context=1048576, description="The MiMo V2.6 Pro checkpoint on a fast serving tier - about 10x the speed by Xiaomi own figure, at 10x the price."),
+                # --- z-ai (5.x current; 4.x vision retired below) ---
+                m("Z.ai GLM 5.3 Flash", "z-ai/glm-5.3-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="0.5000", cached_price="0.0300", context=1048576, effort=EFFORT_TOGGLEABLE),
+                m("Z.ai GLM 5.3 FlashX", "z-ai/glm-5.3-flashx", caps={**VISION_CAPS, "video_input": True}, input_price="0.3700", output_price="1.2500", cached_price="0.0900", context=1048576),
+                m("Z.ai GLM 5V Turbo", "z-ai/glm-5v-turbo", caps={**VISION_CAPS, "video_input": True}, input_price="1.2000", output_price="4.0000", cached_price="0.2400", context=202752),
                 # --- Platform plumbing: not offered in the picker ---
                 # `OpenRouterNode.default_model` and its 404-retry
                 # `FALLBACK_MODEL` name this id. It is text-only, so

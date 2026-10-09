@@ -27,10 +27,12 @@ from notifications.models import Notification
 #: asking for an OpenRouter row; anything else is an OpenAI-provider twin,
 #: which a refresh never sees (it diffs `openrouter` alone).
 _OPENROUTER_NAMESPACES = (
-    'anthropic/', 'bytedance-seed/', 'deepseek/', 'google/', 'inception/',
-    'inclusionai/', 'meta-llama/', 'meta/', 'minimax/', 'mistralai/',
-    'moonshotai/', 'nvidia/', 'openai/', 'qwen/', 'stepfun/',
-    'thinkingmachines/', 'upstage/', 'x-ai/', 'xiaomi/', 'z-ai/',
+    'anthropic/', 'bytedance-seed/', 'cohere/', 'deepseek/', 'fireworks/',
+    'google/', 'inception/', 'inclusionai/', 'meta-llama/', 'meta/',
+    'minimax/', 'mistralai/', 'moonshotai/', 'nex-agi/', 'nvidia/',
+    'openai/', 'openrouter/', 'perceptron/', 'prism-ml/', 'qwen/',
+    'rekaai/', 'sakana/', 'stepfun/', 'thinkingmachines/', 'typesafe/',
+    'unbiased/', 'upstage/', 'x-ai/', 'xiaomi/', 'z-ai/',
     'stealth/', 'poolside/', 'amazon/',
 )
 

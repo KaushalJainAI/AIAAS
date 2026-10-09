@@ -2662,7 +2662,28 @@ Qwen 3.5 9B on Ollama. Out: every text-only chat row, and the rows beaten on
 price, intelligence, speed and date by one that stays — among them GPT-6
 Astra and Claude Fable 5.1 (both $10/$50, both under Opus 5.5 at $4/$20),
 Haiku 4.5, the Qwen3.8 Max line, Kimi K3 and MiniMax M3. The reason for each
-is beside its id in `RETIRED_MODEL_VALUES`. Three things carry the rule.
+is beside its id in `RETIRED_MODEL_VALUES`.
+
+**Eighth wave (2026-10-08): the full catalogue.** At the user's direction the
+competitiveness bar is gone: every live OpenRouter id with image input +
+tool calling + structured output is seeded (173 rows from a 467-model
+listing), including the 41 pruned earlier as superseded or non-competitive.
+New: Claude Haiku 5.5 (2026-10-07, $0.10/$0.50 base tier, first Haiku with
+effort settings) and Mistral Large 4 (2026-10-06 preview, $0.68/$2.09 sale);
+re-priced: Sonnet 5.5 cache reads halved ($0.20 → $0.10) and DeepSeek V4.1
+Flash up ($0.0155/$0.396 → $0.0351/$1.00); gone: Space Bunny Alpha
+(delisted, `openrouter/free` is the free tier again). Still out: text-only
+ids, the 9 image+tools rows with no structured output, and text-only
+routers.
+
+**Ninth wave (2026-10-08, same day): the outdated generations retire.**
+The full catalogue flooded the picker with prior gens, so ~96 rows went
+back out under one rule — a newer generation from the same vendor covers
+the tier (GPT-4o through GPT-5.5 and the o-series, Gemini 2.5–3.7, Claude
+4.x, Qwen 3.5/3.6, and the same one-generation-back rows elsewhere).
+Dated snapshots go with the base id they snapshot. What stays is latest
+per family plus the cheap/fast picks (~77 OpenRouter rows); successor
+hints cover every newly retired id. Three things carry the rule.
 **"Active" means callable, "offered" means it also reads images**: three
 text-only rows must stay active because the platform calls them (the context
 fold and guest model, `NvidiaNode.default_model`, `OpenRouterNode.
@@ -2694,7 +2715,7 @@ speech list lost two ids OpenRouter no longer serves — one of them,
 listing endpoint exists.
 
 **The catalogue is refreshed, not typed** (`populate_models.py`, a boot script
-rather than a migration). The seven waves of curation are in that file's own
+rather than a migration). The eight waves of curation are in that file's own
 comment block; the 2026-09-28 one was verified against
 `GET https://openrouter.ai/api/v1/models` — which needs no key and carries
 per-token pricing, context windows, input modalities, and the

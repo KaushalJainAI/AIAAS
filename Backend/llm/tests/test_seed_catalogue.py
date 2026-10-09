@@ -203,7 +203,8 @@ class SeedRowShapeTests(SimpleTestCase):
     #: rather than per token, so a per-million figure for either would be a
     #: number we invented. They also have no text context window, being image
     #: and video endpoints rather than chat models.
-    ROUTERS = ('openrouter/auto', 'openrouter/free')
+    ROUTERS = ('openrouter/auto', 'openrouter/auto-beta', 'openrouter/free',
+               'typesafe/jev-router')
     PER_UNIT = ('gpt-image-2.5-sunburst', 'gpt-image-2.5-flare')
 
     def test_every_paid_row_declares_a_price(self):
