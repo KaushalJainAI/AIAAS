@@ -268,6 +268,7 @@ export default function Credentials() {
             <span>{new Date(credential.updated_at).toLocaleDateString()}</span>
           )}
         </div>
+      </div>
     </div>
   );
 
