@@ -88,6 +88,16 @@ class Tool:
     #: an MCP tool; the only thing that changed is where the tool comes from.
     connector: str | None = None
 
+    #: Seconds the loop waits for this call before giving up on it, or None for
+    #: the loop's default (`chat.turn.agent.TOOL_CALL_TIMEOUT`).
+    #:
+    #: Declared only by tools whose *job* is to wait on other work — a
+    #: delegation, a wait on detached tasks. One flat limit cut those off at
+    #: two minutes while the agents they were waiting on carried on (or were
+    #: cancelled mid-step), and the model reported a run that was still going
+    #: as one that had produced nothing.
+    timeout: float | None = None
+
 
 _REGISTRY: Dict[str, Tool] = {}
 
@@ -100,6 +110,7 @@ def tool(
     parallel: bool = False,
     effect: Effect = "irreversible",
     connector: str | None = None,
+    timeout: float | None = None,
 ) -> Callable[[ToolFunc], ToolFunc]:
     """
     Register a tool from its own schema and return the function unchanged.
@@ -117,7 +128,7 @@ def tool(
             )
         _REGISTRY[name] = Tool(
             name, schema, func, requires, sensitive, parallel, effect,
-            connector,
+            connector, timeout,
         )
         return func
 
@@ -166,6 +177,15 @@ def effect_of(name: str) -> Effect:
     """
     entry = _REGISTRY.get(name)
     return entry.effect if entry is not None else "irreversible"
+
+
+def timeout_of(name: str, default: float) -> float:
+    """How long the loop waits for `name`: its own limit, else `default`.
+
+    An unregistered name (every MCP tool) gets the default.
+    """
+    entry = _REGISTRY.get(name)
+    return entry.timeout if entry is not None and entry.timeout else default
 
 
 def connector_of(name: str) -> str | None:

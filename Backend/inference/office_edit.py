@@ -43,7 +43,7 @@ NEW_TEXT_TYPES = {
     'txt': 'txt', 'md': 'md', 'csv': 'csv', 'tsv': 'csv', 'json': 'json',
     'html': 'html', 'htm': 'html', 'py': 'txt', 'js': 'txt', 'ts': 'txt',
     'css': 'txt', 'sql': 'txt', 'yaml': 'txt', 'yml': 'txt', 'xml': 'txt',
-    'sh': 'txt', 'svg': 'txt',
+    'sh': 'txt', 'svg': 'txt', 'tex': 'txt', 'bib': 'txt',
 }
 NEW_OFFICE_TYPES = {'docx', 'pptx', 'xlsx'}
 
@@ -61,6 +61,16 @@ class EditError(Exception):
     def __init__(self, message: str, status: int = 400):
         super().__init__(message)
         self.status = status
+
+
+def _require_room(user, incoming_bytes: int) -> None:
+    """The storage quota (`inference/quota.py`), as this module's refusal."""
+    from . import quota
+
+    try:
+        quota.check(user, incoming_bytes)
+    except quota.QuotaExceeded as exc:
+        raise EditError(str(exc), exc.status) from exc
 
 
 def extension(name: str) -> str:
@@ -225,6 +235,14 @@ def replace_bytes(doc: Document, data: bytes, *, text: str | None = None,
         doc.file.delete(save=False)
         raise
     if old_name and old_name != doc.file.name:
+        # A chat upload's attachment names the same file as its document
+        # (`chat/sources/attachments.py::store_document`). Moved with it, or
+        # the attachment is left naming the bytes deleted just below.
+        try:
+            doc.chat_attachments.filter(file=old_name).update(
+                file=doc.file.name, file_size=doc.file_size)
+        except Exception:  # noqa: BLE001 — a stale pointer must not fail a save
+            pass
         try:
             storage.delete(old_name)
         except Exception:  # noqa: BLE001 — an orphaned blob is not worth failing a save
@@ -452,6 +470,7 @@ def create(user, raw_name: Any, folder, content: str = '') -> Document:
         )
     if not isinstance(content, str):
         raise EditError('`content` must be text.')
+    _require_room(user, len(content.encode('utf-8')))
     name = free_name(user, folder, name)
 
     if ext in NEW_TEXT_TYPES:
@@ -493,6 +512,7 @@ def copy(doc: Document, folder) -> Document:
     The copy is `stored` and never indexed: duplicating a file must not start a
     second embedding job for text the index already holds.
     """
+    _require_room(doc.user, doc.file_size or 0)
     name = doc.name
     if folder == doc.folder:
         stem, dot, ext = name.rpartition('.')

@@ -12,7 +12,7 @@
  * opaque origin that cannot read this app's storage or cookies, under a CSP
  * that refuses every network request.
  */
-import { useMemo } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Download, FileText, Globe, Loader2 } from 'lucide-react';
@@ -21,8 +21,16 @@ import authService from '../api/auth';
 import pagesService, { type PublishedPage } from '../api/pages';
 import ChartArtifact from '../components/chat/ChartArtifact';
 import MarkdownMessage from '../components/chat/MarkdownMessage';
+import { isLatexFile } from '../lib/latex';
 import { htmlDocument, splitReport } from '../lib/pageBody';
 import { toast } from '../lib/toastStore';
+
+// KaTeX loads only when the shared file is LaTeX.
+const LatexPreview = lazy(() => import('../components/files/LatexPreview'));
+
+/** Shared files a reader can be shown as text instead of only offered as a download. */
+const TEXT_FILE = /\.(txt|log|md|markdown|tex|latex|ltx|bib|csv|tsv|json|py|js|jsx|ts|tsx|css|sql|ya?ml|xml|sh|toml|ini)$/;
+const TEXT_PREVIEW_CHARS = 300_000;
 
 async function load(slug: string): Promise<{ page: PublishedPage; isPublic: boolean }> {
   try {
@@ -139,8 +147,32 @@ function FilePage({ page, isPublic }: { page: PublishedPage; isPublic: boolean }
   const name = (page.file_name || '').toLowerCase();
   const isPdf = name.endsWith('.pdf');
   const isImage = /\.(png|jpe?g|gif|webp|svg)$/.test(name);
+  const isText = TEXT_FILE.test(name);
+  const { data: text } = useQuery({
+    queryKey: ['published-page-text', page.slug, isPublic],
+    queryFn: async () => (await (await pagesService.download(page.slug, isPublic)).text()).slice(0, TEXT_PREVIEW_CHARS),
+    enabled: page.has_file && isText,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
   return (
     <div className="space-y-3">
+      {text !== undefined && text.trim() !== '' && (
+        isLatexFile(name) ? (
+          <Suspense fallback={<div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}>
+            <LatexPreview source={text} className="rounded-md border border-border/60" />
+          </Suspense>
+        ) : /\.(md|markdown)$/.test(name) ? (
+          <article className="rounded-md border border-border/60 bg-card px-5 py-4">
+            <MarkdownMessage content={text} variant="full" />
+          </article>
+        ) : (
+          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-card p-4 font-mono text-[12.5px] leading-relaxed">
+            {text}
+          </pre>
+        )
+      )}
+
       {page.has_file && previewUrl && (isPdf || isImage) && (
         isPdf ? (
           <iframe src={previewUrl} title={page.file_name || 'File'} className="block h-[70vh] w-full rounded-md border border-border/60 bg-white" />

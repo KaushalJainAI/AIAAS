@@ -117,3 +117,17 @@ Thumbs.db
 
 # LinkedIn post drafts and demo video
 linkedin-post/
+
+# Session tokens captured by local tooling
+.session.json
+*.session.json
+.auth/
+storageState*.json
+
+# Recorded video (demos, walkthroughs, screen captures)
+*.mp4
+*.webm
+*.mov
+
+# Phase 0 answers for the ChatGPT plan provider (raw API responses, no tokens)
+Backend/scripts/chatgpt_spike_out/

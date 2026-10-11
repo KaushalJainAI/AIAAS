@@ -1,5 +1,9 @@
 # OpenCode Zen as a fifth LLM provider — plan
 
+> **Retired 2026-10-11.** OpenCode Zen was removed as a provider (handler,
+> credential type, seed rows and UI). Kept as history; see
+> `CHATGPT_PLAN_PROVIDER_PLAN.md` Phase 1 for the removal.
+
 Status: implemented 2026-09-22, except live verification — no Zen key was
 available, so chat-completions answers, streaming and `tool_calls` are still
 unverified (see §8). Do not mark this fully implemented until §8 is filled

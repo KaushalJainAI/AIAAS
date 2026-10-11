@@ -535,6 +535,13 @@ export default function ChatMessageItem({
             />
           )}
 
+        {/* The plans of the agents this reply handed work to. */}
+        {Object.entries(message.metadata?.worker_plans ?? {}).map(([id, plan]) => (
+          Array.isArray(plan?.todos) && plan.todos.length > 0 && (
+            <PlanSummary key={id} history={[plan.todos]} label={plan.agent_name || 'Agent'} />
+          )
+        ))}
+
         {/* Files the turn saved, linked by id rather than by
             whatever path the prose happened to mention. */}
         <FileCards files={message.metadata?.files} />

@@ -63,12 +63,15 @@ class ChatSession(models.Model):
 
     #: How much this conversation asks before acting: `ask` (today's behaviour),
     #: `auto` (the reviewer may let matching irreversible calls through) or
-    #: `plan` (mutating tools withheld — look and report only). `full` is never
-    #: offered in chat; it stays an agent-builder choice. Switchable mid-turn
-    #: through the steer mailbox, exactly like an agent run's level.
+    #: `plan` (mutating tools withheld — look and report only) or `full`
+    #: ("Full auto": nothing asks for approval, here or in the agents this
+    #: chat starts). `full` is chosen per conversation and can never be the
+    #: account default. Switchable mid-turn through the steer mailbox, exactly
+    #: like an agent run's level.
     AUTONOMY_CHOICES = [
         ('ask', 'Ask'),
         ('auto', 'Auto'),
+        ('full', 'Full auto'),
         ('plan', 'Plan'),
     ]
     autonomy = models.CharField(max_length=10, default='ask')

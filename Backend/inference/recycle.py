@@ -259,14 +259,13 @@ def _reindex(doc_ids) -> None:
     """Put restored documents back in their KB, through the upload door."""
     if not doc_ids:
         return
-    import threading
-
-    from .tasks import process_document
+    from . import indexing
 
     for doc_id in set(doc_ids):
-        # Same in-process thread the upload path uses — there is no broker on
-        # this deployment, so .delay() would hang and then fail.
-        threading.Thread(target=process_document, args=(doc_id,), daemon=True).start()
+        # The same bounded in-process queue the upload path uses — there is no
+        # broker on this deployment, so .delay() would hang and then fail. A
+        # restore takes up to MAX_MOVE_BATCH documents at once.
+        indexing.index_document(doc_id)
 
 
 # ---------------------------------------------------------------------------

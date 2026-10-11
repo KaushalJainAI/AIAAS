@@ -96,14 +96,17 @@ def _enrich_with_attachments(
         elif not already_answered[attachment_id]:
             message.content += (
                 f"\n\n[FULL RESOURCE CONTENT: {attachment.filename}]\n{text}\n"
-                f"[END FULL CONTENT]"
+                f"[END FULL CONTENT]\n"
+                f"[Working file: `/Chat/{attachment.filename}` — open it with "
+                f"`read_file`, locate it with `find_files`.]"
             )
         else:
             message.content += (
                 f"\n\n[RESOURCE: FILE] - ID: {attachment_id}\n"
                 f"Preview: {text[:LARGE_FILE_PREVIEW_LENGTH]}...\n"
                 f"[You have already read \"{attachment.filename}\" in full. To cite it "
-                f"precisely, call read_attachment_text with ID {attachment_id}.]"
+                f"precisely, call read_attachment_text with ID {attachment_id}. "
+                f"Working file: `/Chat/{attachment.filename}`.]"
             )
 
 

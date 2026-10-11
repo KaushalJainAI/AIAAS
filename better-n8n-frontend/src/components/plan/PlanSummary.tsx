@@ -15,9 +15,11 @@ import PlanView from './PlanView';
 interface Props {
   history: TodoItem[][];
   actions?: StepAction[];
+  /** Whose plan this is. Left out, it is the reply's own. */
+  label?: string;
 }
 
-function PlanSummary({ history, actions }: Props) {
+function PlanSummary({ history, actions, label }: Props) {
   const [open, setOpen] = useState(false);
   const view = useMemo(() => buildPlanView(history), [history]);
   if (!view.total) return null;
@@ -41,7 +43,7 @@ function PlanSummary({ history, actions }: Props) {
       className="my-2 flex min-h-[32px] items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1 text-[12px] text-muted-foreground hover:bg-muted/40"
     >
       <ListChecks className="h-3.5 w-3.5" aria-hidden />
-      <span className="font-medium text-foreground">Plan</span>
+      <span className="font-medium text-foreground">{label ? `${label}'s plan` : 'Plan'}</span>
       <span className="tabular-nums">{planCounts(view)}</span>
       <ChevronRight className="h-3 w-3" aria-hidden />
     </button>

@@ -353,7 +353,7 @@ class SystemPromptTests(SimpleTestCase):
         base = {'skills': [], 'knowledge_bases': [], 'ctx': {}}
         live = build_system_prompt(self._agent(), base, can_ask=True)
         alone = build_system_prompt(self._agent(), base, can_ask=False)
-        self.assertIn('pauses the run until someone answers', live)
+        self.assertIn('The run waits for the answer', live)
         self.assertNotIn('Nobody answers', live)
         self.assertIn('Nobody answers', alone)
 

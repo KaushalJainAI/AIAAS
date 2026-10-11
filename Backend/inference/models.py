@@ -458,13 +458,25 @@ class Document(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        from .utils import sanitize_document_content
+        from .utils import TEXT_FILE_TYPES, sanitize_document_content
         if self.folder_id and self.folder.user_id != self.user_id:
             # Mirrors Folder.save() — the last line of defence behind
             # inference/filesystem.py.
             raise ValueError('A document may not be filed outside its owner.')
         if self.content_text:
-            self.content_text = sanitize_document_content(self.content_text)
+            if self.file_type in TEXT_FILE_TYPES:
+                # For a text file `content_text` *is* the file. `bleach.clean`
+                # turned `&` into `&amp;`, `<` into `&lt;` and deleted anything
+                # tag-shaped, so a LaTeX table, an `a < b`, a `&&` or a whole
+                # HTML page was saved as something else. Nothing renders this
+                # field as markup (React escapes it, HTML previews are
+                # sandboxed), so the only thing to remove is NUL, which
+                # Postgres refuses.
+                self.content_text = self.content_text.replace('\x00', '')
+            else:
+                # Text extracted from a binary only feeds search.
+                self.content_text = sanitize_document_content(self.content_text)
+
         # Keep the legacy mirror true by construction rather than by every
         # writer remembering to set both. `update_fields` writes have to be
         # told about it, or the column silently stops tracking.
@@ -822,6 +834,9 @@ class PublishedPage(models.Model):
     #: the link is a snapshot: trashing the original never breaks it.
     file = models.FileField(upload_to='published_pages/%Y/%m/', blank=True, default='')
     file_name = models.CharField(max_length=255, blank=True, default='')
+    #: Bytes the snapshot holds, so the storage quota can sum them
+    #: (`inference/quota.py`) without a `stat` per page.
+    file_size = models.IntegerField(default=0)
     visibility = models.CharField(
         max_length=10, choices=VISIBILITY_CHOICES, default='platform',
     )

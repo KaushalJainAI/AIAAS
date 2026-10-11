@@ -148,16 +148,18 @@ def render_answer(spec: dict[str, Any], value: Any) -> str:
     "function": {
         "name": "ask_user",
         "description": (
-            "Ask the user one question when the task is genuinely ambiguous and "
-            "the answer would change what you do — which of several things they "
-            "meant, a number only they know (a budget, a count, a date range), "
-            "whether a risky step is wanted. Prefer `choice` with 2-8 short "
+            "Ask the user one question whenever the answer would change what "
+            "you produce — which of several things they meant, who it is for, "
+            "the format or length, a number only they know (a budget, a "
+            "count, a date range), whether a risky step is wanted. Asking at "
+            "the start of a job is expected and cheap: the user taps an "
+            "answer. Prefer `choice` with 2-8 short "
             "options (add `allow_other` when your options may not cover it) or "
             "`number` with bounds; use `text` only when neither fits. The run "
             "pauses and the answer comes back as this tool's result. If nobody "
             "can answer (a scheduled run), you are told to proceed on your "
             "stated assumption — then repeat the question in your final answer. "
-            "One question at a time, and never ask what the task, its inputs, "
+            "One question per call, and never ask what the task, its inputs, "
             "the conversation or your tools already tell you."
         ),
         "parameters": {

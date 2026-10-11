@@ -44,12 +44,14 @@ import { cn } from '../../lib/utils';
 
 // pdf.js stays a lazy chunk: only a PDF preview downloads it.
 const PdfJsViewer = lazy(() => import('./PdfJsViewer'));
+// KaTeX too: only a LaTeX preview downloads it.
+const LatexPreview = lazy(() => import('./LatexPreview'));
 
 /** Characters shown on open, and added by each "Show more". */
 const PREVIEW_STEP = 200_000;
 
 /** Kinds that have a rendered view as well as their source. */
-const RENDERED: ReadonlySet<PreviewKind> = new Set(['markdown', 'csv', 'json', 'html', 'notebook']);
+const RENDERED: ReadonlySet<PreviewKind> = new Set(['markdown', 'csv', 'json', 'html', 'notebook', 'latex']);
 
 /** Kinds whose source is shown as code rather than as plain text. */
 const SOURCE_LANGUAGE: Partial<Record<PreviewKind, string>> = {
@@ -294,6 +296,10 @@ export default function FilePreview({ doc, className }: Props) {
             <HtmlFrame html={clipped} title={doc.filename} />
           ) : rendered && kind === 'notebook' && notebook ? (
             <NotebookView notebook={notebook} />
+          ) : rendered && kind === 'latex' ? (
+            <Suspense fallback={<div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Drawing the page…</div>}>
+              <LatexPreview source={clipped} />
+            </Suspense>
           ) : (
             <CodeView code={clipped} language={sourceLanguage} wrap={wrap} />
           )

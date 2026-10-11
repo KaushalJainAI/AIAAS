@@ -28,6 +28,10 @@ const TABLE: [string, string, ReturnType<typeof kindOf>][] = [
   ['s.mp3', 'audio', 'media'],
   ['blob.bin', 'other', 'media'],
   ['code.py', 'txt', 'code'],
+  ['paper.tex', 'txt', 'latex'],
+  // Uploaded before LaTeX had a type: still a page, not an icon.
+  ['old.tex', 'other', 'latex'],
+  ['refs.bib', 'txt', 'code'],
   ['n.txt', 'txt', 'text'],
 ];
 

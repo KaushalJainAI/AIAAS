@@ -26,6 +26,7 @@ import java from 'highlight.js/lib/languages/java';
 import javascript from 'highlight.js/lib/languages/javascript';
 import json from 'highlight.js/lib/languages/json';
 import kotlin from 'highlight.js/lib/languages/kotlin';
+import latex from 'highlight.js/lib/languages/latex';
 import markdown from 'highlight.js/lib/languages/markdown';
 import php from 'highlight.js/lib/languages/php';
 import python from 'highlight.js/lib/languages/python';
@@ -40,7 +41,7 @@ import yaml from 'highlight.js/lib/languages/yaml';
 
 const GRAMMARS = {
   bash, c, cpp, csharp, css, diff, dockerfile, go, ini, java, javascript, json,
-  kotlin, markdown, php, python, r, ruby, rust, sql, swift, typescript, xml, yaml,
+  kotlin, latex, markdown, php, python, r, ruby, rust, sql, swift, typescript, xml, yaml,
 };
 
 for (const [name, grammar] of Object.entries(GRAMMARS)) {

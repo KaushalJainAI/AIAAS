@@ -43,16 +43,16 @@ async def new_command(call: CommandCall, ctx: CommandContext) -> CommandResult:
 
 @command(
     name="mode",
-    summary="Switch chat autonomy: ask, auto or plan",
-    args=[Arg("text", kind="text", required=False, hint="ask, auto or plan")],
+    summary="Switch chat autonomy: ask, auto, full or plan",
+    args=[Arg("text", kind="text", required=False, hint="ask, auto, full or plan")],
     kind="client", group="general",
 )
 async def mode_command(call: CommandCall, ctx: CommandContext) -> CommandResult:
     level = str(call.args.get("text") or call.text or "").strip().lower()
-    if level and level not in ("ask", "auto", "plan"):
+    if level and level not in ("ask", "auto", "full", "plan"):
         return CommandResult(
             status="error",
-            message=f"'{level}' is not a chat mode. Use ask, auto or plan.",
+            message=f"'{level}' is not a chat mode. Use ask, auto, full or plan.",
         )
     return CommandResult(
         status="ok", args={"mode": level} if level else {},

@@ -32,7 +32,7 @@ flowchart LR
 | Built-in tools | 156, each declared once with `@tool` |
 | Memory in the prompt | 2,000 characters, categories take turns (`profile` first) |
 | Solution freshness | `principle` never stale · `procedure` 365 d · `versioned` 180 d · `config` 90 d · `time_sensitive` 30 d |
-| LLM providers | 5 (OpenRouter default, OpenAI, NVIDIA, Ollama, OpenCode Zen) |
+| LLM providers | 5 (OpenRouter default, OpenAI, NVIDIA, Ollama, ChatGPT plan by sign-in) |
 | Default model | `openrouter/free` router, `medium` effort |
 | Chat tool iterations (default) | 12 |
 | Delegation depth / parallel workers | 2 / 8 |

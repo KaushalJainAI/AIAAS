@@ -74,6 +74,13 @@ class VocabularyTests(TestCase):
     def test_a_sniffed_text_type_with_no_extension_is_still_text(self):
         self.assertEqual(normalize_file_type('README', 'text/plain'), 'txt')
 
+    def test_latex_sources_are_text_whatever_the_browser_called_them(self):
+        # Browsers upload a `.tex` as `application/x-tex`, which no MIME rule
+        # matches, so it used to land as `other`: kept, but not editable.
+        self.assertEqual(normalize_file_type('paper.tex', 'application/x-tex'), 'txt')
+        self.assertEqual(normalize_file_type('refs.bib'), 'txt')
+        self.assertEqual(normalize_file_type('thesis.cls'), 'txt')
+
 
 class UploadPolicyTests(TestCase):
     def validate(self, name, data, content_type='application/octet-stream'):

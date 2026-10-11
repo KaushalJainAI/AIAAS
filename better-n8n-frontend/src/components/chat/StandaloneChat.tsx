@@ -16,11 +16,13 @@ import ThinkingTimer from './ThinkingTimer';
 import { 
   Loader2,
   X,
+  Plus,
   Search,
   Image as ImageIcon,
   Video,
   File as FileIcon,
   Shield,
+  ShieldOff,
   ChevronDown,
   BrainCircuit,
   Settings2,
@@ -63,6 +65,7 @@ import { useMessagePanels } from '../../hooks/useMessagePanels';
 import { useMessageSelection } from '../../hooks/useMessageSelection';
 import { useChatModelSelection } from '../../hooks/useChatModelSelection';
 import { useEffortSelection, EFFORT_LABELS } from '../../hooks/useEffortSelection';
+import { ChatGPTPlanPanel } from './ChatGPTPlanPanel';
 import { EffortPicker } from './EffortPicker';
 import { prettyModel } from '../../lib/modelNames';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -81,7 +84,7 @@ import { apiErrorMessage } from '../../lib/apiError';
 import { appendTranscript } from '../../lib/voice';
 import { useVoiceInput, voiceInputSupported } from '../../hooks/useVoiceInput';
 import { VoiceInputButton } from './VoiceInputButton';
-import { nextChatMode, toChatMode } from '../../lib/chatMode';
+import { isChatMode, nextChatMode, toChatMode, type ChatMode } from '../../lib/chatMode';
 import CommandPalette from './CommandPalette';
 import CommandCard from './CommandCard';
 import { useCommands } from '../../hooks/useCommands';
@@ -231,7 +234,7 @@ export default function StandaloneChat() {
   // --- Model Selection State ---
   // Default to NVIDIA Nemotron 3 Super so the chat works out-of-the-box using
   // the server-side NVIDIA_API_KEY (no per-user credential required).
-  const { providers: dynamicProviders, meta: catalogueMeta } = useAIModels();
+  const { providers: dynamicProviders, meta: catalogueMeta, refresh: refreshModels } = useAIModels();
 
   const {
     provider: llmProvider,
@@ -281,6 +284,31 @@ export default function StandaloneChat() {
 
   // --- File Upload State ---
   const [isUploading, setIsUploading] = useState(false);
+  // The `+` button's native picker. Uncontrolled and hidden: the button
+  // clicks it, the change handler uploads, and the value is cleared so the
+  // same file can be picked twice in a row.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Files attached to this conversation: the working set the agent sees.
+  // Derived from the transcript's upload markers (`metadata.attachment_id`),
+  // so it survives reloads — it is the same reference the backend's
+  // `recent_attachments` reads when it builds the next turn.
+  const attachedFiles = useMemo(() => {
+    const seen = new Map<string, { name: string; fileType?: string; vfsPath?: string }>();
+    for (const m of messages) {
+      const meta = (m.metadata ?? {}) as {
+        attachment_id?: string; filename?: string; file_type?: string; vfs_path?: string;
+      };
+      if (m.role === 'system' && meta.attachment_id && !seen.has(meta.attachment_id)) {
+        const nameFromContent = m.content.match(/\*\*([^*]+)\*\*/)?.[1];
+        seen.set(meta.attachment_id, {
+          name: meta.filename || nameFromContent || 'Attached file',
+          fileType: meta.file_type,
+          vfsPath: meta.vfs_path,
+        });
+      }
+    }
+    return [...seen.entries()].map(([id, f]) => ({ id, ...f }));
+  }, [messages]);
 
   // --- Live Streaming State (Perplexity-like) ---
   const {
@@ -542,7 +570,36 @@ export default function StandaloneChat() {
     }
   };
 
+  const uploadFileToSession = async (sessionId: string, file: File) => {
+    setIsUploading(true);
+    try {
+      const response = await chatService.uploadFile(sessionId, file);
+      const where = typeof response.vfs_path === 'string' && response.vfs_path
+        ? ` — working file ${response.vfs_path}`
+        : '';
+      toast.success(`${response.message || response.status || 'File uploaded successfully'}${where}`);
+      // Refresh messages to show the system message about the upload. The
+      // marker carries `metadata.attachment_id`, which is what the next turn
+      // reads (`recent_attachments`) — the upload *is* the reference the
+      // agent works with, not a separate step after it.
+      const sessionDetails = await chatService.getSession(sessionId);
+      if (sessionDetails?.messages) {
+        setMessages(sessionDetails.messages as unknown as ChatMessage[]);
+        setCurrentSession(prev => (prev ? { ...prev, ...sessionDetails } : sessionDetails));
+      }
+      textareaRef.current?.focus();
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Failed to upload file'));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const processFile = async (file: File) => {
+    if (isGuest) {
+      toast.error('Log in to attach files to a chat.');
+      return;
+    }
     if (!conversationId) {
       // Need a session first
       try {
@@ -553,6 +610,7 @@ export default function StandaloneChat() {
           system_prompt: ""
         });
         setConversationId(newSession.id);
+        setCurrentSession(newSession);
         uploadFileToSession(newSession.id, file);
       } catch (err) {
         console.error('Failed to create session for upload', err);
@@ -561,6 +619,34 @@ export default function StandaloneChat() {
     } else {
       uploadFileToSession(conversationId, file);
     }
+  };
+
+  /**
+   * The `+` button in the composer. One picker, many files: each is uploaded
+   * to this chat in turn, and each upload writes a system marker whose
+   * `attachment_id` the next turn picks up — so "attached" and "the agent
+   * knows we are working with that" are the same action, not two.
+   */
+  const handlePickFiles = () => {
+    if (isGuest) {
+      toast.error('Log in to attach files to a chat.');
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    // Sequential: each refresh replaces the transcript, so parallel uploads
+    // would race and drop each other's markers from the view.
+    void (async () => {
+      for (const file of Array.from(files)) {
+        await processFile(file);
+      }
+    })();
+    // Cleared so picking the same file twice still fires `onChange`.
+    e.target.value = '';
   };
 
   const handleDeleteMessage = async (msgId: number) => {
@@ -643,23 +729,6 @@ export default function StandaloneChat() {
     } catch (err) {
       console.error("Failed to delete conversation", err);
       toast.error("Failed to delete conversation");
-    }
-  };
-
-  const uploadFileToSession = async (sessionId: string, file: File) => {
-    setIsUploading(true);
-    try {
-      const response = await chatService.uploadFile(sessionId, file);
-      toast.success(response.status || "File uploaded successfully");
-      // Refresh messages to show the system message about the upload
-      const sessionDetails = await chatService.getSession(sessionId);
-      if (sessionDetails?.messages) {
-        setMessages(sessionDetails.messages as unknown as ChatMessage[]);
-      }
-    } catch (err: unknown) {
-      toast.error(apiErrorMessage(err, 'Failed to upload file'));
-    } finally {
-      setIsUploading(false);
     }
   };
 
@@ -783,7 +852,6 @@ export default function StandaloneChat() {
    * mid-turn rides the steer mailbox and stands for the rest of the run.
    * Auto looks visibly different so nobody is in it without knowing.
    */
-  type ChatMode = 'ask' | 'auto' | 'plan';
   const [autonomy, setAutonomy] = useState<ChatMode>('ask');
 
   useEffect(() => {
@@ -1214,7 +1282,7 @@ export default function StandaloneChat() {
         break;
       case 'mode': {
         const level = arg.toLowerCase();
-        if (level === 'ask' || level === 'auto' || level === 'plan') {
+        if (isChatMode(level)) {
           await setMode(level);
         } else {
           // Bare `/mode`: cycle like Shift+Tab rather than refusing.
@@ -2200,6 +2268,11 @@ export default function StandaloneChat() {
                 <PlanDock history={dockPlan.history} actions={dockPlan.actions}
                   live={dockPlan.live} />
               )}
+              {/* Each agent working for this turn shows its own plan too. */}
+              {isLoading && live.workerPlans.map(wp => (
+                <PlanDock key={wp.execution_id} history={[wp.todos]} live
+                  label={wp.agent_name} />
+              ))}
 
               {/* Continue Exploring — above the chatbox */}
               {!isInitialState && !isLoading && (() => {
@@ -2325,14 +2398,16 @@ export default function StandaloneChat() {
                       onClose={() => setPaletteOpen(false)}
                     />
                   )}
-                  {/* Mode picker — Ask · Auto · Plan. Auto is amber on purpose:
-                      a mode that acts without asking must not look like the
-                      default. Hidden for guests, who run one pinned mode. */}
+                  {/* Mode picker — Ask · Auto · Full auto · Plan. Auto is amber
+                      and Full auto red on purpose: a mode that acts without
+                      asking must not look like the default. Hidden for
+                      guests, who run one pinned mode. */}
                   {!isGuest && (
                     <div className="flex items-center gap-1 px-4 pt-2.5" role="group" aria-label="Chat mode">
                       {([
                         { key: 'ask' as const, label: 'Ask', hint: 'Approve side effects (Shift+Tab to cycle)' },
-                        { key: 'auto' as const, label: 'Auto', hint: 'Clear matches run; the rest still ask' },
+                        { key: 'auto' as const, label: 'Auto', hint: 'Anything that can be undone runs; sending, publishing and spending are still checked' },
+                        { key: 'full' as const, label: 'Full auto', hint: 'Nothing asks for approval — sending, publishing and spending included. This chat only.' },
                         { key: 'plan' as const, label: 'Plan', hint: 'Look, don’t touch — no mutating tools' },
                       ]).map(m => (
                         <button
@@ -2345,6 +2420,8 @@ export default function StandaloneChat() {
                             autonomy === m.key
                               ? m.key === 'auto'
                                 ? 'bg-amber-500/15 border-amber-500/50 text-amber-600 dark:text-amber-400'
+                                : m.key === 'full'
+                                  ? 'bg-red-500/15 border-red-500/50 text-red-600 dark:text-red-400'
                                 : m.key === 'plan'
                                   ? 'bg-purple-500/15 border-purple-500/40 text-purple-500'
                                   : 'bg-primary/10 border-primary/30 text-primary'
@@ -2352,6 +2429,7 @@ export default function StandaloneChat() {
                           )}
                         >
                           {m.key === 'ask' && <Shield className="w-3 h-3" />}
+                          {m.key === 'full' && <ShieldOff className="w-3 h-3" />}
                           {m.label}
                         </button>
                       ))}
@@ -2359,6 +2437,28 @@ export default function StandaloneChat() {
                   )}
                   {/* Textarea row */}
                   <div className="p-4 pb-0">
+                    {/* Files attached to this chat. Each chip is a file the
+                        agent works with: `/Chat/<name>` for its file tools
+                        and the attachment id for `read_attachment_text`. */}
+                    {!isGuest && attachedFiles.length > 0 && (
+                      <div className="mb-2 flex flex-wrap items-center gap-1.5 px-2" aria-label="Files attached to this chat">
+                        {attachedFiles.map((f) => (
+                          <span
+                            key={f.id}
+                            title={f.vfsPath ? `Working file: ${f.vfsPath} — the agent works with this file` : 'The agent works with this file'}
+                            className="inline-flex min-h-[28px] max-w-full items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[12px] font-medium text-foreground"
+                          >
+                            <FileIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                            <span className="max-w-[180px] truncate sm:max-w-[240px]">{f.name}</span>
+                            {f.vfsPath && (
+                              <span className="hidden sm:inline max-w-[160px] truncate font-mono text-[11px] text-muted-foreground">
+                                {f.vfsPath}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {/* Picked command + chips: the structured input, shown as
                         chips carrying ids — never re-resolved names. */}
                     {pickedCommand && (
@@ -2467,6 +2567,43 @@ export default function StandaloneChat() {
                     {/* Left: intent pills */}
                     <div className="flex items-center gap-1.5 min-w-0 flex-1 basis-0">
                       <div className="flex items-center gap-1.5 min-w-0 max-w-full overflow-x-auto scrollbar-none scroll-rail pr-1">
+                        {/* Attach a file to this chat. Uploads land in `/Chat/`
+                            and the marker's `attachment_id` is what the next
+                            turn reads — the file the agent works with. Hidden
+                            for guests, who have no upload endpoint. */}
+                        {!isGuest && (
+                          <>
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              multiple
+                              className="hidden"
+                              aria-hidden
+                              tabIndex={-1}
+                              onChange={handleFileInputChange}
+                            />
+                            <button
+                              onClick={handlePickFiles}
+                              disabled={isUploading}
+                              aria-label="Attach a file to this chat"
+                              title={attachedFiles.length > 0
+                                ? `Attach a file (${attachedFiles.length} attached — the agent works with these)`
+                                : 'Attach a file to this chat'}
+                              className={cn(
+                                "flex items-center justify-center h-8 w-8 rounded-lg shrink-0 border",
+                                "transition-colors duration-200 ease-out active:scale-95",
+                                "disabled:opacity-40",
+                                attachedFiles.length > 0
+                                  ? 'bg-primary/10 border-primary/30 text-primary'
+                                  : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40",
+                              )}
+                            >
+                              {isUploading
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <Plus className="w-4 h-4" />}
+                            </button>
+                          </>
+                        )}
                         {/* Slash commands, without typing `/`. Typing a
                             leading slash is undiscoverable — on a phone
                             keyboard it is two taps away behind the symbols
@@ -2579,6 +2716,13 @@ export default function StandaloneChat() {
                               "Default" on every model would be noise, and one
                               shown for a model with no effort control would be
                               a claim about a setting that is not applied. */}
+                          {/* Whose usage this turn spends has to be visible
+                              without opening the picker. */}
+                          {llmProvider === 'chatgpt' && (
+                            <span className="hidden sm:inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-muted text-muted-foreground shrink-0">
+                              ChatGPT plan
+                            </span>
+                          )}
                           {effortSupported && llmEffort && (
                             <span className="inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
                               {EFFORT_LABELS[llmEffort] ?? llmEffort}
@@ -2663,21 +2807,6 @@ export default function StandaloneChat() {
                                     >
                                       <span className="flex-1 min-w-0">
                                         <span className="truncate block">{m.name}</span>
-                                        {/* Training-data notice, sourced from
-                                            the catalogue row's description
-                                            (seeded in `populate_models.py`),
-                                            not hard-coded here: every free
-                                            Zen model retains or trains on
-                                            data, and an agent with mailbox
-                                            access could send one your Gmail.
-                                            Shown only for opencode free
-                                            models — other providers' rows
-                                            keep their one-line layout. */}
-                                        {llmProvider === 'opencode' && m.is_free && m.description ? (
-                                          <span className="block truncate text-[10px] font-normal opacity-70">
-                                            {m.description}
-                                          </span>
-                                        ) : null}
                                       </span>
                                       {m.is_free && (
                                         <span className={cn(
@@ -2704,28 +2833,13 @@ export default function StandaloneChat() {
                                 })()}
                               </div>
 
-                              {/* Zen models need the user's own key (no
-                                  platform key by design, ToS), so a keyless
-                                  user gets a way forward, not just a dimmed
-                                  grid. The Credentials page lists the
-                                  `opencode` type once seeded; it takes no
-                                  pre-selection param, so this is a plain
-                                  link. */}
-                              {(() => {
-                                const current = dynamicProviders.find(p => p.slug === llmProvider);
-                                if (!current || current.has_credentials || current.slug !== 'opencode') return null;
-                                return (
-                                  <div className="px-3 pb-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => { setShowModelDropdown(false); navigate('/credentials'); }}
-                                      className="w-full text-center text-[11px] text-primary hover:underline font-medium py-1.5"
-                                    >
-                                      Add your OpenCode Zen key to use these models
-                                    </button>
-                                  </div>
-                                );
-                              })()}
+                              {/* The ChatGPT plan has no key to paste: it
+                                  is a sign-in, and this is where it happens.
+                                  Draws nothing on a server where the feature
+                                  is off. */}
+                              {llmProvider === 'chatgpt' && (
+                                <ChatGPTPlanPanel onChanged={() => { void refreshModels(); }} />
+                              )}
 
                               {/* Renders nothing when this model has no effort
                                   control, which is most of the catalogue. */}

@@ -20,8 +20,9 @@ non-overlapping reasons rather than for breadth:
               user has configured anything
   openai      the API key a user is most likely to already hold
   ollama      local inference, for offline and air-gapped use
-  opencode    free models on the user's own OpenCode Zen account — bring your
-              own key; never a platform key (ToS: own use only)
+  chatgpt     the user's own ChatGPT plan, by sign-in (Continue with
+              ChatGPT) — never a platform key, and offered only where
+              `CHATGPT_PLAN_ENABLED` is on (see `llm/chatgpt_plan.py`)
 
 Adding a fifth is deliberately a small change — a slug here, a subclass in
 `llm_providers.py` — but it should answer a need the four above cannot, not
@@ -40,9 +41,9 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = (
     'nvidia',
     'openai',
     'ollama',
-    # Last on purpose: the first entry is the default, and a bring-your-own-
-    # key provider can never be a default — a new user has no key.
-    'opencode',
+    # Last on purpose: the first entry is the default, and a sign-in
+    # provider can never be a default — a new user has not signed in.
+    'chatgpt',
 )
 
 #: Providers that were offered previously, mapped to the OpenRouter namespace
@@ -69,7 +70,7 @@ PROVIDER_LABELS: dict[str, str] = {
     'nvidia': 'NVIDIA NIM',
     'openai': 'OpenAI',
     'ollama': 'Ollama (Local)',
-    'opencode': 'OpenCode Zen (free models, your key)',
+    'chatgpt': 'ChatGPT plan (your subscription)',
 }
 
 

@@ -9,8 +9,10 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  ChevronLeft, ChevronRight, Circle, Download, Eraser, Highlighter, Loader2, Maximize2, Minus as LineIcon,
-  Pencil, PenTool, RotateCcw, RotateCw, Save, Square, Trash2, Undo2, ZoomIn, ZoomOut,
+  Camera, ChevronLeft, ChevronRight, Circle, Copy, Download, Eraser, FlipHorizontal2, FlipVertical2,
+  Gauge, Highlighter, Loader2, Maximize2, Minus as LineIcon, MoveUpRight, Pause, Pencil, PenTool,
+  PictureInPicture2, Play, Redo2, Repeat, RotateCcw, RotateCw, Save, SkipBack, SkipForward, Square,
+  Trash2, Undo2, ZoomIn, ZoomOut,
 } from 'lucide-react';
 
 import { documentsService, type Document } from '../../api/documents';
@@ -18,7 +20,8 @@ import { useBlobUrl, usePreviewImageUrl } from '../../hooks/useBlobUrl';
 import { apiErrorMessage } from '../../lib/apiError';
 import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
-import { Divider, EditorError, EditorLoading, ToolButton, Toolbar } from './EditorChrome';
+import { downloadBlob } from '../../lib/downloadFile';
+import { Divider, EditorError, EditorLoading, ToolButton, ToolMenu, Toolbar } from './EditorChrome';
 
 function Chrome({ children, doc, extra }: { children: React.ReactNode; doc: Document; extra?: React.ReactNode }) {
   const download = async () => {
@@ -86,11 +89,60 @@ export function PhotosViewer({
   const { url, error } = converted ? rendered : direct;
   const [zoom, setZoom] = useState(1);
   const [rotate, setRotate] = useState(0);
+  const [flip, setFlip] = useState({ h: false, v: false });
+  // The viewer is remounted per image, so "the slideshow is on" rides in
+  // session storage and each mount reads it back.
+  const [playing, setPlaying] = useState(() => {
+    try {
+      return sessionStorage.getItem('photos-slideshow') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
 
   const at = siblings.findIndex((s) => s.id === doc.id);
   const prev = at > 0 ? siblings[at - 1] : null;
   const next = at >= 0 && at < siblings.length - 1 ? siblings[at + 1] : null;
+
+  // Each mount schedules the step to the next image, wrapping at the end.
+  const showing = playing && siblings.length > 1;
+  useEffect(() => {
+    if (!showing || !url) return undefined;
+    const t = window.setTimeout(() => onOpenDoc?.(next ?? siblings[0]), 3500);
+    return () => window.clearTimeout(t);
+  }, [showing, url, next, siblings, onOpenDoc]);
+  const togglePlaying = () => {
+    setPlaying((p) => {
+      try {
+        if (p) sessionStorage.removeItem('photos-slideshow');
+        else sessionStorage.setItem('photos-slideshow', '1');
+      } catch {
+        // Plays for this image only.
+      }
+      return !p;
+    });
+  };
+
+  /** The picture itself on the clipboard, as the PNG every app can paste. */
+  const copyImage = async () => {
+    if (!url) return;
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d')!.drawImage(img, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('no image');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast.success('Image copied');
+    } catch {
+      toast.error('Could not copy the image', 'Your browser blocked the clipboard.');
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -101,6 +153,7 @@ export function PhotosViewer({
       else if (e.key === '-') setZoom((z) => Math.max(z / 1.25, 0.1));
       else if (e.key === '0') setZoom(1);
       else if (e.key.toLowerCase() === 'r') setRotate((r) => (r + 90) % 360);
+      else if (e.key.toLowerCase() === 'h') setFlip((f) => ({ ...f, h: !f.h }));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -128,6 +181,14 @@ export function PhotosViewer({
         <Divider />
         <ToolButton onClick={() => setRotate((r) => (r + 270) % 360)} title="Rotate left"><RotateCcw className="h-4 w-4" /></ToolButton>
         <ToolButton onClick={() => setRotate((r) => (r + 90) % 360)} title="Rotate right (R)"><RotateCw className="h-4 w-4" /></ToolButton>
+        <ToolButton onClick={() => setFlip((f) => ({ ...f, h: !f.h }))} active={flip.h} title="Flip left to right (H)"><FlipHorizontal2 className="h-4 w-4" /></ToolButton>
+        <ToolButton onClick={() => setFlip((f) => ({ ...f, v: !f.v }))} active={flip.v} title="Flip top to bottom"><FlipVertical2 className="h-4 w-4" /></ToolButton>
+        <Divider />
+        <ToolButton onClick={togglePlaying} active={showing} disabled={siblings.length < 2} title={showing ? 'Stop the slideshow' : 'Play as a slideshow'}>
+          {showing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          <span className="hidden md:inline">Slideshow</span>
+        </ToolButton>
+        <ToolButton onClick={() => void copyImage()} disabled={!url} title="Copy the image"><Copy className="h-4 w-4" /></ToolButton>
         <Divider />
         <ToolButton onClick={() => navigate(`/apps/whiteboard?file=${doc.id}`)} title="Draw on this image">
           <PenTool className="h-4 w-4" /> <span className="hidden sm:inline">Draw on it</span>
@@ -148,7 +209,10 @@ export function PhotosViewer({
             src={url}
             alt={doc.title || doc.filename}
             onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            style={{ transform: `rotate(${rotate}deg) scale(${zoom})`, transition: 'transform 120ms ease' }}
+            style={{
+              transform: `rotate(${rotate}deg) scale(${zoom * (flip.h ? -1 : 1)}, ${zoom * (flip.v ? -1 : 1)})`,
+              transition: 'transform 120ms ease',
+            }}
             className="max-h-full max-w-full object-contain"
             draggable={false}
           />
@@ -162,11 +226,65 @@ export function PhotosViewer({
 // Media Player
 // ---------------------------------------------------------------------------
 
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
 export function MediaPlayer({ doc }: { doc: Document }) {
+  const qc = useQueryClient();
   const { url, error } = useBlobUrl(doc.id);
   // Fresh mount per file (callers key on the document id), so the initial
   // state is the reset.
   const [unplayable, setUnplayable] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [loop, setLoop] = useState(false);
+  const [grabbing, setGrabbing] = useState(false);
+  const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+  const isVideo = doc.file_type !== 'audio';
+
+  const skip = (seconds: number) => {
+    const el = media.current;
+    if (!el) return;
+    el.currentTime = Math.min(Math.max(el.currentTime + seconds, 0), el.duration || Infinity);
+  };
+  const changeSpeed = (next: number) => {
+    setSpeed(next);
+    if (media.current) media.current.playbackRate = next;
+  };
+  const pictureInPicture = async () => {
+    const el = media.current;
+    if (!el) return;
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await el.requestPictureInPicture();
+    } catch {
+      toast.error('Picture-in-picture is not available here');
+    }
+  };
+  /** The frame on screen, saved beside the video as a PNG. */
+  const grabFrame = async () => {
+    const el = media.current;
+    if (!el || !el.videoWidth) return;
+    setGrabbing(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = el.videoWidth;
+      canvas.height = el.videoHeight;
+      canvas.getContext('2d')!.drawImage(el, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('The frame could not be read.');
+      const at = Math.floor(el.currentTime);
+      const stamp = `${Math.floor(at / 60)}m${String(at % 60).padStart(2, '0')}s`;
+      const name = `${doc.filename.replace(/\.[^.]+$/, '')} (frame at ${stamp}).png`;
+      const created = await documentsService.upload(new File([blob], name, { type: 'image/png' }), doc.folder_id ?? null);
+      qc.invalidateQueries({ queryKey: ['documents'] });
+      qc.invalidateQueries({ queryKey: ['app-files'] });
+      toast.success('Frame saved to your files', created.filename);
+    } catch (err) {
+      toast.error('Could not save the frame', apiErrorMessage(err, 'Please try again.'));
+    } finally {
+      setGrabbing(false);
+    }
+  };
+
   if (error) return <EditorError message={error} />;
   if (!url) return <EditorLoading />;
   // Converting media server-side is too heavy for the box, so a format the
@@ -183,15 +301,47 @@ export function MediaPlayer({ doc }: { doc: Document }) {
     );
   }
   return (
-    <Chrome doc={doc}>
+    <Chrome doc={doc} extra={<span>{speed}× speed{loop ? ' · repeating' : ''}</span>}>
+      <Toolbar>
+        <ToolButton onClick={() => skip(-10)} title="Back 10 seconds"><SkipBack className="h-4 w-4" /> <span className="hidden sm:inline">10s</span></ToolButton>
+        <ToolButton onClick={() => skip(10)} title="Forward 10 seconds"><SkipForward className="h-4 w-4" /> <span className="hidden sm:inline">10s</span></ToolButton>
+        <Divider />
+        <ToolMenu
+          title="Playback speed"
+          items={SPEEDS.map((value) => ({
+            label: value === 1 ? 'Normal' : `${value}×`,
+            hint: value === speed ? 'now' : undefined,
+            onClick: () => changeSpeed(value),
+          }))}
+        >
+          <Gauge className="h-4 w-4" /> {speed}×
+        </ToolMenu>
+        <ToolButton onClick={() => setLoop((l) => !l)} active={loop} title="Repeat when it ends">
+          <Repeat className="h-4 w-4" /> <span className="hidden sm:inline">Repeat</span>
+        </ToolButton>
+        {isVideo && (
+          <>
+            <Divider />
+            {document.pictureInPictureEnabled && (
+              <ToolButton onClick={() => void pictureInPicture()} title="Keep playing in a small window">
+                <PictureInPicture2 className="h-4 w-4" /> <span className="hidden md:inline">Mini player</span>
+              </ToolButton>
+            )}
+            <ToolButton onClick={() => void grabFrame()} disabled={grabbing} title="Save this frame as an image">
+              {grabbing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              <span className="hidden md:inline">Save frame</span>
+            </ToolButton>
+          </>
+        )}
+      </Toolbar>
       <div className="flex min-h-0 flex-1 items-center justify-center bg-black/90 p-4">
-        {doc.file_type === 'audio' ? (
+        {isVideo ? (
+          <video ref={media} src={url} controls autoPlay loop={loop} className="max-h-full max-w-full rounded-md" onError={() => setUnplayable(true)} />
+        ) : (
           <div className="w-full max-w-lg rounded-xl bg-card p-6 text-center shadow-lg">
             <p className="mb-4 truncate text-sm font-medium">{doc.filename}</p>
-            <audio src={url} controls autoPlay className="w-full" onError={() => setUnplayable(true)} />
+            <audio ref={media} src={url} controls autoPlay loop={loop} className="w-full" onError={() => setUnplayable(true)} />
           </div>
-        ) : (
-          <video src={url} controls autoPlay className="max-h-full max-w-full rounded-md" onError={() => setUnplayable(true)} />
         )}
       </div>
     </Chrome>
@@ -202,7 +352,7 @@ export function MediaPlayer({ doc }: { doc: Document }) {
 // Whiteboard
 // ---------------------------------------------------------------------------
 
-type Tool = 'pen' | 'highlighter' | 'eraser' | 'line' | 'rect' | 'ellipse';
+type Tool = 'pen' | 'highlighter' | 'eraser' | 'line' | 'arrow' | 'rect' | 'ellipse';
 interface Stroke {
   tool: Tool;
   color: string;
@@ -230,6 +380,14 @@ function drawStroke(ctx: CanvasRenderingContext2D, s: Stroke) {
   if (s.tool === 'line') {
     ctx.moveTo(first.x, first.y);
     ctx.lineTo(last.x, last.y);
+  } else if (s.tool === 'arrow') {
+    const angle = Math.atan2(last.y - first.y, last.x - first.x);
+    const head = Math.max(12, s.size * 4);
+    ctx.moveTo(first.x, first.y);
+    ctx.lineTo(last.x, last.y);
+    ctx.moveTo(last.x - head * Math.cos(angle - Math.PI / 6), last.y - head * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(last.x, last.y);
+    ctx.lineTo(last.x - head * Math.cos(angle + Math.PI / 6), last.y - head * Math.sin(angle + Math.PI / 6));
   } else if (s.tool === 'rect') {
     ctx.rect(first.x, first.y, last.x - first.x, last.y - first.y);
   } else if (s.tool === 'ellipse') {
@@ -249,6 +407,8 @@ export function Whiteboard({ doc, onCreated }: { doc: Document | null; onCreated
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [board, setBoard] = useState(BOARD);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
+  // What undo took off, so it can be put back; a new stroke clears it.
+  const [undone, setUndone] = useState<Stroke[]>([]);
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState(COLORS[1]);
   const [size, setSize] = useState(4);
@@ -290,16 +450,33 @@ export function Whiteboard({ doc, onCreated }: { doc: Document | null; onCreated
 
   useEffect(() => redraw(), [redraw]);
 
+  const undo = useCallback(() => {
+    if (!strokes.length) return;
+    setUndone([...undone, strokes[strokes.length - 1]]);
+    setStrokes(strokes.slice(0, -1));
+  }, [strokes, undone]);
+  const redo = useCallback(() => {
+    if (!undone.length) return;
+    setStrokes([...strokes, undone[undone.length - 1]]);
+    setUndone(undone.slice(0, -1));
+  }, [strokes, undone]);
+
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        setStrokes((s) => s.slice(0, -1));
+        undo();
+      } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        redo();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [undo, redo]);
 
   const point = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -315,30 +492,52 @@ export function Whiteboard({ doc, onCreated }: { doc: Document | null; onCreated
     const s = drawing.current;
     if (!s) return;
     const p = point(e);
-    if (s.tool === 'line' || s.tool === 'rect' || s.tool === 'ellipse') s.points = [s.points[0], p];
+    if (s.tool === 'line' || s.tool === 'arrow' || s.tool === 'rect' || s.tool === 'ellipse') s.points = [s.points[0], p];
     else s.points.push(p);
     redraw(s);
   };
   const onUp = () => {
     const s = drawing.current;
     drawing.current = null;
-    if (s) setStrokes((prev) => [...prev, s]);
+    if (s) {
+      setStrokes((prev) => [...prev, s]);
+      setUndone([]);
+    }
+  };
+
+  /** The board as one PNG: the background with the ink on top. */
+  const flatten = async (): Promise<Blob> => {
+    const out = document.createElement('canvas');
+    out.width = board.w;
+    out.height = board.h;
+    const ctx = out.getContext('2d')!;
+    ctx.drawImage(bg.current!, 0, 0);
+    ctx.drawImage(ink.current!, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('The drawing could not be exported.');
+    return blob;
+  };
+  const boardName = () => {
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+    return doc ? `${doc.filename.replace(/\.[^.]+$/, '')} (annotated).png` : `Sketch ${stamp}.png`;
+  };
+
+  /** Straight to the computer, without adding a file to the workspace. */
+  const download = async () => {
+    if (!bg.current || !ink.current) return;
+    try {
+      downloadBlob(await flatten(), boardName());
+    } catch (err) {
+      toast.error('Could not download', apiErrorMessage(err, 'Please try again.'));
+    }
   };
 
   const save = async () => {
     if (!bg.current || !ink.current) return;
     setSaving(true);
     try {
-      const out = document.createElement('canvas');
-      out.width = board.w;
-      out.height = board.h;
-      const ctx = out.getContext('2d')!;
-      ctx.drawImage(bg.current, 0, 0);
-      ctx.drawImage(ink.current, 0, 0);
-      const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, 'image/png'));
-      if (!blob) throw new Error('The drawing could not be exported.');
-      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
-      const name = doc ? `${doc.filename.replace(/\.[^.]+$/, '')} (annotated).png` : `Sketch ${stamp}.png`;
+      const blob = await flatten();
+      const name = boardName();
       const created = await documentsService.upload(new File([blob], name, { type: 'image/png' }), doc?.folder_id ?? null);
       qc.invalidateQueries({ queryKey: ['documents'] });
       qc.invalidateQueries({ queryKey: ['app-files'] });
@@ -359,6 +558,7 @@ export function Whiteboard({ doc, onCreated }: { doc: Document | null; onCreated
     ['highlighter', Highlighter, 'Highlighter'],
     ['eraser', Eraser, 'Eraser'],
     ['line', LineIcon, 'Line'],
+    ['arrow', MoveUpRight, 'Arrow'],
     ['rect', Square, 'Rectangle'],
     ['ellipse', Circle, 'Ellipse'],
   ];
@@ -383,6 +583,20 @@ export function Whiteboard({ doc, onCreated }: { doc: Document | null; onCreated
             style={{ background: c }}
           />
         ))}
+        <label
+          title="Pick any colour"
+          className="relative inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border/70 text-[11px] text-muted-foreground"
+          style={COLORS.includes(color) ? undefined : { background: color }}
+        >
+          {COLORS.includes(color) && '+'}
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            aria-label="Custom colour"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        </label>
         <Divider />
         {SIZES.map((s) => (
           <ToolButton key={s} onClick={() => setSize(s)} active={size === s} title={`Size ${s}`}>
@@ -390,13 +604,27 @@ export function Whiteboard({ doc, onCreated }: { doc: Document | null; onCreated
           </ToolButton>
         ))}
         <Divider />
-        <ToolButton onClick={() => setStrokes((s) => s.slice(0, -1))} disabled={!strokes.length} title="Undo (Ctrl+Z)">
+        <ToolButton onClick={undo} disabled={!strokes.length} title="Undo (Ctrl+Z)">
           <Undo2 className="h-4 w-4" />
         </ToolButton>
-        <ToolButton onClick={() => setStrokes([])} disabled={!strokes.length} title="Clear drawing">
+        <ToolButton onClick={redo} disabled={!undone.length} title="Redo (Ctrl+Y)">
+          <Redo2 className="h-4 w-4" />
+        </ToolButton>
+        <ToolButton
+          onClick={() => {
+            setUndone([]);
+            setStrokes([]);
+          }}
+          disabled={!strokes.length}
+          title="Clear drawing"
+        >
           <Trash2 className="h-4 w-4" />
         </ToolButton>
+        <ToolButton onClick={() => void download()} disabled={!strokes.length && !doc} title="Download as PNG">
+          <Download className="h-4 w-4" />
+        </ToolButton>
         <button
+
           type="button"
           onClick={() => void save()}
           disabled={saving || (!strokes.length && !doc)}

@@ -22,7 +22,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, ArrowLeft, ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, ClipboardPaste,
-  Clock, Copy, Download, Eye, ExternalLink, FilePlus2, Folder as FolderIcon, FolderInput, FolderPlus, Globe,
+  Clock, Copy, Download, Eye, ExternalLink, FilePlus2, Folder as FolderIcon, FolderInput, FolderPlus, Globe, Share2,
   Home, Info, LayoutGrid, List as ListIcon, Loader2, PanelLeft, PanelRight, Pencil, RefreshCw, RotateCcw,
   ScanText, Scissors, Search, Table as TableIcon, Trash2, Upload, X,
 } from 'lucide-react';
@@ -34,15 +34,18 @@ import FolderPickerModal from '../components/documents/FolderPickerModal';
 import ContextMenu, { type MenuEntry } from '../components/explorer/ContextMenu';
 import ItemsView, { type ViewMode } from '../components/explorer/ItemsView';
 import NavPane from '../components/explorer/NavPane';
+import StorageMeter from '../components/explorer/StorageMeter';
+import { runLimited, UPLOAD_CONCURRENCY } from '../lib/runLimited';
 import PropertiesDialog from '../components/explorer/PropertiesDialog';
 import ExtractionPanel from '../components/extraction/ExtractionPanel';
 
 import FilePreview from '../components/files/FilePreview';
 import PreviewFrame from '../components/files/PreviewFrame';
+import ShareDialog from '../components/files/ShareDialog';
 import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { usePersistedState } from '../hooks/usePersistedState';
-import { apiErrorMessage } from '../lib/apiError';
+import { apiErrorMessage, isStorageFull } from '../lib/apiError';
 import { appsForDoc, openInAppPath, type NewFileOption } from '../lib/apps';
 import {
   clickSelect, emptySelection, keyOf, nextSort, sameLocation, sortItems, stepSelect,
@@ -101,6 +104,8 @@ export default function Documents() {
   const [movePicker, setMovePicker] = useState<Item[] | null>(null);
   const [properties, setProperties] = useState<Item | null>(null);
   const [shareDoc, setShareDoc] = useState<Document | null>(null);
+  /** The file whose share-by-link dialog is open (distinct from the public library). */
+  const [linkShare, setLinkShare] = useState<Document | null>(null);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [uploads, setUploads] = useState<Document[]>([]);
   const [osDrop, setOsDrop] = useState(false);
@@ -227,6 +232,7 @@ export default function Documents() {
     qc.invalidateQueries({ queryKey: ['folders'] });
     qc.invalidateQueries({ queryKey: ['trash'] });
     qc.invalidateQueries({ queryKey: ['app-files'] });
+    qc.invalidateQueries({ queryKey: ['storage'] });
   }, [qc]);
 
   const breadcrumbs = useMemo(() => folderPage?.breadcrumbs ?? [], [folderPage]);
@@ -411,18 +417,27 @@ export default function Documents() {
     }));
     setUploads((u) => [...optimistic, ...u]);
     let ok = 0;
-    await Promise.allSettled(
-      list.map(async (f, i) => {
-        try {
-          await documentsService.upload(f, target);
-          ok += 1;
-        } catch (err) {
+    // A few at a time: a selection of two hundred files used to be two
+    // hundred requests at once. A full account refuses every file with the
+    // same sentence, so that one is shown once, not once per file.
+    let storageFull = false;
+    await runLimited(list, UPLOAD_CONCURRENCY, async (f, i) => {
+      try {
+        if (storageFull) return;
+        await documentsService.upload(f, target);
+        ok += 1;
+      } catch (err) {
+        if (isStorageFull(err)) {
+          if (!storageFull) toast.error('Storage is full', apiErrorMessage(err, 'Delete some files and empty the Trash.'));
+          storageFull = true;
+        } else {
           toast.error(`Could not upload ${f.name}`, apiErrorMessage(err, 'Please try again.'));
-        } finally {
-          setUploads((u) => u.filter((d) => d.id !== optimistic[i].id));
         }
-      }),
-    );
+      } finally {
+        setUploads((u) => u.filter((d) => d.id !== optimistic[i].id));
+      }
+    });
+    if (storageFull) qc.invalidateQueries({ queryKey: ['storage'] });
     if (ok) {
       toast.success(`Uploaded ${ok} file${ok === 1 ? '' : 's'}`);
       refresh();
@@ -549,6 +564,12 @@ export default function Documents() {
       if (one) entries.push({ label: 'Rename', icon: icon(Pencil), shortcut: 'F2', onSelect: () => setRenaming(keyOf(one)) });
       entries.push({ label: 'Move to…', icon: icon(FolderInput), onSelect: () => setMovePicker(list) });
       if (one?.kind === 'doc') {
+        entries.push({
+          label: 'Share link…',
+          icon: icon(Share2),
+          disabled: one.doc.status === 'uploading',
+          onSelect: () => setLinkShare(one.doc),
+        });
         entries.push({
           label: one.doc.is_shared ? 'Remove from public library' : 'Share to public library',
           icon: icon(Globe),
@@ -790,7 +811,7 @@ export default function Documents() {
               {cmd('Copy', Copy, () => setClipboard({ mode: 'copy', items: selectedItems.filter((i) => i.kind === 'doc') }), !mine || !selectedDocs.length)}
               {cmd('Paste', ClipboardPaste, () => void paste(folderId), !inFolder || !clipboard)}
               {cmd('Rename', Pencil, () => single && setRenaming(keyOf(single)), !mine || !single)}
-              {cmd('Share', Globe, () => single?.kind === 'doc' && void toggleShare(single.doc), !mine || single?.kind !== 'doc')}
+              {cmd('Share', Share2, () => single?.kind === 'doc' && setLinkShare(single.doc), !mine || single?.kind !== 'doc')}
               {cmd('Delete', Trash2, () => setConfirmDelete(selectedItems), !mine || !selectedItems.length)}
               {cmd('Download', Download, () => selectedDocs.forEach((d) => void download(d)), !selectedDocs.length)}
               <span className="ml-auto" />
@@ -863,6 +884,9 @@ export default function Documents() {
             onDropOn={(id) => dragging && void move(dragging, id)}
             canDrop={!!dragging}
           />
+          <div className="mt-auto">
+            <StorageMeter onOpenTrash={() => go({ kind: 'trash' })} />
+          </div>
         </aside>
 
         {/* Content */}
@@ -1088,6 +1112,8 @@ export default function Documents() {
           onClose={() => setProperties(null)}
         />
       )}
+
+      {linkShare && <ShareDialog doc={linkShare} onClose={() => setLinkShare(null)} />}
 
       {shareDoc && (
         <ConfirmDialog

@@ -71,6 +71,17 @@ def publish(user, *, title: str, kind: str, body, visibility: str):
     if refused is not None:
         raise PublishError(refused.message)
 
+    from workflow_backend.thresholds import MAX_PUBLISHED_PAGES_PER_USER
+
+    # Live pages only: a withdrawn page cannot be removed by its owner, so
+    # counting it would be a limit nobody could get back under.
+    live = PublishedPage.objects.filter(owner=user, withdrawn_at__isnull=True).count()
+    if live >= MAX_PUBLISHED_PAGES_PER_USER:
+        raise PublishError(
+            f'This account has {MAX_PUBLISHED_PAGES_PER_USER} published pages, '
+            f'which is the limit. Stop sharing one you no longer need first.'
+        )
+
     page = PublishedPage(owner=user, slug=mint_slug(title), title=title, kind=kind,
                          body=body, visibility=visibility, is_listed=True)
     if kind == 'file':
@@ -83,17 +94,32 @@ def publish(user, *, title: str, kind: str, body, visibility: str):
         ).first()
         if document is None:
             raise PublishError('No such file in your documents.')
+        # An office autosave may still be a parked draft: the snapshot must be
+        # the file the owner sees on screen, not the bytes from before it.
+        from .drafts import ensure_rendered
+
+        document = ensure_rendered(document)
         if document.file:
             if (document.file_size or 0) > AGENT_FILE_BINARY_BYTES:
                 raise PublishError('That file is too large to publish.')
             with document.file.open('rb') as handle:
                 data = handle.read(AGENT_FILE_BINARY_BYTES + 1)
-            page.file.save(document.name, ContentFile(data), save=False)
+            if len(data) > AGENT_FILE_BINARY_BYTES:
+                # `file_size` is a column and can be stale; the read is not.
+                raise PublishError('That file is too large to publish.')
         else:
             # A text document an agent wrote has no bytes of its own: the text
             # is the file, so that is what the snapshot keeps.
-            page.file.save(document.name, ContentFile((document.content_text or '').encode('utf-8')),
-                           save=False)
+            data = (document.content_text or '').encode('utf-8')
+        # The snapshot is a second copy of the file, so it needs room too.
+        from . import quota
+
+        try:
+            quota.check(user, len(data), new_file=False)
+        except quota.QuotaExceeded as exc:
+            raise PublishError(str(exc)) from exc
+        page.file.save(document.name, ContentFile(data), save=False)
+        page.file_size = len(data)
         page.file_name = document.name
     page.save()
     return page

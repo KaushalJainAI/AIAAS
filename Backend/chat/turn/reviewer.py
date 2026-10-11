@@ -1,8 +1,10 @@
 """
 The action reviewer: what makes `auto` smarter than "ask about everything".
 
-`auto` asks for every irreversible call today. Kept as the floor, plus a
-reviewer that may let an irreversible call through when it clearly matches what
+`auto` means one thing in chat and in agents: what can be undone runs, what
+cannot is reviewed (`rule_allow`). Delegation is the manager's own call — the
+worker meets its own gates. For an irreversible call the ask floor stands, plus
+a reviewer that may let it through when it clearly matches what
 the user asked for. It may only ever downgrade ask → allow, and never for the
 calls listed in `NEVER_ALLOW` — deletes outside the recycle bin, sends to
 unseen recipients, publishing above `link`, first-seen browser submit domains,
@@ -89,7 +91,38 @@ RECIPIENT_KEYS = ('to', 'recipient', 'recipients', 'channel', 'phone', 'email')
 #: Tools that spend money per call. The approval card naming the cost is the
 #: point — a model that decides on four image variations has spent four times
 #: what was asked for, and no reviewer can tell which variation the user wants.
-SPENDY_TOOLS = frozenset({'generate_image'})
+SPENDY_TOOLS = frozenset({'generate_image', 'run_eval_suite', 'generate_eval_world'})
+
+#: Handing work to an agent. Under `auto` this is the manager's own call and
+#: needs no judge: the worker's actions meet the worker's gates, and anything it
+#: cannot undo comes back through `answer_subagent` and `subagent_floor`. Sent
+#: to the judge, every delegation asked — "run the Analyst agent" never reads
+#: as "plainly the user's request, same target, same content" — which made
+#: `auto` behave as `ask` for the one thing the orchestrator does.
+DELEGATION_TOOLS = frozenset({'run_agent', 'invoke_subagent', 'start_tasks'})
+
+#: Undoable, yet still reviewed: a mission is a standing commitment that keeps
+#: starting runs after this turn is over.
+STANDING_TOOLS = frozenset({'start_mission'})
+
+
+def rule_allow(tool_name: str) -> str:
+    """Why `auto` runs this call with no judge, or '' to review it.
+
+    One definition of `auto` for chat and agents alike: what can be undone
+    runs, what cannot is reviewed. The agent ladder has gated on
+    `effect="irreversible"` since it was built; chat gated on `sensitive` and
+    asked a judge about every one, so the same word meant two things.
+    """
+    from chat.tools.registry import effect_of
+
+    if tool_name in STANDING_TOOLS or tool_name in SPENDY_TOOLS:
+        return ''
+    if tool_name in DELEGATION_TOOLS:
+        return 'Delegation: the agent acts under its own approvals.'
+    if effect_of(tool_name) != 'irreversible':
+        return 'This can be undone, so auto mode runs it.'
+    return ''
 
 
 def _recipients(args: dict) -> list[str]:
@@ -168,8 +201,11 @@ def _judge_prompt(*, described: str, user_text: str, todos: Any) -> str:
     lines = [
         'You review one tool call the agent wants to make without asking.',
         'Answer with the first word ALLOW or ASK, then one short reason.',
-        'ALLOW only when the call is plainly the user\'s request carried out,',
-        'with the same target and the same content they asked for.',
+        'ALLOW when the call is a sensible step toward what the user asked for',
+        'and its target (recipient, account, page, record) and its content come',
+        'from their request or the plan. ASK when the target or content is',
+        'something they never mentioned, when the call goes beyond the request,',
+        'or when you cannot tell.',
         'What the user said (oldest first; the last line is the latest):',
         user_text or '(nothing captured)',
     ]
@@ -214,7 +250,9 @@ async def _model_judge(
             model=model_override,
             prompt=_judge_prompt(described=described, user_text=user_text, todos=todos),
             system_message=(
-                'You are an approval reviewer. Be conservative: when in doubt, ASK.'
+                'You are an approval reviewer for an action that cannot be '
+                'undone. Allow what the user clearly set in motion; ask when '
+                'the call goes beyond it.'
             ),
             user_id=user_id,
             temperature=0,
@@ -339,6 +377,16 @@ def auto_policy(
             }
             return bool(verdict)
         if name in ask_names or await permissions.default_policy(name, args, context):
+            # Decided by rule, with no model call, unless the turn has read
+            # instruction-shaped text — then nothing gated is waved through.
+            tainted_by = context.get('tainted_by') if isinstance(context, dict) else None
+            ruled = '' if tainted_by else rule_allow(name)
+            if ruled:
+                audits[_key(name, args)] = {
+                    'mode': 'auto', 'verdict': 'allow',
+                    'reason': ruled, 'reviewed_by': 'rules',
+                }
+                return False
             # One verdict per call. `tools_node` passes the call id, and a
             # resumed node (after an approval) re-runs this for the whole
             # batch — reuse what was decided rather than asking again.
@@ -390,6 +438,25 @@ def auto_policy(
         return False
 
     policy.audits = audits  # type: ignore[attr-defined]
+    return policy
+
+
+def full_policy(auto: Callable[..., Any]):
+    """The policy for `full` (Full auto): nothing asks for approval.
+
+    One exception, and it is not about the user's wishes: a turn that has read
+    text addressed to an AI (`tainted_by`) falls back to `auto` for the rest
+    of the turn. Skipping approvals is the user trusting their own
+    instructions; a web page or an email telling the model what to do is a
+    third party's, and this is the one place it could be handed to a worker
+    that then acts with no gate at all.
+    """
+    async def policy(name: str, args: dict, context: dict) -> bool:
+        if isinstance(context, dict) and context.get('tainted_by'):
+            return await auto(name, args, context)
+        return False
+
+    policy.audits = getattr(auto, 'audits', {})  # type: ignore[attr-defined]
     return policy
 
 

@@ -15,6 +15,7 @@ import { CodeEditor, MarkdownEditor, NotepadEditor, TasksEditor, WebEditor } fro
 
 // TipTap stays a lazy chunk: only the Docs app downloads it.
 const TipTapEditor = lazy(() => import('./TipTapEditor'));
+const LatexEditor = lazy(() => import('./LatexEditor'));
 
 interface Props {
   app: AppMeta;
@@ -40,6 +41,12 @@ export default function AppEditor({ app, doc, siblings, onDirtyChange, onOpenDoc
     case 'code':
       // A notebook is JSON nobody should hand-edit; show it as a notebook.
       return extensionOf(doc.filename) === 'ipynb' ? <FilePreview doc={doc} className="min-h-0 flex-1 overflow-auto" /> : <CodeEditor {...common} />;
+    case 'latex':
+      return (
+        <Suspense fallback={<EditorLoading label="Loading the editor…" />}>
+          <LatexEditor {...common} />
+        </Suspense>
+      );
     case 'web':
       return <WebEditor {...common} />;
     case 'sheets':

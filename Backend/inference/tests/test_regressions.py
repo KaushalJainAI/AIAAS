@@ -201,7 +201,45 @@ class FileTypeNormalisationTests(TestCase):
 # 3b. a .docx was read as UTF-8 zip noise
 # ---------------------------------------------------------------------------
 
+class TextFileContentIsStoredVerbatimTests(TestCase):
+    """`bleach.clean` ran over every `content_text` on save. For a text file that
+    text is the file, so `&` became `&amp;`, `<` became `&lt;` and anything
+    tag-shaped vanished: a LaTeX table (`a & b \\`), `if a < b && c`, and a
+    whole HTML page were each saved as something else, and the editor then
+    showed and re-saved the damage."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('verbatim', 'v@example.com', 'pw')
+
+    def make(self, name, file_type, text):
+        from inference.models import Document
+
+        doc = Document.objects.create(user=self.user, name=name, file_type=file_type,
+                                      content_text=text, file_size=len(text), status='stored')
+        doc.refresh_from_db()
+        return doc
+
+    def test_ampersands_angle_brackets_and_markup_survive(self):
+        for name, kind, text in [
+            ('t.tex', 'txt', 'a & b \\ \hline'),
+            ('c.py', 'txt', 'if a < b && c > d:\n    pass'),
+            ('p.html', 'html', '<h1>Hello</h1><p>1 < 2</p>'),
+            ('n.md', 'md', 'Tom & Jerry <3'),
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(self.make(name, kind, text).content_text, text)
+
+    def test_nul_characters_are_still_removed(self):
+        self.assertEqual(self.make('n.txt', 'txt', 'a\x00b').content_text, 'ab')
+
+    def test_text_extracted_from_a_binary_is_still_sanitised(self):
+        # Search-only text from a PDF keeps the old treatment.
+        doc = self.make('d.pdf', 'pdf', 'x <script>alert(1)</script> y')
+        self.assertNotIn('<script>', doc.content_text)
+
+
 class DocxExtractionTests(TestCase):
+
     """
     `.docx` has been in `ALLOWED_MIME_TYPES` and in `FILE_TYPE_CHOICES` since the
     first migration, and `extract_text_from_file` had no branch for it — so a

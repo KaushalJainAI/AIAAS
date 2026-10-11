@@ -199,6 +199,35 @@ EXECUTION_TTL_SECONDS = 3600  # 1 hour execution data TTL
 
 # ==================== Upload & Request Limits ====================
 MAX_DOCUMENT_SIZE = 50 * 1024 * 1024  # 50MB limit for general uploads
+#: A profile picture. It is drawn at a few dozen pixels; the cap is what stops
+#: the avatar field being a 55 MB file store nothing else counts.
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+#: Files one chat may hold. An attachment rides in the conversation's context
+#: for the rest of it, so the count bounds a prompt as much as a disk.
+MAX_ATTACHMENTS_PER_SESSION = 50
+
+# ==================== Storage Quota ====================
+# What one account may keep, in bytes and in rows (`inference/quota.py`). The
+# per-file caps above bound one request; these bound the loop. Before them an
+# account could upload 50 MB a thousand times an hour until the disk was full.
+#: Megabytes per tier, counting files, kept versions, chat attachments and
+#: published snapshots, trash included (trash still occupies the disk). Read
+#: from the environment because the right number is the size of the box's
+#: volume, not a property of the code. 0 switches the byte quota off.
+STORAGE_QUOTA_MB = {
+    'free': _int_env('STORAGE_QUOTA_FREE_MB', 1024),
+    'pro': _int_env('STORAGE_QUOTA_PRO_MB', 10 * 1024),
+    'enterprise': _int_env('STORAGE_QUOTA_ENTERPRISE_MB', 100 * 1024),
+}
+#: Files per account, trash included. Folders have had their own cap since
+#: they existed; files had none.
+MAX_DOCUMENTS_PER_USER = _int_env('MAX_DOCUMENTS_PER_USER', 10_000)
+#: Published pages per account. Each is a snapshot that outlives its source.
+MAX_PUBLISHED_PAGES_PER_USER = 500
+#: Documents being extracted and embedded at once, process-wide
+#: (`inference/indexing.py`). Each job holds a file's text and its embeddings
+#: in memory; a thread per upload meant 200 selected files were 200 jobs.
+INDEXING_CONCURRENCY = _int_env('INDEXING_CONCURRENCY', 2)
 #: Rows per sheet kept when indexing an uploaded workbook. A spreadsheet is
 #: usually wide rather than deep in the part that describes it, and the file
 #: itself stays downloadable for anything past this.

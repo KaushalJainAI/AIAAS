@@ -118,12 +118,13 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         return level
 
     def validate_autonomy(self, value):
-        """ask | auto | plan. `full` stays an agent-builder choice — chat never
-        offers a mode that asks about nothing."""
+        """ask | auto | full | plan. `full` (Full auto) skips every approval;
+        it is set per conversation and is refused as an account default
+        (`core/serializers.py`), so no chat starts in it unasked."""
         level = (value or '').strip().lower()
-        if level not in ('ask', 'auto', 'plan'):
+        if level not in ('ask', 'auto', 'full', 'plan'):
             raise serializers.ValidationError(
-                'Autonomy must be ask, auto or plan.'
+                'Autonomy must be ask, auto, full or plan.'
             )
         return level
 

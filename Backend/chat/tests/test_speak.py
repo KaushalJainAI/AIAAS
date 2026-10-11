@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.test import TestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -35,7 +36,9 @@ class SpeakViewTests(TestCase):
             username='speaker', email='speaker@example.com', password='x')
 
     def test_no_engine_is_a_503_not_a_failed_turn(self):
-        # settings/base.py defaults TTS_ENGINE='none'; test.py does not override it.
+        # base.py now defaults TTS_ENGINE='openrouter'; test.py pins it back to
+        # 'none' (mirrors STT_ENGINE) so tests don't offer text_to_speech/
+        # /speak everywhere just because the fake platform key is set.
         response = _post(self.user)
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data['code'], 'tts_unavailable')
@@ -85,7 +88,7 @@ class SpeakViewTests(TestCase):
 
 
 class OpenRouterTTSEngineTests(TestCase):
-    @override_settings(TTS_ENGINE='openrouter', TTS_MODEL='hexgrad/kokoro-82m', TTS_VOICE='af_heart')
+    @override_settings(TTS_ENGINE='openrouter')
     def test_sends_the_openai_speech_shape_and_returns_raw_bytes(self):
         seen = {}
 
@@ -100,6 +103,8 @@ class OpenRouterTTSEngineTests(TestCase):
         with patch('workflow_backend.httpclient.shared_client', return_value=client):
             from voice.tts import synthesize
 
+            # No model/voice/user named — resolve_voice falls to the
+            # platform default (Kokoro + af_heart).
             data, ext = async_to_sync(synthesize)('hello world')
         self.assertEqual(seen['url'], 'https://openrouter.ai/api/v1/audio/speech')
         self.assertTrue(seen['auth'].startswith('Bearer '))
@@ -123,3 +128,69 @@ class OpenRouterTTSEngineTests(TestCase):
         from voice import tts
 
         self.assertFalse(tts.tts_available())
+
+
+class _FakeProfile:
+    def __init__(self, tts_model: str = '', tts_voice: str = ''):
+        self.tts_model = tts_model
+        self.tts_voice = tts_voice
+
+
+class _FakeUser:
+    """Just enough of a User to exercise `resolve_voice` with no DB hit."""
+
+    def __init__(self, profile: '_FakeProfile | None'):
+        self.profile = profile
+
+
+class ResolveVoiceTests(TestCase):
+    """One function decides model+voice for the tool, `/speak`, and anything
+    later — this pins its priority order and the model/voice matching rule."""
+
+    def test_no_one_named_anything_uses_the_platform_default(self):
+        from voice.tts import DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE, resolve_voice
+
+        self.assertEqual(resolve_voice(None), (DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE))
+
+    def test_an_explicit_choice_wins_over_everything(self):
+        from voice.tts import resolve_voice
+
+        user = _FakeUser(_FakeProfile(tts_model='google/gemini-3.8-flash-tts', tts_voice='Puck'))
+        model, voice = resolve_voice(user, model='hexgrad/kokoro-82m', voice='af_bella')
+        self.assertEqual((model, voice), ('hexgrad/kokoro-82m', 'af_bella'))
+
+    def test_the_users_saved_preference_is_used_when_nothing_else_is_named(self):
+        from voice.tts import resolve_voice
+
+        user = _FakeUser(_FakeProfile(tts_model='google/gemini-3.8-flash-tts', tts_voice='Puck'))
+        self.assertEqual(resolve_voice(user), ('google/gemini-3.8-flash-tts', 'Puck'))
+
+    def test_a_saved_voice_is_not_carried_to_a_different_model(self):
+        """Voice ids are model-specific — Gemini's "Puck" means nothing to
+        Kokoro — so naming a different model without a voice must not send
+        the saved one along; it falls through to that model's own default."""
+        from voice.tts import resolve_voice
+
+        user = _FakeUser(_FakeProfile(tts_model='google/gemini-3.8-flash-tts', tts_voice='Puck'))
+        model, voice = resolve_voice(user, model='hexgrad/kokoro-82m')
+        self.assertEqual(model, 'hexgrad/kokoro-82m')
+        self.assertNotEqual(voice, 'Puck')
+
+    def test_a_fixed_voice_model_with_no_voice_resolved_gets_the_catalogs_first(self):
+        """OpenRouter's speech endpoint requires `voice`; a model whose
+        catalog entry declares a fixed list must not resolve to blank."""
+        from voice.tts import resolve_voice
+
+        model, voice = resolve_voice(None, model='google/gemini-3.8-flash-tts')
+        self.assertEqual(model, 'google/gemini-3.8-flash-tts')
+        self.assertTrue(voice)
+
+    def test_a_profile_with_no_row_degrades_to_the_default_rather_than_raising(self):
+        from voice.tts import DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE, resolve_voice
+
+        class _NoProfile:
+            @property
+            def profile(self):
+                raise ObjectDoesNotExist
+
+        self.assertEqual(resolve_voice(_NoProfile()), (DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE))

@@ -253,19 +253,12 @@ class RestoreTests(BinTestCase):
         doc = self._doc()
         recycle.trash(self.user, documents=[doc])
 
-        started = []
-        with patch('threading.Thread') as thread:
-            thread.side_effect = lambda **kw: started.append(kw) or _NullThread()
+        with patch('inference.indexing.index_document') as queued:
             self.client.post('/api/inference/trash/restore/', {
                 'document_ids': [doc.pk],
             }, format='json')
 
-        self.assertTrue(started, 'A restored document must be re-ingested.')
-
-
-class _NullThread:
-    def start(self):
-        pass
+        queued.assert_called_once_with(doc.pk)
 
 
 class SweepTests(BinTestCase):

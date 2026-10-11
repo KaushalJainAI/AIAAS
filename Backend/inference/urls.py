@@ -17,6 +17,9 @@ urlpatterns = [
     path('trash/restore/', folder_views.trash_restore, name='trash_restore'),
     path('trash/empty/', folder_views.trash_empty, name='trash_empty'),
 
+    # What the account holds against its quota (inference/quota.py).
+    path('storage/', folder_views.storage_usage, name='storage_usage'),
+
     # Recently opened files and saved app tabs (inference/recents.py).
     path('recent/', recent_views.recent_list, name='recent_list'),
     path('recent/<int:document_id>/', recent_views.recent_detail, name='recent_detail'),

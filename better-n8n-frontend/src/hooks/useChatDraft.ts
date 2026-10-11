@@ -92,6 +92,16 @@ export function clearChatDraft(
 }
 
 /**
+ * Put text in the composer of the *next new* conversation, for links that
+ * open the chat with a prompt ready ("Ask AI about this file"). Navigate with
+ * `state: { newChat: true }` afterwards: the chat page starts a fresh
+ * conversation and paints that conversation's draft, which is this text.
+ */
+export function prefillNewChat(text: string, store: DraftStore | null = defaultStore()): void {
+  writeChatDraft(store, chatDraftKey(undefined, false), text);
+}
+
+/**
  * `useState` for the composer, with one saved string per conversation.
  *
  * The returned setter has the same signature as a `useState` setter

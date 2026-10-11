@@ -63,6 +63,30 @@ def recount_kb_documents(sender, instance: Document, **kwargs) -> None:
     recount_kb(instance.knowledge_base_id)
 
 
+@receiver(post_delete, sender=Document, dispatch_uid='inference.drop_document_blob')
+def drop_document_blob(sender, instance: Document, **kwargs) -> None:
+    """A permanently deleted document takes its stored bytes with it.
+
+    Django never removes a `FileField`'s file with its row, and only the
+    recycle sweep did it by hand — so every other deleter (a chat message's
+    attachment, a whole chat, an account) left the bytes on disk for ever,
+    charged to nobody. Hung off `post_delete` for the reason the recount
+    above is: a deleter does not have to know this exists.
+
+    Trashing is not a delete, so a trashed file keeps its bytes until purged.
+    """
+    name = instance.file.name if instance.file else ''
+    if not name:
+        return
+    try:
+        # Never pull bytes out from under another row that names the same file.
+        if Document.all_objects.filter(file=name).exclude(pk=instance.pk).exists():
+            return
+        instance.file.storage.delete(name)
+    except Exception:  # noqa: BLE001 — an orphaned blob is not worth a failed delete
+        logger.warning('Could not delete the file of document %s', instance.pk, exc_info=True)
+
+
 @receiver(post_delete, sender=DocumentVersion, dispatch_uid='inference.drop_version_blob')
 def drop_version_blob(sender, instance: DocumentVersion, **kwargs) -> None:
     """A pruned or purged version takes its stored bytes with it."""

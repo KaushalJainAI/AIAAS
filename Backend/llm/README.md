@@ -18,7 +18,8 @@ into clear ones. Don't call a provider directly from anywhere else.
 ## Providers
 
 `openrouter` (the default), `openai`, `nvidia`, `ollama` (local), and
-`opencode` (OpenCode Zen, bring-your-own-key only). The default model is
+`chatgpt` (your own ChatGPT plan, by sign-in; only where
+`CHATGPT_PLAN_ENABLED` is on). The default model is
 OpenRouter's free router (`openrouter/free`), so the platform needs
 `OPENROUTER_API_KEY` set.
 
@@ -47,7 +48,9 @@ OpenRouter's free router (`openrouter/free`), so the platform needs
 | `handlers/base.py` | The interface every provider handler follows |
 | `handlers/registry.py` | Finds the handler for a provider name |
 | `handlers/openai_compatible.py` | One implementation of the OpenAI chat protocol (used by most providers), including retries on connection failures |
-| `handlers/llm_providers.py` | OpenRouter, OpenAI, NVIDIA and OpenCode Zen, declared as settings on top of that one implementation |
+| `handlers/llm_providers.py` | OpenRouter, OpenAI and NVIDIA, declared as settings on top of that one implementation |
+| `handlers/responses_api.py` | The ChatGPT plan provider. It speaks OpenAI's Responses API, so it translates the request on the way out and the stream on the way back; everything above it sees the same chunks as any other provider |
+| `chatgpt_plan.py` | The plan's model list (fetched per signed-in user) and what its error codes mean |
 | `handlers/llm_nodes.py` | Ollama (local models) |
 | `handlers/llm_base.py` | Shared streaming and reasoning-text plumbing |
 

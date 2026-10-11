@@ -3,35 +3,52 @@
  * Studio and To Do. All of them are one text file opened through
  * `useTextFile`; they differ only in what sits beside the text.
  *
+ * The four that show source share one editor (`CodeMirrorView`), so undo,
+ * find and replace, go-to-line and the font size behave the same in each —
+ * every toolbar button calls the command its keyboard shortcut runs.
+ *
  * Web Studio's live preview is locked down like `FilePreview`'s HTML frame
  * (empty `sandbox`, no-network CSP) plus scripts off: the page is the user's
  * own, but it may be one an agent wrote from a web page it read.
  */
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
-  Bold, Code, Columns2, Eye, Heading1, Heading2, Italic, Link2, List, ListChecks, ListOrdered,
-  PencilLine, Plus, Quote, Trash2, WrapText,
+  AArrowDown, AArrowUp, ArrowDown, ArrowUp, Bold, CalendarClock, CaseSensitive, CheckCheck, Code,
+  Columns2, Copy, CopyPlus, Eye, Hash, Heading1, Heading2, Heading3, Image, IndentDecrease,
+  IndentIncrease, Italic, Link2, List, ListChecks, ListOrdered, Minus, Monitor, MoreHorizontal,
+  PencilLine, Plus, Quote, Redo2, RefreshCw, Search, Smartphone, SquareCode, Strikethrough, Table,
+  Tablet, TextCursorInput, Trash2, Undo2, WrapText,
 } from 'lucide-react';
-import { useThemeContext } from '../../contexts/themeState';
-
-// CodeMirror stays a lazy chunk: only the Code Editor downloads it.
-const CodeMirrorView = lazy(() => import('./CodeMirrorView'));
 
 import type { Document } from '../../api/documents';
+import { useThemeContext } from '../../contexts/themeState';
 import { useTextFile, type TextFile } from '../../hooks/useTextFile';
 import { languageForFile } from '../../lib/codeLanguage';
+import { isEditableTarget, isRedoKey, isUndoKey } from '../../lib/editorKeys';
 import { parseTasks, serializeTasks, type TaskLine } from '../../lib/sheetGrid';
+import {
+  dedupeLines, markdownTable, readingTime, sortLines, textStats, timestamp, titleCase,
+  trimTrailingSpaces,
+} from '../../lib/textTools';
+import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
 import MarkdownMessage from '../chat/MarkdownMessage';
+import type { CodeMirrorApi } from './CodeMirrorView';
+import { copyText, useFontSize } from './editorTools';
 import {
-  Divider, EditorError, EditorLoading, SaveStatus, StaleBanner, ToolButton, Toolbar,
+  Divider, EditorError, EditorLoading, SaveStatus, StaleBanner, ToolButton, ToolMenu, Toolbar,
+  ViewSwitch, type SplitView,
 } from './EditorChrome';
-import { isEditableTarget, isRedoKey, isSaveKey, isUndoKey } from '../../lib/editorKeys';
+
+// CodeMirror stays a lazy chunk: only the text apps download it.
+const CodeMirrorView = lazy(() => import('./CodeMirrorView'));
 
 export interface EditorProps {
   doc: Document;
   onDirtyChange?: (dirty: boolean) => void;
 }
+
+export type EditorApi = RefObject<CodeMirrorApi | null>;
 
 function useReportDirty(file: TextFile, onDirtyChange?: (d: boolean) => void) {
   useEffect(() => {
@@ -40,75 +57,11 @@ function useReportDirty(file: TextFile, onDirtyChange?: (d: boolean) => void) {
 }
 
 function counts(text: string) {
-  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-  return `${text.split('\n').length.toLocaleString()} lines · ${words.toLocaleString()} words`;
+  const { lines, words, chars } = textStats(text);
+  return `${lines.toLocaleString()} lines · ${words.toLocaleString()} words · ${chars.toLocaleString()} characters`;
 }
 
-/** A textarea that indents with Tab and saves with Ctrl+S. */
-function TextSurface({
-  file,
-  className,
-  wrap = true,
-  mono,
-  placeholder,
-  areaRef,
-}: {
-  file: TextFile;
-  className?: string;
-  wrap?: boolean;
-  mono?: boolean;
-  placeholder?: string;
-  areaRef?: React.RefObject<HTMLTextAreaElement | null>;
-}) {
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isSaveKey(e)) {
-      e.preventDefault();
-      void file.save();
-      return;
-    }
-    // Session undo/redo (Ctrl+Z / Ctrl+Y): the stack lives in the file hook,
-    // so it works in every text-shaped app. preventDefault stops the
-    // textarea's own stack from applying the same step twice.
-    if (isUndoKey(e)) {
-      e.preventDefault();
-      file.undo();
-      return;
-    }
-    if (isRedoKey(e)) {
-      e.preventDefault();
-      file.redo();
-      return;
-    }
-    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      const el = e.currentTarget;
-      const { selectionStart: s, selectionEnd: end, value } = el;
-      const next = `${value.slice(0, s)}  ${value.slice(end)}`;
-      file.setText(next);
-      requestAnimationFrame(() => el.setSelectionRange(s + 2, s + 2));
-    }
-  };
-  return (
-    <textarea
-      ref={areaRef}
-      value={file.text}
-      onChange={(e) => file.setText(e.target.value)}
-      onKeyDown={onKeyDown}
-      spellCheck={!mono}
-      placeholder={placeholder}
-      wrap={wrap ? 'soft' : 'off'}
-      aria-label="File contents"
-      className={cn(
-        'min-h-0 w-full flex-1 resize-none bg-background p-4 text-[13.5px] leading-relaxed text-foreground outline-none',
-        mono && 'font-mono text-[13px]',
-        !wrap && 'whitespace-pre',
-        className,
-      )}
-    />
-  );
-}
-
-function Frame({ file, children, extra, hint }: { file: TextFile; children: React.ReactNode; extra?: React.ReactNode; hint?: string }) {
+export function Frame({ file, children, extra, hint }: { file: TextFile; children: React.ReactNode; extra?: React.ReactNode; hint?: string }) {
   if (file.loading) return <EditorLoading />;
   if (file.error) return <EditorError message={file.error} />;
   return (
@@ -125,6 +78,59 @@ function Frame({ file, children, extra, hint }: { file: TextFile; children: Reac
   );
 }
 
+/** Undo, redo and find — the same three in every source editor. */
+export function EditButtons({ api }: { api: EditorApi }) {
+  return (
+    <>
+      <ToolButton onClick={() => api.current?.undo()} title="Undo (Ctrl+Z)"><Undo2 className="h-4 w-4" /></ToolButton>
+      <ToolButton onClick={() => api.current?.redo()} title="Redo (Ctrl+Y)"><Redo2 className="h-4 w-4" /></ToolButton>
+      <ToolButton onClick={() => api.current?.find()} title="Find and replace (Ctrl+F)"><Search className="h-4 w-4" /></ToolButton>
+    </>
+  );
+}
+
+export function FontButtons({ size, step }: { size: number; step: (direction: 1 | -1) => void }) {
+  return (
+    <>
+      <ToolButton onClick={() => step(-1)} disabled={size <= 10} title="Smaller text"><AArrowDown className="h-4 w-4" /></ToolButton>
+      <ToolButton onClick={() => step(1)} disabled={size >= 24} title="Larger text"><AArrowUp className="h-4 w-4" /></ToolButton>
+    </>
+  );
+}
+
+/** The shared source editor, wired to one open file. */
+export function Source({
+  file, api, language, wrap, fontSize, plain, sans, placeholder,
+}: {
+  file: TextFile;
+  api: EditorApi;
+  language: string | null;
+  wrap: boolean;
+  fontSize: number;
+  plain?: boolean;
+  sans?: boolean;
+  placeholder?: string;
+}) {
+  const { resolvedTheme } = useThemeContext();
+  return (
+    <Suspense fallback={<EditorLoading label="Loading the editor…" />}>
+      <CodeMirrorView
+        value={file.text}
+        language={language}
+        dark={resolvedTheme === 'dark'}
+        wrap={wrap}
+        fontSize={fontSize}
+        plain={plain}
+        sans={sans}
+        placeholder={placeholder}
+        apiRef={api}
+        onChange={file.setText}
+        onSave={() => void file.save()}
+      />
+    </Suspense>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Notepad
 // ---------------------------------------------------------------------------
@@ -132,19 +138,63 @@ function Frame({ file, children, extra, hint }: { file: TextFile; children: Reac
 export function NotepadEditor({ doc, onDirtyChange }: EditorProps) {
   const file = useTextFile(doc.id, { autosaveMs: 1500 });
   useReportDirty(file, onDirtyChange);
+  const api = useRef<CodeMirrorApi | null>(null);
   const [wrap, setWrap] = useState(true);
   const [mono, setMono] = useState(false);
+  const [size, stepSize] = useFontSize('notepad', 14);
+  const change = (fn: (text: string) => string) => api.current?.transform(fn);
+
   return (
     <Frame file={file} hint="Saves automatically">
       <Toolbar>
+        <EditButtons api={api} />
+        <Divider />
         <ToolButton onClick={() => setWrap((w) => !w)} active={wrap} title="Word wrap">
           <WrapText className="h-4 w-4" /> <span className="hidden sm:inline">Wrap</span>
         </ToolButton>
         <ToolButton onClick={() => setMono((m) => !m)} active={mono} title="Monospace font">
           <Code className="h-4 w-4" /> <span className="hidden sm:inline">Monospace</span>
         </ToolButton>
+        <FontButtons size={size} step={stepSize} />
+        <Divider />
+        <ToolButton onClick={() => api.current?.insertText(timestamp())} title="Insert date and time">
+          <CalendarClock className="h-4 w-4" /> <span className="hidden md:inline">Date</span>
+        </ToolButton>
+        <ToolMenu
+          title="Change the text"
+          items={[
+            { label: 'UPPERCASE', onClick: () => change((t) => t.toUpperCase()) },
+            { label: 'lowercase', onClick: () => change((t) => t.toLowerCase()) },
+            { label: 'Title Case', onClick: () => change(titleCase) },
+            { label: 'Sort lines A → Z', onClick: () => change(sortLines), divider: true },
+            { label: 'Remove duplicate lines', onClick: () => change(dedupeLines) },
+            { label: 'Trim trailing spaces', onClick: () => change(trimTrailingSpaces) },
+          ]}
+        >
+          <CaseSensitive className="h-4 w-4" /> <span className="hidden md:inline">Text</span>
+        </ToolMenu>
+        <ToolMenu
+          title="More"
+          align="right"
+          items={[
+            { label: 'Go to line…', onClick: () => api.current?.gotoLine(), icon: <Hash />, hint: 'Ctrl+Alt+G' },
+            { label: 'Select all', onClick: () => api.current?.selectAll(), icon: <TextCursorInput />, hint: 'Ctrl+A' },
+            { label: 'Copy everything', onClick: () => void copyText(file.text, 'Note'), icon: <Copy /> },
+          ]}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </ToolMenu>
       </Toolbar>
-      <TextSurface file={file} wrap={wrap} mono={mono} placeholder="Start typing…" />
+      <Source
+        file={file}
+        api={api}
+        language={null}
+        wrap={wrap}
+        fontSize={size}
+        plain
+        sans={!mono}
+        placeholder="Start typing…"
+      />
     </Frame>
   );
 }
@@ -153,107 +203,109 @@ export function NotepadEditor({ doc, onDirtyChange }: EditorProps) {
 // Markdown (Docs)
 // ---------------------------------------------------------------------------
 
-type MdView = 'edit' | 'split' | 'preview';
+const LIST_PREFIX = /^(#{1,6} |[-*] \[[ xX]\] |[-*] |\d+\. |> )/;
 
-/** Wrap the selection (or insert at the caret) — what the formatting buttons do. */
-function applyMarkdown(
-  area: HTMLTextAreaElement | null,
-  file: TextFile,
-  kind: 'bold' | 'italic' | 'code' | 'link' | 'h1' | 'h2' | 'ul' | 'ol' | 'task' | 'quote',
-) {
-  if (!area) return;
-  const { selectionStart: s, selectionEnd: e, value } = area;
-  const selected = value.slice(s, e);
-  const wrapWith = (left: string, right: string, fallback: string) => {
-    const body = selected || fallback;
-    const next = value.slice(0, s) + left + body + right + value.slice(e);
-    file.setText(next);
-    requestAnimationFrame(() => {
-      area.focus();
-      area.setSelectionRange(s + left.length, s + left.length + body.length);
-    });
-  };
-  const prefixLines = (prefix: (i: number) => string) => {
-    const lineStart = value.lastIndexOf('\n', s - 1) + 1;
-    const block = value.slice(lineStart, e) || '';
-    const next = block
-      .split('\n')
-      .map((line, i) => prefix(i) + line.replace(/^(#{1,6} |[-*] \[[ xX]\] |[-*] |\d+\. |> )/, ''))
-      .join('\n');
-    file.setText(value.slice(0, lineStart) + next + value.slice(e));
-    requestAnimationFrame(() => area.focus());
-  };
-  switch (kind) {
-    case 'bold': return wrapWith('**', '**', 'bold text');
-    case 'italic': return wrapWith('_', '_', 'italic text');
-    case 'code': return wrapWith('`', '`', 'code');
-    case 'link': return wrapWith('[', '](https://)', 'link text');
-    case 'h1': return prefixLines(() => '# ');
-    case 'h2': return prefixLines(() => '## ');
-    case 'ul': return prefixLines(() => '- ');
-    case 'ol': return prefixLines((i) => `${i + 1}. `);
-    case 'task': return prefixLines(() => '- [ ] ');
-    case 'quote': return prefixLines(() => '> ');
-  }
-}
+const SOURCE_VIEWS = [
+  ['edit', PencilLine, 'Edit'],
+  ['split', Columns2, 'Split'],
+  ['preview', Eye, 'Preview'],
+] as const;
 
 export function MarkdownEditor({ doc, onDirtyChange }: EditorProps) {
   const file = useTextFile(doc.id, { autosaveMs: 1500 });
   useReportDirty(file, onDirtyChange);
-  const area = useRef<HTMLTextAreaElement>(null);
-  const [view, setView] = useState<MdView>(() => (window.innerWidth >= 1024 ? 'split' : 'edit'));
-  const fmt = (k: Parameters<typeof applyMarkdown>[2]) => applyMarkdown(area.current, file, k);
+  const api = useRef<CodeMirrorApi | null>(null);
+  const preview = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState<SplitView>(() => (window.innerWidth >= 1024 ? 'split' : 'edit'));
+  const [size, stepSize] = useFontSize('markdown', 14);
+  const wrapWith = (before: string, after: string, fallback: string) => api.current?.wrapSelection(before, after, fallback);
+  const prefix = (make: (i: number) => string) => api.current?.prefixLines(make, LIST_PREFIX);
+  const stats = textStats(file.text);
+
+  /** The rendered page, as formatted text a mail or a document will keep. */
+  const copyFormatted = async () => {
+    const node = preview.current;
+    if (!node) return;
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([node.innerHTML], { type: 'text/html' }),
+          'text/plain': new Blob([node.innerText], { type: 'text/plain' }),
+        }),
+      ]);
+      toast.success('Formatted text copied');
+    } catch {
+      toast.error('Could not copy', 'Your browser blocked the clipboard.');
+    }
+  };
 
   return (
-    <Frame file={file}>
+    <Frame
+      file={file}
+      extra={`${stats.words.toLocaleString()} words · ${readingTime(stats.words)} · ${stats.lines.toLocaleString()} lines`}
+    >
       <Toolbar>
         {view !== 'preview' && (
           <>
-            <ToolButton onClick={() => fmt('bold')} title="Bold"><Bold className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('italic')} title="Italic"><Italic className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('code')} title="Inline code"><Code className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('link')} title="Link"><Link2 className="h-4 w-4" /></ToolButton>
+            <EditButtons api={api} />
             <Divider />
-            <ToolButton onClick={() => fmt('h1')} title="Heading"><Heading1 className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('h2')} title="Subheading"><Heading2 className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('ul')} title="Bulleted list"><List className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('ol')} title="Numbered list"><ListOrdered className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('task')} title="Checklist"><ListChecks className="h-4 w-4" /></ToolButton>
-            <ToolButton onClick={() => fmt('quote')} title="Quote"><Quote className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => wrapWith('**', '**', 'bold text')} title="Bold"><Bold className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => wrapWith('_', '_', 'italic text')} title="Italic"><Italic className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => wrapWith('~~', '~~', 'struck text')} title="Strikethrough"><Strikethrough className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => wrapWith('`', '`', 'code')} title="Inline code"><Code className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => wrapWith('[', '](https://)', 'link text')} title="Link"><Link2 className="h-4 w-4" /></ToolButton>
+            <Divider />
+            <ToolButton onClick={() => prefix(() => '# ')} title="Heading"><Heading1 className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => prefix(() => '## ')} title="Subheading"><Heading2 className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => prefix(() => '### ')} title="Small heading"><Heading3 className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => prefix(() => '- ')} title="Bulleted list"><List className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => prefix((i) => `${i + 1}. `)} title="Numbered list"><ListOrdered className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => prefix(() => '- [ ] ')} title="Checklist"><ListChecks className="h-4 w-4" /></ToolButton>
+            <ToolButton onClick={() => prefix(() => '> ')} title="Quote"><Quote className="h-4 w-4" /></ToolButton>
+            <Divider />
+            <ToolMenu
+              title="Insert"
+              items={[
+                { label: 'Table', onClick: () => api.current?.insertBlock(markdownTable(3, 2)), icon: <Table /> },
+                { label: 'Code block', onClick: () => wrapWith('```\n', '\n```', 'code'), icon: <SquareCode /> },
+                { label: 'Image', onClick: () => wrapWith('![', '](https://)', 'description'), icon: <Image /> },
+                { label: 'Divider line', onClick: () => api.current?.insertBlock('\n---\n'), icon: <Minus /> },
+                { label: 'Date and time', onClick: () => api.current?.insertText(timestamp()), icon: <CalendarClock /> },
+              ]}
+            >
+              <Plus className="h-4 w-4" /> <span className="hidden md:inline">Insert</span>
+            </ToolMenu>
+            <FontButtons size={size} step={stepSize} />
           </>
         )}
-        <div className="ml-auto flex rounded-md border border-border/60 p-0.5" role="group" aria-label="View">
-          {([
-            ['edit', PencilLine, 'Edit'],
-            ['split', Columns2, 'Split'],
-            ['preview', Eye, 'Preview'],
-          ] as const).map(([v, Icon, label]) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              aria-pressed={view === v}
-              className={cn(
-                'inline-flex items-center gap-1 rounded px-2 py-1 text-[12px]',
-                v === 'split' && 'hidden lg:inline-flex',
-                view === v ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" /> {label}
-            </button>
-          ))}
-        </div>
+        <ToolMenu
+          title="More"
+          items={[
+            { label: 'Copy Markdown', onClick: () => void copyText(file.text, 'Markdown'), icon: <Copy /> },
+            {
+              label: 'Copy formatted text',
+              onClick: () => void copyFormatted(),
+              icon: <CopyPlus />,
+              disabled: view === 'edit',
+              hint: view === 'edit' ? 'needs Preview' : undefined,
+            },
+            { label: 'Go to line…', onClick: () => api.current?.gotoLine(), icon: <Hash />, disabled: view === 'preview' },
+          ]}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </ToolMenu>
+        <ViewSwitch view={view} onChange={setView} options={SOURCE_VIEWS} />
       </Toolbar>
       <div className="flex min-h-0 flex-1">
         {view !== 'preview' && (
-          <div className={cn('flex min-h-0 flex-col', view === 'split' ? 'w-1/2 border-r border-border/60' : 'w-full')}>
-            <TextSurface file={file} areaRef={area} placeholder="Write in Markdown…" />
+          <div className={cn('app-no-print flex min-h-0 flex-col', view === 'split' ? 'w-1/2 border-r border-border/60' : 'w-full')}>
+            <Source file={file} api={api} language="markdown" wrap fontSize={size} placeholder="Write in Markdown…" />
           </div>
         )}
         {view !== 'edit' && (
           <div className={cn('min-h-0 overflow-auto bg-card px-6 py-5', view === 'split' ? 'w-1/2' : 'mx-auto w-full max-w-3xl')}>
             {file.text.trim() ? (
-              <MarkdownMessage content={file.text} variant="full" />
+              <div ref={preview}><MarkdownMessage content={file.text} variant="full" /></div>
             ) : (
               <p className="text-sm text-muted-foreground">Nothing to preview yet.</p>
             )}
@@ -271,8 +323,9 @@ export function MarkdownEditor({ doc, onDirtyChange }: EditorProps) {
 export function CodeEditor({ doc, onDirtyChange }: EditorProps) {
   const file = useTextFile(doc.id, { autosaveMs: 1500 });
   useReportDirty(file, onDirtyChange);
+  const api = useRef<CodeMirrorApi | null>(null);
   const [wrap, setWrap] = useState(false);
-  const { resolvedTheme } = useThemeContext();
+  const [size, stepSize] = useFontSize('code', 13);
   const language = languageForFile(doc.filename);
   const lineCount = file.text.split('\n').length;
 
@@ -287,9 +340,10 @@ export function CodeEditor({ doc, onDirtyChange }: EditorProps) {
     }
   }, [isJson, file.text]);
 
-  const format = () => {
+  const reshape = (indent: number | undefined) => {
     try {
-      file.setText(`${JSON.stringify(JSON.parse(file.text), null, 2)}\n`);
+      const parsed: unknown = JSON.parse(file.text);
+      file.setText(indent === undefined ? JSON.stringify(parsed) : `${JSON.stringify(parsed, null, indent)}\n`);
     } catch {
       // The status bar already says why.
     }
@@ -307,25 +361,36 @@ export function CodeEditor({ doc, onDirtyChange }: EditorProps) {
       }
     >
       <Toolbar>
+        <EditButtons api={api} />
+        <ToolButton onClick={() => api.current?.gotoLine()} title="Go to line (Ctrl+Alt+G)"><Hash className="h-4 w-4" /></ToolButton>
+        <Divider />
         <ToolButton onClick={() => setWrap((w) => !w)} active={wrap} title="Wrap long lines">
           <WrapText className="h-4 w-4" />
         </ToolButton>
+        <ToolButton onClick={() => api.current?.toggleComment()} title="Comment or uncomment (Ctrl+/)">
+          <span className="font-mono text-[12px]">//</span>
+        </ToolButton>
+        <FontButtons size={size} step={stepSize} />
         {isJson && (
-          <ToolButton onClick={format} disabled={!!jsonError} title="Format JSON">
-            Format
-          </ToolButton>
+          <>
+            <Divider />
+            <ToolButton onClick={() => reshape(2)} disabled={!!jsonError} title="Format JSON">Format</ToolButton>
+            <ToolButton onClick={() => reshape(undefined)} disabled={!!jsonError} title="Minify JSON to one line">Minify</ToolButton>
+          </>
         )}
+        <ToolMenu
+          title="More"
+          align="right"
+          items={[
+            { label: 'Copy everything', onClick: () => void copyText(file.text, 'Code'), icon: <Copy /> },
+            { label: 'Select all', onClick: () => api.current?.selectAll(), icon: <TextCursorInput />, hint: 'Ctrl+A' },
+            { label: 'Trim trailing spaces', onClick: () => file.setText(trimTrailingSpaces(file.text)), icon: <Minus /> },
+          ]}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </ToolMenu>
       </Toolbar>
-      <Suspense fallback={<EditorLoading label="Loading the editor…" />}>
-        <CodeMirrorView
-          value={file.text}
-          language={language}
-          dark={resolvedTheme === 'dark'}
-          wrap={wrap}
-          onChange={file.setText}
-          onSave={() => void file.save()}
-        />
-      </Suspense>
+      <Source file={file} api={api} language={language} wrap={wrap} fontSize={size} />
     </Frame>
   );
 }
@@ -341,55 +406,99 @@ function withCsp(html: string): string {
   return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => `${m}${meta}`) : `${meta}${html}`;
 }
 
+const WEB_VIEWS = [
+  ['edit', PencilLine, 'Code'],
+  ['split', Columns2, 'Split'],
+  ['preview', Eye, 'Preview'],
+] as const;
+
+const SCREENS = [
+  ['phone', Smartphone, 'Phone width', 390],
+  ['tablet', Tablet, 'Tablet width', 768],
+  ['desktop', Monitor, 'Full width', null],
+] as const;
+
 export function WebEditor({ doc, onDirtyChange }: EditorProps) {
   const file = useTextFile(doc.id, { autosaveMs: 1500 });
   useReportDirty(file, onDirtyChange);
-  const [view, setView] = useState<MdView>(() => (window.innerWidth >= 1024 ? 'split' : 'edit'));
+  const api = useRef<CodeMirrorApi | null>(null);
+  const [view, setView] = useState<SplitView>(() => (window.innerWidth >= 1024 ? 'split' : 'edit'));
+  const [wrap, setWrap] = useState(false);
+  const [screen, setScreen] = useState<(typeof SCREENS)[number][0]>('desktop');
+  const [size, stepSize] = useFontSize('web', 13);
+  const [frameKey, setFrameKey] = useState(0);
   // Debounced so the frame is not rebuilt on every keystroke.
   const [rendered, setRendered] = useState('');
   useEffect(() => {
     const t = window.setTimeout(() => setRendered(file.text), 300);
     return () => window.clearTimeout(t);
   }, [file.text]);
+  const width = SCREENS.find((s) => s[0] === screen)?.[3] ?? null;
+  const block = (html: string) => api.current?.insertBlock(html);
 
   return (
     <Frame file={file} extra={<span>Scripts and network requests are off in the preview</span>}>
       <Toolbar>
-        <div className="flex rounded-md border border-border/60 p-0.5" role="group" aria-label="View">
-          {([
-            ['edit', PencilLine, 'Code'],
-            ['split', Columns2, 'Split'],
-            ['preview', Eye, 'Preview'],
-          ] as const).map(([v, Icon, label]) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              aria-pressed={view === v}
-              className={cn(
-                'inline-flex items-center gap-1 rounded px-2 py-1 text-[12px]',
-                v === 'split' && 'hidden lg:inline-flex',
-                view === v ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
+        {view !== 'preview' && (
+          <>
+            <EditButtons api={api} />
+            <Divider />
+            <ToolButton onClick={() => setWrap((w) => !w)} active={wrap} title="Wrap long lines"><WrapText className="h-4 w-4" /></ToolButton>
+            <FontButtons size={size} step={stepSize} />
+            <ToolMenu
+              title="Insert"
+              items={[
+                { label: 'Heading', onClick: () => block('<h2>Heading</h2>'), icon: <Heading2 /> },
+                { label: 'Paragraph', onClick: () => block('<p>Text</p>'), icon: <PencilLine /> },
+                { label: 'Link', onClick: () => api.current?.wrapSelection('<a href="https://">', '</a>', 'link text'), icon: <Link2 /> },
+                { label: 'Image', onClick: () => block('<img src="data:" alt="Description" />'), icon: <Image /> },
+                { label: 'List', onClick: () => block('<ul>\n  <li>First</li>\n  <li>Second</li>\n</ul>'), icon: <List /> },
+                { label: 'Table', onClick: () => block('<table>\n  <tr><th>Name</th><th>Value</th></tr>\n  <tr><td></td><td></td></tr>\n</table>'), icon: <Table /> },
+                { label: 'Button', onClick: () => block('<button type="button">Click</button>'), icon: <SquareCode /> },
+                { label: 'Style block', onClick: () => block('<style>\n  body { font-family: system-ui, sans-serif; }\n</style>'), icon: <Code />, divider: true },
+              ]}
             >
-              <Icon className="h-3.5 w-3.5" /> {label}
-            </button>
-          ))}
-        </div>
+              <Plus className="h-4 w-4" /> <span className="hidden md:inline">Insert</span>
+            </ToolMenu>
+          </>
+        )}
+        {view !== 'edit' && (
+          <>
+            {view !== 'preview' && <Divider />}
+            {SCREENS.map(([value, Icon, label]) => (
+              <ToolButton key={value} onClick={() => setScreen(value)} active={screen === value} title={label}>
+                <Icon className="h-4 w-4" />
+              </ToolButton>
+            ))}
+            <ToolButton onClick={() => setFrameKey((k) => k + 1)} title="Reload the preview"><RefreshCw className="h-4 w-4" /></ToolButton>
+          </>
+        )}
+        <ToolMenu
+          title="More"
+          items={[
+            { label: 'Copy the HTML', onClick: () => void copyText(file.text, 'HTML'), icon: <Copy /> },
+            { label: 'Go to line…', onClick: () => api.current?.gotoLine(), icon: <Hash />, disabled: view === 'preview' },
+          ]}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </ToolMenu>
+        <ViewSwitch view={view} onChange={setView} options={WEB_VIEWS} />
       </Toolbar>
       <div className="flex min-h-0 flex-1">
         {view !== 'preview' && (
-          <div className={cn('flex min-h-0 flex-col', view === 'split' ? 'w-1/2 border-r border-border/60' : 'w-full')}>
-            <TextSurface file={file} mono wrap={false} />
+          <div className={cn('app-no-print flex min-h-0 flex-col', view === 'split' ? 'w-1/2 border-r border-border/60' : 'w-full')}>
+            <Source file={file} api={api} language="html" wrap={wrap} fontSize={size} />
           </div>
         )}
         {view !== 'edit' && (
-          <div className={cn('min-h-0 bg-muted/30 p-3', view === 'split' ? 'w-1/2' : 'w-full')}>
+          <div className={cn('flex min-h-0 justify-center overflow-auto bg-muted/30 p-3', view === 'split' ? 'w-1/2' : 'w-full')}>
             <iframe
+              key={frameKey}
               sandbox=""
               srcDoc={withCsp(rendered)}
               title={`Preview of ${doc.filename}`}
-              className="h-full w-full rounded-md border border-border/60 bg-white"
+              style={width ? { width, maxWidth: '100%' } : undefined}
+              className={cn('h-full rounded-md border border-border/60 bg-white', width ? 'shrink-0 shadow-md' : 'w-full')}
             />
           </div>
         )}
@@ -402,21 +511,31 @@ export function WebEditor({ doc, onDirtyChange }: EditorProps) {
 // To Do
 // ---------------------------------------------------------------------------
 
+type TaskFilter = 'all' | 'open' | 'done';
+type Task = Extract<TaskLine, { kind: 'task' }>;
+
 export function TasksEditor({ doc, onDirtyChange }: EditorProps) {
   const file = useTextFile(doc.id, { autosaveMs: 1500 });
   useReportDirty(file, onDirtyChange);
   const lines = useMemo(() => parseTasks(file.text), [file.text]);
   const [draft, setDraft] = useState('');
-  const [hideDone, setHideDone] = useState(false);
+  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [query, setQuery] = useState('');
 
   const tasks = lines
     .map((line, index) => ({ line, index }))
-    .filter((e): e is { line: Extract<TaskLine, { kind: 'task' }>; index: number } => e.line.kind === 'task');
+    .filter((e): e is { line: Task; index: number } => e.line.kind === 'task');
   const done = tasks.filter((t) => t.line.done).length;
   const heading = lines.find((l) => l.kind === 'other' && /^#\s/.test(l.raw));
+  const needle = query.trim().toLowerCase();
+  const shown = tasks.filter(
+    (t) =>
+      (filter === 'all' || (filter === 'done') === t.line.done)
+      && (!needle || t.line.text.toLowerCase().includes(needle)),
+  );
 
   const update = (next: TaskLine[]) => file.setText(serializeTasks(next));
-  const patch = (index: number, change: Partial<Extract<TaskLine, { kind: 'task' }>>) =>
+  const patch = (index: number, change: Partial<Task>) =>
     update(lines.map((l, i) => (i === index && l.kind === 'task' ? { ...l, ...change } : l)));
   const remove = (index: number) => update(lines.filter((_, i) => i !== index));
   const add = () => {
@@ -425,9 +544,88 @@ export function TasksEditor({ doc, onDirtyChange }: EditorProps) {
     update([...lines, { kind: 'task', done: false, text, indent: '' }]);
     setDraft('');
   };
+  /** Swap a task with the task before or after it, leaving other lines where they are. */
+  const move = (index: number, direction: 1 | -1) => {
+    const at = tasks.findIndex((t) => t.index === index);
+    const other = tasks[at + direction];
+    if (!other) return;
+    const next = [...lines];
+    [next[index], next[other.index]] = [next[other.index], next[index]];
+    update(next);
+  };
+  const indent = (index: number, direction: 1 | -1) => {
+    const line = lines[index];
+    if (line.kind !== 'task') return;
+    patch(index, { indent: direction === 1 ? `${line.indent}  ` : line.indent.slice(2) });
+  };
+  const duplicate = (index: number) => {
+    const next = [...lines];
+    next.splice(index + 1, 0, { ...(lines[index] as Task), done: false });
+    update(next);
+  };
+  const setAll = (value: boolean) => update(lines.map((l) => (l.kind === 'task' ? { ...l, done: value } : l)));
+  /** Open tasks first, each group keeping its own order; other lines stay put. */
+  const openFirst = () => {
+    const ordered = [...tasks.filter((t) => !t.line.done), ...tasks.filter((t) => t.line.done)];
+    const next = [...lines];
+    tasks.forEach((slot, i) => {
+      next[slot.index] = ordered[i].line;
+    });
+    update(next);
+  };
 
   return (
     <Frame file={file} hint="Saves automatically" extra={<span>{done} of {tasks.length} done</span>}>
+      <Toolbar>
+        <ToolButton onClick={file.undo} disabled={!file.canUndo} title="Undo (Ctrl+Z)"><Undo2 className="h-4 w-4" /></ToolButton>
+        <ToolButton onClick={file.redo} disabled={!file.canRedo} title="Redo (Ctrl+Y)"><Redo2 className="h-4 w-4" /></ToolButton>
+        <Divider />
+        <div className="flex shrink-0 rounded-md border border-border/60 p-0.5" role="group" aria-label="Show">
+          {(['all', 'open', 'done'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setFilter(value)}
+              aria-pressed={filter === value}
+              className={cn(
+                'rounded px-2 py-1 text-[12px] capitalize',
+                filter === value ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <label className="flex h-8 min-w-32 max-w-56 flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background px-2">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a task"
+            aria-label="Find a task"
+            className="w-full bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground"
+          />
+        </label>
+        <ToolMenu
+          title="More"
+          align="right"
+          items={[
+            { label: 'Mark all done', onClick: () => setAll(true), icon: <CheckCheck />, disabled: done === tasks.length },
+            { label: 'Mark all not done', onClick: () => setAll(false), icon: <ListChecks />, disabled: done === 0 },
+            { label: 'Move open tasks to the top', onClick: openFirst, icon: <ArrowUp />, disabled: tasks.length < 2 },
+            { label: 'Copy the list', onClick: () => void copyText(file.text, 'List'), icon: <Copy />, divider: true },
+            {
+              label: 'Clear completed',
+              onClick: () => update(lines.filter((l) => !(l.kind === 'task' && l.done))),
+              icon: <Trash2 />,
+              disabled: done === 0,
+              danger: true,
+            },
+          ]}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </ToolMenu>
+      </Toolbar>
       <div
         className="min-h-0 flex-1 overflow-auto"
         onKeyDown={(e) => {
@@ -474,59 +672,51 @@ export function TasksEditor({ doc, onDirtyChange }: EditorProps) {
             <p className="py-8 text-center text-sm text-muted-foreground">
               No tasks in this file yet. Lines written as <code>- [ ] task</code> show up here.
             </p>
+          ) : shown.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {needle ? `No task matches “${query}”.` : filter === 'done' ? 'Nothing is done yet.' : 'Everything is done.'}
+            </p>
           ) : (
-            <>
-              <ul className="m-0 list-none space-y-1 p-0">
-                {tasks
-                  .filter((t) => !(hideDone && t.line.done))
-                  .map(({ line, index }) => (
-                    <li
-                      key={index}
-                      className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
-                      style={{ paddingLeft: `${0.5 + line.indent.length * 0.6}rem` }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={line.done}
-                        onChange={(e) => patch(index, { done: e.target.checked })}
-                        aria-label={`Done: ${line.text}`}
-                        className="h-4 w-4 shrink-0 accent-primary"
-                      />
-                      <input
-                        value={line.text}
-                        onChange={(e) => patch(index, { text: e.target.value })}
-                        aria-label="Task"
-                        className={cn(
-                          'min-w-0 flex-1 bg-transparent text-sm outline-none',
-                          line.done && 'text-muted-foreground line-through',
-                        )}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => remove(index)}
-                        aria-label={`Delete ${line.text}`}
-                        className="rounded p-1 text-muted-foreground opacity-60 hover:bg-destructive/10 hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-              </ul>
-              <div className="mt-4 flex gap-3 text-[12px]">
-                <button type="button" onClick={() => setHideDone((h) => !h)} className="text-primary hover:underline">
-                  {hideDone ? 'Show completed' : 'Hide completed'}
-                </button>
-                {done > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => update(lines.filter((l) => !(l.kind === 'task' && l.done)))}
-                    className="text-muted-foreground hover:text-destructive hover:underline"
+            <ul className="m-0 list-none space-y-1 p-0">
+              {shown.map(({ line, index }) => (
+                <li
+                  key={index}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                  style={{ paddingLeft: `${0.5 + line.indent.length * 0.6}rem` }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={line.done}
+                    onChange={(e) => patch(index, { done: e.target.checked })}
+                    aria-label={`Done: ${line.text}`}
+                    className="h-4 w-4 shrink-0 accent-primary"
+                  />
+                  <input
+                    value={line.text}
+                    onChange={(e) => patch(index, { text: e.target.value })}
+                    aria-label="Task"
+                    className={cn(
+                      'min-w-0 flex-1 bg-transparent text-sm outline-none',
+                      line.done && 'text-muted-foreground line-through',
+                    )}
+                  />
+                  <ToolMenu
+                    title={`Actions for ${line.text}`}
+                    align="right"
+                    items={[
+                      { label: 'Move up', onClick: () => move(index, -1), icon: <ArrowUp /> },
+                      { label: 'Move down', onClick: () => move(index, 1), icon: <ArrowDown /> },
+                      { label: 'Make a sub-task', onClick: () => indent(index, 1), icon: <IndentIncrease /> },
+                      { label: 'Move out a level', onClick: () => indent(index, -1), icon: <IndentDecrease />, disabled: !line.indent },
+                      { label: 'Duplicate', onClick: () => duplicate(index), icon: <CopyPlus /> },
+                      { label: 'Delete', onClick: () => remove(index), icon: <Trash2 />, danger: true, divider: true },
+                    ]}
                   >
-                    Clear completed
-                  </button>
-                )}
-              </div>
-            </>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </ToolMenu>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

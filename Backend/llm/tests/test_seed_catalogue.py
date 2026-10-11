@@ -245,14 +245,13 @@ class SeedRowShapeTests(SimpleTestCase):
         # rather than admit we did not look. The exceptions are all rows where
         # the server genuinely cannot know the number, or where the figure is
         # not a chat window at all: the routers have no fixed window by
-        # definition, Ollama's tag is a local install, OpenCode Zen publishes
-        # no context figures, and an embedding model is limited by the
+        # definition, Ollama's tag is a local install, and an embedding model is limited by the
         # vectors it can take rather than by conversation length (OpenAI's
         # `text-embedding-3-large` really is 8191, not 8192).
         for slug, name, value, kwargs in _rows():
             if value in self.ROUTERS or value in self.PER_UNIT:
                 continue
-            if slug in ('ollama', 'opencode'):
+            if slug == 'ollama':
                 continue
             if 'embedding' in name.lower() or 'embed' in value.lower():
                 continue

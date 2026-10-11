@@ -42,7 +42,7 @@ flowchart LR
     UI -- WebSocket --> API
     API --> RT[Agent runtime<br/>LangGraph turn loop]
     RT --> LLM[llm/access.py<br/>one funnel for every model call]
-    LLM --> P[(OpenRouter / OpenAI /<br/>NVIDIA / Ollama /<br/>OpenCode Zen)]
+    LLM --> P[(OpenRouter / OpenAI /<br/>NVIDIA / Ollama /<br/>ChatGPT plan)]
     RT --> T[Tool registry<br/>chat/tools]
     T --> SB[Sandbox sidecar<br/>no network, no secrets]
     T --> MCP[Connectors<br/>native Google + Notion,<br/>MCP servers]

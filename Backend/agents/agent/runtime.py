@@ -860,6 +860,49 @@ def sensitive_tools_for(autonomy: str, toolbox: AgentToolbox) -> frozenset[str]:
     return frozenset(SENSITIVE_TOOLS) | {'execute_python'}
 
 
+def lifted_autonomy(own: str, parent: str, caller: str = '') -> str:
+    """The level a run works at, given the chat mode it was started from.
+
+    A chat in `auto` starting an `ask` worker used to get a worker that paused
+    on every file write, each pause a full round trip to the manager — which
+    then approved it with no judge, because in `auto` the manager decides for
+    its workers under `reviewer.subagent_floor`. So the lift changes how long
+    the work takes and nothing about what is allowed: the worker's
+    irreversible calls still pause and still come back through that floor.
+
+    Only `ask` is lifted by `auto`, and only to `auto`. A chat in `full`
+    (Full auto) lifts `ask` and `auto` workers to `full`: the person switched
+    approvals off for the conversation, and a worker that still paused would
+    only be answered "yes" by a manager with no gate of its own. `plan` and
+    `review` are choices stricter than the default and stand; per-tool `ask`
+    permissions are folded in after the level and stand too. An eval measures
+    the agent as saved.
+    """
+    if caller == 'eval':
+        return own
+    if parent == 'full' and own in ('ask', 'auto'):
+        return 'full'
+    if own == 'ask' and parent == 'auto':
+        return 'auto'
+    return own
+
+
+@sync_to_async
+def _remember_parent_autonomy(log, parent: str) -> str:
+    """Stamp (or read back) the chat mode a run was started under.
+
+    A paused run resumes through `resume_agent_run`, which knows only the
+    log — without this the lift would last until the first approval and the
+    rest of the run would ask about everything again.
+    """
+    data = dict(log.input_data or {})
+    if parent and data.get('parent_autonomy') != parent:
+        data['parent_autonomy'] = parent
+        log.input_data = data
+        log.save(update_fields=['input_data', 'updated_at'])
+    return str(data.get('parent_autonomy') or '')
+
+
 def switchable_modes(toolbox: AgentToolbox) -> dict:
     """Every level a running agent can be switched to, resolved against its toolbox.
 
@@ -909,6 +952,19 @@ def _check_unattended(agent, caller: str) -> None:
             f'"allow unattended" in its settings if you want a trigger or '
             f'another agent to be able to run it.'
         )
+
+
+def _check_plan_provider(provider: str, caller: str) -> None:
+    """A ChatGPT plan pays only for runs a person started.
+
+    See `llm/chatgpt_plan.py::REFUSED_CALLERS`. Checked on the *resolved*
+    provider, because an agent with a blank model inherits the account
+    default, and that may be the plan.
+    """
+    from llm import chatgpt_plan
+
+    if provider == chatgpt_plan.PROVIDER and caller in chatgpt_plan.REFUSED_CALLERS:
+        raise AgentRunRefused(chatgpt_plan.UNATTENDED_MESSAGE)
 
 
 #: Agent statuses nothing but the owner may run. `archived` is `paused` plus
@@ -1239,10 +1295,17 @@ def build_system_prompt(agent, gathered: dict[str, Any], file_scope: Any = None,
     parts += [
         '',
         'WORKING METHOD',
-        '- For a task with several steps, call update_todos with your plan '
-        'before you start, and keep it current as you go. Your open steps are '
-        'shown back to you every turn — that is how you stay on track after a '
-        'long stretch of tool calls. Skip it for simple work.',
+        # The same rule chat follows (`CORE_RULES` 9), so every agent on every
+        # model shows the same thing. `todos.nudge` is the backstop for a
+        # model that does not listen.
+        '- Show your plan. It is the only part of your work the person sees '
+        'while you are working. Whenever the task needs more than two tool '
+        'calls, call update_todos with the steps before the first one — in '
+        'the same turn as those first calls — and keep it current: one step '
+        'doing at a time, done the moment it is. Your open steps are shown '
+        'back to you every turn, which is how you stay on track after a long '
+        'stretch of tool calls. Only a direct answer or a single lookup needs '
+        'no plan.',
         '- Never mark a step done that you did not do. If you cannot finish '
         'one, mark it blocked and say why; finishing with honest blockers is '
         'a better answer than a plan that claims false completion.',
@@ -1310,10 +1373,17 @@ def build_system_prompt(agent, gathered: dict[str, Any], file_scope: Any = None,
         # Worded by `can_ask`: only trigger and eval runs have nobody to
         # answer; a run from chat, a manager or the Run button really pauses.
         (
-            '- If the task is ambiguous in a way that changes what you do, '
-            'call ask_user with the question and the assumption you would '
-            'proceed on. It pauses the run until someone answers, so ask only '
-            'when a wrong guess would waste the work.'
+            '- Ask, then work. Before a job of several steps, check what the '
+            'task leaves open and would change the result: who it is for, the '
+            'format, which file, account or period, what to leave out. If one '
+            'is open and neither the task, your files nor your tools settle '
+            'it, call ask_user — a choice with short options or a number '
+            'whenever the answer fits one — with the assumption you would '
+            'proceed on. Ask your questions together at the start, at most '
+            'three, and again at a fork only a person can choose. The run '
+            'waits for the answer, and a good question costs less than a '
+            'finished job built on the wrong guess. Never ask what a tool '
+            'could tell you.'
             if can_ask else
             '- If the task is ambiguous in a way that changes what you do, call '
             'ask_user with the question and the assumption you will proceed on. '
@@ -1850,7 +1920,8 @@ async def run_agent(agent, goal: str, *, user, sink=None,
                      write_paths=None, command_scope=None,
                      gated_calls: str = 'run',
                      environment: Any = None,
-                     mission_id: int | None = None) -> AgentRun:
+                     mission_id: int | None = None,
+                     parent_autonomy: str = '') -> AgentRun:
     """Run `agent` against `goal` and record the run.
 
     `gated_calls` applies to `caller='eval'` only: a call that would pause is
@@ -1931,6 +2002,7 @@ async def run_agent(agent, goal: str, *, user, sink=None,
         # provider has no credential", which is the only version of the message
         # the user can act on. Inside the try so it closes the log and tells the
         # channel by the same path every other failure takes.
+        _check_plan_provider(provider, caller)
         await llm.preflight(provider=provider, model=model, user_id=user.id)
         if fallback_from:
             await _apply_run_fallback(
@@ -1938,6 +2010,11 @@ async def run_agent(agent, goal: str, *, user, sink=None,
 
         guards = agent.guardrails or {}
         autonomy = guards.get('autonomy', 'ask')
+        try:
+            parent_autonomy = await _remember_parent_autonomy(log, parent_autonomy)
+        except Exception:  # noqa: BLE001 — losing the lift only means more asking
+            logger.exception('[AgentRuntime] Could not record the parent mode')
+        autonomy = lifted_autonomy(autonomy, parent_autonomy, caller)
         if environment is not None:
             # Prepared by the caller (`eval/runner.py`): the attempt folder
             # and the simulators already exist. Rooted here, the walk itself
@@ -2332,7 +2409,8 @@ async def start_agent_run(agent, goal: str, *, user,
                           delegation_index: int = 0,
                           workspace: tuple[str, ...] = (),
                           mission_id: int | None = None,
-                          gated_calls: str = 'run') -> str:
+                          gated_calls: str = 'run',
+                          parent_autonomy: str = '') -> str:
     """Begin a run in the background and return its execution id immediately.
 
     `workspace` is the caller's own write folder, granted to the run as a
@@ -2370,6 +2448,7 @@ async def start_agent_run(agent, goal: str, *, user,
     # a 202 followed by a run that dies on its first model call, where the only
     # trace is a failed execution the user has to go and open.
     provider, model, fallback_from = await _resolve_run_model(agent, user)
+    _check_plan_provider(provider, caller)
     await llm.preflight(
         provider=provider,
         model=model,
@@ -2412,7 +2491,8 @@ async def start_agent_run(agent, goal: str, *, user,
                                 trigger_type=trigger_type, caller=caller,
                                 log=log, workspace=workspace,
                                 mission_id=mission_id,
-                                gated_calls=gated_calls)
+                                gated_calls=gated_calls,
+                                parent_autonomy=parent_autonomy)
         except admission.AdmissionTimeout as exc:
             # Nothing ran, so there is nothing to report as having failed
             # part-way. The log is closed here because `run_agent` never got to

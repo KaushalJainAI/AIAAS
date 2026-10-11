@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 #: and nothing to sequence on.
 _WRITING_TOOLS = ('ws_write', 'ws_edit', 'ws_apply_patch')
 
+#: The longest one `wait_tasks` call may wait, as its schema tells the model.
+WAIT_TASKS_MAX_SECONDS = 300
+
 
 def _task_list(args: Dict) -> list[dict]:
     tasks = args.get('tasks')
@@ -419,6 +422,7 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
                 workspace=workspace,
                 task_claims=tuple(claims), task_id=task_id, worker_label=label,
                 write_paths=effective_paths, command_scope=narrowed_commands,
+                parent_autonomy=str(context.get('autonomy') or ''),
             )
             answer = await _bound_answer(run.answer or '', context, handle)
             _tasks.finish(record, status='paused' if run.awaiting_approval else 'done',
@@ -576,7 +580,10 @@ async def _bound_answer(answer: str, context: Dict, handle: str) -> str:
             'additionalProperties': False,
         },
     },
-}, effect='read')
+    # Above the 300s a caller may ask for, so the wait ends with its own
+    # progress report rather than the loop's bare "timed out" at 120s, which
+    # read as failed tasks while every worker was still going.
+}, effect='read', timeout=WAIT_TASKS_MAX_SECONDS + 30)
 async def wait_tasks(args: Dict, context: Dict) -> str:
     from agents.agent import tasks as _tasks
 
@@ -600,7 +607,7 @@ async def wait_tasks(args: Dict, context: Dict) -> str:
     if until not in ('any', 'all'):
         return json.dumps({'error': '`until` is "any" or "all".'})
     try:
-        timeout = max(1, min(int(args.get('timeout_s') or 60), 300))
+        timeout = max(1, min(int(args.get('timeout_s') or 60), WAIT_TASKS_MAX_SECONDS))
     except (TypeError, ValueError):
         return json.dumps({'error': '`timeout_s` must be a number.'})
 

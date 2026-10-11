@@ -120,6 +120,23 @@ export interface RestoreResult {
   refused: RestoreOutcome[];
 }
 
+/** What the account holds against its quota (`GET /inference/storage/`). */
+export interface StorageUsage {
+  used_bytes: number;
+  /** 0 when the deployment enforces no byte quota. */
+  limit_bytes: number;
+  percent: number | null;
+  file_count: number;
+  file_limit: number;
+  breakdown: {
+    documents: number;
+    trash: number;
+    versions: number;
+    chat_attachments: number;
+    published_pages: number;
+  };
+}
+
 export interface TrashResult {
   trashed_folders?: number;
   trashed_documents?: number;
@@ -599,6 +616,12 @@ export const foldersService = {
       );
       return r.data;
     },
+  },
+
+  /** Bytes and files held against the account's quota, trash included. */
+  async storage(): Promise<StorageUsage> {
+    const r = await apiClient.get<StorageUsage>('/inference/storage/');
+    return r.data;
   },
 };
 

@@ -24,8 +24,9 @@ import TableRow from '@tiptap/extension-table-row';
 import TextAlign from '@tiptap/extension-text-align';
 import Underline from '@tiptap/extension-underline';
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Heading1, Heading2, Heading3,
-  ImagePlus, Italic, Link2, List, ListOrdered, Quote, Table as TableIcon, Underline as UnderlineIcon,
+  AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Code, Heading1, Heading2, Heading3,
+  ImagePlus, Italic, Link2, List, ListOrdered, Minus, Quote, Redo2, RemoveFormatting, SquareCode,
+  Strikethrough, Table as TableIcon, Underline as UnderlineIcon, Undo2,
 } from 'lucide-react';
 
 import { documentsService, type Document } from '../../api/documents';
@@ -34,6 +35,7 @@ import { pruneBlocks, specToTipTap, tipTapToBlocks } from '../../lib/docSpec';
 import { downloadBlob } from '../../lib/downloadFile';
 import type { Block, DocumentSpec } from '../../lib/officeSpec';
 import { officeSpecOf } from '../../lib/officeSpec';
+import { readingTime, textStats } from '../../lib/textTools';
 import { toast } from '../../lib/toastStore';
 import { Divider, EditorError, EditorLoading, SaveStatus, StaleBanner, ToolButton, Toolbar } from './EditorChrome';
 import { useRegisterSave } from './useSave';
@@ -435,7 +437,10 @@ function PageView({
 
   if (!editor) return <EditorLoading />;
 
+  const words = textStats(editor.getText()).words;
+
   const openLink = () => {
+
     setLinkUrl(editor.getAttributes('link').href ?? '');
     setLinkOpen(true);
   };
@@ -450,6 +455,13 @@ function PageView({
     <div className="flex min-h-0 flex-1 flex-col">
       {stale && <StaleBanner onReload={onReload} onOverwrite={() => void onSave(() => editor.getJSON(), false)} />}
       <Toolbar>
+        <ToolButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="Undo (Ctrl+Z)">
+          <Undo2 className="h-4 w-4" />
+        </ToolButton>
+        <ToolButton onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="Redo (Ctrl+Y)">
+          <Redo2 className="h-4 w-4" />
+        </ToolButton>
+        <Divider />
         <ToolButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive('heading', { level: 1 })} title="Heading 1">
           <Heading1 className="h-4 w-4" />
         </ToolButton>
@@ -468,6 +480,15 @@ function PageView({
         </ToolButton>
         <ToolButton onClick={() => editor.chain().focus().toggleUnderline().run()} active={editor.isActive('underline')} title="Underline">
           <UnderlineIcon className="h-4 w-4" />
+        </ToolButton>
+        <ToolButton onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive('strike')} title="Strikethrough">
+          <Strikethrough className="h-4 w-4" />
+        </ToolButton>
+        <ToolButton onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive('code')} title="Inline code">
+          <Code className="h-4 w-4" />
+        </ToolButton>
+        <ToolButton onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} title="Clear formatting">
+          <RemoveFormatting className="h-4 w-4" />
         </ToolButton>
         <Divider />
         <ToolButton onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')} title="Bulleted list">
@@ -538,6 +559,12 @@ function PageView({
         <ToolButton onClick={() => fileRef.current?.click()} title="Insert image">
           <ImagePlus className="h-4 w-4" />
         </ToolButton>
+        <ToolButton onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive('codeBlock')} title="Code block">
+          <SquareCode className="h-4 w-4" />
+        </ToolButton>
+        <ToolButton onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Divider line">
+          <Minus className="h-4 w-4" />
+        </ToolButton>
         <input
           ref={fileRef}
           type="file"
@@ -586,7 +613,12 @@ function PageView({
         dirty={dirty}
         saving={saving}
         hint="Autosaves as you type"
-        extra={<span>Word document</span>}
+        extra={
+          <>
+            <span>{words.toLocaleString()} words · {readingTime(words)}</span>
+            <span className="hidden sm:inline">Word document</span>
+          </>
+        }
       />
     </div>
   );

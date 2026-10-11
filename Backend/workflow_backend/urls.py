@@ -75,6 +75,9 @@ urlpatterns = [
 
     # Credentials
     path('api/credentials/', include('credentials.urls')),
+    # Continue with ChatGPT lands here: OpenAI fixes the path of its loopback
+    # redirect, so it cannot sit under /api/. 404 unless the feature is on.
+    path('auth/', include('credentials.chatgpt_urls')),
     
     # Templates
     

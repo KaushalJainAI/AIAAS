@@ -351,8 +351,14 @@ BROWSER_SESSION_MAX_SECONDS = int(os.environ.get('BROWSER_SESSION_MAX_SECONDS', 
 # ---------------------------------------------------------------------------
 # One-door engines: with no engine the tools are not offered, never
 # offered-then-refusing. Heavy work never runs on the app box. Speech-to-text
-# defaults to OpenRouter on the platform key (see `voice/stt.py`; unavailable
-# while OPENROUTER_API_KEY is unset); the rest default to `none`.
+# and text-to-speech both default to OpenRouter on the platform key (see
+# `voice/stt.py` and `voice/tts.py`; each is unavailable while
+# OPENROUTER_API_KEY is unset) — e-sign is the only one still off by default.
+# TTS defaulted to `none` until 2026-10-10 with no second engine ever
+# configured (`TTS_REMOTE_URL` unset), so `text_to_speech` and `/speak`
+# answered "no speech engine" in every environment, including production,
+# from the day the tool shipped; flipping the default is the actual fix —
+# requiring an env var nobody would think to add is how that stayed broken.
 STT_ENGINE = os.environ.get('STT_ENGINE', 'openrouter')
 STT_MODEL = os.environ.get('STT_MODEL', 'openai/whisper-large-v3-turbo')
 #: The chat mic's cap on one clip. ~2 minutes of browser Opus is well under;
@@ -360,11 +366,11 @@ STT_MODEL = os.environ.get('STT_MODEL', 'openai/whisper-large-v3-turbo')
 STT_MAX_UPLOAD_BYTES = int(os.environ.get('STT_MAX_UPLOAD_BYTES', str(10 * 1024 * 1024)))
 STT_REMOTE_URL = os.environ.get('STT_REMOTE_URL', '')
 STT_API_TOKEN = os.environ.get('STT_API_TOKEN', '')
-TTS_ENGINE = os.environ.get('TTS_ENGINE', 'none')
-#: Only read by the `openrouter` engine — Kokoro-82M, natural voices at
-#: roughly $4/1M characters (2026-09-29).
-TTS_MODEL = os.environ.get('TTS_MODEL', 'hexgrad/kokoro-82m')
-TTS_VOICE = os.environ.get('TTS_VOICE', 'af_heart')
+TTS_ENGINE = os.environ.get('TTS_ENGINE', 'openrouter')
+# Which model/voice speaks is `voice.tts.resolve_voice()`'s job (caller choice,
+# then the user's `UserProfile.tts_model`/`tts_voice`, then
+# `voice.tts.DEFAULT_TTS_MODEL`/`DEFAULT_TTS_VOICE`) — no separate settings
+# knob, so there is one place that decision is made, not two.
 TTS_REMOTE_URL = os.environ.get('TTS_REMOTE_URL', '')
 TTS_API_TOKEN = os.environ.get('TTS_API_TOKEN', '')
 ESIGN_ENGINE = os.environ.get('ESIGN_ENGINE', 'none')
@@ -494,6 +500,9 @@ REST_FRAMEWORK = {
         'chat': '20/hour',
         'stream': '20/minute',
         'imagine_generate': '30/hour',
+        # File uploads (library, chat attachments, avatar, embedded images).
+        # The storage quota bounds the total; this bounds the rate it fills.
+        'upload': '300/hour',
         # The chat mic: one clip per request. What bounds its spend, since a
         # clip costs ~₹0.02 and the ledger counts whole rupees.
         'transcribe': '120/hour',
@@ -895,6 +904,25 @@ EVAL_JUDGE_MODEL = os.environ.get('EVAL_JUDGE_MODEL', 'meta/muse-spark-1.3-contr
 AUTO_REVIEWER_PROVIDER = os.environ.get('AUTO_REVIEWER_PROVIDER', 'openrouter')
 AUTO_REVIEWER_MODEL = os.environ.get('AUTO_REVIEWER_MODEL', 'meta-llama/llama-4-scout')
 AUTO_REVIEWER_TIMEOUT_S = float(os.environ.get('AUTO_REVIEWER_TIMEOUT_S', '3'))
+
+
+# ==================== ChatGPT plan (Continue with ChatGPT) ====================
+# The `chatgpt` provider: a user signs in with ChatGPT and their turns draw on
+# the usage already included in their plan (`credentials/chatgpt.py`,
+# `llm/handlers/responses_api.py`). OpenAI offers this to open-source apps that
+# run on the user's own machine — the redirect is an HTTP loopback address —
+# and asks hosted apps to apply first, so it is on in `settings/local.py` and
+# OFF in `settings/deployment.py`. Off means the provider is not offered at all.
+CHATGPT_PLAN_ENABLED = os.environ.get('CHATGPT_PLAN_ENABLED', 'False').lower() in ('true', '1', 'yes')
+#: Our name on OpenAI's consent screen (`agent_name_hint`). Keep it stable.
+CHATGPT_AGENT_NAME = os.environ.get('CHATGPT_AGENT_NAME', 'AIAAS')
+#: The loopback address OpenAI redirects back to. Blank = this server's own
+#: port on 127.0.0.1. Set it when only a specific port is accepted.
+CHATGPT_REDIRECT_URI = os.environ.get('CHATGPT_REDIRECT_URI', '')
+#: This install's stable host id (`ext_agent_host_id`). Blank = derived once
+#: from SECRET_KEY, so it survives restarts without a table of its own.
+CHATGPT_HOST_ID = os.environ.get('CHATGPT_HOST_ID', '')
+
 #: Where external benchmark datasets are cached (git-ignored, never committed).
 EVAL_DATA_DIR = os.environ.get('EVAL_DATA_DIR', 'Backend/.eval_data/')
 

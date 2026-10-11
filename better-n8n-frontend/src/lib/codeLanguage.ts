@@ -37,6 +37,7 @@ const ALIASES: Record<string, string> = {
   toml: 'ini', ini: 'ini', cfg: 'ini', env: 'ini',
   dockerfile: 'dockerfile', docker: 'dockerfile',
   diff: 'diff', patch: 'diff',
+  tex: 'latex', latex: 'latex', ltx: 'latex', sty: 'latex', cls: 'latex', bib: 'latex',
 };
 
 /** Grammar for a fence tag or a bare extension; null when there is none. */

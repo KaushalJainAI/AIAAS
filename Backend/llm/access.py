@@ -23,7 +23,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Iterable
 
-from . import budget, credits, effort as effort_levels
+from . import budget, chatgpt_plan, credits, effort as effort_levels
 from .providers import PROVIDER_LABELS, SUPPORTED_PROVIDERS
 from .usage import DEFAULT_CONVENTION, EMPTY_USAGE, TokenUsage
 from .usage import normalize as normalize_usage
@@ -275,6 +275,8 @@ def explain_provider_failure(
     Credential, credit and retired-model failures never get here; they are
     `classify_provider_error`'s, and raise instead of being shown as an answer.
     """
+    if provider == chatgpt_plan.PROVIDER and (sentence := chatgpt_plan.explain(status, body)):
+        return sentence
     texts = _provider_texts(body)
     text = " ".join(texts).lower()
     status = status or _status_in(body)
@@ -350,6 +352,13 @@ def classify_provider_error(
     act on are named here: their credentials, their balance, or the model they
     picked.
     """
+    # The ChatGPT plan has refusals of its own, and "check your API key" is
+    # the wrong sentence for all of them: there is no key, only a sign-in and
+    # a plan. Asked first so its wording wins; None falls through.
+    if provider == chatgpt_plan.PROVIDER and (
+        problem := chatgpt_plan.classify(status, body)
+    ) is not None:
+        return problem
     text = (body or "").lower()
     # "OpenRouter (400+ models)" is a picker label; an error message wants
     # just the name.
@@ -544,6 +553,11 @@ async def _build_request(
     node_type = PROVIDER_NODE_TYPES.get(provider)
     if node_type is None or not get_registry().has_handler(node_type):
         raise LLMUnavailable(f"Provider '{provider}' is not available.")
+    if provider == chatgpt_plan.PROVIDER and not chatgpt_plan.enabled():
+        # Switched off on this install (it is, wherever the app is hosted for
+        # other people): the provider does not exist here, whatever a stored
+        # session or agent still names.
+        raise LLMUnavailable(chatgpt_plan.DISABLED_MESSAGE)
 
     # Applied here rather than at each call site because this is the one funnel
     # every chat LLM call goes through. Clamping per call site would mean
@@ -630,6 +644,11 @@ async def preflight(*, provider: str, model: str, user_id: int) -> None:
     node_type = PROVIDER_NODE_TYPES.get(provider)
     if node_type is None or not get_registry().has_handler(node_type):
         raise LLMUnavailable(f"Provider '{provider}' is not available.")
+    if provider == chatgpt_plan.PROVIDER and not chatgpt_plan.enabled():
+        # Switched off on this install (it is, wherever the app is hosted for
+        # other people): the provider does not exist here, whatever a stored
+        # session or agent still names.
+        raise LLMUnavailable(chatgpt_plan.DISABLED_MESSAGE)
 
     # Also where the model's context window is fetched and cached, so
     # `_build_request` can size the request without a query of its own. Here

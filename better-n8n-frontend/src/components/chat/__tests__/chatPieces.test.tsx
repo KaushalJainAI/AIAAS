@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import type { ChatSession } from '../../../api';
 import type { ChatSessionSummary } from '../../../api/chat';
@@ -222,16 +223,23 @@ describe('ChatMessageItem speaker button', () => {
     ...over,
   });
 
+  // ChatMessageItem renders FeedbackControl for a numeric-id assistant
+  // message, and that reads useQueryClient() — a bare render throws.
+  const withQueryClient = (ui: Parameters<typeof render>[0]) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  };
+
   it('calls onSpeak with (id, content), like onCopy pins its own args', () => {
     const props = base();
-    render(<ChatMessageItem {...props} />);
+    withQueryClient(<ChatMessageItem {...props} />);
     fireEvent.click(screen.getByTitle('Read aloud'));
     expect(props.onSpeak).toHaveBeenCalledWith(7, 'Hello there');
   });
 
   it('keeps the speaker button while waiting on /api/chat/speak/', () => {
     const props = base({ speakLoading: true });
-    render(<ChatMessageItem {...props} />);
+    withQueryClient(<ChatMessageItem {...props} />);
     // Loading swaps the icon for a spinner; the affordance stays put.
     expect(screen.getByTitle('Read aloud')).toBeTruthy();
     expect(props.onSpeak).not.toHaveBeenCalled();

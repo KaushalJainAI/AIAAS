@@ -187,6 +187,35 @@ def render(todos: list[dict[str, str]]) -> str:
     return '\n'.join(lines)
 
 
+#: Model calls already made this turn at which a run with no plan is reminded
+#: to write one. Twice, not every pass: two tool rounds without a plan is
+#: evidence of a multi-step job, and a model that still declines after the
+#: second reminder is not going to be argued into it by a third.
+NUDGE_AT = (2, 6)
+
+
+def nudge(todos: list[dict[str, str]], iteration: int) -> str:
+    """A reminder to write the plan, for a run that is plainly long and has none.
+
+    The prompt asks every model to plan, and models differ in how well they
+    listen — some plan a two-step lookup, some run thirty tool calls with
+    nothing on screen. This is the part that does not depend on the model: the
+    runtime counts the rounds and says so. Trailing context like `render`,
+    never the system prompt, and only on the passes in `NUDGE_AT`.
+    """
+    if todos or iteration not in NUDGE_AT:
+        return ''
+    return (
+        '### NO PLAN YET ###\n'
+        f'You have made {iteration} rounds of tool calls and the person '
+        'watching has no plan to follow — your plan is the only part of your '
+        'work they see while you are working. In this turn, alongside your '
+        'next tool calls, call update_todos with every step: the ones already '
+        'finished as done, the one you are on as doing, the rest as open. '
+        'Skip this only if your very next reply is the final answer.'
+    )
+
+
 def missing_notes(todos: list[dict[str, str]]) -> list[str]:
     """Texts of blocked items that give no reason — the model is told to add one."""
     return [t['text'] for t in todos if t.get('status') == BLOCKED and not t.get('note')]

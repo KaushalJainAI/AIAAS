@@ -69,13 +69,10 @@ test('agents walkthrough', async ({ page }) => {
   // waiting for the success label is unambiguous.
   const succeeded = page.getByText('Succeeded', { exact: true });
 
-  for (let i = 0; i < 40; i++) {
-    if (await succeeded.count()) break;
-    await beat(page, 5000);
-    await page.reload();
-    await beat(page, 1500);
-  }
-  await expect(succeeded.first()).toBeVisible({ timeout: 60_000 });
+  // No page.reload() here: it blanked the screen and flashed the loading
+  // spinner every 5 s, which read as the app refreshing itself. The page
+  // already polls its own live list, so just wait for the label to appear.
+  await expect(succeeded.first()).toBeVisible({ timeout: 4 * 60_000 });
   await beat(page, 3000);
 
   // ── What it produced ───────────────────────────────────────────────────

@@ -29,7 +29,7 @@ import { apiErrorMessage } from '../../lib/apiError';
 // longer seeded, but a user who added one before still holds it, and it would
 // otherwise resurface here as an MCP credential.
 const LLM_PROVIDER_SLUGS = new Set([
-  'openrouter', 'nvidia', 'openai', 'opencode',
+  'openrouter', 'nvidia', 'openai', 'opencode', 'chatgpt',
   'anthropic', 'cohere', 'deepseek', 'gemini-api', 'groq',
   'huggingface', 'mistral', 'perplexity-api', 'xai',
 ]);

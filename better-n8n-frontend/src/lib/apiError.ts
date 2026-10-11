@@ -35,3 +35,13 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
   return fallback;
 }
+
+/**
+ * True when the server refused a write because the account's storage quota is
+ * used up (`{code: 'STORAGE_FULL'}`, 413). A batch of uploads gets the same
+ * refusal for every file, so a caller shows it once and stops sending.
+ */
+export function isStorageFull(err: unknown): boolean {
+  const data = (err as { response?: { data?: unknown } } | null)?.response?.data;
+  return !!data && typeof data === 'object' && (data as Record<string, unknown>).code === 'STORAGE_FULL';
+}

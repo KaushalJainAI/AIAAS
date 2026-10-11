@@ -292,6 +292,14 @@ class TurnContext:
     #: the fixed `sensitive_tools` / `approval_policy` above stand.
     approval_modes: dict[str, tuple[frozenset[str], ApprovalPolicy]] | None = None
 
+    #: The chat session's approval mode (`ask` | `auto` | `plan` | `review`),
+    #: or '' for every other caller. Handed to the delegation tools as
+    #: `context['autonomy']` so a worker started from an `auto` chat is not
+    #: stuck asking about undoable work (`agents.agent.runtime.lifted_autonomy`).
+    #: Only chat sets it: an agent parent's level is not passed down, because
+    #: an agent's `auto` still shows the person its worker's requests.
+    autonomy: str = ''
+
     #: Called after every tool call finishes, with keywords:
     #: `call_id`, `name`, `args`, `output`, `status` ('completed' | 'failed'),
     #: `duration_ms`, `iteration`, `thought`. The agent runtime uses it to write
@@ -441,6 +449,10 @@ class AgentState(TypedDict):
     #: Overwritten every call, so only a failure that *ended* the run survives
     #: to `run_turn`, which reports it as `TurnResult.error`.
     provider_error: str
+    #: Why the latest model call ended the turn with no text, even after one
+    #: retry: `limit` (out of steps), `time` (out of clock) or `empty` (the
+    #: model returned nothing). "" when it answered or asked for tools.
+    empty_reason: str
 
 
 def _context(config: RunnableConfig | None) -> TurnContext:
@@ -536,7 +548,7 @@ _RAW_CAPABLE_TYPES = frozenset({"pdf", "pptx", "docx", "xlsx", "text"})
 #: `openai_compatible.encode_image_attachments`). Ollama builds its own
 #: image-only messages and has no file shape, so its models always get the
 #: extracted-text fallback whatever the catalogue claims.
-_RAW_FILE_PROVIDERS = frozenset({"openrouter", "openai", "nvidia", "opencode"})
+_RAW_FILE_PROVIDERS = frozenset({"openrouter", "openai", "nvidia"})
 
 
 async def _model_caps(model: str) -> tuple[bool, bool]:
@@ -579,11 +591,19 @@ async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> s
     difference matters: the old text ended the matter, so the model said "I
     cannot see it" and stopped, when a model that *can* see it was one tool call
     away the whole time.
+
+    Every rendering names the working file reference: the `/Chat/<name>` VFS
+    path for `read_file` / `find_files` / `run_python_on_files` and the
+    attachment id for `read_attachment_text`. A filename alone leaves the
+    agent quoting the upload without knowing it can open the same bytes as
+    a file it works with.
     """
+    vfs_path = f"/Chat/{getattr(attachment, 'filename', 'file')}"
     if attachment.file_type in ("image", "video"):
         if witness and attachment.file_type == "image":
             return (
                 f"### Attachment: {attachment.filename} (image, id {attachment.id})\n"
+                f"Working file: `{vfs_path}` (also `read_file` / `find_files`).\n"
                 f"[You cannot see this image yourself. Call ask_vision with "
                 f"attachment_id \"{attachment.id}\" to question an assistant that "
                 f"can. Ask specific questions; ask follow-ups when an answer is "
@@ -591,6 +611,7 @@ async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> s
             )
         return (
             f"### Attachment: {attachment.filename} ({attachment.file_type})\n"
+            f"Working file: `{vfs_path}`.\n"
             f"[This model has no visual input, so you cannot see this file. "
             f"Say so rather than guessing at its contents.]"
         )
@@ -609,7 +630,12 @@ async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> s
             text = ""
 
     body = text[:20_000] if text else "[Content could not be extracted.]"
-    return f"### Attachment: {attachment.filename}\n{body}"
+    return (
+        f"### Attachment: {attachment.filename} (id {attachment.id})\n"
+        f"Working file: `{vfs_path}` — open it with `read_file`, locate it with "
+        f"`find_files`, run code on it with `run_python_on_files`; "
+        f"`read_attachment_text` with the id above reaches the same text.\n{body}"
+    )
 
 
 async def prepare_attachments(
@@ -908,6 +934,16 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         )
         tools_ms = int((time.monotonic() - tools_started) * 1000)
 
+        # A long run with nothing on screen. Asked of every model in the
+        # prompt; this is the half that does not depend on the model having
+        # listened. Only when the tool is actually on offer this pass.
+        if any((t.get("function") or {}).get("name") == "update_todos"
+               for t in tools or ()):
+            reminder = todos.nudge(
+                state.get("metadata", {}).get("todos") or [], iteration)
+            if reminder:
+                history.append({"role": "system", "content": reminder})
+
     started = time.monotonic()
     timings: dict[str, int] = {}
     # The middle passes think one rung down (see `iteration_effort`). `replace`
@@ -956,6 +992,29 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     if not calls and content and not at_limit:
         calls, content = await _recover_text_tool_calls(content, turn, tools)
 
+    # The turn is about to end with nothing to show: the model asked for a tool
+    # on the pass where tools were withheld (its text was already moved to
+    # reasoning as a preamble), or simply returned an empty reply. Ask once
+    # more, without tools, before the user is told there is no answer.
+    empty_reason = ""
+    if not calls and not content.strip() and not completion.error:
+        empty_reason = "time" if out_of_time else "limit" if at_limit else "empty"
+        logger.warning("[Agent] Empty final reply (%s) from %s/%s; asking once more",
+                       empty_reason, turn.provider, turn.model)
+        again = await _answer_again(effective, prompt=prompt, history=history)
+        if again is not None:
+            content = again.content or ""
+            completion = Completion(
+                content=content,
+                thinking="\n\n".join(
+                    t for t in (completion.thinking, again.thinking) if t),
+                usage=completion.usage + again.usage,
+                tokens=completion.tokens + again.tokens,
+                error=again.error,
+            )
+        if content.strip():
+            empty_reason = ""
+
     message = AIMessage(
         content=content,
         tool_calls=[
@@ -997,7 +1056,32 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         "total_tokens": state.get("total_tokens", 0) + completion.tokens,
         "usage": state.get("usage", EMPTY_USAGE) + completion.usage,
         "provider_error": completion.error,
+        "empty_reason": empty_reason,
     }
+
+
+async def _answer_again(
+    turn: TurnContext, *, prompt: str, history: list[dict[str, Any]],
+) -> Completion | None:
+    """One more model call, without tools, after a final reply came back empty.
+
+    Returns None when the call itself fails: the caller already has an empty
+    reply to report, and a second failure adds nothing to say about it. Tool
+    calls in the reply are dropped for the reason they are at the limit.
+    """
+    try:
+        again = await _run_model(
+            turn,
+            prompt=prompts.ANSWER_AFTER_EMPTY,
+            history=[*history, {"role": "user", "content": prompt}],
+            tools=None,
+        )
+    except LLMUserActionable:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("[Agent] Retry after an empty reply failed")
+        return None
+    return replace(again, tool_calls=())
 
 
 async def _recover_text_tool_calls(
@@ -1246,6 +1330,30 @@ async def _on_todos(
     await sink(Event.TODOS_UPDATE, {"todos": items, "revision": revision})
 
 
+async def _on_worker_run(
+    parsed: dict, args: dict, meta: dict, sink: EventSink
+) -> None:
+    """Keep the plan of an agent this turn delegated to, and show it.
+
+    The live frames come from the tool while it waits; this is the copy that
+    outlives the turn (`metadata.worker_plans`, one entry per run), so a
+    reloaded conversation still shows what each worker did.
+    """
+    execution_id = str(parsed.get("execution_id") or "")
+    plan = parsed.get("plan")
+    if not execution_id or not isinstance(plan, list) or not plan:
+        return
+    plans = dict(meta.get("worker_plans") or {})
+    name = (parsed.get("agent_name")
+            or (parsed.get("progress") or {}).get("agent")
+            or (plans.get(execution_id) or {}).get("agent_name") or "Agent")
+    plans[execution_id] = {"agent_name": name, "todos": plan}
+    meta["worker_plans"] = plans
+    await sink(Event.WORKER_PLAN, {
+        "execution_id": execution_id, "agent_name": name, "todos": plan,
+    })
+
+
 #: How much of one edit's before/after text a file card keeps. The card shows a
 #: diff to say *what* changed; the file itself is one click away, so the record
 #: of the edit does not need to be the edit, and it rides on every reload.
@@ -1363,6 +1471,9 @@ _SIDE_EFFECTS = {
     "search_conversation_history": _on_history_search,
     "deep_research": _on_deep_research,
     "update_todos": _on_todos,
+    "run_agent": _on_worker_run,
+    "get_agent_run": _on_worker_run,
+    "answer_subagent": _on_worker_run,
     "render_chart": _on_chart,
     "write_file": _on_file,
     "edit_file": _on_file,
@@ -1685,6 +1796,9 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
         # frames (task/lease/change updates) to whoever is watching the lead.
         # None in unit tests that build a bare TurnContext.
         "sink": turn.sink,
+        # The chat's mode as it stands for this batch (a mid-turn switch
+        # included), for the delegation tools to pass to the workers they start.
+        "autonomy": _live_autonomy(turn),
     }
     # Provenance, recomputed per batch because each batch adds tool results.
     # `known_urls` is every URL someone other than the model wrote — the user,
@@ -1712,6 +1826,19 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
         None,
     )
     return tool_context
+
+
+def _live_autonomy(turn: TurnContext) -> str:
+    """The chat's approval mode right now, or '' for a caller that has none."""
+    if not turn.autonomy:
+        return ''
+    if turn.approval_modes:
+        from . import steering
+
+        chosen = steering.autonomy(turn.session_id)
+        if chosen and chosen in turn.approval_modes:
+            return chosen
+    return turn.autonomy
 
 
 def _approval_rules(turn: TurnContext) -> tuple[frozenset, Any]:
@@ -1974,14 +2101,19 @@ async def _dispatch_one(batch: _Batch, call: ToolCall, arguments: dict) -> tuple
            "answered": call.id in batch.answers,
            "user_answer": batch.answers.get(call.id),
            "decided_by_user": call.id in batch.decided}
+    from chat.tools.registry import timeout_of
+
+    # A tool whose job is to wait on other agents declares its own limit; the
+    # flat one reported a delegation as failed while its workers kept going.
+    limit = timeout_of(call.name, TOOL_CALL_TIMEOUT)
     started = time.monotonic()
     try:
-        async with asyncio.timeout(TOOL_CALL_TIMEOUT):
+        async with asyncio.timeout(limit):
             output = await batch.dispatch(call.name, arguments, ctx)
         status = "completed"
     except asyncio.TimeoutError:
         status = "failed"
-        output = f"Error: {call.name} timed out after {TOOL_CALL_TIMEOUT}s."
+        output = f"Error: {call.name} timed out after {limit:g}s."
     except Exception as exc:  # noqa: BLE001
         logger.exception("[Tools] %s raised", call.name)
         status = "failed"
@@ -2472,6 +2604,9 @@ class TurnResult:
     #: agent run whose graph crashed was closed as `completed` with the apology
     #: as its answer, so every internal failure looked like a success on /runs.
     error: str = ""
+    #: Why the turn ended with no answer text (`limit`, `time`, `empty`), so
+    #: chat can say what happened instead of a generic apology.
+    empty_reason: str = ""
 
 
 async def run_tool_eagerly(
@@ -2711,6 +2846,7 @@ async def run_turn(
         "total_tokens": 0,
         "usage": EMPTY_USAGE,
         "provider_error": "",
+        "empty_reason": "",
     }
 
     # Resume only when the graph is genuinely paused mid-run. `.values` alone is
@@ -2774,6 +2910,7 @@ async def run_turn(
         # Chat ignores this and shows the sentence already in `answer`; an agent
         # run raises `AgentTurnFailed` on it and is recorded as failed.
         error="" if awaiting_approval else (final.get("provider_error") or ""),
+        empty_reason="" if awaiting_approval else (final.get("empty_reason") or ""),
     )
 
 

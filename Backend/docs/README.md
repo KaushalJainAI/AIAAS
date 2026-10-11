@@ -44,7 +44,7 @@ Useful for the "why". The code is the source of truth where they differ.
 | [CODING_AGENTS_PLAN.md](CODING_AGENTS_PLAN.md) | Built 2026-09-22, but needs a workspace engine to actually run |
 | [EVALUATION_PRODUCTION_PLAN.md](EVALUATION_PRODUCTION_PLAN.md) | Built 2026-09-19; paid benchmark runs not done yet |
 | [SCHEDULES_SIMPLIFICATION_PLAN.md](SCHEDULES_SIMPLIFICATION_PLAN.md) | Phases 1–4 built 2026-09-22 |
-| [OPENCODE_ZEN_PLAN.md](OPENCODE_ZEN_PLAN.md) | Built 2026-09-22; not tested with a real key |
+| [OPENCODE_ZEN_PLAN.md](OPENCODE_ZEN_PLAN.md) | Retired 2026-10-11: the provider was removed |
 | [AGENT_CONFIG_IMPROVEMENT_PLAN.md](AGENT_CONFIG_IMPROVEMENT_PLAN.md) | Audit of agent settings, 2026-09-18 |
 | [TOOL_CONFIGURATION_PLAN.md](TOOL_CONFIGURATION_PLAN.md) | The Tools page and per-user tool switches |
 | [EXTRACTION_MERGE.md](EXTRACTION_MERGE.md) | Done 2026-08-18: `extraction` folded into `inference` |
@@ -61,6 +61,7 @@ Useful for the "why". The code is the source of truth where they differ.
 
 | Doc | Status |
 |---|---|
+| [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | Built 2026-10-11, **not yet tried with a real ChatGPT account**: OpenCode Zen removed; "Continue with ChatGPT" added so a user's ChatGPT plan pays for their turns. Works only on an install you run yourself; off on the hosted site until OpenAI approves it. Run `scripts/chatgpt_plan_spike.py` first |
 | [SOLUTION_MEMORY_PLAN.md](SOLUTION_MEMORY_PLAN.md) | Mostly built 2026-09-28: organisations, the solution library, auto-capture, freshness labels, "doubtful" flags, `/solutions`. Benchmark suite (S5) not built |
 | [CUSTOM_TOOLS_PLAN.md](CUSTOM_TOOLS_PLAN.md) | Approved, being built: user-made tools |
 | [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Approved, being built |

@@ -150,7 +150,10 @@ async def transcribe_audio(args: Dict, context: Dict) -> str:
             'type': 'object',
             'properties': {
                 'text': {'type': 'string', 'description': 'What to speak (max 5,000 characters).'},
-                'voice': {'type': 'string', 'description': 'Voice id. Omit for the default.'},
+                'voice': {'type': 'string',
+                          'description': 'Voice id. Omit to use the user\'s saved voice, or the platform default.'},
+                'model': {'type': 'string',
+                          'description': 'Speech model id. Omit to use the user\'s saved choice, or the platform default.'},
                 'path': {'type': 'string',
                          'description': 'Where to save it, without extension.'},
             },
@@ -175,8 +178,13 @@ async def text_to_speech(args: Dict, context: Dict) -> str:
             'error': f'That is {len(text):,} characters; one call speaks at most '
                      f'{tts_cap:,}. Split it into parts.',
         })
+    from django.contrib.auth import get_user_model
+
+    user = await get_user_model().objects.select_related('profile').filter(id=user_id).afirst()
     try:
-        data, ext = await synthesize(text, str(args.get('voice') or ''))
+        data, ext = await synthesize(
+            text, str(args.get('voice') or ''), str(args.get('model') or ''), user=user,
+        )
     except TTSError as exc:
         return json.dumps({'error': str(exc)})
     raw_path = str(args.get('path') or '').strip() or 'audio/speech'

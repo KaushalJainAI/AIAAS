@@ -29,6 +29,7 @@ import {
   PenTool,
   Presentation,
   ScrollText,
+  Sigma,
   Sparkles,
   Table,
   type LucideIcon,
@@ -40,6 +41,7 @@ export type EditorKind =
   | 'writer'
   | 'notepad'
   | 'code'
+  | 'latex'
   | 'web'
   | 'sheets'
   | 'slides'
@@ -87,7 +89,50 @@ const CODE_EXTS = [
   'py', 'js', 'jsx', 'ts', 'tsx', 'json', 'css', 'scss', 'sql', 'yaml', 'yml',
   'xml', 'sh', 'bash', 'go', 'rs', 'java', 'kt', 'c', 'h', 'cpp', 'cs', 'rb',
   'php', 'swift', 'toml', 'ini', 'env', 'dockerfile', 'r', 'lua', 'svg', 'ipynb',
+  'tex', 'latex', 'ltx', 'bib', 'sty', 'cls',
 ];
+
+/** What the LaTeX app opens: sources it renders, and the files that travel with them. */
+const LATEX_EXTS = ['tex', 'latex', 'ltx', 'bib', 'sty', 'cls'];
+
+const LATEX_TEMPLATE = String.raw`\documentclass{article}
+\usepackage{amsmath}
+
+\title{Untitled}
+\author{Your name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+A short summary of what this document says.
+\end{abstract}
+
+\section{Introduction}
+Start writing here. Inline math looks like $a^2 + b^2 = c^2$, and a numbered
+equation looks like this:
+\begin{equation}
+  E = mc^2 \label{eq:energy}
+\end{equation}
+Equation~\ref{eq:energy} can be referred to by its label.
+
+\section{Next steps}
+\begin{itemize}
+  \item Add sections with the toolbar.
+  \item Use Insert for tables, figures and citations.
+\end{itemize}
+
+\end{document}
+`;
+
+const BIB_TEMPLATE = `@article{key,
+  author  = {Author},
+  title   = {Title},
+  journal = {Journal},
+  year    = {2026},
+}
+`;
 
 const HTML_TEMPLATE = `<!DOCTYPE html>
 <html>
@@ -216,6 +261,24 @@ export const APPS: AppMeta[] = [
       { ext: 'json', label: 'JSON file', content: '{\n  "name": "example"\n}\n' },
     ],
     uploadAccept: CODE_EXTS.map((e) => `.${e}`).join(','),
+  },
+  {
+    id: 'latex',
+    title: 'LaTeX',
+    description: 'Write papers and notes in LaTeX and read the page beside the source',
+    icon: Sigma,
+    tint: 'from-teal-500 to-emerald-700',
+    path: '/apps/latex',
+    kind: 'workspace',
+    editor: 'latex',
+    keywords: ['latex', 'tex', 'paper', 'math', 'equation', 'thesis', 'overleaf', 'bibtex', 'formula'],
+    newPrompt: 'Write a LaTeX paper about…',
+    accepts: { types: ['txt'], exts: LATEX_EXTS },
+    newFiles: [
+      { ext: 'tex', label: 'LaTeX document', content: LATEX_TEMPLATE },
+      { ext: 'bib', label: 'Reference list', content: BIB_TEMPLATE },
+    ],
+    uploadAccept: LATEX_EXTS.map((e) => `.${e}`).join(','),
   },
   {
     id: 'web',
@@ -349,7 +412,7 @@ export function acceptsDoc(app: AppMeta, doc: Openable): boolean {
  * Order matters for the default: a `.md` opens in Docs (rendered), not in
  * Notepad or To Do, which are one "Open with…" away.
  */
-const PREFERENCE = ['docs', 'sheets', 'slides', 'web', 'code', 'notepad', 'pdf', 'photos', 'media', 'tasks', 'whiteboard'];
+const PREFERENCE = ['docs', 'sheets', 'slides', 'web', 'latex', 'code', 'notepad', 'pdf', 'photos', 'media', 'tasks', 'whiteboard'];
 
 export function appsForDoc(doc: Openable): AppMeta[] {
   return APPS.filter((a) => a.kind === 'workspace' && acceptsDoc(a, doc)).sort(

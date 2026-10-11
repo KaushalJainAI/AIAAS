@@ -299,3 +299,19 @@ def get_throttle_headers(throttle_instance) -> dict:
             headers['X-RateLimit-Reset'] = str(int(wait))
     
     return headers
+
+
+class UploadThrottle(TestClientExemptMixin, UserRateThrottle):
+    """Per-user bucket for file uploads, counted on writes only.
+
+    The general `user` rate (1000/hour) is sized for API calls. An upload is up
+    to 50 MB of disk and an indexing job, so it gets its own, smaller bucket.
+    Reads on the same route (`GET /documents/`) are not counted: a file browser
+    lists far more often than it uploads.
+    """
+    scope = 'upload'
+
+    def allow_request(self, request, view):
+        if request.method != 'POST':
+            return True
+        return super().allow_request(request, view)

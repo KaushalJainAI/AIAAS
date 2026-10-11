@@ -167,6 +167,11 @@ RETIRED_MODEL_VALUES = [
     "meta/llama-3.2-90b-vision-instruct",   # NIM: timed out at 90 s four times running
     "llama4:scout",                         # local: 18 months old, index 8
     "opencode/mimo-v2.5-free",              # superseded by mimo-v2.6-flash-free
+    # OpenCode Zen was removed as a provider 2026-10-11; its last three
+    # seeded rows retire with it.
+    "opencode/space-bunny-free",
+    "opencode/longcat-2.5-preview-free",
+    "opencode/mimo-v2.6-flash-free",
     # Gone upstream 2026-10-08 (missing from /v1/models live; was the one
     # free *named* row — `openrouter/free` remains the free tier):
     "stealth/space-bunny-alpha",
@@ -438,7 +443,7 @@ def populate():
     # speed, intelligence and cutoff to a row that stays.
     # Deliberately NOT added: DeepSeek V5 (rumor — no changelog entry, model
     # string or weights as of 2026-09-23), Mythos 5.1 (invite-only Glasswing),
-    # Jev 1.13 (Responses-protocol, out of scope per OPENCODE_ZEN_PLAN §7),
+    # Jev 1.13 (its own endpoint, not chat-completions),
     # :free/:batch variants and Granite/Ling/Laguna ultra-cheap rows
     # (signal-free vs Qwen3.7 Flash at $0.03).
     #
@@ -829,30 +834,17 @@ def populate():
             ],
         },
         {
-            "name": "OpenCode Zen",
-            "slug": "opencode",
-            "description": "Free models on your own OpenCode Zen account (bring your own key).",
-            "icon": "OC",
-            "models": [
-                # Re-curated 2026-10-01. Ids are live on the keyless
-                # GET https://opencode.ai/zen/v1/models, all three are on
-                # `/chat/completions` in the endpoint table at
-                # https://opencode.ai/docs/zen (the protocol this provider
-                # speaks), and the input modalities and context windows are
-                # from models.dev, the registry OpenCode itself maintains.
-                # Only rows that read images are kept: Big Pickle, DeepSeek V4
-                # Flash, Ling 3.0 Flash Fin and the two Nemotron trials are
-                # text-only and retire below, and MiMo v2.5 is superseded by
-                # v2.6. Still unverified without a Zen key
-                # (docs/OPENCODE_ZEN_PLAN.md §8): streaming, `tool_calls` and
-                # `reasoning_effort` acceptance, so effort stays empty.
-                m("Space Bunny Free", "opencode/space-bunny-free", True, {**VISION_CAPS, "video_input": True}, context=1048576,
-                  description="Free on your OpenCode Zen account. Reads images and video; zero-retention per the Zen docs."),
-                m("LongCat 2.5 Preview (Free)", "opencode/longcat-2.5-preview-free", True, VISION_CAPS, context=1000000,
-                  description="Free preview on your OpenCode Zen account. Reads images; zero-retention per the Zen docs."),
-                m("Mimo v2.6 Flash (Free)", "opencode/mimo-v2.6-flash-free", True, {**VISION_CAPS, "audio_input": True, "video_input": True}, context=200000,
-                  description="Limited-time free on your OpenCode Zen account — prompts may be used to improve the model. Avoid private data."),
-            ],
+            # No rows on purpose. Which models a ChatGPT plan includes is a
+            # fact about the signed-in account, so `llm/chatgpt_plan.py`
+            # fetches the list with the user's own token and stores it as
+            # `chatgpt/<slug>` rows with `source='hand'`, which the prune
+            # below leaves alone. This block only makes the provider exist,
+            # so the picker can offer Continue with ChatGPT before sign-in.
+            "name": "ChatGPT plan",
+            "slug": "chatgpt",
+            "description": "Your ChatGPT subscription (Continue with ChatGPT).",
+            "icon": "GPT",
+            "models": [],
         },
         {
             "name": "OpenAI",

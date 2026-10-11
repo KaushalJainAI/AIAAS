@@ -28,6 +28,7 @@ import UnsavedDialog from '../components/apps/UnsavedDialog';
 import VersionHistoryPanel from '../components/apps/VersionHistoryPanel';
 import { useSave } from '../components/apps/useSave';
 import { useAppTabs } from '../hooks/useAppTabs';
+import { prefillNewChat } from '../hooks/useChatDraft';
 import { useRecentFiles, useRecordOpen } from '../hooks/useRecents';
 import { acceptsDoc, getApp, type AppMeta, type NewFileOption } from '../lib/apps';
 import { apiErrorMessage } from '../lib/apiError';
@@ -548,7 +549,11 @@ function Workspace({ app }: { app: AppMeta }) {
                   ))
                 )
               }
-              onAskAi={() => navigate(`/ai-chat?new=${encodeURIComponent(app.newPrompt)}`)}
+              onAskAi={() => {
+                // The chat opens a new conversation with the prompt in its box.
+                prefillNewChat(app.newPrompt);
+                navigate('/ai-chat', { state: { newChat: true } });
+              }}
             />
           )}
         </main>

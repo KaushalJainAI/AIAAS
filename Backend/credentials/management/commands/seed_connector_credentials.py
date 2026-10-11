@@ -403,12 +403,6 @@ CREDENTIAL_TYPES: list[dict] = [
         "description": "NVIDIA NIM / build.nvidia.com API key", "icon": "Brain",
         "fields_schema": _api_key("API Key", "nvapi-..."),
     },
-    {
-        "name": "OpenCode Zen", "slug": "opencode", "auth_method": "api_key",
-        "description": "OpenCode Zen API key (opencode.ai/zen) — free models run on your own account",
-        "icon": "Brain",
-        "fields_schema": _api_key("API Key"),
-    },
 
     # ---- Search / research -------------------------------------------------
     {

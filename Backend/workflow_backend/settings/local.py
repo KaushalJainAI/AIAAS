@@ -36,6 +36,9 @@ os.environ.setdefault('USE_REDIS_CHANNEL_LAYER', 'False')
 os.environ.setdefault('RUN_WORKFLOWS_ASYNC', 'False')
 os.environ.setdefault('CORS_ALLOW_ALL_ORIGINS', 'True')
 os.environ.setdefault('PUBLIC_URL', 'http://localhost:8000')
+# Continue with ChatGPT works on a machine the user runs themselves; see
+# CHATGPT_PLAN_ENABLED in base.py.
+os.environ.setdefault('CHATGPT_PLAN_ENABLED', 'True')
 os.environ.setdefault('GOOGLE_OAUTH_REDIRECT_URI', 'http://localhost:3000/auth/google/callback')
 
 from .base import *  # noqa: F401, F403, E402

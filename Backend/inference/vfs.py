@@ -881,6 +881,11 @@ def write_file(scope: FileScope, path: str, content: str, *,
             f'{max_chars:,}. Write it in parts, or write less.'
         )
 
+    # Before `_make_dirs`, like the write check: a refused write leaves no
+    # folders behind. Bytes only here — whether this is one more file is not
+    # known until the look-up under the lock, which checks the count itself.
+    _require_room(scope, len(text.encode('utf-8')), new_file=False)
+
     walked: list[str] = []
     folder = _make_dirs(scope, parent_parts, walked)
     parent_parts = walked
@@ -905,6 +910,7 @@ def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: 
         doc = None
 
     if doc is None:
+        _require_room(scope, 0, count_only=True)
         doc = Document.objects.create(
             user=scope.user,
             folder=folder,
@@ -995,6 +1001,7 @@ def write_binary(scope: FileScope, path: str, data: bytes, *, text: str = '',
             f'{AGENT_FILE_BINARY_BYTES / 1_048_576:.0f} MB. Use fewer or smaller '
             f'images, or split it into two files.'
         )
+    _require_room(scope, len(data), new_file=False)
 
     walked: list[str] = []
     folder = _make_dirs(scope, parent_parts, walked)
@@ -1021,6 +1028,7 @@ def _create_binary(scope: FileScope, parent_parts, folder, name: str, requested:
 
     replaced = False
 
+    _require_room(scope, 0, count_only=True)
     doc = Document(
         user=scope.user,
         folder=folder,
@@ -1822,6 +1830,7 @@ def copy(scope: FileScope, src: str, dst: str) -> dict:
     _require_write_at(scope, dst_parent, 'copy into here')
     file_type = _check_extension(doc, name)
     doc = drafts.ensure_rendered(doc)
+    _require_room(scope, doc.file_size or 0)
 
     with transaction.atomic():
         walked: list[str] = []
@@ -1844,6 +1853,31 @@ def copy(scope: FileScope, src: str, dst: str) -> dict:
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+def _require_room(scope: FileScope, incoming_bytes: int, *, new_file: bool = True,
+                  count_only: bool = False) -> None:
+    """Refuse a write the account's storage quota has no room for.
+
+    An agent in a loop is the writer the quota exists for: a person runs out
+    of patience, a run does not. The refusal tells the model to stop, because
+    retrying a full disk fills the iteration cap instead.
+
+    `count_only` is the create branch of a write whose bytes were already
+    checked before its folders were made: only "one more file" is left to ask.
+    """
+    from . import quota
+
+    try:
+        if count_only:
+            quota.check_count(scope.user)
+        else:
+            quota.check(scope.user, incoming_bytes, new_file=new_file)
+    except quota.QuotaExceeded as exc:
+        raise VfsError(
+            f'{exc} Do not retry: report what you would have saved and tell '
+            f'the user their storage is full.'
+        ) from exc
+
 
 def _require_write_at(scope: FileScope, parts: Sequence[str], verb: str) -> None:
     """Refuse a write this scope does not allow at this path.

@@ -28,6 +28,10 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from chat.commands import registry as command_registry
+# The catalogue is filled by importing the domain modules, which the views
+# module does. Run on its own, this file used to see an empty catalogue: it
+# only passed when an earlier test file had already loaded the URLconf.
+from chat.commands import views as _command_views  # noqa: F401
 from chat.commands.registry import CommandContext
 from chat.commands.resolve import (
     CommandError,

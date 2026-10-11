@@ -56,7 +56,10 @@ subagents, which the user configures tool by tool.
 | Declared effect | Every tool declares `read`, `reversible` or `irreversible`. Unknown tools (every MCP tool) count as irreversible. | `@tool(effect=…)`, `chat/tools/registry.py` |
 | Autonomy ladder | `plan` (read-only) · `review` · `ask` · `auto` · `full`, switchable mid-run but never retroactively. | `agents/grants.py::AUTONOMY_LADDER` |
 | Credentialed MCP calls | Gated unless the tool name starts with a read-only verb. Unattended runs gate reads too. | `chat/tools/permissions.py` |
-| Auto reviewer | In `auto`, a fast judge model may approve a call that clearly matches the request. It can only relax ask → allow, never for money, public publishing, unnamed recipients, first-seen browser hosts, or a turn that read injection-shaped text. A slow or failed judge means "ask". | `chat/turn/reviewer.py` |
+| Auto, one meaning | In `auto`, chat and agents alike: a call that can be undone runs; a call that cannot is reviewed. Handing work to an agent is the manager's own call (the worker meets its own gates). A mission, anything that spends money, and every call in a turn that read injection-shaped text are never freed by rule. | `chat/turn/reviewer.py::rule_allow`, `agents/agent/runtime.py::sensitive_tools_for` |
+| Auto reviewer | For a call that cannot be undone, a fast judge model may approve it when it clearly follows from the request. It can only relax ask → allow, never for money, public publishing, unnamed recipients, first-seen browser hosts, or a turn that read injection-shaped text. A slow or failed judge means "ask". | `chat/turn/reviewer.py` |
+| Full auto (chat) | A chat mode the person picks per conversation (`ChatSession.autonomy = 'full'`, red in the composer, never reachable by Shift+Tab, refused as an account default). No approval cards at all, for the chat and for the `ask`/`auto` workers it starts. Three things still hold: a turn that read injection-shaped text falls back to `auto`; `plan`/`review` workers and per-tool `ask` rules keep asking; and everything that is not an approval is untouched — grants, scopes, spend caps, the daily send cap, content policy, held MCP tools. | `chat/turn/reviewer.py::full_policy`, `agents/agent/runtime.py::lifted_autonomy` |
+| Worker mode | A worker saved as `ask`, started from a chat in `auto`, works at `auto` (kept on the run's log so it survives a pause). `plan` and `review` workers, per-tool `ask` rules and evals are not changed. Its irreversible calls still pause and still reach the manager's floor. | `agents/agent/runtime.py::lifted_autonomy` |
 | Worker requests | A subagent's approval comes to the chat. In `ask` the person decides on a card showing the worker's request. In `auto` the manager decides, under the same floor as above. | `chat/tools/agents.py::answer_subagent` |
 | Approval scopes | once / this chat / always; worker requests have no "always". | `chat/turn/agent.py::approve_tool_call` |
 | Readable cards | A call is described in words on the server, secrets redacted by key, markup never rendered. | `chat/tools/describe.py` |
@@ -94,6 +97,10 @@ subagents, which the user configures tool by tool.
 | Tool output bounded; the rest archived, not silently cut | `chat/tools/tool_output.py` |
 | Outbound messages: per run, per recipient, **and a daily cap per account across all channels** | `chat/tools/talk.py`, `core/safety/outbound.py` |
 | API throttling by tier | `core/http/throttling.py` |
+| **Storage quota per account** (bytes by tier, and a file count), checked at every door bytes come in by: uploads, chat attachments, agent file writes, new files, copies, published snapshots. Trash counts until purged. A full account gets a refusal that tells a model to stop, not retry | `inference/quota.py` |
+| Uploads: one size/executable/zip-bomb check for the library **and** chat attachments, an upload throttle, avatars limited to small real images, a cap on files per chat | `inference/utils.py::validate_file_upload`, `core/http/throttling.py::UploadThrottle`, `core/views.py::_avatar_refusal` |
+| Indexing runs a fixed number of documents at once, however many are uploaded | `inference/indexing.py` |
+| A ChatGPT plan pays only for runs a person started: schedules, missions and evals are refused, and a schedule on such an agent cannot be saved | `llm/chatgpt_plan.py::REFUSED_CALLERS`, `runtime._check_plan_provider`, `agents/config.py` |
 | **Pause everything** (account-wide), cancel a run, stop a worker | `UserProfile.paused_until`, `cancel_agent_run`, `stop_task` |
 
 ### Layer 6 — Content and the law
@@ -178,9 +185,13 @@ Stated plainly, so nobody reads this document as "solved":
 |---|---|---|
 | `RUN_DETAIL_RETENTION_DAYS` | 180 | When a finished run's reasoning and tool payloads are cleared |
 | `OUTBOUND_DAILY_CAP` | 100 | Messages an account's agents may send in 24 h, all channels together |
+| `STORAGE_QUOTA_FREE_MB` / `_PRO_MB` / `_ENTERPRISE_MB` | 1024 / 10240 / 102400 | Megabytes an account may keep, by tier. 0 switches the byte quota off |
+| `MAX_DOCUMENTS_PER_USER` | 10000 | Files per account, trash included |
+| `INDEXING_CONCURRENCY` | 2 | Documents extracted and embedded at once, process-wide |
 | `OUTBOUND_AI_DISCLOSURE` | `unattended` | Add the AI line to messages: `unattended` (no person reviewed it), `always`, `never` |
 | `AUTO_REVIEWER_MODEL` / `_TIMEOUT_S` | llama-4-scout / 3 | The Auto judge; slower than the timeout means "ask" |
 | `MCP_ALLOW_STDIO` | False in production | Local-process MCP servers |
+| `CHATGPT_PLAN_ENABLED` | False in production | Continue with ChatGPT. Off, its routes 404 (including the unauthenticated `/auth/callback`) and the provider is not offered. The callback is tied to a user only by a single-use `state` this server issued, answers only on a loopback host, and says the same thing for every failure |
 | `SANDBOX_ENGINE` | `service` in production | The hardened container, never the dev fallback |
 
 ---

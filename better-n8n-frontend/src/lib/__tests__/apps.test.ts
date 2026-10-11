@@ -54,6 +54,11 @@ describe('opening a file', () => {
     expect(appsForDoc(doc('notes.md', 'md')).map((a) => a.id)).toEqual(['docs', 'notepad', 'tasks']);
   });
 
+  it('a .tex opens in LaTeX, with the Code Editor one step away', () => {
+    expect(appsForDoc(doc('paper.tex', 'txt')).map((a) => a.id)).toEqual(['latex', 'code']);
+    expect(openInAppPath(doc('refs.bib', 'txt'))).toBe('/apps/latex?file=7');
+  });
+
   it('a file nothing opens has no app path', () => {
     expect(openInAppPath(doc('blob.bin', 'other'))).toBeNull();
     expect(openInAppPath(doc('deck.pptx', 'pptx'))).toBe('/apps/slides?file=7');

@@ -150,6 +150,30 @@ async def live_todos(thread_id: str) -> tuple[int, int, list[str]] | None:
         return None
 
 
+async def live_plan(thread_id: str) -> list[dict] | None:
+    """This run's plan as items, from its checkpointer — or None.
+
+    The same best-effort read as `live_todos`, returning the list itself for
+    a caller that draws it (`chat/tools/agents.py` forwards a worker's plan to
+    the chat that delegated).
+    """
+    if not thread_id:
+        return None
+    try:
+        from chat.turn.agent import get_graph
+
+        aget = getattr(get_graph(), 'aget_state', None)
+        if aget is None:
+            return None
+        state = await asyncio.wait_for(
+            aget({'configurable': {'thread_id': thread_id}}),
+            timeout=_LIVE_TODO_TIMEOUT)
+        items = ((getattr(state, 'values', None) or {}).get('metadata') or {}).get('todos')
+        return list(items) if isinstance(items, list) and items else None
+    except Exception:  # noqa: BLE001 — see `live_todos`
+        return None
+
+
 def progress_for(log, *, turns: int = 0, steps: int = 0,
                  last_reasoning: str = '',
                  live_todos: tuple[int, int, list[str]] | None = None,

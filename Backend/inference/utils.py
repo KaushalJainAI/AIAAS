@@ -67,6 +67,10 @@ def user_document_path(instance, filename: str) -> str:
 _EXTENSION_TYPES = {
     'pdf': 'pdf',
     'txt': 'txt', 'text': 'txt', 'log': 'txt',
+    # LaTeX sources are plain text: without this a `.tex` upload fell through
+    # to `other` (browsers send `application/x-tex`), so it could be kept but
+    # neither read, searched nor edited.
+    'tex': 'txt', 'latex': 'txt', 'bib': 'txt', 'sty': 'txt', 'cls': 'txt',
     'md': 'md', 'markdown': 'md',
     'docx': 'docx',
     # Old Office binaries get their own types (Phase F): python-docx,
@@ -668,7 +672,11 @@ class DocumentProcessor:
             logger.error(f"Error extracting text from {file_path}: {e}")
             return ""
 
+        if file_type in TEXT_FILE_TYPES:
+            # The text *is* the file; see `Document.save`.
+            return text.replace('\x00', '')
         return cls.sanitize_document_content(text)
+
 
 
 # Module-level aliases for backward compatibility

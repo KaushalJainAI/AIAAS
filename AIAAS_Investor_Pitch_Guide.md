@@ -275,7 +275,7 @@ with: "Abundant, and controlled. Thank you."
 |---|---|
 | What's the moat? | The control model is part of the architecture: one entry point, four permission axes, five autonomy levels, exactly-once approvals, secrets the model never sees. Adding this to an existing tool means rebuilding its core. |
 | Why won't a big AI lab just build this? | Labs build assistants for individuals. This is an organisation layer: permissions per agent, memory isolated per organisation, real files, and approvals routed to the right person. |
-| Which models do you use? | Pluggable: OpenRouter, NVIDIA, OpenAI, Ollama and OpenCode Zen. Customers can bring their own keys. The default keeps working as individual models are retired. |
+| Which models do you use? | Pluggable: OpenRouter, NVIDIA, OpenAI and Ollama. Customers can bring their own keys. The default keeps working as individual models are retired. |
 | How do you keep costs down? | A lean runtime (slide 31), spend caps per agent split across workers, prompt caching by design (slide 20), and cheap models for background work. |
 | Is it secure enough for real company data? | Encrypted credentials the model never sees (35), per-organisation isolation (37), a no-network sandbox (33), injection limits (34), and audited records of every run (38). |
 | How do you know the agents are good? | Generated test worlds, graders checked against human review, and repeated runs (39). |

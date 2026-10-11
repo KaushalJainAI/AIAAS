@@ -10,12 +10,15 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 
 from adrf.decorators import api_view
-from rest_framework.decorators import permission_classes
+from rest_framework.decorators import permission_classes, throttle_classes
+from rest_framework.throttling import UserRateThrottle
 from drf_spectacular.utils import extend_schema, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 
 from core.http.pagination import paginate_keyset
+from core.http.throttling import UploadThrottle
 from . import filesystem as fs
+from . import indexing, quota
 from . import recycle
 from .models import Document, KnowledgeBase
 from .engine import KnowledgeBaseUnavailable, get_hnsw_kb, get_rag_pipeline
@@ -193,6 +196,7 @@ def _document_page(request) -> dict:
 )
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle, UploadThrottle])
 async def document_list(request):
     """
     GET: List user's documents (personal + public).
@@ -212,7 +216,11 @@ async def document_list(request):
     try:
         mime_type = await sync_to_async(validate_file_upload)(file)
     except ValidationError as e:
-        return Response({'error': str(e)}, status=400)
+        return Response({'error': '; '.join(e.messages)}, status=400)
+    try:
+        await sync_to_async(quota.check)(request.user, file.size)
+    except quota.QuotaExceeded as exc:
+        return Response({'error': str(exc), 'code': 'STORAGE_FULL'}, status=exc.status)
 
     # One vocabulary for file_type across every producer — the raw extension
     # was not one of Document.FILE_TYPE_CHOICES, so images were indexed as
@@ -255,14 +263,10 @@ async def document_list(request):
         ), kb.id
 
     doc, resolved_kb_id = await sync_to_async(_create)()
-    # Index inline in a background thread. There is no Celery worker / Redis
-    # broker on this deployment, so .delay() would hang on broker-reconnect and
-    # then fail — leaving the upload stuck "pending". The thread runs the same
-    # sync indexing service used by the Celery path.
-    from .tasks import process_document
-    threading.Thread(
-        target=process_document, args=(doc.id, resolved_kb_id), daemon=True
-    ).start()
+    # Indexed in-process, on the bounded queue: there is no Celery worker /
+    # Redis broker on this deployment, so .delay() would hang on
+    # broker-reconnect and then fail — leaving the upload stuck "pending".
+    indexing.index_document(doc.id, resolved_kb_id)
 
     return Response(DocumentSerializer(doc).data, status=201)
 
@@ -782,6 +786,7 @@ async def document_asset(request, document_id: int):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle, UploadThrottle])
 async def document_images(request, document_id: int):
     """Save an image beside the document, for embedding in it (owner only).
 
@@ -801,6 +806,15 @@ async def document_images(request, document_id: int):
         return Response({'error': 'Send the image as multipart `file`.'}, status=400)
     if normalize_file_type(upload.name, upload.content_type) != 'image':
         return Response({'error': f'{upload.name} is not an image.'}, status=400)
+    # Before the read: `write_binary` refuses anything over this, but only
+    # after the whole upload is already in memory.
+    from workflow_backend.thresholds import AGENT_FILE_BINARY_BYTES
+
+    if upload.size > AGENT_FILE_BINARY_BYTES:
+        return Response(
+            {'error': f'That image is {upload.size / 1_048_576:.1f} MB; the limit is '
+                      f'{AGENT_FILE_BINARY_BYTES // 1_048_576} MB.'},
+            status=413)
 
     def _store():
         scope = vfs_mod.build_scope(request.user, 'full')

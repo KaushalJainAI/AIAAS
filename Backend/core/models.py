@@ -106,6 +106,27 @@ class UserProfile(models.Model):
         help_text='Vision model asked about images the main model cannot see'
     )
 
+    # Speech — the model and voice `voice/tts.py` speaks with: the agent tool,
+    # the `/speak` slash command, and the chat speaker button all resolve the
+    # same two fields, so "which voice do I hear" has one answer regardless of
+    # which of those three asked. Blank means the platform default
+    # (`voice.tts.DEFAULT_TTS_MODEL`/`DEFAULT_TTS_VOICE`) — the same
+    # blank-means-default rule `llm_effort` already uses. The catalog lives in
+    # `imagine.services.catalog.TTS_MODELS`, the one curated list — OpenRouter
+    # has no discovery endpoint for speech models, so this is not duplicated.
+    tts_model = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Preferred text-to-speech model (blank = platform default)'
+    )
+    tts_voice = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Preferred voice for that model (blank = model default)'
+    )
+
     # Identity
     display_name = models.CharField(
         max_length=100,

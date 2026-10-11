@@ -8,9 +8,10 @@
 
 import { documentsService, type Document } from '../api/documents';
 import { languageForFile } from './codeLanguage';
+import { isLatexFile } from './latex';
 
 export type PreviewKind =
-  | 'markdown' | 'csv' | 'json' | 'html' | 'notebook' | 'code' | 'text' | 'media' | 'office'
+  | 'markdown' | 'csv' | 'json' | 'html' | 'notebook' | 'latex' | 'code' | 'text' | 'media' | 'office'
   | 'pdf' | 'legacy_office' | 'converted_image' | 'archive' | 'email' | 'opendocument';
 
 /** Types whose bytes are a zip of XML: previewed from their stored spec or extract, never read as text. */
@@ -41,6 +42,9 @@ export function kindOf(doc: Previewable): PreviewKind {
   // Extension first: an old row may still call a `.doc` file `docx`, and a
   // `.py` arrives as `txt` — the name is the finer signal either way.
   if (ext === 'pdf' || type === 'pdf') return 'pdf';
+  // Ahead of the `other` check below: a `.tex` uploaded before LaTeX had a
+  // type is stored as `other`, and it is text whatever its row says.
+  if (isLatexFile(doc.filename || '')) return 'latex';
   if (LEGACY_OFFICE_EXTS.has(ext) || LEGACY_OFFICE_TYPES.has(type)) return 'legacy_office';
   if (CONVERTIBLE_IMAGE_EXTS.has(ext)) return 'converted_image';
   if (ext === 'zip' || type === 'zip') return 'archive';

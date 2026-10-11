@@ -129,34 +129,69 @@ def extract_text(data: bytes, file_type: str) -> str:
 
 # ── Indexing ─────────────────────────────────────────────────────────────────
 
-def index_for_rag(user, upload, attachment: ChatAttachment, text: str) -> None:
-    """Store the file as a Document row and index it in background.
+def store_document(user, upload, text: str):
+    """Store the upload as a `Document` row in `/Chat/`; return the row.
 
     Every chat upload gets the row; text-bearing types are chunked + embedded
     by process_document, while images and formats with no reader land as
     `stored` (kept, listed, re-readable) rather than living only on the chat.
-    """
-    import threading
 
+    The row lives in `/Chat/` — the same folder `vfs.chat_scope` writes into —
+    so the file the model was told about and the file its `read_file` /
+    `find_files` tools can address are one and the same row. A system message
+    carrying only extracted text leaves the file tools blind: the agent can
+    quote the upload but cannot open, edit or run code on it.
+
+    **The document owns the bytes.** The attachment is created afterwards
+    pointing at this row's file (`ChatAttachment.file = document.file`, the
+    shape `persist_generated_media` already used), so an upload is written to
+    disk once. It used to be saved twice — once per row — and every chat
+    attachment cost double its size. Indexing is the caller's to start, once
+    the attachment exists (`inference.indexing.index_document`).
+    """
+    from inference import filesystem as fs
     from inference.models import Document
-    from inference.tasks import process_document
     from inference.utils import normalize_file_type
+    from workflow_backend.thresholds import CHAT_HOME_ROOT, DOCUMENT_EXTRACT_CAP
 
     # `ChatAttachment.file_type` speaks its own five-value vocabulary
     # ('image'/'pdf'/'pptx'/'text'/'other'), which is not Document's — 'pptx',
     # 'text' and 'other' are not FILE_TYPE_CHOICES at all. Normalising from the
     # filename keeps every producer of a Document row agreeing with every
     # consumer of `Document.file_type` (text extraction, vision extraction).
-    document = Document.objects.create(
-        user=user, name=upload.name, content_text=text, file=upload,
+    try:
+        chat_folder = fs.ensure_folder(user, CHAT_HOME_ROOT, None)
+    except Exception:
+        logger.exception("[Upload] Could not ensure /Chat/ folder; filing at root")
+        chat_folder = None
+    return Document.objects.create(
+        # Capped like every other writer of this column: the attachment's own
+        # copy was cut at the cap while this one took the whole extraction.
+        user=user, name=upload.name, content_text=text[:DOCUMENT_EXTRACT_CAP],
+        file=upload,
         file_type=normalize_file_type(upload.name, getattr(upload, 'content_type', '')),
         file_size=upload.size, status="pending",
+        folder=chat_folder,
     )
-    attachment.inference_document = document
-    attachment.save(update_fields=["inference_document"])
 
-    # Indexed in-process: this deployment has no Celery broker.
-    threading.Thread(target=process_document, args=(document.id,), daemon=True).start()
+
+def _drop_blob(field_file) -> None:
+    """Remove an attachment's stored file, unless a document still owns it.
+
+    An upload shares its document's bytes, so this runs *after* the document
+    rows are deleted: a document that survived (it was trashed, or its delete
+    failed) keeps the file it still points at.
+    """
+    if not field_file:
+        return
+    try:
+        from inference.models import Document
+
+        if Document.all_objects.filter(file=field_file.name).exists():
+            return
+        field_file.storage.delete(field_file.name)
+    except Exception as exc:  # noqa: BLE001 — an orphaned blob never fails a delete
+        logger.warning("[Delete] Could not remove file from disk: %s", exc)
 
 
 # ── Release ──────────────────────────────────────────────────────────────────
@@ -176,15 +211,12 @@ def release_attachment(session: ChatSession, message: ChatMessage) -> None:
     if attachment is None:
         return
 
-    if attachment.file:
-        try:
-            attachment.file.delete(save=False)
-        except OSError as exc:
-            logger.warning("[Delete] Could not remove file from disk: %s", exc)
-
     if attachment.inference_document_id:
         purge_rag_document(str(session.id), attachment.inference_document_id)
 
+    # After the document: an upload shares its bytes with that row, whose
+    # delete already removed them; this covers an attachment with its own copy.
+    _drop_blob(attachment.file)
     attachment.delete()
 
 
@@ -231,6 +263,12 @@ def purge_session(session: ChatSession) -> None:
             Document.objects.filter(id__in=document_ids).delete()
         except Exception:
             logger.exception("[Session] RAG cleanup failed for %s", session_id)
+
+    # The cascade removes the attachment rows and never their files. The
+    # documents' files went with their rows above
+    # (`inference/signals.py::drop_document_blob`); this takes what is left.
+    for attachment in ChatAttachment.objects.filter(session=session).exclude(file=''):
+        _drop_blob(attachment.file)
 
     try:
         from inference.engine import clear_session_kb

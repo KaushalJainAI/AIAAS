@@ -34,7 +34,10 @@ from workflow_backend.thresholds import (
     DOCUMENT_EXTRACT_CAP,
     IS_LARGE_FILE_THRESHOLD,
     LARGE_FILE_PREVIEW_LENGTH,
+    MAX_ATTACHMENTS_PER_SESSION,
 )
+
+from core.http.throttling import UploadThrottle
 
 from chat.sources import attachments
 from chat.turn import runs
@@ -306,9 +309,9 @@ async def steer_message_stream(request, session_id: str):
     # already built, so it could only gate, not withdraw.
     if body.get('autonomy') is not None:
         level = str(body.get('autonomy') or '').strip().lower()
-        if level not in ('ask', 'auto', 'review'):
+        if level not in ('ask', 'auto', 'full', 'review'):
             return JsonResponse(
-                {"detail": "Autonomy must be ask, auto or review mid-run."},
+                {"detail": "Autonomy must be ask, auto, full or review mid-run."},
                 status=400,
             )
         try:
@@ -402,6 +405,7 @@ def delete_message(request, session_id: str, message_id: int):
 @sync_api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
+@throttle_classes([UserRateThrottle, UploadThrottle])
 def upload_file(request, session_id: str):
     """Attach a file to a session, extracting its text for context and RAG."""
     try:
@@ -416,49 +420,99 @@ def upload_file(request, session_id: str):
     if not upload:
         return Response({"error": "No file provided."}, status=400)
 
+    # The same door the file library uses: size, executables, zip bombs. This
+    # route had none of them — only nginx's 55 MB body limit stood in front of
+    # a whole-file read into memory.
+    from django.core.exceptions import ValidationError
+
+    from inference import indexing, quota
+    from inference.utils import validate_file_upload
+
+    try:
+        validate_file_upload(upload)
+    except ValidationError as exc:
+        return Response({"error": "; ".join(exc.messages)}, status=400)
+    if ChatAttachment.objects.filter(session=session).count() >= MAX_ATTACHMENTS_PER_SESSION:
+        return Response(
+            {"error": f"This chat already holds {MAX_ATTACHMENTS_PER_SESSION} files, "
+                      f"which is the limit. Start a new chat to attach more."},
+            status=400,
+        )
+    try:
+        quota.check(request.user, upload.size)
+    except quota.QuotaExceeded as exc:
+        return Response({"error": str(exc), "code": "STORAGE_FULL"}, status=exc.status)
+
     file_type = attachments.classify_file(upload.name)
     data = upload.read()
     upload.seek(0)
     text = attachments.extract_text(data, file_type)
 
+    # Every upload gets a Document row: the file library is the single source
+    # of truth for bytes + extracted text, and the attachment points at it —
+    # at the row *and* at its file, so the bytes are stored once. Images and
+    # formats with no reader still get the row (status `stored`) so the file
+    # is kept, listed and re-readable rather than living only on the chat row.
+    try:
+        document = attachments.store_document(request.user, upload, text)
+    except Exception:
+        logger.exception("[Upload] Document store failed for %s", upload.name)
+        document = None
+        upload.seek(0)
+
     attachment = ChatAttachment.objects.create(
         session=session,
-        file=upload,
+        # With no document the attachment keeps its own copy, as it used to.
+        # A name, not a second save: the field then points at the same file.
+        file=document.file.name if document is not None else upload,
         filename=upload.name,
         file_type=file_type,
         file_size=upload.size,
         extracted_text=text[:DOCUMENT_EXTRACT_CAP],
         is_large_file=len(text) > IS_LARGE_FILE_THRESHOLD,
+        inference_document=document,
     )
-
-    # Every upload gets a Document row: the file library is the single source
-    # of truth for bytes + extracted text, and the attachment points at it.
-    # Text-bearing types are indexed for RAG inside index_for_rag; images and
-    # formats with no reader still get the row (status `stored`) so the file
-    # is kept, listed and re-readable rather than living only on the chat row.
-    try:
-        attachments.index_for_rag(request.user, upload, attachment, text)
-    except Exception:
-        logger.exception("[Upload] Document store failed for %s", upload.name)
+    if document is not None:
+        # Text-bearing types are chunked + embedded on the bounded queue.
+        indexing.index_document(document.id)
 
     preview = (
         f"\n\nContext summary ({len(text)} chars):\n{text[:LARGE_FILE_PREVIEW_LENGTH]}..."
         if text else ""
     )
-    ChatMessage.objects.create(
+    # The VFS path is the reference the agent works with: `read_file`,
+    # `find_files` and `run_python_on_files` all address `/Chat/<name>`, and
+    # `read_attachment_text` reaches the same bytes by attachment id. Both
+    # are stored on the marker message so history enrichment and the file
+    # tools agree about where the file lives.
+    vfs_path = f"/Chat/{upload.name}"
+    marker = ChatMessage.objects.create(
         session=session,
         role="system",
-        content=f"📎 File uploaded: **{upload.name}** ({file_type}, {upload.size} bytes){preview}",
+        content=(
+            f"📎 File uploaded: **{upload.name}** ({file_type}, {upload.size} bytes)"
+            f"\nWorking file: `{vfs_path}` — the agent works with this file here."
+            f"{preview}"
+        ),
         message_type="system",
         metadata={
             "attachment_id": str(attachment.id),
             "file_type": file_type,
             "has_extracted_text": bool(text),
+            "vfs_path": vfs_path,
+            "document_id": getattr(attachment.inference_document, 'id', None),
+            "filename": upload.name,
         },
     )
 
     return Response({
         "attachment": ChatAttachmentSerializer(attachment).data,
+        "attachment_id": str(attachment.id),
+        "document_id": getattr(attachment.inference_document, 'id', None),
+        "vfs_path": vfs_path,
+        "filename": upload.name,
+        "file_type": file_type,
+        "message_id": marker.id,
         "extracted_text_length": len(text),
         "message": f'File "{upload.name}" uploaded successfully.',
     })
@@ -546,8 +600,13 @@ async def speak_text(request):
             status=400,
         )
     voice = str(request.data.get("voice") or "").strip()
+    model = str(request.data.get("model") or "").strip()
+    from django.contrib.auth import get_user_model
+
+    user = await get_user_model().objects.select_related("profile").filter(
+        id=request.user.id).afirst()
     try:
-        data, ext = await synthesize(text, voice)
+        data, ext = await synthesize(text, voice, model, user=user)
     except TTSError as exc:
         return Response({"error": str(exc)}, status=502)
     return Response({

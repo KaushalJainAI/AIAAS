@@ -191,8 +191,8 @@ Check in order:
 - `Backend/chat/turn/prompts.py` — `build_system_message` (stable baseline) + `build_context_update` (volatile tail). Clock and command blocks live here, never up top.
 - `Backend/chat/turn/history.py` — `load_history`, attachment + source enrichment, `to_wire_history`, `recent_attachments`, `partition_attachments` (sendable vs blocked, witness detour).
 - `Backend/chat/turn/agent.py` — `prepare_attachments`, `supports_vision`, per-turn text rendering for text-only models.
-- `Backend/chat/sources/attachments.py` — `classify_file`, extractors (`pdf`, `pptx`, `docx`, `xlsx`, `text`), `index_for_rag`, `release_attachment`, `purge_session`.
-- `Backend/chat/views.py` — `upload_file` (classify, extract, cap, flag, marker message, index), delete paths that call `release_attachment`.
+- `Backend/chat/sources/attachments.py` — `classify_file`, extractors (`pdf`, `pptx`, `docx`, `xlsx`, `text`), `store_document` (the `/Chat/` `Document` that owns the upload's bytes; the attachment names the same file), `release_attachment`, `purge_session`.
+- `Backend/chat/views.py` — `upload_file` (validate size/executable/zip bomb, files-per-chat cap, storage quota, classify, extract, cap, flag, marker message, queue for indexing), delete paths that call `release_attachment`.
 - `Backend/chat/models.py` — `ChatSession` (memory, model, autonomy), `ChatMessage` (content + metadata), `ChatAttachment` (file, type, `extracted_text`, `inference_document`, `is_large_file`), `ToolOutput`.
 - `Backend/chat/turn/curation.py`, `llm/budget.py`, `chat/tools/tool_output.py` — the long-run path (watermark, segments, spill, recall). Full design in `CONTEXT_LIFECYCLE.md`.
 - `Backend/workflow_backend/thresholds.py` — every number on this page (`HISTORY_WINDOW`, `MAX_CONTEXT_TOKENS`, `DOCUMENT_EXTRACT_CAP`, `IS_LARGE_FILE_THRESHOLD`, `LARGE_FILE_PREVIEW_LENGTH`, `TOOL_OUTPUT_CHAR_LIMIT`, watermark ratios).

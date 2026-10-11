@@ -41,6 +41,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'stream_connections', 'credits_remaining', 'credits_used_total',
             'llm_provider', 'llm_model', 'llm_effort', 'llm_credential_id',
             'vision_provider', 'vision_model',
+            'tts_model', 'tts_voice',
             'default_temperature', 'default_max_tokens',
             'default_autonomy', 'paused_until',
             'theme_preference', 'accent_color',
@@ -115,6 +116,25 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if level is None:
             raise serializers.ValidationError('Not a reasoning effort level.')
         return level
+
+    def validate_tts_model(self, value):
+        """A known speech model id, or blank for the platform default.
+
+        Checked against the curated catalog, not a live OpenRouter call —
+        there is no discovery endpoint for speech models (see
+        `imagine.services.catalog`'s module docstring), so this list is the
+        source of truth everywhere a voice model is offered. `tts_voice` is
+        left unvalidated here for the reason `llm_effort` is: it is resolved
+        against whichever model is in effect at call time, not at save time.
+        """
+        from imagine.services.catalog import TTS_MODELS
+
+        model_id = (value or '').strip()
+        if not model_id:
+            return ''
+        if model_id not in {m['id'] for m in TTS_MODELS}:
+            raise serializers.ValidationError('Not a known speech model.')
+        return model_id
 
     def update(self, instance, validated_data):
         # Handle nested user updates if provided in request data

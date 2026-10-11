@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { apiErrorMessage } from '../lib/apiError';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -334,7 +335,8 @@ export default function Settings() {
       await refreshUser();
     } catch (error) {
       console.error('Failed to upload avatar:', error);
-      toast.error('Could not upload that image');
+      // The server says why: too large, or not a PNG/JPEG/GIF/WebP.
+      toast.error(apiErrorMessage(error, 'Could not upload that image'));
     }
   };
 
@@ -672,7 +674,7 @@ export default function Settings() {
                   type="file" 
                   ref={fileInputRef} 
                   className="hidden" 
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
                   onChange={handleFileChange}
                 />
               </div>

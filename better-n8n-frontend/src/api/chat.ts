@@ -1,5 +1,6 @@
 import apiClient from './client';
 import { streamSse, type SseEvent } from './sse';
+import { followTurn } from '../lib/followTurn';
 
 import type { CostSource } from './logs';
 import type { Payer } from '../lib/cost';
@@ -219,6 +220,8 @@ export interface ChatMessageMetadata {
   todos?: TodoItem[];
   /** Every revision of the plan, oldest first (`todos.record_revision`). */
   todo_history?: { n?: number; todos?: TodoItem[] }[];
+  /** Plans of the agents this turn handed work to, keyed by execution id. */
+  worker_plans?: Record<string, { agent_name?: string; todos?: TodoItem[] }>;
   files?: FileCardData[];
   follow_ups?: string[];
   [key: string]: unknown;
@@ -250,7 +253,13 @@ export interface ChatMessage {
 /** What `POST /chat/sessions/{id}/upload/` answers. */
 export interface UploadResult {
   status?: string;
-  document_id?: number;
+  document_id?: number | null;
+  attachment_id?: string;
+  vfs_path?: string;
+  filename?: string;
+  file_type?: string;
+  message_id?: number;
+  attachment?: unknown;
   [key: string]: unknown;
 }
 
@@ -268,6 +277,27 @@ export type ChatSessionSummary = Omit<ChatSession, 'messages'>;
  * (no transcripts), but still bounded: this is a sidebar, not an export.
  */
 const SESSION_LIST_MAX_PAGES = 10;
+
+/** One attach request: replays from `fromIndex`, then follows until it closes. */
+function attachOnce(
+  sessionId: string,
+  onEvent: (event: SseEvent) => void,
+  signal: AbortSignal | undefined,
+  fromIndex: number,
+): Promise<void> {
+  return streamSse({
+    path: `/chat/sessions/${sessionId}/message/attach/`,
+    body: { from: fromIndex },
+    onEvent,
+    signal,
+  });
+}
+
+/** Whether the server still has a turn running for this session. */
+async function isTurnRunning(sessionId: string): Promise<boolean> {
+  const response = await apiClient.get<{ active: string[] }>('/chat/runs/');
+  return (response.data.active ?? []).includes(sessionId);
+}
 
 export const chatService = {
   async getSessions(): Promise<ChatSessionSummary[]> {
@@ -391,9 +421,17 @@ export const chatService = {
       body.answer = extras.answer;
     }
 
-    return streamSse({
-      path: `/chat/sessions/${sessionId}/message/stream/`,
-      body,
+    // Followed to its real end: a stream that closes with the turn still
+    // running on the server is re-attached, never read as "finished".
+    return followTurn({
+      open: (forward) => streamSse({
+        path: `/chat/sessions/${sessionId}/message/stream/`,
+        body,
+        onEvent: forward,
+        signal,
+      }),
+      attach: (forward, from) => attachOnce(sessionId, forward, signal, from),
+      isRunning: () => isTurnRunning(sessionId),
       onEvent,
       signal,
     });
@@ -413,11 +451,13 @@ export const chatService = {
     signal?: AbortSignal,
     fromIndex = 0,
   ): Promise<void> {
-    return streamSse({
-      path: `/chat/sessions/${sessionId}/message/attach/`,
-      body: { from: fromIndex },
+    return followTurn({
+      open: (forward) => attachOnce(sessionId, forward, signal, fromIndex),
+      attach: (forward, from) => attachOnce(sessionId, forward, signal, from),
+      isRunning: () => isTurnRunning(sessionId),
       onEvent,
       signal,
+      fromIndex,
     });
   },
 

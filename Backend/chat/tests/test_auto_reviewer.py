@@ -101,7 +101,10 @@ class VerdictCacheTests(SimpleTestCase):
 
     def gate(self, policy, call_id, **extra):
         ctx = {'user_id': 1, 'session_id': 's1', 'call_id': call_id, **extra}
-        return async_to_sync(policy)('write_file', {'path': 'n.md'}, ctx)
+        # Irreversible, so it reaches the judge: what can be undone is freed
+        # by rule and never gets this far (`reviewer.rule_allow`).
+        return async_to_sync(policy)(
+            'publish_page', {'visibility': 'link', 'title': 'n'}, ctx)
 
     def test_the_same_call_is_judged_once(self):
         policy = auto_policy(user_text='save n.md')

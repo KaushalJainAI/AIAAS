@@ -617,7 +617,8 @@ classDiagram
     OpenAICompatibleLLMNode <|-- OpenAINode
     OpenAICompatibleLLMNode <|-- NvidiaNode
     OpenAICompatibleLLMNode <|-- OpenRouterNode
-    OpenAICompatibleLLMNode <|-- OpenCodeZenNode
+    OpenAICompatibleLLMNode <|-- ResponsesAPINode
+    ResponsesAPINode <|-- ChatGPTPlanNode
     class OpenRouterNode{
         +reasoning_payload() override
         +chat_payload() override

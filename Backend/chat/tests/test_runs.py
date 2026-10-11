@@ -116,6 +116,35 @@ class RunRegistryTests(TestCase):
 
         asyncio.run(scenario())
 
+    def test_a_silent_run_reports_idle_and_loses_no_frame(self) -> None:
+        """A long tool call emits nothing; the transport needs a keep-alive
+        or a proxy drops the stream while the turn is still working."""
+
+        async def scenario() -> None:
+            gate = asyncio.Event()
+
+            async def work(sink) -> None:
+                await sink(Event.CONTENT_CHUNK, {"content": "before"})
+                await gate.wait()
+                await sink(Event.CONTENT_CHUNK, {"content": "after"})
+
+            run = runs.start("s-idle", user_id=1, work=work)
+            await _settle()
+
+            seen: list[tuple] = []
+            async for item in runs.subscribe(run, idle_after=0.01):
+                seen.append(item)
+                if item == runs.IDLE:
+                    gate.set()
+
+            self.assertIn(runs.IDLE, seen)
+            self.assertEqual(
+                [p["content"] for e, p in seen if e is not None], ["before", "after"])
+            # An idle marker is not a frame: it must not shift attach indexes.
+            self.assertEqual(len(run.frames), 2)
+
+        asyncio.run(scenario())
+
     def test_second_send_joins_the_running_turn(self) -> None:
         """Two turns on one session would interleave into one transcript."""
 

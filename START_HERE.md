@@ -90,7 +90,7 @@ A few more you will meet:
 - **Template / pack**: a ready-made agent (or group of agents) you install
   from the Explore page.
 - **Provider**: who serves the AI model: OpenRouter, OpenAI, NVIDIA, Ollama,
-  OpenCode Zen.
+  or your own ChatGPT plan (on an install you run yourself).
 
 ## 5. How a chat message travels
 

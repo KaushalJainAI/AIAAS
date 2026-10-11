@@ -214,9 +214,14 @@ def _arm_gc(run: ChatRun) -> None:
     run.gc_handle = loop.call_later(RETAIN_FINISHED_SECONDS, collect)
 
 
+#: Yielded by `subscribe(..., idle_after=...)` when the run has been silent
+#: that long. Not a frame: it is never buffered and has no index.
+IDLE: tuple[None, dict[str, Any]] = (None, {})
+
+
 async def subscribe(
-    run: ChatRun, from_index: int = 0
-) -> AsyncIterator[tuple[Event, dict[str, Any]]]:
+    run: ChatRun, from_index: int = 0, *, idle_after: float | None = None,
+) -> AsyncIterator[tuple[Event | None, dict[str, Any]]]:
     """
     Replay this run's frames from `from_index`, then follow it live.
 
@@ -224,6 +229,12 @@ async def subscribe(
     emitted during the handover is queued rather than lost; frames already
     covered by the replay are then skipped by index. Leaving this iterator
     detaches the reader and never touches the work.
+
+    With `idle_after`, `IDLE` is yielded whenever that many seconds pass with
+    no frame, so a transport can keep its connection alive through a long tool
+    call. A run emits nothing while it waits on a delegated agent, and a proxy
+    drops a response that has been silent for its read timeout — the work
+    carried on and the reader was told, in effect, that it had ended.
     """
     queue: asyncio.Queue = asyncio.Queue()
     run.listeners.add(queue)
@@ -236,7 +247,14 @@ async def subscribe(
             return
 
         while True:
-            item = await queue.get()
+            if idle_after is None:
+                item = await queue.get()
+            else:
+                try:
+                    item = await asyncio.wait_for(queue.get(), idle_after)
+                except asyncio.TimeoutError:
+                    yield IDLE
+                    continue
             if item is _SENTINEL:
                 return
             index, event, payload = item

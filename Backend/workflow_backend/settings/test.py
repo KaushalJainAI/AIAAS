@@ -33,10 +33,12 @@ os.environ.setdefault('OPENROUTER_API_KEY', 'test-platform-key-not-a-real-key')
 
 from .base import *  # noqa: F401, F403
 
-# Speech-to-text defaults to OpenRouter, and the fake key above would switch it
-# on — offering `transcribe_audio` in every toolbox under test. Off unless a
-# test turns it on with override_settings.
+# Speech-to-text and text-to-speech both default to OpenRouter, and the fake
+# key above would switch them on — offering `transcribe_audio` /
+# `text_to_speech` in every toolbox under test. Off unless a test turns one
+# on with override_settings.
 STT_ENGINE = 'none'
+TTS_ENGINE = 'none'
 
 # In-memory SQLite — fastest possible test DB
 DATABASES = {

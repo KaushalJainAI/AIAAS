@@ -241,3 +241,73 @@ class TransparencyTests(SimpleTestCase):
         self.assertEqual(todos.current_step(_plan(("a", "done"), ("b", "doing"),
                                                   ("c", "doing"))), "b")
         self.assertEqual(todos.current_step(_plan(("a", "open"))), "")
+
+
+class NudgeTests(SimpleTestCase):
+    """The half of "every agent shows a plan" that does not depend on the model."""
+
+    def test_a_run_with_no_plan_is_reminded_twice_and_only_twice(self):
+        asked = [n for n in range(40) if todos.nudge([], n)]
+        self.assertEqual(asked, list(todos.NUDGE_AT))
+
+    def test_a_short_turn_is_never_reminded(self):
+        self.assertEqual(todos.nudge([], 0), '')
+        self.assertEqual(todos.nudge([], 1), '')
+
+    def test_a_run_with_a_plan_is_left_alone(self):
+        plan = [{'text': 'Read the brief', 'status': 'doing'}]
+        for n in todos.NUDGE_AT:
+            self.assertEqual(todos.nudge(plan, n), '')
+
+    def test_the_reminder_names_the_tool(self):
+        self.assertIn('update_todos', todos.nudge([], todos.NUDGE_AT[0]))
+
+
+class WorkerPlanTests(SimpleTestCase):
+    """A worker's plan reaches the chat that delegated, live and on reload."""
+
+    def _run(self, name, parsed, meta):
+        from chat.turn.agent import _apply_side_effects
+
+        frames = []
+
+        async def sink(event, payload):
+            frames.append((str(getattr(event, 'value', event)), payload))
+
+        async_to_sync(_apply_side_effects)(name, {}, json.dumps(parsed), meta, sink)
+        return frames
+
+    def test_a_finished_delegation_keeps_and_shows_the_workers_plan(self):
+        meta = {}
+        plan = [{'text': 'Read the ledger', 'status': 'done'},
+                {'text': 'Write the summary', 'status': 'blocked', 'note': 'no access'}]
+        frames = self._run('run_agent', {
+            'type': 'agent_run', 'execution_id': 'e-1', 'agent_name': 'Analyst',
+            'status': 'completed', 'plan': plan}, meta)
+        self.assertEqual(meta['worker_plans']['e-1'],
+                         {'agent_name': 'Analyst', 'todos': plan})
+        self.assertEqual(frames, [('worker_plan', {
+            'execution_id': 'e-1', 'agent_name': 'Analyst', 'todos': plan})])
+
+    def test_a_later_poll_updates_the_same_entry_and_keeps_the_name(self):
+        meta = {'worker_plans': {'e-1': {'agent_name': 'Analyst', 'todos': []}}}
+        plan = [{'text': 'Read the ledger', 'status': 'done'}]
+        self._run('get_agent_run', {'execution_id': 'e-1', 'plan': plan}, meta)
+        self.assertEqual(list(meta['worker_plans']), ['e-1'])
+        self.assertEqual(meta['worker_plans']['e-1']['agent_name'], 'Analyst')
+        self.assertEqual(meta['worker_plans']['e-1']['todos'], plan)
+
+    def test_a_run_with_no_plan_draws_nothing(self):
+        meta = {}
+        self.assertEqual(self._run('run_agent', {
+            'execution_id': 'e-1', 'status': 'completed', 'answer': 'done'}, meta), [])
+        self.assertNotIn('worker_plans', meta)
+
+    def test_plan_items_are_only_what_the_chat_draws(self):
+        from chat.tools.agents import _plan_items
+
+        self.assertEqual(
+            _plan_items([{'text': 'A', 'status': 'doing', 'owner': 'x', 'task_id': 't'},
+                         {'status': 'open'}, 'junk']),
+            [{'text': 'A', 'status': 'doing'}])
+        self.assertEqual(_plan_items(None), [])

@@ -1,6 +1,6 @@
 /**
- * The File menu every productivity app shares: New, Open, Rename, copy,
- * download, export, print, history, move, reveal, trash.
+ * The File menu every productivity app shares: New, Open, Open with, Rename,
+ * copy, download, share, export, print, history, move, reveal, details, trash.
  *
  * Each item calls the same route the Files page or the API already serves —
  * the menu is a shorter path to an existing operation, not a second
@@ -11,12 +11,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  ChevronRight, Copy, Download, FileOutput, FolderInput, FolderOpen, History,
-  Loader2, Pencil, Printer, Search, Trash2,
+  AppWindow, ChevronRight, Copy, Download, FileOutput, FilePlus2, FolderInput, FolderOpen, History,
+  Info, Loader2, Pencil, Printer, Search, Share2, Trash2,
 } from 'lucide-react';
 
 import { documentsService, foldersService, type Document } from '../../api/documents';
-import type { AppMeta, NewFileOption } from '../../lib/apps';
+import { appsForDoc, type AppMeta, type NewFileOption } from '../../lib/apps';
 import { apiErrorMessage } from '../../lib/apiError';
 import { downloadBlob } from '../../lib/downloadFile';
 import { fileIcon } from '../../lib/fileDisplay';
@@ -33,6 +33,8 @@ interface Props {
   onChanged: (doc: Document) => void;
   onTrashed: () => void;
   onShowHistory: () => void;
+  onShare: () => void;
+  onDetails: () => void;
   onClose: () => void;
 }
 
@@ -40,6 +42,7 @@ export default function FileMenu(props: Props) {
   const { app, doc } = props;
   const [exportOpen, setExportOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [withOpen, setWithOpen] = useState(false);
   // No export section until the server answers; a file with no formats keeps
   // the empty list, which hides the section rather than spinning for ever.
   const [formats, setFormats] = useState<string[] | null>(doc ? null : []);
@@ -171,6 +174,8 @@ export default function FileMenu(props: Props) {
   };
 
   const newOptions = app.newFiles ?? [];
+  // The other apps that can open this file, best first.
+  const otherApps = doc ? appsForDoc(doc).filter((a) => a.id !== app.id) : [];
   const item =
     'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] text-foreground hover:bg-muted disabled:opacity-40';
 
@@ -186,7 +191,7 @@ export default function FileMenu(props: Props) {
               className={item}
               aria-expanded={newOpen}
             >
-              <Copy className="h-4 w-4 text-muted-foreground" /> New
+              <FilePlus2 className="h-4 w-4 text-muted-foreground" /> New
               <ChevronRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
             </button>
             {newOpen && (
@@ -213,6 +218,40 @@ export default function FileMenu(props: Props) {
         >
           <Search className="h-4 w-4 text-muted-foreground" /> Open…
         </button>
+        {otherApps.length > 0 && (
+          <div className="relative">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setWithOpen((o) => !o)}
+              className={item}
+              aria-expanded={withOpen}
+            >
+              <AppWindow className="h-4 w-4 text-muted-foreground" /> Open with
+              <ChevronRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+            {withOpen && (
+              <div className="absolute left-full top-0 z-40 ml-1 w-52 rounded-lg border border-border/60 bg-popover p-1 shadow-lg">
+                {otherApps.map((a) => {
+                  const AIcon = a.icon;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => {
+                        if (doc) navigate(`${a.path}?file=${doc.id}`);
+                        props.onClose();
+                      }}
+                      className={item}
+                    >
+                      <AIcon className="h-4 w-4 text-muted-foreground" /> {a.title}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         <div className="mx-2 my-1 h-px bg-border/60" aria-hidden />
         <button
           type="button"
@@ -230,6 +269,17 @@ export default function FileMenu(props: Props) {
         </button>
         <button type="button" disabled={!doc || busy} onClick={() => void doDownload()} className={item}>
           <Download className="h-4 w-4 text-muted-foreground" /> Download
+        </button>
+        <button
+          type="button"
+          disabled={!doc || busy}
+          onClick={() => {
+            props.onShare();
+            props.onClose();
+          }}
+          className={item}
+        >
+          <Share2 className="h-4 w-4 text-muted-foreground" /> Share…
         </button>
         {formats !== null && formats.length > 0 && (
           <div className="relative">
@@ -306,6 +356,17 @@ export default function FileMenu(props: Props) {
           className={item}
         >
           <FolderOpen className="h-4 w-4 text-muted-foreground" /> Show in Files
+        </button>
+        <button
+          type="button"
+          disabled={!doc || busy}
+          onClick={() => {
+            props.onDetails();
+            props.onClose();
+          }}
+          className={item}
+        >
+          <Info className="h-4 w-4 text-muted-foreground" /> Details
         </button>
         <div className="mx-2 my-1 h-px bg-border/60" aria-hidden />
         <button

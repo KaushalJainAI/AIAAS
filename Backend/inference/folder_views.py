@@ -257,3 +257,17 @@ def trash_restore(request):
 def trash_empty(request):
     """Purge the caller's bin now — the sweep with retention 0, scoped."""
     return Response(recycle.empty_bin(request.user))
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def storage_usage(request):
+    """What the caller's account holds against its quota (inference/quota.py).
+
+    Bytes by where they sit (files, trash, kept versions, chat attachments,
+    published snapshots) plus the file count, so the page can say what to
+    delete rather than only that something must be.
+    """
+    from . import quota
+
+    return Response(quota.usage(request.user))

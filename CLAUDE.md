@@ -164,14 +164,14 @@ BrowserOS ships its own build. The LLM *handlers* live in `llm/handlers/` —
 `base.py` (`BaseNodeHandler`, the calling convention) and `registry.py`
 (`ProviderRegistry`, `get_registry()`, on the agent hot path) moved there from
 `nodes/handlers/` when the `nodes` app was deleted; the five provider handlers
-(`llm_providers.py` for OpenRouter/OpenAI/NVIDIA/OpenCode Zen, `llm_nodes.py`
-for Ollama, `openai_compatible.py` for the shared protocol, `llm_base.py` for
-the SSE / reasoning plumbing) register through that registry, and
+(`llm_providers.py` for OpenRouter/OpenAI/NVIDIA, `llm_nodes.py` for Ollama,
+`responses_api.py` for the ChatGPT plan, `openai_compatible.py` for the shared
+protocol, `llm_base.py` for the SSE / reasoning plumbing) register through that registry, and
 `llm/access.py` (the moved `chat/turn/llm.py`) is the funnel every model call
 resolves through: credential lookup, the platform-key fallback, context
-clamping, `complete()` / `stream()`. `opencode` (OpenCode Zen) is
-bring-your-own-key only and has no platform key by design — Zen's ToS limits
-a key to its holder's own use.
+clamping, `complete()` / `stream()`. `chatgpt` (a user's own ChatGPT plan) is
+sign-in only and has no platform key by design: one person's plan must not
+answer for another user. OpenCode Zen was removed 2026-10-11.
 
 ### Backend module layout notes
 
@@ -1264,7 +1264,40 @@ name their extension and size. `manage.py retype_documents` repairs old rows.
 Tests: `inference/tests/test_previews.py`,
 `src/lib/__tests__/filePreview.test.ts`.
 
-**Recently opened is a record, not a sort (2026-09-26).** "Recent" meant
+**Every app has Share, Ask AI and a fuller toolbar; LaTeX is an app (2026-10-10).**
+The `AppBar` carries three buttons for the open file in every app — **Share**
+(`components/files/ShareDialog.tsx`), **Ask AI** (opens a new chat whose box
+already names the file by path, through `prefillNewChat`) and full screen — and
+the File menu gained Share…, Open with and Details. Share makes a *published
+page* (`pagesService.shareFile` → `inference/pages.publish`, kind `file`), so a
+link is a **snapshot** and the dialog says so; it starts on the narrowest
+audience (`link`), lists links already made for a file of that name with Stop
+sharing, and offers "send a copy" through the device share sheet.
+`pages.publish` now calls `drafts.ensure_rendered` first, because an office
+autosave is parked as a draft and Share pressed inside that pause used to
+snapshot the bytes from before the edit. `/p/:slug` shows shared text files
+(including `.tex`) instead of only offering a download. **LaTeX** is a
+workspace app (`lib/apps.ts`, `LatexEditor.tsx`): `.tex/.bib/.sty/.cls` are
+`txt` in the backend (`utils._EXTENSION_TYPES`) and the app lists them by
+extension. The page beside the source is a **reader, not a TeX build**
+(`lib/latex.ts` parses structure — sections, lists, tables, floats, footnotes,
+`\ref`/`\cite`, theorem blocks, `\newcommand`s — and hands every formula to
+KaTeX with `trust: false`; nothing executes, nothing loads; what it could not
+draw is listed, never dropped silently). The same preview serves the Files
+pane and a shared page. All text apps now share one CodeMirror editor with a
+toolbar API (`CodeMirrorApi`: undo/redo, find, go to line, wrap, insert) and
+`ToolMenu`/`ViewSwitch` in `EditorChrome.tsx`. **A bug found on the way:**
+`Document.save()` ran every `content_text` through `bleach.clean`, which for a
+text file — where that text *is* the file — turned `&` into `&amp;`, `<` into
+`&lt;` and deleted anything tag-shaped (LaTeX tables, `a && b`, whole HTML
+pages). Text types now keep their text verbatim (only NUL is stripped);
+extracted text from binaries is still sanitised. Tests:
+`src/lib/__tests__/latex.test.ts`, `share.test.ts`, `textTools.test.ts`,
+`inference/tests/test_regressions.py::TextFileContentIsStoredVerbatimTests`,
+`test_published_pages.py::test_sharing_right_after_an_edit_shares_the_edit`.
+
+**Recently opened is a record, not a sort (2026-09-26).**
+ "Recent" meant
 `Document.updated_at` — recently *changed* — so a file read every morning never
 rose, and open tabs lived only in `sessionStorage` and died with the window.
 `inference/recents.py` adds `RecentFile` (one row per user+document:
@@ -1736,6 +1769,46 @@ Caps live in `workflow_backend/thresholds.py` (`EXECUTION_NODE_LOG_LIMIT`,
 one must not look alike. When adding a list endpoint on a function view, the
 cap is yours to set.
 
+**Every cap bounded one request; none bounded the loop (2026-10-11).** A file
+was capped at 50 MB and an account at nothing, so 1,000 requests an hour was
+50 GB an hour onto one volume, and an agent could write until the disk was
+full. `inference/quota.py` is the total: `STORAGE_QUOTA_MB` per tier
+(env-set, 0 = off) plus `MAX_DOCUMENTS_PER_USER`. Five things carry it.
+**Usage is summed, never counted up** — `usage()` adds the size columns the
+rows already hold (four indexed sums), because a running counter needs every
+writer and deleter to remember it and a drifted counter refuses people with
+room. **Trash counts**, since it is on disk until purged, and the refusal says
+to empty it. **Each blob is counted once** — see the next rule. **`check()`
+sits at the doors bytes come in by**: both upload views (413
+`{code: 'STORAGE_FULL'}`), `vfs.write_file`/`write_binary`/`copy` (a
+`VfsError` telling the model *not to retry*), `office_edit.create`/`copy` and
+a published file snapshot; it is deliberately **not** on what the platform
+already paid for (a generated image), nor on a person's edit to an existing
+file. An overwrite is charged bytes but not a row, so a full file count still
+allows saving over a file. **A chat upload is stored once**: `upload_file`
+saved the bytes on `ChatAttachment.file` and again on the `Document` beside
+it, so every attachment cost double; now `attachments.store_document` owns the
+bytes and the attachment's `file` is the same *name*
+(`persist_generated_media` already did this). `office_edit.replace_bytes`
+moves that name when a file's bytes are replaced, or the attachment is left
+pointing at deleted bytes. Four gaps closed with it. The chat upload route had
+**no validation at all** (now `validate_file_upload`, plus
+`MAX_ATTACHMENTS_PER_SESSION`); the avatar view assigned the upload straight
+to the model, which runs no validators (`_avatar_refusal`: 2 MB, decoded,
+PNG/JPEG/GIF/WebP — not SVG); **indexing was a thread per file** at four
+call sites while the picker is `multiple` (`inference/indexing.py`, a queue
+with `INDEXING_CONCURRENCY` workers that close their DB connections after each
+job; the Documents page also sends 3 uploads at a time,
+`lib/runLimited.ts`); and **only the recycle sweep ever deleted a file** —
+Django never removes a `FileField`'s bytes with its row, so deleting a chat or
+a message left them on disk for ever (`signals.drop_document_blob`, which
+skips a file another row still names; `purge_session` drops attachment files).
+Withdrawing a `file` page now deletes its snapshot. `GET /api/inference/storage/`
+feeds `components/explorer/StorageMeter.tsx`. Not done: per-user caps on
+agents, chats, KBs and credentials. Tests: `inference/tests/test_quota.py`,
+`chat/tests/test_upload_limits.py`, `core/tests/test_avatar_upload.py`,
+`src/lib/__tests__/runLimited.test.ts`.
+
 **A ticking clock belongs in its own component.** `components/chat/ThinkingTimer.tsx`
 owns the 10 Hz interval that used to live in `StandaloneChat` and `ChatPanel`,
 where each tick re-rendered the whole transcript and re-parsed every message's
@@ -1837,6 +1910,42 @@ task `orchestrator.recover_runs` and as `manage.py recover_runs` — the same
 split as every other sweep here, and the reason is sharpest for this one: it is
 the recovery path for a dead process, so a broker-only design would be missing
 exactly when it is needed. Tests: `agents/tests/test_recovery.py`.
+
+**A turn that is still working is never reported as finished (2026-10-10).**
+Three limits each told the user an agent had produced nothing while it was
+still going. **The loop's flat 120s per tool call** (`TOOL_CALL_TIMEOUT`) cut
+off the tools whose job is to wait: `invoke_subagent` runs its workers inline
+(up to `maxRunSeconds`), `wait_tasks` offers 300s, and `run_agent` /
+`answer_subagent` can queue for an admission slot before their 90s wait. A
+tool now declares its own limit (`@tool(..., timeout=)`, read by
+`registry.timeout_of` in `_dispatch_one`); undeclared tools and every MCP tool
+keep 120s. **The stream was silent during a long tool call**, and nginx drops
+a response silent for `proxy_read_timeout` (300s): `runs.subscribe(idle_after=)`
+yields `runs.IDLE` and `streaming_http` writes an SSE comment every
+`KEEPALIVE_SECONDS` (20) — a comment, not a frame, so attach indexes do not
+move. **The client read any closed stream as the end of the turn**:
+`lib/followTurn.ts` (behind `chatService.sendMessageStream` / `attachStream`)
+treats only a `done` or `error` frame as the end, and otherwise asks
+`/chat/runs/` and re-attaches from the frame it reached, never re-sending the
+message. Tests: `chat/tests/test_tool_timeouts.py`,
+`chat/tests/test_runs.py::test_a_silent_run_reports_idle_and_loses_no_frame`,
+`src/lib/__tests__/followTurn.test.ts`.
+
+**A turn with no text is asked once more, then reported for what it was
+(2026-10-11).** Every chat turn that ended without answer text was saved as
+"I wasn't able to produce an answer for that. Please try rephrasing" — and
+none of its three causes is about wording. A model that asks for a tool on the
+pass where tools are withheld has the call dropped, and its text had already
+been moved to reasoning as a preamble; a reasoning model can return an empty
+reply; and a turn that only *paused* for an approval or a question got the
+same failure sentence beside its card. `agent_node` now makes one tool-less
+call (`_answer_again`, `prompts.ANSWER_AFTER_EMPTY`) when a final reply has no
+text and no provider error, for chat and agent runs alike; both calls are
+counted. If it is still empty, `AgentState.empty_reason` → `TurnResult.
+empty_reason` (`limit` | `time` | `empty`) picks the sentence in
+`pipeline._EMPTY_ANSWER_MESSAGES`, and a paused turn stores
+`_PAUSED_PLACEHOLDER` instead. `[Turn] Empty answer (<reason>)` is the line to
+grep. Tests: `chat/tests/test_empty_answer.py`.
 
 **A call that produced nothing is retried; a provider's own error is not
 (2026-09-17).** `openai_compatible.stream_execute` failed a whole run on one
@@ -2406,6 +2515,61 @@ recipients are matched against) and the **live todos**, and a `status` frame
 (`phase: reviewing`) shows while it thinks. Each verdict logs
 `[Latency] reviewer <ms> allow|ask|fail <tool>`.
 
+**Auto means one thing, and the plan and the questions are the same for
+every agent (2026-10-10).** Chat `auto` behaved as `ask`: it gated on
+`sensitive` names and sent each to a judge told to allow only "plainly the
+user's request, same target, same content" — and chat is the orchestrator, so
+its gated calls are delegations, which never read that way. Each worker then
+ran at its own `ask` and paused on every file write, one manager round trip
+each, to be approved with no judge anyway (`subagent_floor`). Three changes.
+`reviewer.rule_allow` gives chat the agent ladder's definition — **what can be
+undone runs, what cannot is reviewed** — and makes delegation
+(`DELEGATION_TOOLS`) the manager's own call; a mission (`STANDING_TOOLS`), a
+spend (`SPENDY_TOOLS`, now with the two eval tools that pay a judge) and any
+call in a tainted turn are never freed by rule. `runtime.lifted_autonomy`
+runs an `ask` worker at `auto` when the chat that started it is in `auto`
+(`TurnContext.autonomy` → `context['autonomy']` → `parent_autonomy`, stamped
+on `ExecutionLog.input_data` because `resume_agent_run` knows only the log);
+`plan`/`review` workers, per-tool `ask` and evals are untouched, and **only
+chat passes it** — an agent's `auto` still shows the person its worker's
+requests, so lifting there would loosen. The judge prompt for what remains
+now allows a sensible step whose target and content come from the request.
+**Plans:** both prompts say the same thing (plan whenever the work needs more
+than two tool calls or a delegation; "skip it for simple work" was read by
+some models as "skip it"), and `todos.nudge` is the half that does not depend
+on the model: with no plan after 2 and again after 6 model calls, a trailing
+message asks for one (only when `update_todos` is on offer). A worker's plan
+now reaches the chat that delegated: `_await_agent_run` reads it from the
+worker's checkpoint every third poll and sends `worker_plan` frames,
+`invoke_subagent` forwards its inline workers' `todos_update`, the finished
+outcome carries `plan`, and `_on_worker_run` keeps it on
+`metadata.worker_plans` (frontend: `workerPlans` in `useChatStream`, a
+labelled `PlanDock` per worker, `PlanSummary` on the saved reply).
+**Questions:** chat rule 10 and the agent prompt now say to check what a job
+leaves open (audience, format, which file or period) and ask up front with
+choice cards; the agent line used to end "ask only when a wrong guess would
+waste the work". **Deletes** needed no change: `delete_file` already goes
+through `recycle.trash`, and Gmail has a trash tool, not a delete. Tests:
+`chat/tests/test_auto_mode.py` (`AutoPolicyTests`, `WorkerModeTests`),
+`chat/tests/test_todos.py` (`NudgeTests`, `WorkerPlanTests`).
+
+**Chat has a fourth mode, Full auto (2026-10-10).** `ChatSession.autonomy =
+'full'` — the agent ladder's top rung, which chat used to refuse. Nothing asks
+for approval: `reviewer.full_policy` gates nothing, and `lifted_autonomy` runs
+the chat's `ask` and `auto` workers at `full` too (a worker that still paused
+would only be told "yes" by a manager with no gate of its own). What stops it
+being a foot-gun: it is **per conversation and never a default**
+(`UserProfile.default_autonomy` still refuses it, and `perform_create` falls
+back to `ask` even if a row holds it); it is **red and outside the Shift+Tab
+cycle** (`lib/chatMode.ts::CYCLE`), so it is clicked or typed (`/mode full`),
+never landed on; and **a turn that read text addressed to an AI falls back to
+`auto`** — skipping approvals is the user trusting their own instructions,
+not a web page's. `plan`/`review` workers and per-tool `ask` still ask, and
+nothing that is not an approval changes (grants, scopes, spend and send caps,
+content policy, held MCP tools). `ask_user` questions still pause. Tests:
+`chat/tests/test_auto_mode.py::FullAutoTests`,
+`src/lib/__tests__/chatMode.test.ts`.
+
 **Indirect injection is contained by provenance, not detected (2026-09-25).**
 Two gaps closed together. `static_check`'s `tainted` rule had no production
 caller, so it never fired; `tools_node` now scans each batch's *tool results*
@@ -2555,6 +2719,72 @@ before May 2027, no robots.txt check. Tests: `core/tests/test_content_policy.py`
 `chat/tests/test_safety_guards.py`, `mcp_integration/tests/test_tool_pins.py`,
 `logs/tests/test_retention.py`.
 
+**Text-to-speech had never worked, because nothing turned it on (2026-10-10).**
+`TTS_ENGINE` has always defaulted to `none`, and the only other engine,
+`remote`, needs a `TTS_REMOTE_URL` nobody set — so every call to the
+`text_to_speech` tool or `/speak` answered "No speech engine is configured
+on this platform" in every environment, including production, from the day
+the tool was added. `voice/tts.py` gained the `openrouter` engine (mirroring
+`stt.py`'s, on the platform key) to close that, and **which model and voice
+speak is one function, `resolve_voice()`**, for every caller — the tool,
+`POST /api/chat/speak/`, and anything added later — rather than three
+copies drifting. Priority: an explicit call-time choice, then the signed-in
+user's own `UserProfile.tts_model`/`tts_voice` (the same per-user-preference
+shape as `vision_provider`/`vision_model`, validated against
+`imagine.services.catalog.TTS_MODELS` — the one curated speech-model list,
+since OpenRouter has no discovery endpoint for them), then the platform
+default (`DEFAULT_TTS_MODEL` Kokoro, by far the cheapest row). A saved voice
+is only inherited when it belongs to the model actually in effect — a voice
+id is model-specific, so naming a different model without a voice falls
+through to that model's own default rather than sending a mismatched one.
+No settings-level `TTS_MODEL`/`TTS_VOICE` env var: a third knob on top of
+"caller" and "user preference" was one too many, and `TTS_ENGINE` alone
+still carries the per-environment switch. Tests: `chat/tests/test_speak.py`.
+
+**A ChatGPT plan is a provider you sign in to, and it translates at both
+edges (2026-10-11).** OpenCode Zen is gone (never verified with a real key,
+and its free models duplicated `openrouter/free`); `chatgpt` took its place as
+the one bring-your-own provider: "Continue with ChatGPT" in the model picker,
+and turns run on the usage already in the user's ChatGPT plan, through
+OpenAI's official flow. Five things carry it. **It exists only where the user
+runs the app themselves**: OpenAI offers plan usage to open-source,
+locally-hosted apps and the redirect is an HTTP loopback address, so
+`CHATGPT_PLAN_ENABLED` is on in `settings/local.py` and off in deployment —
+and off means *absent* (the routes 404, the picker omits the provider,
+`preflight` refuses), never a greyed-out button. **The client id is issued per
+account and the refresh token rotates**, which is why
+`credentials/chatgpt.py` is its own module and `Credential.
+get_valid_access_token` (Google-only by its own docstring) was not widened:
+`access_token_for` refreshes under a row lock with the expiry re-read inside
+it, and writes "signed out" *after* the transaction, because raised inside it
+the rollback undid the very row recording that the tokens were finished (a
+test caught that). **The handler translates and nothing above it changes**:
+plan usage is served only by the Responses API, so
+`llm/handlers/responses_api.py` turns chat-shaped history and tools into
+items on the way out (the first system prompt becomes `instructions`; later
+`system` notes keep their place as `developer` messages, never folded into the
+prefix — the clock trap) and typed stream events back into the chunks
+`llm/access.py` already folds. `store` is always false, `stream` always true,
+and `temperature`/output caps are dropped in that one place because the route
+refuses them. **The token never rides as `api_key_override`** — the funnel
+reads an override as a platform key and meters the user for it — and it is
+resolved per model call, since an agent run outlasts the hour a token lives.
+**A plan pays only for runs a person started**: `chatgpt_plan.REFUSED_CALLERS`
+(`trigger`, `mission`, `eval`) is refused in `runtime._check_plan_provider`
+on the *resolved* provider (a blank agent inherits the account default) and a
+schedule on such an agent is a 400 at save, because a plan's weekly cap simply
+stops when reached. The model list is per account (`chatgpt_plan.models_for`,
+fetched with the user's token, rows stored as `chatgpt/<slug>` with
+`source='hand'`), and the credential type is seeded `is_active=False` so the
+generic "add credential" screen, whose OAuth button runs the Google flow,
+never offers it. **Everything about OpenAI's side is still unverified**: the
+endpoints are from their docs, the test streams are written from the public
+API reference, and whether the plan route accepts function tools — which
+agents need — is question 4 of `scripts/chatgpt_plan_spike.py`. Tests:
+`credentials/tests/test_chatgpt_auth.py`,
+`llm/tests/test_responses_handler.py`, `agents/tests/test_plan_provider.py`,
+`src/lib/__tests__/chatgptPlan.test.ts`.
+
 ---
 
 ## Environment Variables
@@ -2574,6 +2804,10 @@ HITL_REMINDER_SWEEP_SECONDS=300    # Celery beat interval for the HITL reminder 
 HITL_DIGEST_DEFAULT_TIME=09:00     # Default local time for the daily HITL digest
 RECYCLE_BIN_RETENTION_DAYS=30      # How long a trashed file stays restorable
 RECYCLE_SWEEP_SECONDS=3600         # Beat interval for the recycle-bin purge
+STORAGE_QUOTA_FREE_MB=1024         # Storage per free account (files + trash + versions + attachments); 0 = no quota
+STORAGE_QUOTA_PRO_MB=10240         # Same, pro tier (STORAGE_QUOTA_ENTERPRISE_MB for enterprise)
+MAX_DOCUMENTS_PER_USER=10000       # Files per account, trash included
+INDEXING_CONCURRENCY=2             # Documents extracted + embedded at once (inference/indexing.py)
 NOTIFICATIONS_EMAIL_ENABLED=False  # Digest email only; nudges are always device-only
 VAPID_PUBLIC_KEY=                  # Web Push public key (GET /api/notifications/push/vapid-key/); blank = closed-browser push off
 VAPID_PRIVATE_KEY=                 # Web Push private key — never leaves the server (`manage.py generate_vapid_keys`)
@@ -2586,6 +2820,9 @@ EVAL_JUDGE_MODEL=meta/muse-spark-1.3-contributor  # Judge for llm_judge; see "Mo
 AUTO_REVIEWER_PROVIDER=openrouter   # Chat `auto` judge; must be fast + non-reasoning
 AUTO_REVIEWER_MODEL=meta-llama/llama-4-scout  # Blank = the chat's own model
 AUTO_REVIEWER_TIMEOUT_S=3           # Over this, the call asks
+CHATGPT_PLAN_ENABLED=False         # Continue with ChatGPT; True in settings/local.py, False in deployment (a hosted site needs OpenAI's approval)
+CHATGPT_AGENT_NAME=AIAAS           # Our name on OpenAI's consent screen; keep it stable
+CHATGPT_REDIRECT_URI=              # Blank = http://127.0.0.1:<this server's port>/auth/callback
 MCP_MEMORY_BUDGET_MB=150           # Total resident MB for all MCP connectors; 0 disables
 MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once
 MCP_MAX_POOLED_SESSIONS=2          # Live sessions kept (cache policy under the budget)
@@ -2602,9 +2839,7 @@ CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns alrea
 MISSION_SWEEP_SECONDS=120          # Mission sweep interval (in-process scheduler)
 STT_ENGINE=openrouter              # Chat mic + transcribe_audio; `none` = off (voice/stt.py)
 STT_MODEL=openai/whisper-large-v3-turbo  # OpenRouter STT model, ~$0.012/hour of audio
-TTS_ENGINE=none                    # text_to_speech + /api/chat/speak/; `openrouter` = Kokoro on the platform key (voice/tts.py)
-TTS_MODEL=hexgrad/kokoro-82m       # OpenRouter TTS model, ~$4/1M characters
-TTS_VOICE=af_heart                 # Default Kokoro voice when a call doesn't name one
+TTS_ENGINE=none                    # text_to_speech + /api/chat/speak/; `openrouter` = platform key (voice/tts.py). Model/voice are per-user (UserProfile.tts_model/tts_voice via voice.tts.resolve_voice()), not env vars
 SENTRY_DSN=                        # Error reporting for web + worker; blank = off (workflow_backend/observability.py)
 SENTRY_TRACES_SAMPLE_RATE=0        # Performance tracing; off by default on the small box
 BACKUP_S3_BUCKET=                  # manage.py backup_db uploads here when set; BACKUP_DIR / BACKUP_KEEP for local copies
@@ -2791,7 +3026,8 @@ Detailed technical docs live in `Backend/docs/`:
 - `SECURITY_REVIEW_FIX_PLAN.md` — The whole-project security review of 2026-09-25 and its fixes (implemented, undeployed): Google sign-in no longer links into an unverified password account (pre-account takeover), `UserProfile.tokens_valid_after` revokes every JWT on password/email change (`core/auth/revocation.py`, checked by REST, refresh and WebSocket), `token_blacklist` actually installed, no `?token=` HTTP auth, API keys stored as SHA-256, the workspace job hook scoped to its owner and detached, `CSP: sandbox` on file responses. Learning: `learning/15_whole_project_security_review.md`
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix
-- `OPENCODE_ZEN_PLAN.md` — The plan (built 2026-09-22; chat-completions answers, streaming and `tool_calls` still need verification with a real Zen key, §8) for OpenCode Zen as a fifth, bring-your-own-key-only LLM provider — no proxy, no platform key (ToS)
+- `CHATGPT_PLAN_PROVIDER_PLAN.md` — The plan (built 2026-10-11; **not yet run against a real ChatGPT account** — `scripts/chatgpt_plan_spike.py` is Phase 0 and §10 is still empty) that removed OpenCode Zen and added a `chatgpt` provider through OpenAI's official Sign in with ChatGPT flow (Responses API, loopback redirect, rotating refresh tokens). Self-hosted installs only until OpenAI approves the hosted site
+- `OPENCODE_ZEN_PLAN.md` — **Retired 2026-10-11, the provider was removed.** The plan (built 2026-09-22; chat-completions answers, streaming and `tool_calls` still need verification with a real Zen key, §8) for OpenCode Zen as a fifth, bring-your-own-key-only LLM provider — no proxy, no platform key (ToS)
 
 ## Frontend-Specific Docs
 

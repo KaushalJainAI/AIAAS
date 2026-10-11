@@ -39,7 +39,7 @@ from .serializers import (
     PasswordResetConfirmSerializer,
 )
 from logs.models import ExecutionLog
-from core.http.throttling import TestClientExemptMixin
+from core.http.throttling import TestClientExemptMixin, UploadThrottle
 
 
 # ==================== CUSTOM THROTTLES ====================
@@ -669,18 +669,64 @@ class APIKeyRotateView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+#: What a profile picture may be. Named formats, not "anything Pillow opens":
+#: SVG is markup that runs script when opened directly, and the rest of
+#: Pillow's list (TIFF, PSD, ...) is nothing a browser draws in an <img>.
+AVATAR_FORMATS = frozenset({'PNG', 'JPEG', 'GIF', 'WEBP'})
+
+
+def _avatar_refusal(upload) -> str | None:
+    """Why this upload cannot be a profile picture, or None if it can.
+
+    The view assigns the file straight to the model, which runs no validators
+    — so before this the field took any file type up to the proxy's 55 MB.
+    The size is checked first: nothing is decoded unless it is small.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    from workflow_backend.thresholds import MAX_AVATAR_BYTES
+
+    if upload.size > MAX_AVATAR_BYTES:
+        return (f'That picture is {upload.size / 1_048_576:.1f} MB; the limit is '
+                f'{MAX_AVATAR_BYTES // 1_048_576} MB.')
+    try:
+        with Image.open(upload) as image:
+            fmt = (image.format or '').upper()
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError):
+        return 'That file is not an image we can read. Use a PNG, JPEG, GIF or WebP.'
+    finally:
+        upload.seek(0)
+    if fmt not in AVATAR_FORMATS:
+        return 'Use a PNG, JPEG, GIF or WebP picture.'
+    return None
+
+
 class AvatarUploadView(APIView):
     """Upload or update user profile avatar"""
     permission_classes = [IsAuthenticated]
-    
+    throttle_classes = [UserRateThrottle, UploadThrottle]
+
     def post(self, request):
         if 'avatar' not in request.FILES:
             return Response({'error': 'No avatar file provided'}, status=status.HTTP_400_BAD_REQUEST)
         
+        upload = request.FILES['avatar']
+        refusal = _avatar_refusal(upload)
+        if refusal:
+            return Response({'error': refusal}, status=status.HTTP_400_BAD_REQUEST)
+
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
-        profile.avatar = request.FILES['avatar']
+        previous = profile.avatar.name if profile.avatar else ''
+        profile.avatar = upload
         profile.save()
-        
+        if previous and previous != profile.avatar.name:
+            # Each new picture used to leave the last one on disk for ever.
+            try:
+                profile.avatar.storage.delete(previous)
+            except Exception:
+                logger.warning('Could not remove the old avatar %s', previous, exc_info=True)
+
         return Response({
             'avatar_url': request.build_absolute_uri(profile.avatar.url) if profile.avatar else None,
             'message': 'Avatar uploaded successfully'

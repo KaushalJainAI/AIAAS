@@ -157,7 +157,7 @@ and you override `train_step()` to change one step.
 
 ### In AIAAS
 
-Four LLM providers (OpenAI, OpenRouter, NVIDIA, OpenCode Zen) speak the same
+Three LLM providers (OpenAI, OpenRouter, NVIDIA) speak the same
 "chat completions" protocol. The base class owns the whole recipe: find the
 API key, build the request, send it, stream the reply, parse tokens, count
 usage, retry on network errors. Each provider fills in only what differs:

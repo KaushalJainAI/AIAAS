@@ -55,7 +55,9 @@ filters them out, so ordinary queries never see the bin.
 | `utils.py` | Reading text out of uploaded files (PDF, Word, Excel, OpenDocument, RTF, email...) |
 | `tasks.py` | Background jobs: turning an upload into chunks and embeddings |
 | `reindex.py`, `migration_tasks.py` | Re-indexing after the embedding model changes |
-| `signals.py` | Keeps each KB's document count right; version blobs die with their rows |
+| `indexing.py` | The queue every producer hands a document to for indexing. A fixed number run at once, however many files arrive |
+| `quota.py` | How much one account may keep: bytes per tier and a file count. `usage()` adds it up, `check()` refuses a write that does not fit |
+| `signals.py` | Keeps each KB's document count right; a deleted document or version takes its stored file with it |
 | `extraction.py`, `extraction_views.py`, `extraction_urls.py` | The extraction engine and its API (served at `/api/extraction/`) |
 | `pages.py`, `page_views.py` | Publishing and serving hosted pages |
 | `dashboard_views.py` | Dashboards |
@@ -74,6 +76,9 @@ filters them out, so ordinary queries never see the bin.
   `os`. The worst a bug can reach is another database row, never a server file.
 - **Paths are walked one folder at a time**, never matched as strings.
 - **Deleting goes to the recycle bin**, so an AI mistake can be undone.
+- **An account has a storage limit.** Uploads, AI file writes, new files and
+  copies all ask `quota.check()` first. Files in the trash still count until
+  the trash is emptied, because they are still on disk.
 
 Search design: [`docs/RAG_STRATEGY.md`](../docs/RAG_STRATEGY.md).
 
@@ -88,4 +93,5 @@ Search design: [`docs/RAG_STRATEGY.md`](../docs/RAG_STRATEGY.md).
 `test_chat_files.py`, `test_file_types.py`, `test_versions.py`,
 `test_drafts.py`, `test_sheets.py`, `test_formulas.py` (these two test the
 [`office/`](../office/README.md) library the apps save through), `test_import.py`,
-`test_previews.py`, `test_recents.py`.
+`test_previews.py`, `test_recents.py`, `test_quota.py` (the storage limit, the
+indexing queue, and that deleting a row frees its file).

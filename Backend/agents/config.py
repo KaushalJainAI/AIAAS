@@ -823,6 +823,16 @@ class AgentSerializer(serializers.Serializer):
         # on. Same reasoning as the branch above — a schedule that cannot fire
         # is a silent no-op, except this one fails five times and then disables
         # the trigger, so the user loses even the evidence.
+        if schedule and (attrs.get('provider') or '') == 'chatgpt':
+            # The runtime refuses every firing (`_check_plan_provider`); say so
+            # at save rather than let the schedule fail five times and disable
+            # itself.
+            raise serializers.ValidationError(
+                {'schedule': 'An agent on your ChatGPT plan cannot run on a '
+                             'schedule: the plan is only used while you are '
+                             'here. Pick a model from another provider, or '
+                             'clear the schedule.'}
+            )
         if schedule and not attrs.get('allowUnattended', False):
             raise serializers.ValidationError(
                 {'allowUnattended': 'A scheduled agent must be cleared to run '

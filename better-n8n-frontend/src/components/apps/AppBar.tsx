@@ -1,22 +1,29 @@
 /**
- * The one app bar: home, the app switcher, the file name, the File menu and
- * the save status — everything that used to be four stacked bars.
+ * The one app bar: home, the app switcher, the file name, the File menu, the
+ * save status, and the three things every app offers on the open file — Ask
+ * AI, full screen and Share. Share sits here, not inside a menu, because it
+ * is the action people look for first in any document app.
  *
  * The file name *is* the rename control (click to edit, Enter to save via
  * `PATCH documents/<id>/`); the save status moved up here from the editor
  * footer so it is visible wherever the toolbar overflowed to on a phone.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Home, Loader2, PanelLeft } from 'lucide-react';
+import { Check, ChevronDown, Home, Loader2, Maximize, Minimize, PanelLeft, Share2, Sparkles } from 'lucide-react';
 
 import { documentsService, type Document } from '../../api/documents';
 import { APPS, type AppMeta, type NewFileOption } from '../../lib/apps';
 import { apiErrorMessage } from '../../lib/apiError';
+import { prefillNewChat } from '../../hooks/useChatDraft';
+import { filePathFor } from '../../lib/share';
 import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
 import { useSave } from './useSave';
+import PropertiesDialog from '../explorer/PropertiesDialog';
+import ShareDialog from '../files/ShareDialog';
+import { useFullscreen } from './editorTools';
 import FileMenu from './FileMenu';
 
 interface Props {
@@ -38,10 +45,21 @@ export default function AppBar(props: Props) {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [details, setDetails] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const save = useSave();
+  const navigate = useNavigate();
+  const fullscreen = useFullscreen();
   const Icon = app.icon;
+
+  /** Open a new chat with a prompt that names this file by its path. */
+  const askAi = () => {
+    if (!doc) return;
+    prefillNewChat(`About my file ${filePathFor(doc)}: `);
+    navigate('/ai-chat', { state: { newChat: true } });
+  };
 
   useEffect(() => {
     if (!switcherOpen) return;
@@ -166,6 +184,8 @@ export default function AppBar(props: Props) {
             onChanged={props.onChanged}
             onTrashed={props.onTrashed}
             onShowHistory={props.onShowHistory}
+            onShare={() => setSharing(true)}
+            onDetails={() => setDetails(true)}
             onClose={() => setMenuOpen(false)}
           />
         )}
@@ -218,6 +238,50 @@ export default function AppBar(props: Props) {
           </span>
         ) : null}
       </div>
+
+      {doc && (
+        <button
+          type="button"
+          onClick={askAi}
+          title="Ask AI about this file"
+          aria-label="Ask AI about this file"
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <Sparkles className="h-4 w-4 text-primary" />
+          <span className="hidden lg:inline">Ask AI</span>
+        </button>
+      )}
+      {fullscreen.supported && (
+        <button
+          type="button"
+          onClick={fullscreen.toggle}
+          title={fullscreen.active ? 'Leave full screen' : 'Full screen'}
+          aria-label={fullscreen.active ? 'Leave full screen' : 'Full screen'}
+          aria-pressed={fullscreen.active}
+          className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:inline-flex"
+        >
+          {fullscreen.active ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </button>
+      )}
+      {doc && (
+        <button
+          type="button"
+          onClick={() => setSharing(true)}
+          title="Share this file"
+          aria-label="Share this file"
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 sm:px-3"
+        >
+          <Share2 className="h-4 w-4" />
+          <span className="hidden sm:inline">Share</span>
+        </button>
+      )}
+
+      {doc && sharing && (
+        <ShareDialog doc={doc} onClose={() => setSharing(false)} beforeShare={save.save} />
+      )}
+      {doc && details && (
+        <PropertiesDialog item={{ kind: 'doc', doc }} location="" onClose={() => setDetails(false)} />
+      )}
     </header>
   );
 }

@@ -100,6 +100,13 @@ export interface LiveAgentRun {
   status: string;
 }
 
+/** The plan of an agent this turn handed work to (`worker_plan` frames). */
+export interface WorkerPlan {
+  execution_id: string;
+  agent_name: string;
+  todos: TodoItem[];
+}
+
 /** A command card: mission, status, cost, memory, findings, confirm sheet. */
 export interface LiveCommandCard {
   type: string;
@@ -134,6 +141,8 @@ export interface ChatStreamState {
   todos: TodoItem[];
   /** Every distinct revision of the plan this turn, oldest first. */
   todoHistory: TodoItem[][];
+  /** One entry per agent working for this turn, in the order they started. */
+  workerPlans: WorkerPlan[];
   files: FileCardData[];
   blockedAttachments: { message: string; items: BlockedAttachment[] } | null;
   pendingToolCall: PendingToolCall | null;
@@ -158,6 +167,7 @@ const EMPTY: ChatStreamState = {
   charts: [],
   todos: [],
   todoHistory: [],
+  workerPlans: [],
   files: [],
   blockedAttachments: null,
   pendingToolCall: null,
@@ -237,6 +247,20 @@ function reduceEvent(state: ChatStreamState, event: StreamEvent): ChatStreamStat
     {
       const todos = arr<TodoItem>(event.todos);
       return { ...state, todos, todoHistory: appendRevision(state.todoHistory, todos) };
+    }
+    case 'worker_plan': {
+      // Whole list per worker, replaced by id — the same rule as `todos_update`.
+      const id = str(event.execution_id);
+      const todos = arr<TodoItem>(event.todos);
+      if (!id || !todos.length) return state;
+      const next: WorkerPlan = { execution_id: id, agent_name: str(event.agent_name) || 'Agent', todos };
+      const at = state.workerPlans.findIndex(p => p.execution_id === id);
+      return {
+        ...state,
+        workerPlans: at < 0
+          ? [...state.workerPlans, next]
+          : state.workerPlans.map((p, i) => (i === at ? next : p)),
+      };
     }
     case 'files_update':
       // Whole list, like todos: a second write to one file updates its entry

@@ -1047,17 +1047,21 @@ async def run_chat_turn(
     from chat.turn import reviewer as _reviewer
 
     session_autonomy = (getattr(session, 'autonomy', '') or 'ask').strip().lower()
-    if session_autonomy not in ('ask', 'auto', 'plan', 'review'):
+    if session_autonomy not in ('ask', 'auto', 'full', 'plan', 'review'):
         session_autonomy = 'ask'
     _auto_policy = _reviewer.auto_policy(
         user_text=reviewer_text(past, question), provider=provider, model=model,
     )
+    _full_policy = _reviewer.full_policy(_auto_policy)
     _approval_modes = {
         'ask': (frozenset(_sensitive_names()), _permissions.default_policy),
         'review': (frozenset(
             t['function']['name'] for t in _schemas()
         ), _permissions.default_policy),
         'auto': (frozenset(), _auto_policy),
+        # Full auto: no approvals at all, except in a turn that read text
+        # addressed to an AI, which falls back to `auto`.
+        'full': (frozenset(), _full_policy),
     }
     # The session's own mode decides the gate set from the first batch. It
     # used to reach `tools_node` only through a mid-run switch: a chat saved
@@ -1092,6 +1096,7 @@ async def run_chat_turn(
             session_key=str(session.id), file_scope=file_scope,
         )} if session_autonomy == 'plan' else {}),
         **({'approval_policy': _auto_policy} if session_autonomy == 'auto' else {}),
+        **({'approval_policy': _full_policy} if session_autonomy == 'full' else {}),
         **({'sensitive_tools': _session_gate[0]}
            if _session_gate is not None and session_autonomy != 'ask' else {}),
         **((await _command_toolbox(
@@ -1099,6 +1104,7 @@ async def run_chat_turn(
             file_scope=file_scope,
         )) if command_resolution is not None else {}),
         approval_modes=_approval_modes,
+        autonomy=session_autonomy,
     )
 
     # A command that starts a run directly (`/agent`): the typed command is
@@ -1176,10 +1182,28 @@ async def _after_turn_capture(session: ChatSession, question: str) -> None:
         logger.exception("[Turn] solution capture hook failed")
 
 
-_EMPTY_ANSWER_FALLBACK = (
-    "I wasn't able to produce an answer for that. Please try rephrasing, or try "
-    "again in a moment."
-)
+#: What the user is told when a turn ends with no answer text, by why it did
+#: (`TurnResult.empty_reason`). The old single sentence said "try rephrasing",
+#: which is the one thing that never helps: none of these are about wording.
+_EMPTY_ANSWER_MESSAGES = {
+    "limit": (
+        "I used up this turn's steps before I could write an answer. Send your "
+        "request again; splitting it into smaller parts gives each one more room."
+    ),
+    "time": (
+        "This turn reached its time limit before I could write an answer. Send "
+        "your request again, or ask for a smaller part of it."
+    ),
+    "empty": (
+        "The model returned an empty reply, so there is nothing to show. "
+        "Send your message again; if it keeps happening, pick a different model."
+    ),
+}
+_EMPTY_ANSWER_FALLBACK = _EMPTY_ANSWER_MESSAGES["empty"]
+
+#: Stored when a turn pauses for an approval or a question before writing any
+#: text. A pause is not a failure, and the old fallback said it was.
+_PAUSED_PLACEHOLDER = "Waiting for your answer before I continue."
 
 
 def _combine_payers(so_far: str, this_turn: str) -> str:
@@ -1227,9 +1251,13 @@ async def _persist_answer(
     """Store the assistant's reply and everything the UI needs alongside it."""
     answer = _INTERNAL_TAGS.sub("", result.answer or "").strip()
 
-    if not answer:
-        logger.warning("[Turn] Empty answer from %s/%s", turn.provider, turn.model)
-        answer = _EMPTY_ANSWER_FALLBACK
+    if not answer and result.awaiting_approval:
+        answer = _PAUSED_PLACEHOLDER
+    elif not answer:
+        reason = getattr(result, "empty_reason", "") or "empty"
+        logger.warning("[Turn] Empty answer (%s) from %s/%s",
+                       reason, turn.provider, turn.model)
+        answer = _EMPTY_ANSWER_MESSAGES.get(reason, _EMPTY_ANSWER_FALLBACK)
         if sources := result.metadata.get("sources"):
             links = "\n".join(
                 f"- [{s.get('title', 'Source')}]({s.get('url', '#')})"

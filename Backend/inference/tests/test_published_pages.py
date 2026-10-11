@@ -23,6 +23,7 @@ from chat.tools import execute_tool
 from inference import vfs
 from inference.models import PublishedPage
 from inference.pages import PublishError, publish
+from inference.utils import extract_docx_text
 
 User = get_user_model()
 
@@ -110,6 +111,19 @@ class LifecycleTests(PageTestCase):
         vfs.edit_file(scope, '/Chat/notes.md', 'one', 'two')
         resp = self.anon.get(f'/api/inference/public/pages/{page.slug}/download/')
         self.assertEqual(b''.join(resp.streaming_content), b'version one')
+
+    def test_sharing_right_after_an_edit_shares_the_edit(self):
+        # An office autosave is parked as a draft and rendered after a quiet
+        # pause. The apps' Share button can be pressed inside that pause, and
+        # the snapshot must be the file on screen, not the bytes before it.
+        made = self.me.post('/api/inference/documents/new/', {'name': 'memo.docx'}, format='json').json()
+        spec = {'title': 'Memo', 'blocks': [{'type': 'paragraph', 'text': 'words typed a second ago'}]}
+        parked = self.me.post(f'/api/inference/documents/{made["id"]}/draft/', {'spec': spec}, format='json')
+        self.assertEqual(parked.status_code, 200, parked.content)
+
+        page = publish(self.owner, title='Memo', kind='file',
+                       body=json.dumps({'document_id': made['id']}), visibility='link')
+        self.assertIn('words typed a second ago', extract_docx_text(page.file.path))
 
     def test_you_cannot_publish_someone_elses_file(self):
         written = vfs.write_file(vfs.chat_scope(self.other), '/Chat/theirs.md', 'private')

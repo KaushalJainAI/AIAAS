@@ -64,6 +64,11 @@ class Event(StrEnum):
     #: the client can put them back in front of the user. Before this, they sat in
     #: the mailbox and landed mid-way through the session's *next* turn.
     STEERS_RETURNED = "steers_returned"
+    #: The plan of an agent this turn handed work to, so the person sees the
+    #: worker's steps in the chat that started it and not only on `/runs`:
+    #: `{execution_id, agent_name, todos}`. Whole list every time, like
+    #: TODOS_UPDATE. Kept on `metadata.worker_plans` for a reload.
+    WORKER_PLAN = "worker_plan"
     #: One coding-task worker's state, for the plan panel. Published to the
     #: lead's sink (chat SSE) and onto the parent execution's channel (runs):
     #: `{task_id, handle, label, agent, status, title, spend}`. Throttled to at

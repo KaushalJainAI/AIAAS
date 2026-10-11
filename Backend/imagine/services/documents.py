@@ -31,7 +31,6 @@ but this keeps the change additive and backward-compatible.
 import base64
 import logging
 import re
-import threading
 import time
 from typing import Optional
 
@@ -251,11 +250,9 @@ def _persist_one(generation, output_url: str, index: int, total: int) -> Optiona
         # Only index text-like documents; media is stored as-is.
         if should_index:
             try:
-                from inference.tasks import process_document
+                from inference import indexing
 
-                threading.Thread(
-                    target=process_document, args=(document.id, kb.id if kb else None), daemon=True
-                ).start()
+                indexing.index_document(document.id, kb.id if kb else None)
             except Exception as e:
                 logger.warning("Could not start process_document for %s: %s", document.id, e)
 

@@ -17,6 +17,7 @@ import { AppWindow, Search, Sparkles, X } from 'lucide-react';
 
 import { documentsService } from '../api/documents';
 import { recentsService, type RecentFile } from '../api/recents';
+import { prefillNewChat } from '../hooks/useChatDraft';
 import { useRecentFiles } from '../hooks/useRecents';
 import PageHeader from '../components/layout/PageHeader';
 import { acceptsDoc, defaultAppFor, getApp, openInAppPath, searchApps, type AppMeta } from '../lib/apps';
@@ -82,7 +83,10 @@ export default function Apps() {
                     key={app.id}
                     app={app}
                     meta={n ? `${n}${capped ? '+' : ''} ${n === 1 ? 'file' : 'files'}` : 'No files yet'}
-                    onAi={() => navigate(`/ai-chat?new=${encodeURIComponent(app.newPrompt)}`)}
+                    onAi={() => {
+                      prefillNewChat(app.newPrompt);
+                      navigate('/ai-chat', { state: { newChat: true } });
+                    }}
                   />
                 );
               })}

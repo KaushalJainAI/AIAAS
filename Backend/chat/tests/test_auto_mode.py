@@ -112,26 +112,151 @@ class AutoPolicyTests(TestCase):
         self.assertFalse(async_to_sync(policy)('get_current_time', {}, {'user_id': 1}))
         self.assertIsNone(audit_for(policy, 'get_current_time', {}))
 
-    def test_an_allowed_write_runs_and_leaves_an_audit(self):
-        policy = auto_policy(user_text='save the notes')
+    PAGE = {'visibility': 'link', 'title': 'Notes'}
+
+    def test_an_allowed_irreversible_call_runs_and_leaves_an_audit(self):
+        policy = auto_policy(user_text='publish the notes as a page')
         with _judge(reviewer, _allow):
-            paused = async_to_sync(policy)(
-                'write_file', {'path': 'n.md'}, {'user_id': 1})
+            paused = async_to_sync(policy)('publish_page', self.PAGE, {'user_id': 1})
         self.assertFalse(paused)
-        audit = audit_for(policy, 'write_file', {'path': 'n.md'})
+        audit = audit_for(policy, 'publish_page', self.PAGE)
         self.assertEqual(
             (audit['mode'], audit['verdict'], audit['reviewed_by']),
             ('auto', 'allow', 'model'),
         )
         self.assertTrue(audit['reason'])
 
-    def test_a_refused_write_pauses(self):
+    def test_a_refused_irreversible_call_pauses(self):
         policy = auto_policy(user_text='save the notes')
         with _judge(reviewer, _deny):
+            paused = async_to_sync(policy)('publish_page', self.PAGE, {'user_id': 1})
+        self.assertTrue(paused)
+        self.assertEqual(audit_for(policy, 'publish_page', self.PAGE)['verdict'], 'ask')
+
+    def test_what_can_be_undone_runs_without_the_judge(self):
+        # One meaning of `auto` for chat and agents: the agent ladder has
+        # always freed reversible tools; chat used to send each to the judge.
+        policy = auto_policy(user_text='save the notes')
+        with _judge(reviewer, _dead):
             paused = async_to_sync(policy)(
                 'write_file', {'path': 'n.md'}, {'user_id': 1})
-        self.assertTrue(paused)
-        self.assertEqual(audit_for(policy, 'write_file', {'path': 'n.md'})['verdict'], 'ask')
+        self.assertFalse(paused)
+        audit = audit_for(policy, 'write_file', {'path': 'n.md'})
+        self.assertEqual((audit['verdict'], audit['reviewed_by']), ('allow', 'rules'))
+
+    def test_delegation_is_the_managers_own_call(self):
+        # The judge never read "run the Analyst agent" as the user's request
+        # carried out, so every delegation asked and auto behaved as ask.
+        policy = auto_policy(user_text='make me a deck about Q3')
+        args = {'agent_id': 4, 'goal': 'Build a Q3 deck'}
+        with _judge(reviewer, _dead):
+            for name in ('run_agent', 'invoke_subagent', 'start_tasks'):
+                self.assertFalse(
+                    async_to_sync(policy)(name, args, {'user_id': 1}), name)
+        self.assertEqual(audit_for(policy, 'run_agent', args)['reviewed_by'], 'rules')
+
+    def test_a_tainted_turn_frees_nothing(self):
+        policy = auto_policy(user_text='make me a deck about Q3')
+        ctx = {'user_id': 1, 'tainted_by': 'read_url'}
+        with _judge(reviewer, _allow):
+            self.assertTrue(async_to_sync(policy)(
+                'run_agent', {'agent_id': 4, 'goal': 'x'}, ctx))
+            self.assertTrue(async_to_sync(policy)(
+                'write_file', {'path': 'n.md'}, ctx))
+
+    def test_a_mission_and_a_spend_are_never_freed_by_rule(self):
+        self.assertEqual(reviewer.rule_allow('start_mission'), '')
+        self.assertEqual(reviewer.rule_allow('generate_image'), '')
+        self.assertEqual(reviewer.rule_allow('run_eval_suite'), '')
+        self.assertEqual(reviewer.rule_allow('mcp__7__send_email_ab12cd34'), '')
+        policy = auto_policy(user_text='run the suite')
+        with _judge(reviewer, _allow):
+            self.assertTrue(async_to_sync(policy)(
+                'run_eval_suite', {'suite_id': 1}, {'user_id': 1}))
+
+
+class FullAutoTests(TestCase):
+    """Full auto: nothing asks — except in a turn that read orders from a page."""
+
+    def policy(self):
+        return reviewer.full_policy(auto_policy(user_text='tidy my inbox'))
+
+    def test_nothing_pauses_and_no_judge_is_called(self):
+        policy = self.policy()
+        with _judge(reviewer, _dead):
+            for name, args in (
+                ('run_agent', {'agent_id': 4, 'goal': 'x'}),
+                ('publish_page', {'visibility': 'public'}),
+                ('generate_image', {'prompt': 'a cat'}),
+                ('start_mission', {'goal': 'x'}),
+                ('message_send', {'to': '#strangers', 'message': 'hi'}),
+                ('mcp__7__send_email_ab12cd34', {'to': 'a@b.c'}),
+            ):
+                self.assertFalse(
+                    async_to_sync(policy)(name, args, {'user_id': 1}), name)
+
+    def test_a_tainted_turn_falls_back_to_auto(self):
+        policy = self.policy()
+        ctx = {'user_id': 1, 'tainted_by': 'read_url'}
+        with _judge(reviewer, _allow):
+            self.assertTrue(async_to_sync(policy)(
+                'run_agent', {'agent_id': 4, 'goal': 'x'}, ctx))
+            # A plain read is never gated, tainted or not.
+            self.assertFalse(async_to_sync(policy)('get_current_time', {}, ctx))
+
+    def test_the_model_is_told_the_mode(self):
+        from chat.turn.prompts import AUTONOMY_NOTES
+
+        self.assertIn('FULL AUTO', AUTONOMY_NOTES['full'])
+
+
+class WorkerModeTests(TestCase):
+    """A chat in `auto` does not start a worker that asks about undoable work."""
+
+    def test_only_ask_is_lifted_and_only_by_an_auto_chat(self):
+        from agents.agent.runtime import lifted_autonomy
+
+        self.assertEqual(lifted_autonomy('ask', 'auto'), 'auto')
+        for own in ('plan', 'review', 'auto', 'full'):
+            self.assertEqual(lifted_autonomy(own, 'auto'), own)
+        for parent in ('', 'ask', 'plan', 'review'):
+            self.assertEqual(lifted_autonomy('ask', parent), 'ask')
+
+    def test_a_full_auto_chat_switches_its_workers_approvals_off_too(self):
+        from agents.agent.runtime import lifted_autonomy
+
+        self.assertEqual(lifted_autonomy('ask', 'full'), 'full')
+        self.assertEqual(lifted_autonomy('auto', 'full'), 'full')
+        # Stricter than the default is a choice, and it stands.
+        self.assertEqual(lifted_autonomy('plan', 'full'), 'plan')
+        self.assertEqual(lifted_autonomy('review', 'full'), 'review')
+        self.assertEqual(lifted_autonomy('ask', 'full', 'eval'), 'ask')
+
+    def test_an_eval_measures_the_agent_as_saved(self):
+        from agents.agent.runtime import lifted_autonomy
+
+        self.assertEqual(lifted_autonomy('ask', 'auto', 'eval'), 'ask')
+
+    def test_the_mode_survives_a_pause(self):
+        # `resume_agent_run` knows only the log, so the mode is kept on it.
+        from agents.agent.runtime import _open_log, _remember_parent_autonomy
+        from agents.models import SubAgent
+
+        user = User.objects.create_user('lifter', 'l@example.com', 'pw')
+        agent = SubAgent.objects.create(user=user, name='Worker')
+        log = async_to_sync(_open_log)(agent, user, 'goal', 'api', 't-1', caller='chat')
+        self.assertEqual(async_to_sync(_remember_parent_autonomy)(log, 'auto'), 'auto')
+        log.refresh_from_db()
+        self.assertEqual(async_to_sync(_remember_parent_autonomy)(log, ''), 'auto')
+
+    def test_the_tool_context_carries_the_chat_mode(self):
+        from chat.turn.agent import TurnContext, _live_autonomy
+
+        base = dict(provider='p', model='m', system_message='', user_id=1,
+                    session_id='mode-thread', intent='chat', user_text='q')
+        self.assertEqual(_live_autonomy(TurnContext(**base, autonomy='auto')), 'auto')
+        # An agent run sets none, so nothing is passed down from it.
+        self.assertEqual(_live_autonomy(TurnContext(**base)), '')
 
 
 class PlanWithholdsTests(TestCase):
@@ -216,13 +341,33 @@ class SessionAutonomyTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('moder', 'm@example.com', 'pw')
 
-    def test_full_is_not_a_chat_mode(self):
+    def test_the_chat_modes_are_ask_auto_full_and_plan(self):
         from chat.serializers import ChatSessionSerializer
 
-        serializer = ChatSessionSerializer(data={'title': 't', 'autonomy': 'full'})
+        for level in ('ask', 'auto', 'full', 'plan'):
+            serializer = ChatSessionSerializer(data={'title': 't', 'autonomy': level})
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer = ChatSessionSerializer(data={'title': 't', 'autonomy': 'yolo'})
         self.assertFalse(serializer.is_valid())
-        serializer = ChatSessionSerializer(data={'title': 't', 'autonomy': 'auto'})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_no_chat_starts_in_full_auto_unasked(self):
+        # Full auto is picked per conversation. Even a profile row that
+        # somehow holds it does not make new chats start there.
+        from core.models import UserProfile
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from chat.views import ChatSessionViewSet
+
+        profile, _ = UserProfile.objects.get_or_create(user=self.user)
+        profile.default_autonomy = 'full'
+        profile.save(update_fields=['default_autonomy'])
+        request = APIRequestFactory().post(
+            '/api/chat/sessions/', {'title': 't'}, format='json')
+        force_authenticate(request, user=self.user)
+        response = ChatSessionViewSet.as_view({'post': 'create'})(request)
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(
+            ChatSession.objects.get(id=response.data['id']).autonomy, 'ask')
 
     def test_new_sessions_inherit_the_account_default(self):
         from core.models import UserProfile

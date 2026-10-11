@@ -26,6 +26,16 @@ from .sse import error_frame, frame
 
 logger = logging.getLogger(__name__)
 
+#: How long a stream may be silent before a keep-alive is written. A turn emits
+#: nothing while a tool waits on a delegated agent, and nginx drops a response
+#: silent for `proxy_read_timeout` (300s) — the turn carried on and the browser
+#: saw its stream end. Well under that, and under the usual 60s of other
+#: proxies.
+KEEPALIVE_SECONDS = 20
+#: An SSE comment line: clients skip anything that is not a `data:` line, so
+#: it is not a frame and does not move a reader's frame index.
+KEEPALIVE = ": keep-alive\n\n"
+
 
 serialize_message = sync_to_async(lambda m: ChatMessageSerializer(m).data)
 serialize_attachment = sync_to_async(lambda a: ChatAttachmentSerializer(a).data)
@@ -88,8 +98,9 @@ def stream_response(run: runs.ChatRun, from_index: int = 0) -> StreamingHttpResp
         # would otherwise stay held for the whole stream. Nothing below touches
         # the ORM (`runs.subscribe` is in-memory queues), so hand it back now.
         await release_db()
-        async for event, payload in runs.subscribe(run, from_index):
-            yield frame(event, payload)
+        async for event, payload in runs.subscribe(
+                run, from_index, idle_after=KEEPALIVE_SECONDS):
+            yield KEEPALIVE if event is None else frame(event, payload)
 
     response = StreamingHttpResponse(frames(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

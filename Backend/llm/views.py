@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 from credentials.models import Credential
 from credentials.resolution import KEYLESS_PROVIDERS, platform_api_key, slugs_for
 
+from . import chatgpt_plan
 from . import fallback as _fallback
 from .catalog_refresh import REFRESH_STATUS_KEY
 from django.core.cache import cache
@@ -102,9 +103,18 @@ class AIModelListView(APIView):
             ).values_list('credential_type__slug', flat=True)
         )
 
+        # The ChatGPT plan is offered only where it is switched on, and only
+        # the models *this* account's own listing names: the rows are global,
+        # which of them a user sees is not.
+        plan_models = None
+        if chatgpt_plan.enabled() and chatgpt_plan.PROVIDER in verified_type_slugs:
+            plan_models = set(chatgpt_plan.models_for(request.user.id))
+
         data = []
         for provider in providers:
             provider_slug = provider.slug
+            if provider_slug == chatgpt_plan.PROVIDER and not chatgpt_plan.enabled():
+                continue
 
             # `slugs_for` is the same mapping the executor resolves credentials
             # with, so what the picker shows as available is what will actually
@@ -123,11 +133,13 @@ class AIModelListView(APIView):
             for m in provider.models.filter(is_active=True):
                 if not offered_in_picker(m):
                     continue
+                if provider_slug == chatgpt_plan.PROVIDER and m.value not in (plan_models or ()):
+                    continue
                 # Model is available if its provider is fully available, or if
                 # the model is free and a platform key can actually pay for it.
                 # The old rule (`provider_slug != 'ollama'`) treated every free
-                # cloud model as runnable without a key — so a free Zen model
-                # (no platform key by design, ToS) showed as available and then
+                # cloud model as runnable without a key — so a free model on a
+                # provider with no platform key showed as available and then
                 # failed at preflight: offered but unrunnable. A platform key
                 # existing is what makes a free model runnable without the
                 # user's own credential; Ollama needs nothing either way

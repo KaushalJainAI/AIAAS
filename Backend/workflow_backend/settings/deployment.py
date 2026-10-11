@@ -26,6 +26,8 @@ os.environ.setdefault('USE_REDIS_CHANNEL_LAYER', 'True')
 os.environ.setdefault('CORS_ALLOW_ALL_ORIGINS', 'False')
 # No local-process MCP servers in production: see MCP_ALLOW_STDIO in base.py.
 os.environ.setdefault('MCP_ALLOW_STDIO', 'False')
+# Not until OpenAI approves the hosted site: see CHATGPT_PLAN_ENABLED in base.py.
+os.environ.setdefault('CHATGPT_PLAN_ENABLED', 'False')
 os.environ.setdefault('GOOGLE_OAUTH_REDIRECT_URI', 'https://aiaas.kaushaljain.com/auth/google/callback')
 
 from .base import *  # noqa: F401, F403, E402

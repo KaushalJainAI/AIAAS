@@ -173,7 +173,18 @@ def page_detail(request, slug: str):
         # while nothing already read is rewritten, and relisting keeps the URL.
         page.is_listed = False
         page.withdrawn_at = timezone.now()
-        page.save(update_fields=['is_listed', 'withdrawn_at', 'updated_at'])
+        fields = ['is_listed', 'withdrawn_at', 'updated_at']
+        if page.file:
+            # Nothing serves a withdrawn page, so its file snapshot is bytes
+            # the owner is charged for (`inference/quota.py`) and can never
+            # use again. The row and its slug stay.
+            try:
+                page.file.delete(save=False)
+            except (OSError, ValueError):
+                logger.warning('Could not remove the file of page %s', page.slug, exc_info=True)
+            page.file_size = 0
+            fields += ['file', 'file_size']
+        page.save(update_fields=fields)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     return Response(_present(page, viewer=request.user))

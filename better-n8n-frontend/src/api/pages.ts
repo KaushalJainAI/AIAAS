@@ -37,6 +37,22 @@ export const pagesService = {
   list: async (scope?: 'platform'): Promise<{ results: PublishedPage[]; truncated: boolean }> =>
     (await apiClient.get('/inference/pages/', { params: scope ? { scope } : undefined })).data,
 
+  /**
+   * Freeze a snapshot and get its link. `kind: 'file'` takes
+   * `body: {"document_id": n}` as JSON text; the server copies the file as it
+   * is now, so later edits never change what a link already shows.
+   */
+  publish: async (input: {
+    title: string;
+    kind: PageKind;
+    body: string;
+    visibility: PageVisibility;
+  }): Promise<PublishedPage> => (await apiClient.post<PublishedPage>('/inference/pages/', input)).data,
+
+  /** Share one of the caller's files by link. */
+  shareFile: async (documentId: number, title: string, visibility: PageVisibility): Promise<PublishedPage> =>
+    pagesService.publish({ title, kind: 'file', body: JSON.stringify({ document_id: documentId }), visibility }),
+
   /** Unlists the page: the link stops resolving; nothing is deleted. */
   withdraw: async (slug: string): Promise<void> => {
     await apiClient.delete(`/inference/pages/${slug}/`);
