@@ -545,6 +545,8 @@ export default function Agents() {
         <ShareAgentDialog
           agentId={sharing.id}
           agentName={sharing.name}
+          brief={sharing.brief}
+          description={sharing.description}
           onClose={() => setSharing(null)}
         />
       )}

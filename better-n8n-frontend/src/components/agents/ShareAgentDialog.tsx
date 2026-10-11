@@ -1,56 +1,24 @@
 /**
  * Publish one of your agents for other people to install.
  *
- * The dialog's job is to make the payload visible before it leaves. Publishing
- * is the moment a private configuration becomes something strangers install,
- * and the two things that could go wrong are both silent: an id that travels
- * would point at *your* rows in their account, and a row name that travels
- * ("Q3 payroll") is a fact about your account that you may not want published.
- *
- * So the server previews rather than publishes on open, and this screen shows
- * the whole of what would be sent — the capabilities, the limits, and every
- * requirement your ids became, each labelled with the source row's own name
- * and editable here. Nothing that is not on this screen travels.
- *
- * The form is a separate component taking the loaded preview as a prop, so its
- * fields can be initialised from it directly. Holding them in the outer
- * component would mean an effect copying the query result into state on
- * arrival — a second source of truth that is briefly wrong on first paint, and
- * that silently discards the values a republish is meant to start from if the
- * ordering ever changes.
+ * Deliberately thin: the listing text is not written here. The one-liner and
+ * the longer pitch are read from the agent's own Basics — its `description`
+ * and `brief` — so the copy lives in exactly one place and this screen cannot
+ * drift from it. What the installer must supply keeps the server-generated
+ * labels for the same reason: the publish request omits `requirements`
+ * entirely and the server publishes what it generated. The only choice made
+ * here is who can find it.
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, Copy, Globe, Link2, Loader2, ShieldCheck, Users, X } from 'lucide-react';
+import { Check, Copy, Globe, Link2, Loader2, Users, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import templatesService, {
   type ShareVisibility,
   type SharePreview,
 } from '../../api/templates';
-import { AUTONOMY_COPY, type Autonomy } from '../../types/agentConfig';
-
-const GRANT_COPY: Record<string, string> = {
-  webSearch: 'Search the web',
-  scrape: 'Open and read web pages',
-  codeExecution: 'Run Python in a sandbox',
-  fileOps: 'Read and write files',
-  office: 'Create PowerPoint, Excel and Word files',
-  media: 'Generate images on your OpenRouter account',
-  publish: 'Publish pages shareable by link',
-  browser: 'Use a web browser on allowed sites',
-  rag: 'Search a knowledge base',
-  mcp: 'Use connections',
-  voice: 'Transcribe audio and speak text',
-  esign: 'Send documents for e-signature',
-  talk: 'Message on Slack, WhatsApp, Teams, SMS and Telegram',
-  data: 'Query databases',
-  api: 'Call HTTP APIs',
-  compute: 'Run commands on a workspace',
-  shell: 'Edit code in projects',
-  subAgents: 'Delegate to other agents',
-};
 
 /* Three rungs, rendered narrowest first. The order is the point: someone
    scanning a list picks near the top, and the widest option is the one that
@@ -64,17 +32,17 @@ const VISIBILITY_COPY: Record<
 > = {
   link: {
     label: 'Anyone with the link',
-    hint: 'Not listed anywhere. Only people you send the link to, and they need an account.',
+    hint: 'Not listed anywhere.',
     icon: Link2,
   },
   platform: {
     label: 'Everyone on this platform',
-    hint: 'Listed on Explore for people who have an account here.',
+    hint: 'Listed on Explore for people with an account here.',
     icon: Users,
   },
   public: {
     label: 'Public — anyone on the internet',
-    hint: 'Readable without an account at all. The link works for anyone you send it to, and search engines can reach it. Installing still needs an account.',
+    hint: 'Readable without an account. Installing still needs one.',
     icon: Globe,
   },
 };
@@ -88,21 +56,31 @@ function errorText(err: unknown, fallback: string) {
 
 function ShareForm({
   agentId,
+  agentName,
+  brief,
+  description,
   preview,
   onClose,
 }: {
   agentId: number;
+  agentName: string;
+  /** The agent's own Basics — the listing copy is read from these, not typed here. */
+  brief: string;
+  description: string;
   preview: SharePreview;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [tagline, setTagline] = useState(preview.tagline);
-  const [description, setDescription] = useState(preview.description);
   const [visibility, setVisibility] = useState<ShareVisibility>(preview.visibility);
-  const [labels, setLabels] = useState<Record<string, string>>(() =>
-    Object.fromEntries(preview.requirements.map((r) => [r.key, r.label])),
-  );
   const [copied, setCopied] = useState(false);
+
+  /* The listing, straight from the agent configuration: the one-line
+     `description`, falling back to the preview's tagline (a previous listing
+     or the same field) and finally the name, so publish can never hit the
+     server's "one-line description required" refusal. The longer pitch is the
+     agent's own `brief`. */
+  const oneLiner = description.trim() || preview.tagline.trim() || agentName;
+  const pitch = brief.trim();
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['agent-templates'] });
@@ -112,15 +90,9 @@ function ShareForm({
   const publish = useMutation({
     mutationFn: () =>
       templatesService.publish(agentId, {
-        tagline: tagline.trim(),
-        description: description.trim(),
+        tagline: oneLiner.slice(0, 200),
+        description: pitch,
         visibility,
-        requirements: preview.requirements.map((r) => ({
-          key: r.key,
-          label: labels[r.key] ?? r.label,
-          why: r.why,
-          optional: r.optional,
-        })),
       }),
     onSuccess: (entry) => {
       invalidate();
@@ -152,13 +124,12 @@ function ShareForm({
     ? `${window.location.origin}${visibility === 'public' ? '/a/' : '/templates/'}${preview.slug}`
     : '';
 
-  const grants = Object.entries(preview.config.tools ?? {})
-    .filter(([, on]) => on)
-    .map(([key]) => GRANT_COPY[key] ?? key);
+  const capabilityCount = Object.values(preview.config.tools ?? {}).filter(Boolean).length;
+  const requirementLabels = preview.requirements.map((r) => r.label);
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
         {preview.published && (
           <div className="rounded border border-border bg-secondary/40 p-3">
             <p className="text-[12px] text-muted-foreground mb-2">
@@ -190,34 +161,26 @@ function ShareForm({
           </div>
         )}
 
-        <label className="block">
-          <span className="text-[12px] font-semibold text-muted-foreground">
-            One line
-          </span>
-          <input
-            value={tagline}
-            onChange={(e) => setTagline(e.target.value)}
-            maxLength={200}
-            placeholder="What it does, in one sentence."
-            className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm"
-          />
-          <span className="text-[11px] text-muted-foreground">
-            The only thing most people read before installing.
-          </span>
-        </label>
+        {/* The listing, as installers will see it. Read-only: this copy lives
+            on the agent's Basics tab, and editing it here would fork it. */}
+        <div className="rounded border border-border p-3">
+          <p className="text-[15px] font-semibold">{agentName}</p>
+          <p className="text-[13px] text-muted-foreground mt-0.5">{oneLiner}</p>
+          {pitch && (
+            <p className="text-[12px] text-muted-foreground mt-1.5 line-clamp-3">{pitch}</p>
+          )}
+          <p className="text-[11px] text-muted-foreground/70 mt-2">
+            Taken from the agent&rsquo;s Basics — edit it there.
+          </p>
+        </div>
 
-        <label className="block">
-          <span className="text-[12px] font-semibold text-muted-foreground">
-            Longer description
-          </span>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            placeholder="How it works, and when it is the wrong tool."
-            className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm resize-y"
-          />
-        </label>
+        <p className="text-[12px] text-muted-foreground leading-relaxed">
+          {capabilityCount} {capabilityCount === 1 ? 'capability' : 'capabilities'}
+          {requirementLabels.length > 0
+            ? ` · asks the installer for ${requirementLabels.length} ${requirementLabels.length === 1 ? 'thing' : 'things'}: ${requirementLabels.slice(0, 4).join(', ')}${requirementLabels.length > 4 ? '…' : ''}`
+            : ' · needs nothing from the installer'}
+          . Your connections and documents never travel.
+        </p>
 
         <div>
           <span className="text-[12px] font-semibold text-muted-foreground">
@@ -230,7 +193,7 @@ function ShareForm({
                 <label
                   key={v}
                   className={cn(
-                    'flex items-start gap-2.5 p-2.5 rounded border cursor-pointer',
+                    'flex items-center gap-2.5 p-2.5 rounded border cursor-pointer',
                     visibility === v
                       ? 'border-primary bg-primary-subtle'
                       : 'border-border hover:bg-secondary',
@@ -241,16 +204,11 @@ function ShareForm({
                     name="visibility"
                     checked={visibility === v}
                     onChange={() => setVisibility(v)}
-                    className="mt-1"
                   />
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5 text-[13px] font-medium">
-                      <Icon className="w-3.5 h-3.5" />
-                      {label}
-                    </span>
-                    <span className="block text-[12px] text-muted-foreground">
-                      {hint}
-                    </span>
+                  <span className="flex items-center gap-1.5 text-[13px] font-medium min-w-0">
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    {label}
+                    <span className="font-normal text-muted-foreground truncate">{hint}</span>
                   </span>
                 </label>
               );
@@ -264,64 +222,9 @@ function ShareForm({
              unlists the page, and does nothing about a copy someone already
              installed or a page someone already read. */
           <p className="text-[12px] text-muted-foreground border border-border rounded p-2.5 leading-relaxed">
-            <ShieldCheck className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
-            Anyone will be able to read this agent&rsquo;s instructions,
-            capabilities and limits without signing in. Withdrawing later
-            unlists the page, but does not un-read it.
+            Anyone will be able to read this agent&rsquo;s instructions without
+            signing in. Withdrawing later unlists the page, but does not un-read it.
           </p>
-        )}
-
-        {/* Everything below is what will be sent. It is shown rather than
-            summarised because "nothing else travels" is only a promise the
-            author can check if they can see the whole payload. */}
-        <div>
-          <h3 className="text-[12px] font-semibold text-muted-foreground mb-2">
-            What people will see it can do
-          </h3>
-          <ul className="space-y-1 text-[13px]">
-            {grants.map((g) => (
-              <li key={g} className="flex items-start gap-2">
-                <Check className="w-3.5 h-3.5 mt-0.5 text-agent shrink-0" />
-                {g}
-              </li>
-            ))}
-            {grants.length === 0 && (
-              <li className="text-muted-foreground">No tools at all.</li>
-            )}
-            <li className="flex items-start gap-2 text-muted-foreground">
-              <Globe className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              {AUTONOMY_COPY[(preview.config.autonomy ?? 'ask') as Autonomy].hint}
-            </li>
-          </ul>
-        </div>
-
-        {preview.requirements.length > 0 && (
-          <div>
-            <h3 className="text-[12px] font-semibold text-muted-foreground mb-1">
-              What they will be asked to supply
-            </h3>
-            <p className="text-[12px] text-muted-foreground mb-2 leading-relaxed">
-              Your connections and documents do not travel — each becomes a slot
-              the installer fills from their own. These labels are taken from
-              your rows' names, so rename any you would rather not publish.
-            </p>
-            <div className="space-y-2">
-              {preview.requirements.map((req) => (
-                <div key={req.key} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
-                  <span className="text-[11px] text-muted-foreground w-auto sm:w-28 shrink-0">
-                    {req.type.replace('_', ' ')}
-                  </span>
-                  <input
-                    value={labels[req.key] ?? req.label}
-                    onChange={(e) =>
-                      setLabels((prev) => ({ ...prev, [req.key]: e.target.value }))
-                    }
-                    className="flex-1 min-w-0 w-full px-2 py-1.5 bg-background border border-border rounded text-[13px]"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
         )}
       </div>
 
@@ -348,7 +251,7 @@ function ShareForm({
           </button>
           <button
             type="button"
-            disabled={publish.isPending || !tagline.trim()}
+            disabled={publish.isPending}
             onClick={() => publish.mutate()}
             className="flex-1 sm:flex-none px-4 py-2 bg-primary text-primary-foreground rounded font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
@@ -364,10 +267,14 @@ function ShareForm({
 export default function ShareAgentDialog({
   agentId,
   agentName,
+  brief = '',
+  description = '',
   onClose,
 }: {
   agentId: number;
   agentName: string;
+  brief?: string;
+  description?: string;
   onClose: () => void;
 }) {
   const { data: preview, isLoading, isError, error } = useQuery({
@@ -413,7 +320,14 @@ export default function ShareAgentDialog({
             </p>
           </div>
         ) : (
-          <ShareForm agentId={agentId} preview={preview} onClose={onClose} />
+          <ShareForm
+            agentId={agentId}
+            agentName={agentName}
+            brief={brief}
+            description={description}
+            preview={preview}
+            onClose={onClose}
+          />
         )}
       </div>
     </div>

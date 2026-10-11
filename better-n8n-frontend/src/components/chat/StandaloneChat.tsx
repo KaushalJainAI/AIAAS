@@ -2291,14 +2291,14 @@ export default function StandaloneChat() {
                 const followUps = lastAssistant?.metadata?.follow_ups;
                 if (!followUps || followUps.length === 0) return null;
                 return (
-                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card/60 border border-border/50 rounded-lg overflow-hidden">
+                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card border border-border rounded-xl overflow-hidden shadow-sm">
                     <button 
                       onClick={() => setIsFollowUpsExpanded(!isFollowUpsExpanded)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
                     >
                       <div className="flex items-center gap-2">
-                        <Lightbulb className="w-3.5 h-3.5 text-amber-500/50" />
-                        <span className="text-[10px] font-semibold  text-muted-foreground/60">Continue exploring</span>
+                        <Lightbulb className="w-3.5 h-3.5 text-muted-foreground/60" />
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Continue exploring</span>
                       </div>
                       <ChevronDown className={cn(
                         "w-4 h-4 text-muted-foreground/50 transition-transform duration-300",
@@ -2311,7 +2311,7 @@ export default function StandaloneChat() {
                       isFollowUpsExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                     )}>
                       <div className="overflow-hidden">
-                        <div className="flex flex-wrap gap-2 p-3 pt-0">
+                        <div className="flex flex-wrap gap-2.5 p-3.5 pt-0">
                           {followUps.map((q: string, i: number) => (
                             <button
                               key={i}
@@ -2320,15 +2320,15 @@ export default function StandaloneChat() {
                               // read as a block of UI to skip past, where a quick
                               // cascade reads as suggestions worth a glance.
                               style={{ animationDelay: `${i * 70}ms`, animationFillMode: 'backwards' }}
-                              className="group flex flex-1 min-w-[200px] items-center gap-2.5 px-4 py-2.5 bg-background
-                                         border border-border/50 rounded-lg shadow-sm text-left
+                              className="flex flex-1 min-w-[200px] items-center px-4 py-3 bg-background
+                                         border border-border rounded-xl shadow-sm text-left
                                          text-muted-foreground hover:text-foreground
-                                         hover:bg-primary/5 hover:border-primary/20 hover:shadow-md
-                                         transition-colors duration-200 ease-out active:scale-[0.98]
+                                         hover:bg-primary/5 hover:border-primary/30
+                                         transition-colors duration-200 ease-out
+                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring
                                          animate-in fade-in slide-in-from-bottom-2"
                             >
-                              <Zap className="w-3.5 h-3.5 shrink-0 opacity-30 transition-colors duration-200 group-hover:opacity-100 group-hover:text-primary group-hover:scale-110" />
-                              <span className="text-[13px] font-medium leading-snug">{q}</span>
+                              <span className="text-[13px] font-medium leading-relaxed">{q}</span>
                             </button>
                           ))}
                         </div>
@@ -2419,7 +2419,7 @@ export default function StandaloneChat() {
                     thing on the page; a border that turns primary plus the
                     standard focus ring says "focused" in the same language as
                     every other input in the app. */}
-                <div className="relative flex flex-col bg-card border border-border rounded-lg shadow-sm transition-colors duration-150 focus-within:border-primary focus-within:ring-1 focus-within:ring-ring">
+                <div className="relative flex flex-col bg-card border border-border rounded-xl shadow-sm transition-colors duration-150 focus-within:border-primary focus-within:ring-1 focus-within:ring-ring">
                   {/* The `/` palette: fuzzy match, ↑/↓, Enter/Tab, Esc. */}
                   {!isGuest && (
                     <CommandPalette

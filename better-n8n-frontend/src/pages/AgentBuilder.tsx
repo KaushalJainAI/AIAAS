@@ -1498,6 +1498,8 @@ export default function AgentBuilder() {
         <ShareAgentDialog
           agentId={agentId}
           agentName={cfg.name || existing?.name || 'agent'}
+          brief={existing?.brief ?? cfg.brief}
+          description={existing?.description ?? cfg.description}
           onClose={() => setSharing(false)}
         />
       )}
