@@ -396,6 +396,7 @@ sessions are editing the same working tree, so stage explicit paths only.
 | `inference/office_edit.py` | `replace_bytes` / `save_text` take `version_source` and snapshot first |
 | `inference/vfs.py` | write_file / edit_file through `save_text`; `write_binary(overwrite)` in place via `_replace_in_place`; new `file_versions`, `restore_file_version`, `export_file` |
 | `inference/signals.py` | `drop_version_blob` post-delete receiver |
+| `inference/signals.py` | `drop_document_blob` post-delete receiver: a deleted document takes its stored file (skipped while another row names it) |
 | `inference/views.py` | `document_versions`, `document_version_download`, `document_version_restore`, `document_export` |
 | `inference/urls.py` | the four routes above |
 | `workflow_backend/thresholds.py` | `FILE_VERSIONS_KEPT`, `FILE_VERSION_COALESCE_SECONDS`, `FILE_VERSION_MAX_BYTES` |

@@ -159,7 +159,7 @@ Rule 6 of the core prompt says the same: older turns arrive as summaries, so quo
 
 ### 12. RAG indexing: the second life of an upload
 
-For `pdf`, `pptx`, and `text` uploads with real text, the app also creates an `inference.Document` and processes it in a background thread: chunk (~500 chars), embed, index into the session knowledge base.
+For `pdf`, `pptx`, and `text` uploads with real text, the app also creates an `inference.Document` and queues it for indexing (`inference/indexing.py`, which runs a fixed number of jobs at once): chunk (~500 chars), embed, index into the session knowledge base. The `Document` owns the bytes; the attachment points at the same file, so an upload is stored once and counts once against the account's storage quota.
 
 That gives two paths to the same file:
 

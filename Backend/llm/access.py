@@ -370,14 +370,15 @@ def classify_provider_error(
         # their own is the fix. The wording covers both.
         return LLMQuotaExhausted(
             f"{label} refused the request — out of credit. Add or top up a "
-            f"{label} key in Settings, or pick a model from another provider, "
+            f"{label} key in Credentials, or pick a model from another provider, "
             f"then send the message again."
         )
 
     if status in (401, 403) or any(phrase in text for phrase in _AUTH_PHRASES):
         return LLMAccessDenied(
-            f"{label} rejected the API key. Check the credential in Settings — "
-            f"it may have been revoked or may not cover this model."
+            f"{label} rejected the API key. Check the credential in Credentials — "
+            f"it may have been revoked, may not cover this model, or may need "
+            f"to be Verified again."
         )
 
     if status == 410 or any(phrase in text for phrase in _RETIRED_MODEL_PHRASES):
@@ -592,7 +593,8 @@ async def _build_request(
             if api_key_override is None:
                 raise LLMNoCredential(
                     f"No verified {PROVIDER_LABELS.get(provider, provider).split(' (')[0]}"
-                    f" credential. Add one in Settings, or pick a model from a"
+                    f" credential. Add one in Credentials, then Verify it — "
+                    f"an unverified key is not used — or pick a model from a"
                     f" provider you have set up."
                 )
 
@@ -674,13 +676,14 @@ async def preflight(*, provider: str, model: str, user_id: int) -> None:
             raise LLMQuotaExhausted(
                 "You have used all your credits. Pick a free model, or add your "
                 f"own {PROVIDER_LABELS.get(provider, provider).split(' (')[0]} "
-                "key in Settings to keep going."
+                "key in Credentials to keep going."
             )
         return
 
     label = PROVIDER_LABELS.get(provider, provider).split(" (")[0]
     raise LLMNoCredential(
-        f"No verified {label} credential. Add one in Settings, or pick a model "
+        f"No verified {label} credential. Add one in Credentials, then Verify it — "
+        f"an unverified key is not used — or pick a model "
         f"from a provider you have set up."
     )
 

@@ -42,9 +42,22 @@ const IconMap: Record<string, LucideIcon> = {
   'Shield': Shield
 };
 
+/** Group rows by provider display name, providers A–Z, newest first inside. */
+function groupByType(rows: Credential[]): { type: string; items: Credential[] }[] {
+  const groups = new Map<string, Credential[]>();
+  for (const c of rows) {
+    const key = c.credential_type_display || 'Other';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(c);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([type, items]) => ({ type, items }));
+}
+
 export default function Credentials() {
   const [searchQuery, setSearchQuery] = usePersistedState('credentials.search', '', { storage: 'session' });
-  const [activeTab, setActiveTab] = usePersistedState<'verified' | 'unverified'>('credentials.tab', 'verified');
+  const [statusFilter, setStatusFilter] = usePersistedState<'all' | 'verified' | 'unverified'>('credentials.filter', 'all');
   const [showModal, setShowModal] = useState(false);
   const [editingCredential, setEditingCredential] = useState<Credential | null>(null);
   const [viewingCredential, setViewingCredential] = useState<Credential | null>(null);
@@ -131,8 +144,13 @@ export default function Credentials() {
 
   const verifiedCredentials = filteredCredentials.filter(c => c.is_verified);
   const unverifiedCredentials = filteredCredentials.filter(c => !c.is_verified);
-  
-  const displayedCredentials = activeTab === 'verified' ? verifiedCredentials : unverifiedCredentials;
+
+  // One list: verified and unverified side by side, grouped by provider so a
+  // key added but not yet verified never looks "lost" on another tab.
+  const visibleCredentials = filteredCredentials.filter(c =>
+    statusFilter === 'all' ? true : statusFilter === 'verified' ? c.is_verified : !c.is_verified,
+  );
+  const groupedCredentials = groupByType(visibleCredentials);
 
   const renderCredentialCard = (credential: Credential) => (
     <div
@@ -220,17 +238,36 @@ export default function Credentials() {
         </div>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-border/60 flex items-center justify-between text-xs font-medium text-muted-foreground">
-        <div className="flex items-center gap-1.5">
-          {credential.is_verified ? (
-             <Check className="w-3 h-3 text-green-500" />
+      <div className="mt-4 pt-4 border-t border-border/60 space-y-2">
+        {!credential.is_verified && credential.last_error && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed line-clamp-2" title={credential.last_error}>
+            {credential.last_error}
+          </p>
+        )}
+        <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            {credential.is_verified ? (
+               <Check className="w-3 h-3 text-green-500" />
+            ) : (
+               <Shield className="w-3 h-3 text-amber-500" />
+            )}
+            <span className={credential.is_verified ? "text-green-500 font-bold" : "text-amber-600 font-bold"}>{credential.is_verified ? 'Verified' : 'Needs verification'}</span>
+          </div>
+          {!credential.is_verified ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleVerifyCredential(credential.id);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-success-subtle text-success border border-border text-xs font-semibold hover:bg-success-subtle/80 transition-colors"
+            >
+              <Shield className="w-3 h-3" />
+              Verify
+            </button>
           ) : (
-             <Shield className="w-3 h-3" />
+            <span>{new Date(credential.updated_at).toLocaleDateString()}</span>
           )}
-          <span className={credential.is_verified ? "text-green-500 font-bold" : ""}>{credential.is_verified ? 'Verified' : 'Unverified'}</span>
         </div>
-        <span>{new Date(credential.updated_at).toLocaleDateString()}</span>
-      </div>
     </div>
   );
 
@@ -259,34 +296,36 @@ export default function Credentials() {
         }
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-8">
-            <button
-              onClick={() => setActiveTab('verified')}
-              className={cn(
-                "pb-3 text-sm font-semibold transition-colors relative flex items-center gap-2",
-                activeTab === 'verified' ? "text-primary" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Check className="w-4 h-4" />
-              Verified ({verifiedCredentials.length})
-              {activeTab === 'verified' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-            </button>
-            <button
-              onClick={() => setActiveTab('unverified')}
-              className={cn(
-                "pb-3 text-sm font-semibold transition-colors relative flex items-center gap-2",
-                activeTab === 'unverified' ? "text-primary" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Shield className="w-4 h-4" />
-              Unverified ({unverifiedCredentials.length})
-              {activeTab === 'unverified' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
-            </button>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-semibold">
+              <Check className="w-3.5 h-3.5" />
+              {verifiedCredentials.length} verified
+            </span>
+            {unverifiedCredentials.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 font-semibold">
+                <Shield className="w-3.5 h-3.5" />
+                {unverifiedCredentials.length} need verification
+              </span>
+            )}
+            <div className="ml-2 flex items-center gap-1 border border-border rounded-full p-0.5">
+              {(['all', 'verified', 'unverified'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-full text-xs font-semibold transition-colors",
+                    statusFilter === f ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {f === 'all' ? 'All' : f === 'verified' ? 'Verified' : 'Needs verification'}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex items-center justify-end">
             <div className="relative w-full md:w-[400px]">
-              <SearchInput 
+              <SearchInput
                 placeholder="Search credentials..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -295,7 +334,7 @@ export default function Credentials() {
           </div>
         </div>
       </PageHeader>
-      
+
       {error && (
         <div className="bg-destructive/10 text-destructive p-4 border-b border-destructive/20 flex items-center gap-2">
            <AlertCircle className="w-5 h-5" />
@@ -303,37 +342,49 @@ export default function Credentials() {
         </div>
       )}
 
-      {/* Credentials Grid */}
-      <div className="flex-1 overflow-auto p-4 md:p-8 space-y-12 animate-in fade-in duration-500">
-        {displayedCredentials.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 stagger-children">
-              {displayedCredentials.map(renderCredentialCard)}
+      {/* Credentials — one list grouped by provider. Verified and unverified
+          stay on the same page so a new key never looks lost before Verify. */}
+      <div className="flex-1 overflow-auto p-4 md:p-8 space-y-10 animate-in fade-in duration-500">
+        {unverifiedCredentials.length > 0 && statusFilter === 'all' && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+            {unverifiedCredentials.length} credential{unverifiedCredentials.length === 1 ? '' : 's'} {unverifiedCredentials.length === 1 ? 'needs' : 'need'} verification — only verified keys are used for AI calls. Press Verify on the card.
           </div>
         )}
+        {groupedCredentials.map(group => (
+          <section key={group.type}>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-3">{group.type} ({group.items.length})</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 stagger-children">
+              {group.items.map(renderCredentialCard)}
+            </div>
+          </section>
+        ))}
 
         {/* Empty State */}
-        {displayedCredentials.length === 0 && !loading && (
+        {visibleCredentials.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-20 entrance-overlay">
-            <div className={cn(
-              "w-20 h-20 rounded-full flex items-center justify-center mb-6",
-              activeTab === 'verified' ? "bg-emerald-500/10" : "bg-muted/30"
-            )}>
-                {activeTab === 'verified' ? (
-                  <Check className="w-10 h-10 text-emerald-500" />
-                ) : (
-                  <Shield className="w-10 h-10 text-muted-foreground/50" />
-                )}
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-muted/30">
+              {statusFilter === 'verified' ? (
+                <Check className="w-10 h-10 text-emerald-500" />
+              ) : (
+                <Shield className="w-10 h-10 text-muted-foreground/50" />
+              )}
             </div>
             <h3 className="text-xl font-semibold mb-2">
-              {activeTab === 'verified' ? "No verified credentials" : "No unverified credentials"}
+              {filteredCredentials.length === 0
+                ? "No credentials yet"
+                : statusFilter === 'verified' ? "No verified credentials" : "Everything is verified"}
             </h3>
             <p className="text-muted-foreground mb-6 max-w-sm text-center">
-              {activeTab === 'verified' 
-                ? "You haven't verified any credentials yet. Verify your credentials to ensure they work correctly." 
-                : "All your credentials are verified. Great job!"}
+              {filteredCredentials.length === 0
+                ? "Add your first provider key — then press Verify so it can be used for AI calls."
+                : statusFilter === 'verified'
+                  ? "You haven't verified any credentials yet. Press Verify on a card to ensure it works."
+                  : statusFilter === 'unverified'
+                    ? "All your credentials are verified. Great job!"
+                    : "No credentials match this search."}
             </p>
-            {activeTab === 'verified' && filteredCredentials.length === 0 && (
-              <button 
+            {filteredCredentials.length === 0 && (
+              <button
                 onClick={() => {
                     setEditingCredential(null);
                     setShowModal(true);

@@ -40,6 +40,7 @@ import {
   DEFAULT_EFFORT, EFFORT_LABELS, effortLevelsFor, nearestEffort,
 } from '../hooks/useEffortSelection';
 import { DEFAULT_PROVIDER, DEFAULT_MODEL } from '../hooks/useChatModelSelection';
+import { TTS_MODELS, ttsVoices } from '../lib/tts';
 import { allZones, localZone } from '../lib/cron';
 import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { toast } from 'sonner';
@@ -88,6 +89,9 @@ interface SettingsForm {
   llm_model: string;
   llm_effort: string;
   default_temperature: number;
+  tts_model: string;
+  tts_voice: string;
+  default_autonomy: string;
 }
 
 export default function Settings() {
@@ -137,6 +141,9 @@ export default function Settings() {
     llm_model: DEFAULT_MODEL,
     llm_effort: DEFAULT_EFFORT,
     default_temperature: 0.7,
+    tts_model: '',
+    tts_voice: '',
+    default_autonomy: 'ask',
   });
 
   // The model list is read from the catalogue rather than written out here.
@@ -175,6 +182,11 @@ export default function Settings() {
         llm_effort: u.llm_effort ?? DEFAULT_EFFORT,
         // `??` for the same reason: 0 is a real temperature.
         default_temperature: u.default_temperature ?? 0.7,
+        // Blank means the platform default voice (Kokoro + af_heart) —
+        // `||` is right here because '' and undefined both mean "default".
+        tts_model: u.tts_model || '',
+        tts_voice: u.tts_voice || '',
+        default_autonomy: u.default_autonomy || 'ask',
   });
   if (user !== seenUser) {
     setSeenUser(user);
@@ -634,6 +646,83 @@ export default function Settings() {
                     <span className="w-8 text-right text-sm tabular-nums">
                       {formData.default_temperature.toFixed(1)}
                     </span>
+                  </div>
+                </div>
+                {/* New chats start at this mode. `full` is per-chat only and
+                    is refused as a default by the backend. */}
+                <div className="flex items-center justify-between gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Default mode for new chats</p>
+                    <p className="text-sm text-muted-foreground">
+                      Ask approves side effects · Auto lets clear matches through · Plan looks, doesn’t touch
+                    </p>
+                  </div>
+                  <Select
+                    value={formData.default_autonomy}
+                    onChange={(val) => handleSelectChange('default_autonomy', val)}
+                    options={[
+                      { value: 'ask', label: 'Ask' },
+                      { value: 'auto', label: 'Auto' },
+                      { value: 'plan', label: 'Plan' },
+                    ]}
+                    className="w-[200px]"
+                  />
+                </div>
+                {/* Which voice speaks: the agent tool, /speak and the speaker
+                    button all resolve these same two fields. Blank = platform
+                    default (Kokoro + af_heart). */}
+                <div className="p-4 bg-muted/50 rounded-lg border border-primary/10 space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium">Default voice model</p>
+                      <p className="text-sm text-muted-foreground">Who speaks when you press play</p>
+                    </div>
+                    <Select
+                      value={formData.tts_model}
+                      onChange={(val) => {
+                        // A new model invalidates the voice (ids are
+                        // model-specific — Gemini's "Puck" means nothing to
+                        // Kokoro), so both move together.
+                        setFormData((prev) => ({ ...prev, tts_model: val, tts_voice: '' }));
+                      }}
+                      options={[
+                        { value: '', label: 'Platform default (Kokoro)' },
+                        ...TTS_MODELS.map((m) => ({ value: m.id, label: m.name })),
+                      ]}
+                      className="w-[250px]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium">Default voice</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formData.tts_model
+                          ? (ttsVoices(formData.tts_model).length
+                            ? 'A voice for this model'
+                            : 'Free-form voice id for this model (blank = model default)')
+                          : 'Blank = platform default (af_heart)'}
+                      </p>
+                    </div>
+                    {formData.tts_model && ttsVoices(formData.tts_model).length > 0 ? (
+                      <Select
+                        value={formData.tts_voice}
+                        onChange={(val) => handleSelectChange('tts_voice', val)}
+                        options={[
+                          { value: '', label: 'Model default' },
+                          ...ttsVoices(formData.tts_model).map((v) => ({ value: v, label: v })),
+                        ]}
+                        className="w-[250px]"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        name="tts_voice"
+                        value={formData.tts_voice}
+                        onChange={handleInputChange}
+                        placeholder={formData.tts_model ? 'Model default' : 'af_heart'}
+                        className="w-[250px] px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
+                      />
+                    )}
                   </div>
                 </div>
               </div>

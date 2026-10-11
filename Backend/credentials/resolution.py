@@ -158,7 +158,8 @@ def resolve_api_key_sync(
 
     raise CredentialUnavailable(
         f"No usable {provider} credential for this user. Add one under "
-        f"Credentials, or configure a platform key."
+        f"Credentials and Verify it — an unverified key is not used — "
+        f"or configure a platform key."
     )
 
 

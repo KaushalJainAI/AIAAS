@@ -158,7 +158,7 @@ function ShareForm({
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
         {preview.published && (
           <div className="rounded border border-border bg-secondary/40 p-3">
             <p className="text-[12px] text-muted-foreground mb-2">
@@ -166,8 +166,8 @@ function ShareForm({
               {preview.install_count === 1 ? 'install' : 'installs'}
               {!preview.is_listed && ' · currently withdrawn'}
             </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 truncate text-[12px] bg-background border border-border rounded px-2 py-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <code className="flex-1 min-w-0 truncate text-[12px] bg-background border border-border rounded px-2 py-1">
                 {shareUrl}
               </code>
               <button
@@ -177,7 +177,7 @@ function ShareForm({
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1500);
                 }}
-                className="p-1.5 rounded border border-border hover:bg-secondary"
+                className="p-2 rounded border border-border hover:bg-secondary min-w-[40px] min-h-[40px] inline-flex items-center justify-center shrink-0"
                 aria-label="Copy link"
               >
                 {copied ? (
@@ -307,8 +307,8 @@ function ShareForm({
             </p>
             <div className="space-y-2">
               {preview.requirements.map((req) => (
-                <div key={req.key} className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground w-28 shrink-0">
+                <div key={req.key} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
+                  <span className="text-[11px] text-muted-foreground w-auto sm:w-28 shrink-0">
                     {req.type.replace('_', ' ')}
                   </span>
                   <input
@@ -316,7 +316,7 @@ function ShareForm({
                     onChange={(e) =>
                       setLabels((prev) => ({ ...prev, [req.key]: e.target.value }))
                     }
-                    className="flex-1 px-2 py-1.5 bg-background border border-border rounded text-[13px]"
+                    className="flex-1 min-w-0 w-full px-2 py-1.5 bg-background border border-border rounded text-[13px]"
                   />
                 </div>
               ))}
@@ -325,24 +325,24 @@ function ShareForm({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 p-5 border-t border-border">
+      <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 p-4 sm:p-5 border-t border-border">
         {preview.published && preview.is_listed ? (
           <button
             type="button"
             onClick={() => withdraw.mutate()}
             disabled={withdraw.isPending}
-            className="text-[12px] text-destructive hover:underline disabled:opacity-50"
+            className="text-[12px] text-destructive hover:underline disabled:opacity-50 text-left sm:text-center py-1"
           >
             Withdraw from listing
           </button>
         ) : (
-          <span />
+          <span className="hidden sm:block" />
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex items-stretch sm:items-center gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary"
+            className="flex-1 sm:flex-none px-4 py-2 text-sm rounded border border-border hover:bg-secondary"
           >
             Cancel
           </button>
@@ -350,7 +350,7 @@ function ShareForm({
             type="button"
             disabled={publish.isPending || !tagline.trim()}
             onClick={() => publish.mutate()}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-2"
+            className="flex-1 sm:flex-none px-4 py-2 bg-primary text-primary-foreground rounded font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             {publish.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
             {preview.published ? 'Republish' : 'Publish'}
@@ -377,11 +377,11 @@ export default function ShareAgentDialog({
   });
 
   return (
-    <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-start justify-between gap-4 p-5 border-b border-border">
+    <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-lg max-h-[92dvh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-start justify-between gap-4 p-4 sm:p-5 border-b border-border">
           <div>
-            <h2 className="font-semibold text-lg">Share {agentName}</h2>
+            <h2 className="font-semibold text-base sm:text-lg">Share {agentName}</h2>
             <p className="text-[13px] text-muted-foreground mt-1 leading-relaxed">
               People install a copy into their own account and point it at their
               own connections. Nothing of yours travels with it — no credentials,

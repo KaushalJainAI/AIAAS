@@ -52,7 +52,7 @@ class ClassifyProviderError(TestCase):
     def test_rejected_key_is_an_access_error(self):
         exc = llm.classify_provider_error(401, "Invalid API key", "openai")
         self.assertIsInstance(exc, llm.LLMAccessDenied)
-        self.assertIn("Settings", str(exc))
+        self.assertIn("Credentials", str(exc))
 
     def test_plain_rate_limit_is_not_an_account_error(self):
         """429 without billing wording clears on its own — not the user's problem."""
@@ -102,7 +102,8 @@ class PreflightBeforeAnyWork(TestCase):
             )
 
         self.assertIn("credential", str(caught.exception).lower())
-        self.assertIn("Settings", str(caught.exception))
+        self.assertIn("Credentials", str(caught.exception))
+        self.assertIn("Verify", str(caught.exception))
         # The turn never announced itself…
         self.assertEqual(self.events, [])
         # …and nothing was written, so the message can simply be resent.

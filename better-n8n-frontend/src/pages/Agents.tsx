@@ -262,7 +262,7 @@ function AgentCard({
       <div className="flex border-t border-border">
         <Link
           to={`/agents/${agent.id}`}
-          className="flex-1 px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
+          className="flex-1 min-h-[44px] px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
         >
           <Sliders className="w-3 h-3" />
           Configure
@@ -277,7 +277,7 @@ function AgentCard({
             type="button"
             onClick={() => onRestore(agent.id)}
             disabled={restorePending}
-            className="flex-1 border-l border-border px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
+            className="flex-1 min-h-[44px] border-l border-border px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
           >
             <ArchiveRestore className="w-3 h-3" />
             Restore
@@ -286,7 +286,7 @@ function AgentCard({
           <button
             type="button"
             onClick={() => onRun(agent)}
-            className="flex-1 border-l border-border px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
+            className="flex-1 min-h-[44px] border-l border-border px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
           >
             <Play className="w-3 h-3" />
             Run
@@ -295,7 +295,7 @@ function AgentCard({
         <button
           type="button"
           onClick={() => onShare(agent)}
-          className="flex-1 border-l border-border px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
+          className="flex-1 min-h-[44px] border-l border-border px-3 py-2 text-[12px] text-muted-foreground hover:bg-secondary inline-flex items-center justify-center gap-1.5"
         >
           <Share2 className="w-3 h-3" />
           Share
@@ -419,7 +419,7 @@ export default function Agents() {
         title="Agents"
         subtitle={subtitle}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           {(archivedCount > 0 || showArchived) && (
             <Button variant="secondary" size="md"
               onClick={() => setShowArchived((v) => !v)}>

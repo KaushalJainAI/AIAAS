@@ -64,7 +64,7 @@ Design decisions worth knowing:
 1.  **Ingestion**:
     *   Files are uploaded via `/chat/sessions/<id>/upload/`.
     *   Text is extracted and an `inference.Document` is created.
-    *   A background thread (`inference.tasks.process_document`) runs the target KB's ingest backends: vector/hybrid chunk + embed into FAISS, fulltext chunks and builds the inverted index, raw stores the text alone (see "Retrieval Backends" above).
+    *   A job on the bounded indexing queue (`inference/indexing.py`, `INDEXING_CONCURRENCY` at a time, however many files arrive) runs `inference.tasks.process_document`, which runs the target KB's ingest backends: vector/hybrid chunk + embed into FAISS, fulltext chunks and builds the inverted index, raw stores the text alone (see "Retrieval Backends" above).
     *   The extraction engine (`inference/extraction.py`) shares this ingestion lifecycle: it reads the same `Document` rows (text or, for image/video, the file itself as an attachment) and one LLM call per document fills a schema.
 2.  **Retrieval**:
     *   On every message, `send_message_stream` performs a parallel search across all three tiers.

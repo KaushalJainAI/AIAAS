@@ -64,7 +64,7 @@ A good simulation asserts all three, not just that the API returned 200.
 | User Input | API | UI |
 |------------|-----|----|
 | Browses folders, creates/renames/deletes folder, drags to move | `GET /api/inference/folders/?parent=<id>` → `{folders, breadcrumbs, count, truncated}`, `POST {name, parent_id}`, `POST /api/inference/fs/move/ {folder_ids, document_ids, target_folder_id}` | `FolderTile`, `Breadcrumbs`, drag ghost `dropEffect copy`, Grid/List toggle, `FolderPickerModal` |
-| Uploads file, links to KB + folder | `POST /api/inference/documents/` multipart `file, kb_id?, folder_id?` → `201 {id, status: indexed}` background `process_document` | `Upload` modal with drag zone, optimistic card `id=-Date.now()`, progress, toast, folder count updates |
+| Uploads file, links to KB + folder | `POST /api/inference/documents/` multipart `file, kb_id?, folder_id?` → `201 {id, status: indexed}`; `413 {code: STORAGE_FULL}` when the account is full; indexing queued (`inference/indexing.py`) | `Upload` modal with drag zone, optimistic card `id=-Date.now()`, progress, toast, folder count updates |
 | Searches, toggles share, downloads, trash/restore | `POST /api/inference/rag/search/ {query, top_k}`, `POST documents/{id}/share/`, `GET documents/{id}/download/`, `DELETE documents/{id}/` (→ `deleted_at`), `GET /api/inference/trash/`, `POST /api/inference/trash/restore/` | Tabs `My Documents | Public Library | Extraction | Trash`, shared badge, `Move to Trash` confirms `purges_after_days`, `Restore` / `Empty Trash`, parent-still-trashed error |
 
 **UX invariants:**

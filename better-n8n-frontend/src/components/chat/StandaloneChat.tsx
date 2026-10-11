@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   RUN_STATUS_EVENT,
   abortChatRun,
@@ -81,6 +81,7 @@ import QuestionCard from './QuestionCard';
 import type { QuestionAnswer } from '../../lib/question';
 import { SendButton } from '../ui/SendButton';
 import { apiErrorMessage } from '../../lib/apiError';
+import { isNoCredentialError } from '../../lib/noCredential';
 import { appendTranscript } from '../../lib/voice';
 import { useVoiceInput, voiceInputSupported } from '../../hooks/useVoiceInput';
 import { VoiceInputButton } from './VoiceInputButton';
@@ -356,6 +357,9 @@ export default function StandaloneChat() {
 
   const [showSessionSettings, setShowSessionSettings] = useState(false);
   const [systemPromptDraft, setSystemPromptDraft] = useState('');
+  // Last no-credential failure, kept on screen (not just a toast) so the fix
+  // — add a key in Credentials, then Verify it — stays visible while acted on.
+  const [credentialError, setCredentialError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isReasoningExpanded, setIsReasoningExpanded] = useState(false);
   const [isLiveCodeExpanded, setIsLiveCodeExpanded] = useState(true);
@@ -1087,6 +1091,8 @@ export default function StandaloneChat() {
       }
 
       case 'done': {
+        // A successful turn clears a previous credential banner.
+        setCredentialError(null);
         // The `done` frame carries whole persisted messages. `StreamEvent`
         // fields are `unknown` by design, so the assertion happens once, here,
         // rather than at each of the six reads below.
@@ -1134,6 +1140,9 @@ export default function StandaloneChat() {
         // provider retired — and each is a sentence or two, not a word.
         if (!replayed && typeof event.message === 'string') {
           toast.error(event.message, { duration: 12000 });
+          // No-credential also pins a banner with the fix, since a toast alone
+          // vanishes before anyone reaches Credentials + Verify.
+          setCredentialError(isNoCredentialError(event.message) ? event.message : null);
         }
         setIsLoading(false);
         break;
@@ -1221,6 +1230,7 @@ export default function StandaloneChat() {
         // here rather than assumed.
         if (!replayed && frame.status === 'error' && typeof frame.error === 'string') {
           toast.error(frame.error);
+          if (isNoCredentialError(frame.error)) setCredentialError(frame.error);
         }
         return;
       }
@@ -1427,6 +1437,7 @@ export default function StandaloneChat() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setCredentialError(null);
 
     resetStream();
     resetPlan();
@@ -2326,6 +2337,39 @@ export default function StandaloneChat() {
                   </div>
                 );
               })()}
+
+              {/* No API key for this provider. Persistent like the blocked-file
+                  notice: the fix (add + verify in Credentials) needs to stay
+                  on screen while the user does it. */}
+              {credentialError && !isGuest && (
+                <div className="mb-2 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-warning-subtle
+                                px-3.5 py-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                      {credentialError}
+                    </p>
+                    <div className="mt-1.5 flex items-center gap-3">
+                      <Link
+                        to="/credentials"
+                        className="text-[11px] font-bold text-amber-700 dark:text-amber-300 hover:underline"
+                      >
+                        Add + Verify key →
+                      </Link>
+                      <span className="text-[11px] text-amber-600/70 dark:text-amber-400/70">
+                        Only verified keys are used.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setCredentialError(null)}
+                    aria-label="Dismiss"
+                    className="shrink-0 rounded p-0.5 text-amber-600/60 transition-colors hover:bg-amber-500/20 hover:text-amber-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
 
               {/* An upload the model could not read. Deliberately persistent
                   rather than a toast: the fix is to change model, and the user

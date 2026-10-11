@@ -23,6 +23,7 @@ import {
   Copy,
   Activity,
   FlaskConical,
+  Share2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import nodeService from '../api/nodeService';
@@ -44,6 +45,7 @@ import {
 } from '../types/agentConfig';
 import RevisionEntry from '../components/agents/RevisionEntry';
 import RunAgentDialog from '../components/agents/RunAgentDialog';
+import ShareAgentDialog from '../components/agents/ShareAgentDialog';
 import ConnectorToolPicker from '../components/agents/ConnectorToolPicker';
 import AgentScorecard from '../components/agents/AgentScorecard';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -577,6 +579,7 @@ export default function AgentBuilder() {
     setTab('basics');
   }
   const [running, setRunning] = useState(false);
+  const [sharing, setSharing] = useState(false);
   if (existing && loadedId !== existing.id) {
     setLoadedId(existing.id);
     setCfg({ ...DEFAULT_AGENT, ...existing });
@@ -772,15 +775,16 @@ export default function AgentBuilder() {
           </h1>
           <p className="text-[13px] text-muted-foreground truncate">{subtitle()}</p>
         </div>
-        <div className="ml-auto flex items-center gap-2 flex-wrap">
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {!isNew && (
             <button
               onClick={() => duplicate.mutate()}
               disabled={duplicate.isPending}
               title="Make a copy of the saved configuration, without its schedule"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              aria-label="Duplicate agent"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
               <Copy className="w-4 h-4" />
-              Duplicate
+              <span className="hidden sm:inline">Duplicate</span>
             </button>
           )}
           {!isNew && existing?.status !== 'archived' && (
@@ -788,44 +792,60 @@ export default function AgentBuilder() {
               onClick={() => archive.mutate()}
               disabled={archive.isPending}
               title="Hide it and stop it running automatically. Restorable."
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              aria-label="Archive agent"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
               <Archive className="w-4 h-4" />
-              Archive
+              <span className="hidden sm:inline">Archive</span>
             </button>
           )}
           {!isNew && (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-border text-destructive hover:bg-destructive-subtle">
+              title="Delete this agent"
+              aria-label="Delete agent"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border text-destructive hover:bg-destructive-subtle">
               <Trash2 className="w-4 h-4" />
-              Delete
+              <span className="hidden sm:inline">Delete</span>
             </button>
           )}
           {!isNew && agentId != null && (
             <Link to={`/runs?agent=${agentId}`}
               title="This agent's runs"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              aria-label="View runs"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
               <Activity className="w-4 h-4" />
-              Runs
+              <span className="hidden sm:inline">Runs</span>
             </Link>
           )}
           {!isNew && agentId != null && (
             <button onClick={() => setRunning(true)}
               title="Start a run of the saved configuration"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              aria-label="Run agent"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
               <Play className="w-4 h-4" />
-              Run
+              <span className="hidden sm:inline">Run</span>
+            </button>
+          )}
+          {!isNew && agentId != null && (
+            <button onClick={() => setSharing(true)}
+              title="Share to the platform — publish for others to install"
+              aria-label="Share agent to platform"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              <Share2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Share</span>
             </button>
           )}
           <button onClick={reset}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+            title="Discard unsaved changes"
+            aria-label="Reset changes"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
             <RotateCcw className="w-4 h-4" />
-            Reset
+            <span className="hidden sm:inline">Reset</span>
           </button>
           <button
             onClick={submit}
             disabled={save.isPending || isLoading}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-sm font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
             {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {isNew ? 'Create agent' : 'Save changes'}
           </button>
@@ -1472,6 +1492,13 @@ export default function AgentBuilder() {
           brief={existing?.brief ?? cfg.brief}
           dirty={dirty}
           onClose={() => setRunning(false)}
+        />
+      )}
+      {sharing && agentId != null && (
+        <ShareAgentDialog
+          agentId={agentId}
+          agentName={cfg.name || existing?.name || 'agent'}
+          onClose={() => setSharing(false)}
         />
       )}
     </div>

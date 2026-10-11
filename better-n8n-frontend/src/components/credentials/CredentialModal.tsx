@@ -205,7 +205,14 @@ export default function CredentialModal({
           name,
           data: updateData
         });
-        toast.success('Credential updated');
+        // An edit resets verification server-side — verify again at once so
+        // the card does not sit in "needs verification" looking broken.
+        try {
+          const check = await credentialsService.verify(result.id);
+          toast.success(check.valid ? 'Credential updated and verified' : `Saved, but verification failed: ${check.message}`);
+        } catch {
+          toast.success('Credential updated — press Verify to activate it');
+        }
       } else if (selectedType) {
         // Create
         result = await credentialsService.create({
@@ -213,7 +220,14 @@ export default function CredentialModal({
           credential_type: selectedType.id,
           data: formData
         });
-        toast.success('Credential created');
+        // A new key is unverified and therefore unusable — verify immediately
+        // so the user learns at once whether it works.
+        try {
+          const check = await credentialsService.verify(result.id);
+          toast.success(check.valid ? 'Credential created and verified' : `Saved, but verification failed: ${check.message}`);
+        } catch {
+          toast.success('Credential created — press Verify to activate it');
+        }
       } else {
         throw new Error('Invalid state');
       }

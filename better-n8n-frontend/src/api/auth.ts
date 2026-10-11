@@ -36,6 +36,11 @@ export interface User {
   llm_effort?: string;
   default_temperature?: number;
   default_max_tokens?: number;
+  /** Speech defaults; blank means the platform default (Kokoro + af_heart). */
+  tts_model?: string;
+  tts_voice?: string;
+  /** New chats start here: ask | auto | plan (`full` is per-chat only). */
+  default_autonomy?: string;
   theme_preference?: 'light' | 'dark' | 'system';
   accent_color?: string;
   createdAt: string;
@@ -63,6 +68,9 @@ interface BackendProfileResponse {
   llm_effort?: string;
   default_temperature?: number;
   default_max_tokens?: number;
+  tts_model?: string;
+  tts_voice?: string;
+  default_autonomy?: string;
   theme_preference?: User['theme_preference'];
   accent_color?: string;
   created_at: string;
@@ -114,6 +122,9 @@ function mapProfileResponse(data: BackendProfileResponse): User {
     llm_effort: data.llm_effort,
     default_temperature: data.default_temperature,
     default_max_tokens: data.default_max_tokens,
+    tts_model: data.tts_model,
+    tts_voice: data.tts_voice,
+    default_autonomy: data.default_autonomy,
     theme_preference: data.theme_preference,
     accent_color: data.accent_color,
     createdAt: data.created_at,

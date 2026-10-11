@@ -1423,6 +1423,11 @@ flowchart LR
 - The response goes back at once; the model call happens on the side.
 - *Cost:* a thread per job with no queue. That's fine for a rare event like
   a thumbs-up, but the wrong tool for anything frequent.
+- *Contrast, document indexing:* uploads used to start a thread each, so a
+  selection of 200 files meant 200 jobs at once. They now go through a queue
+  drained by a fixed number of workers (`inference/indexing.py`). The rule:
+  a thread per request is fine when requests are rare; when a user can fan out
+  one action into many jobs, bound the concurrency, not the arrivals.
 
 ---
 
