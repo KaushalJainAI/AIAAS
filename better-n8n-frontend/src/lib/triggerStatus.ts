@@ -24,3 +24,27 @@ export function statusTone(status: TriggerStatus): StatusTone {
   }
   return 'bad';
 }
+
+/**
+ * How the run a firing started actually ended.
+ *
+ * `last_outcome` is the sweep's word and stops at "fired" — true the moment
+ * the run starts and never again, so a run that finished eleven days ago still
+ * read "Started". When the run's own status is known, that is the answer.
+ */
+const RUN_STATUS_COPY: Record<string, { label: string; tone: string }> = {
+  completed: { label: 'Succeeded', tone: 'text-success' },
+  failed: { label: 'Failed', tone: 'text-destructive' },
+  timeout: { label: 'Timed out', tone: 'text-destructive' },
+  cancelled: { label: 'Cancelled', tone: 'text-muted-foreground' },
+  paused: { label: 'Waiting for you', tone: 'text-warning' },
+  running: { label: 'Running', tone: 'text-agent' },
+  pending: { label: 'Queued', tone: 'text-muted-foreground' },
+};
+
+export function lastRunCopy(
+  outcome: string, runStatus: string | null | undefined,
+): { label: string; tone: string } | null {
+  if (outcome !== 'fired' || !runStatus) return null;
+  return RUN_STATUS_COPY[runStatus] ?? null;
+}

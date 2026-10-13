@@ -180,12 +180,13 @@ function AgentCard({
             <h3 className="font-semibold text-foreground truncate">{agent.name}</h3>
             <span
               className={cn(
-                'inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border text-[11px] font-semibold',
+                'inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border text-[11px] font-semibold max-w-full',
                 autonomyStyle[agent.autonomy]
               )}
+              title={AUTONOMY_COPY[agent.autonomy].hint}
             >
-              <ShieldCheck className="w-3 h-3" />
-              {AUTONOMY_COPY[agent.autonomy].label}
+              <ShieldCheck className="w-3 h-3 shrink-0" />
+              <span className="truncate">{AUTONOMY_COPY[agent.autonomy].label}</span>
             </span>
             {/* Only the statuses that change behaviour: a
                 paused agent's schedules are not firing. */}
@@ -235,7 +236,9 @@ function AgentCard({
           <div className="flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
             <span className="flex items-center gap-1 min-w-0 truncate">
               <Clock className="w-3 h-3 shrink-0" />
-              {TRIGGER_COPY[agent.schedule ? 'maintenance' : 'goal'].label}
+              {/* Any schedule counts, not only the builder's own field: one made on
+                  the Schedules page left the card reading "On request". */}
+              {TRIGGER_COPY[agent.schedule || (agent.extraSchedules ?? 0) > 0 ? 'maintenance' : 'goal'].label}
             </span>
             <span className="tabular-nums shrink-0">
               {agent.runs ? `${agent.runs} ${agent.runs === 1 ? 'run' : 'runs'}` : 'Not run yet'}

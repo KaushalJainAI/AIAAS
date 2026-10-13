@@ -43,6 +43,7 @@ import remarkGfm from 'remark-gfm';
 import { chatService, type StandaloneChatMessage as ChatMessage, type ChatSession } from '../../api';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
+import { dismissNudges } from '../../lib/nudgeToasts';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { MediaPreview } from './MediaPreview';
 import HtmlArtifact from './HtmlArtifact';
@@ -143,6 +144,8 @@ export default function StandaloneChat() {
   const [droppedSteers, setDroppedSteers] = useState(0);
   // Fetching an existing transcript. Distinct from `isLoading` above.
   const [isRestoring, setIsRestoring] = useState(false);
+  /** Counts sends, so a transcript fetch can tell one happened under it. */
+  const sendSeqRef = useRef(0);
   // The answer that just finished streaming. It is already on screen, so it
   // mounts without the entrance animation every other message gets.
   const [settledId, setSettledId] = useState<number | string | null>(null);
@@ -412,10 +415,19 @@ export default function StandaloneChat() {
     if (cached?.messages) applySession(cached);
 
     setIsRestoring(true);
+    const sendsBefore = sendSeqRef.current;
     try {
       const session = await chatService.getSession(id);
       if (session && session.messages) {
-        applySession(session);
+        // A message sent while this was in flight is already on screen and
+        // its turn is streaming. Painting the fetched transcript over it made
+        // the message vanish, so keep what is shown and adopt only the
+        // session's own details.
+        if (sendSeqRef.current === sendsBefore) {
+          applySession(session);
+        } else {
+          setCurrentSession(session);
+        }
         queryClient.setQueryData(['chatSession', id], session);
       }
     } catch (e) {
@@ -904,6 +916,7 @@ export default function StandaloneChat() {
   ) => {
     if (!conversationId || !pendingToolCall) return;
 
+    dismissNudges();
     clearPendingToolCall();
     setIsLoading(true);
 
@@ -944,6 +957,7 @@ export default function StandaloneChat() {
    * closed leaves the turn dangling.
    */
   const handleDenyTool = async (callId: string) => {
+    dismissNudges();
     if (!conversationId || !pendingToolCall) return;
 
     clearPendingToolCall();
@@ -977,6 +991,7 @@ export default function StandaloneChat() {
    * question actually asked, so a stale card fails as an error, not a turn.
    */
   const handleAnswerQuestion = (answer: QuestionAnswer) => {
+    dismissNudges();
     const callId = pendingQuestion?.call_id;
     if (!conversationId || !callId) return;
     clearPendingQuestion();
@@ -995,6 +1010,7 @@ export default function StandaloneChat() {
 
   /** Skipping is a refusal of the question: the run proceeds on its assumption. */
   const handleSkipQuestion = () => {
+    dismissNudges();
     const callId = pendingQuestion?.call_id;
     if (!conversationId || !callId) return;
     clearPendingQuestion();
@@ -1434,6 +1450,7 @@ export default function StandaloneChat() {
       cost_source: '',
     };
 
+    sendSeqRef.current += 1;
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -1656,6 +1673,7 @@ export default function StandaloneChat() {
           historyOpen={showHistory}
           onOpenHistory={() => setShowHistory(true)}
           session={currentSession}
+          restoring={isRestoring && !currentSession}
           onShowSettings={() => setShowSessionSettings(true)}
           onEditSettings={() => {
             setSystemPromptDraft(currentSession?.system_prompt || '');

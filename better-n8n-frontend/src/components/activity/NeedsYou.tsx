@@ -10,6 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, ChevronRight, Clock, Hand, HelpCircle, ShieldQuestion, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { dismissNudges } from '../../lib/nudgeToasts';
 import { useHitlPending } from '../../hooks/useHitlPending';
 import {
   orchestratorService,
@@ -80,6 +81,7 @@ export default function NeedsYou() {
     mutationFn: ({ id, action, response }: { id: string; action: HITLResponse['action']; response?: HITLResponse['response'] }) =>
       orchestratorService.respondToHITL(id, { action, response }),
     onSuccess: () => {
+      dismissNudges();
       toast.success('Response sent');
       setSelectedId(null);
       queryClient.invalidateQueries({ queryKey: ['hitl'] });

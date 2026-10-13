@@ -562,7 +562,9 @@ class MissingCredentialTests(APITestCase):
         # make this actionable rather than just a failure.
         self.assertIn('OpenAI', error)
         self.assertIn('credential', error)
-        self.assertIn('Settings', error)
+        # Where to fix it: the message moved from Settings to Credentials
+        # with the guided no-credential error.
+        self.assertIn('Credentials', error)
 
     def test_no_execution_log_is_opened_for_a_run_that_cannot_start(self):
         """Refused before the log exists, so the stats stay honest.

@@ -233,7 +233,8 @@ class AgentRunStream:
         from chat.tools.describe import describe_call_async
 
         detail = await describe_call_async(
-            tool, args, label=_worker_label(self._log))
+            tool, args, label=_worker_label(self._log),
+            user_id=getattr(self._log, 'user_id', None))
         message = f"{detail['sentence']} It will not run until you approve it."
 
         from .hitl import open_request

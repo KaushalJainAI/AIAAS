@@ -374,7 +374,7 @@ export const AUTONOMY_COPY: Record<Autonomy, { label: string; hint: string }> = 
   plan: { label: 'Plan only', hint: 'Can look and report, never change anything. Nothing to approve.' },
   review: { label: 'Every step reviewed', hint: 'You approve each step. Slow, for high-stakes work.' },
   ask: { label: 'Asks before side effects', hint: 'Pauses before anything leaves your account.' },
-  auto: { label: 'Asks only about the permanent', hint: 'Runs file changes you can undo; still stops before anything you cannot.' },
+  auto: { label: 'Asks before permanent steps', hint: 'Runs file changes you can undo; still stops before anything you cannot.' },
   full: { label: 'Runs unattended', hint: 'No approval gate at all, including tools using your credentials.' },
 };
 

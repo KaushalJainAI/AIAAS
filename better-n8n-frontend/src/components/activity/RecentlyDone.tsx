@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { History } from 'lucide-react';
 import triggersService from '../../api/triggers';
 import { when } from './bits';
+import { lastRunCopy } from '../../lib/triggerStatus';
 import { cn } from '../../lib/utils';
 
 const OUTCOME_CLS: Record<string, string> = {
@@ -57,11 +58,16 @@ export default function RecentlyDone() {
             </p>
             <p className="text-[11px] text-muted-foreground">
               {t.last_fired_at ? when(t.last_fired_at) : '—'}
-              {t.last_outcome && (
-                <span className={cn('font-semibold', OUTCOME_CLS[t.last_outcome] ?? '')}>
-                  {` · ${t.last_outcome}`}
-                </span>
-              )}
+              {t.last_outcome && (() => {
+                // The run's own ending when it is known; the sweep's word
+                // ("fired") only says a run was started.
+                const run = lastRunCopy(t.last_outcome, t.last_run_status);
+                return (
+                  <span className={cn('font-semibold', run?.tone ?? OUTCOME_CLS[t.last_outcome] ?? '')}>
+                    {` · ${run?.label ?? t.last_outcome}`}
+                  </span>
+                );
+              })()}
               {t.last_error && (
                 <span className="truncate" title={t.last_error}>{` — ${t.last_error}`}</span>
               )}

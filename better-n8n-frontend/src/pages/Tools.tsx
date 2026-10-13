@@ -147,12 +147,13 @@ function matchesFilter(tool: ToolEntry, filter: FilterKey): boolean {
 
 function matchesQuery(tool: ToolEntry, q: string): boolean {
   if (!q) return true;
-  const needle = q.toLowerCase();
-  return (
-    tool.name.toLowerCase().includes(needle) ||
-    tool.displayName.toLowerCase().includes(needle) ||
-    tool.description.toLowerCase().includes(needle)
-  );
+  // Every word has to appear somewhere, in any order: "send email" finds
+  // `gmail_send_message` ("Gmail Send Message … send an email"), which a
+  // whole-phrase match never did. Names are matched with `_` read as a space.
+  const haystack = [tool.name, tool.name.replace(/_/g, ' '), tool.displayName, tool.description]
+    .join(' ')
+    .toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
 }
 
 // ---------------------------------------------------------------------------

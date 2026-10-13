@@ -60,7 +60,7 @@ import {
   type Trigger,
   type TriggerMode,
 } from '../api';
-import { statusTone } from '../lib/triggerStatus';
+import { lastRunCopy, statusTone } from '../lib/triggerStatus';
 // `api/index.ts` does not re-export the agents service; the agent picker is the
 // only thing on this page that needs it.
 import agentsService from '../api/agents';
@@ -243,7 +243,8 @@ function TriggerCard({ trigger, onEdit }: {
   const isWebhook = trigger.mode === 'webhook';
   const hookUrl = absoluteHookUrl(trigger.webhook_url, window.location.origin);
 
-  const lastCopy = trigger.last_outcome ? OUTCOME_COPY[trigger.last_outcome] : null;
+  const lastCopy = lastRunCopy(trigger.last_outcome, trigger.last_run_status)
+    ?? (trigger.last_outcome ? OUTCOME_COPY[trigger.last_outcome] : null);
 
   const copy = async (what: 'url' | 'curl') => {
     if (!hookUrl) return;

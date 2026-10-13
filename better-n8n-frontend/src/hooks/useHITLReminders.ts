@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { trackNudge } from '../lib/nudgeToasts';
 import { useSocket } from '../lib/websocket';
 import { usePublishHitlSocketLive } from './useHitlPending';
 import {
@@ -145,7 +146,11 @@ export function useHITLReminders(enabled: boolean = true) {
       const lastToast = toastedAtRef.current.get(tagKey) ?? 0;
       if (now - lastToast < DEDUPE_WINDOW_MS) return;
       toastedAtRef.current.set(tagKey, now);
+      // Keyed, so a re-sent nudge replaces its toast instead of stacking a
+      // second one, and answering the request can dismiss it.
+      trackNudge(tagKey);
       toast.info(title || 'Notification', {
+        id: tagKey,
         description: body || undefined,
         action: target
           ? { label: 'Open', onClick: () => navigate(target) }

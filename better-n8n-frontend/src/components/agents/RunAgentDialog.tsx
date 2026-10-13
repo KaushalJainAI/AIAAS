@@ -6,9 +6,11 @@
  * of its schedules. So "does my agent work?" could not be answered from the
  * screen where the agent is built.
  *
- * The goal is prefilled with the brief because that is what a schedule runs
- * with when it has no goal of its own, so a test run here is the same run a
- * schedule would start. A refusal (spend cap, missing key, paused) comes back
+ * The box starts empty: the brief is the agent's standing instructions, already
+ * in its system prompt, and prefilling it made the task box open on a wall of
+ * prompt the user had to delete first. Left empty, the run uses the brief as
+ * its goal — what a schedule with no goal of its own runs with — so a test run
+ * here can still be the same run a schedule would start. A refusal (spend cap, missing key, paused) comes back
  * before any run exists and is shown in place, rather than as a toast that
  * disappears before it is read.
  */
@@ -33,16 +35,18 @@ export default function RunAgentDialog({
   agentId, agentName, brief, dirty = false, onClose,
 }: RunAgentDialogProps) {
   const navigate = useNavigate();
-  const [goal, setGoal] = useState(brief);
+  const [goal, setGoal] = useState('');
+  // No task typed: run on the standing brief, as a goal-less schedule does.
+  const effectiveGoal = goal.trim() || brief.trim();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const start = async () => {
-    if (!goal.trim() || busy) return;
+    if (!effectiveGoal || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const started = await agentsService.execute(agentId, goal.trim());
+      const started = await agentsService.execute(agentId, effectiveGoal);
       toast.success(`${agentName} is running`);
       onClose();
       navigate(`/runs?run=${encodeURIComponent(started.execution_id)}`);
@@ -66,7 +70,9 @@ export default function RunAgentDialog({
           onChange={(e) => setGoal(e.target.value)}
           rows={4}
           autoFocus
-          placeholder="Describe the task for this run…"
+          placeholder={brief.trim()
+            ? 'Describe the task for this run, or leave empty to run its usual instructions…'
+            : 'Describe the task for this run…'}
           className="w-full px-3 py-2 rounded border border-input bg-background text-sm resize-none"
         />
         {dirty && (
@@ -81,7 +87,7 @@ export default function RunAgentDialog({
       <ModalFooter>
         <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
         <Button variant="primary" size="sm" loading={busy}
-          disabled={!goal.trim()} onClick={start}>
+          disabled={!effectiveGoal} onClick={start}>
           {!busy && <><Play className="w-3.5 h-3.5 mr-1" />Run</>}
         </Button>
       </ModalFooter>

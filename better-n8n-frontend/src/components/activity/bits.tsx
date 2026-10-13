@@ -54,9 +54,33 @@ export function elapsed(s: number | null | undefined) {
 export function when(iso: string | null) {
   if (!iso) return '—';
   const d = new Date(iso);
-  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  const aheadMs = d.getTime() - Date.now();
+  // A time still to come (a schedule's next slot, a mission's wake). Every
+  // future time used to fall into "just now", because its age is negative.
+  // Only from a full minute ahead: a timestamp the server wrote a moment ago
+  // can be a second ahead of this browser's clock, and a run that just
+  // started must not read "in 1m".
+  if (aheadMs >= 60_000) {
+    const ahead = Math.round(aheadMs / 60_000);
+    if (ahead < 60) return `in ${ahead}m`;
+    if (ahead < 1440) return `in ${Math.round(ahead / 60)}h`;
+    return `in ${Math.round(ahead / 1440)}d`;
+  }
+  const mins = Math.floor(-aheadMs / 60_000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
   if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * `when` for a time that is expected to be ahead (a next slot, a wake).
+ * Under a minute ahead reads "in <1m" here, where `when` says "just now"
+ * because for a past event that gap is clock skew.
+ */
+export function until(iso: string | null) {
+  if (!iso) return '—';
+  const aheadMs = new Date(iso).getTime() - Date.now();
+  if (aheadMs > 0 && aheadMs < 60_000) return 'in <1m';
+  return when(iso);
 }

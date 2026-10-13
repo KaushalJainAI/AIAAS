@@ -333,8 +333,71 @@ async def _describe_worker_request(args: Mapping[str, Any]) -> dict[str, Any] | 
     }
 
 
+#: Calls that hand work to one of the user's agents.
+_DELEGATION_TOOLS = frozenset({'run_agent', 'invoke_subagent'})
+
+#: Argument names carrying what the worker is asked to do.
+_BRIEF_KEYS = ('goal', 'task', 'tasks', 'briefing')
+
+
+def _opening(value: Any) -> str:
+    """The start of a delegated instruction, with its size when it is cut.
+
+    Everywhere else a long value is a shape ("1,180 words"), because quoting it
+    pushes the recipient off the screen. A delegation has no recipient: the
+    instruction *is* what is being approved, and "Goal: 69 words" asked for
+    consent to a number.
+    """
+    if isinstance(value, (list, tuple)):
+        value = ' · '.join(str(v) for v in value)
+    text = ' '.join(str(value or '').split())
+    if len(text) <= MAX_VALUE_CHARS:
+        return text or '—'
+    return f'{text[:MAX_VALUE_CHARS - 1]}… ({len(_WORD_RE.findall(text))} words)'
+
+
+async def _describe_delegation(
+    name: str, args: Mapping[str, Any], user_id: int | None,
+) -> dict[str, Any]:
+    """A delegation card that names the agent and shows what it is asked.
+
+    The agent is looked up **within the caller's own agents** — an id the model
+    made up, or one belonging to someone else, stays a bare number rather than
+    putting another account's agent name on this user's screen.
+    """
+    described = describe_call(name, args)
+    agent_name = ''
+    raw_id = args.get('agent_id')
+    if user_id and raw_id not in (None, ''):
+        try:
+            from agents.models import SubAgent
+
+            agent_name = await (SubAgent.objects
+                                .filter(user_id=user_id, pk=int(raw_id))
+                                .values_list('name', flat=True).afirst()) or ''
+        except Exception:  # noqa: BLE001 — the card still works without a name
+            agent_name = ''
+
+    fields: list[dict[str, str]] = []
+    if agent_name:
+        fields.append({'label': 'Agent', 'value': _describe_value(agent_name)})
+        described['title'] = f'Hand this work to {_describe_value(agent_name)}'
+        described['sentence'] = f'Hand this work to {_describe_value(agent_name)}.'
+    elif raw_id not in (None, ''):
+        fields.append({'label': 'Agent id', 'value': _describe_value(raw_id)})
+    for key in _BRIEF_KEYS:
+        value = args.get(key)
+        if value:
+            fields.append({'label': _humanise(key), 'value': _opening(value)})
+    shown = {'agent_id', *_BRIEF_KEYS}
+    rest = {k: v for k, v in args.items() if k not in shown}
+    described['fields'] = (fields + _fields(rest))[:MAX_FIELDS]
+    return described
+
+
 async def describe_call_async(
     name: str, args: Mapping[str, Any] | None = None, *, label: str = '',
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """
     `describe_call`, plus the connection's display name.
@@ -348,6 +411,12 @@ async def describe_call_async(
         described = await _describe_worker_request(args or {})
         if described is not None:
             return described
+
+    if name in _DELEGATION_TOOLS and not label and isinstance(args, Mapping):
+        try:
+            return await _describe_delegation(name, args, user_id)
+        except Exception:  # noqa: BLE001 — fall back to the generic card
+            logger.warning('[Describe] Could not describe the delegation %s', name)
 
     server = ''
     try:

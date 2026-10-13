@@ -31,7 +31,18 @@ function sub(item: FileActivityItem): string {
 }
 
 export default function FileActivity() {
-  const { items, truncated } = useActivityFiles();
+  const { items: events, truncated } = useActivityFiles();
+
+  // One row per file, its newest event. Opening a file and saving it are two
+  // events, and listed separately the same document sat in the list twice.
+  const seen = new Set<string>();
+  const items = events.filter((item) => {
+    if (item.document_id == null) return true;
+    const key = String(item.document_id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   if (items.length === 0) return null;
 

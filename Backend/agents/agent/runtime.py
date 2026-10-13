@@ -1405,6 +1405,15 @@ def build_system_prompt(agent, gathered: dict[str, Any], file_scope: Any = None,
     # almost none are writable, and a model that learns that from a failed write
     # has already planned around the wrong shape.
     if file_scope is not None:
+        if file_scope.writable:
+            # A file is the user's document, not a message to them: a Writer
+            # run once saved "upload this to Google Drive" inside the .docx.
+            parts.append(
+                "- A file you save opens in this platform's own Docs, Sheets "
+                'and Slides apps as it is. Put only the requested content in '
+                'it: notes to the user, next steps, caveats about what you '
+                'could not do and instructions to upload or convert it belong '
+                'in your answer, never inside the file.')
         if not file_scope.writable:
             parts.append('- Your file access is read-only. You can read files, '
                          'but not create, change or delete them.')

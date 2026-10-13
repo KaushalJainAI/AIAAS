@@ -106,6 +106,8 @@ export interface Trigger {
   status_message: string;
   /** The run the last firing started, as the id `/runs?run=` links by. */
   last_run_id: string | null;
+  /** How that run ended (`running`, `completed`, `failed`, …). */
+  last_run_status?: string | null;
   /** Only ever populated for webhook triggers, and only for the owner. */
   webhook_url: string | null;
   created_at: string;

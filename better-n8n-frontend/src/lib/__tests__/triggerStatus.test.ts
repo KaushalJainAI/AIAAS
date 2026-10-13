@@ -1,5 +1,5 @@
 import { describe as group, expect, it } from 'vitest';
-import { statusTone } from '../triggerStatus';
+import { lastRunCopy, statusTone } from '../triggerStatus';
 import type { TriggerStatus } from '../../api/triggers';
 
 group('statusTone', () => {
@@ -25,5 +25,19 @@ group('statusTone', () => {
     for (const status of bad) {
       expect(statusTone(status)).toBe('bad');
     }
+  });
+});
+
+group('lastRunCopy', () => {
+  it('reports how a fired run ended, not that it started', () => {
+    expect(lastRunCopy('fired', 'completed')?.label).toBe('Succeeded');
+    expect(lastRunCopy('fired', 'failed')?.label).toBe('Failed');
+    expect(lastRunCopy('fired', 'running')?.label).toBe('Running');
+  });
+
+  it('leaves every other outcome, and an unknown run, to the sweep wording', () => {
+    expect(lastRunCopy('late', 'completed')).toBeNull();
+    expect(lastRunCopy('fired', null)).toBeNull();
+    expect(lastRunCopy('fired', 'something-new')).toBeNull();
   });
 });

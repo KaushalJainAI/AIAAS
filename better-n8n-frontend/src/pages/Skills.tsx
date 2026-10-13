@@ -24,6 +24,9 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { IconButton } from '../components/ui/IconButton';
 import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 
+/** One page holds a whole library; at 20 the tab said "(24)" over 20 cards. */
+const SKILLS_PAGE_SIZE = 100;
+
 export default function Skills() {
     const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = usePersistedState('skills.search', '', { storage: 'session' });
@@ -32,13 +35,27 @@ export default function Skills() {
     // Skills Data from React Query
     const { data: skillsData, isLoading } = useQuery({
         queryKey: ['skills', activeTab, searchQuery],
-        queryFn: () => skillsService.search(searchQuery, activeTab),
+        queryFn: () => skillsService.search(searchQuery, activeTab, SKILLS_PAGE_SIZE),
         staleTime: 5 * 60 * 1000,
     });
     
+    // The other tab's count, as a one-row request. Each label used to show a
+    // count only while its tab was open, so the closed one always read "(0)".
+    const otherTab: SkillTab = activeTab === 'mine' ? 'public' : 'mine';
+    const { data: otherData } = useQuery({
+        queryKey: ['skills', otherTab, 'count'],
+        // Browse mode (no query): a count must not cost an embedding search.
+        queryFn: () => skillsService.search('', otherTab, 1),
+        staleTime: 5 * 60 * 1000,
+    });
+
     const currentSkills = skillsData?.results || [];
-    const totalMy = activeTab === 'mine' ? (skillsData?.total || 0) : 0;
-    const totalPublic = activeTab === 'public' ? (skillsData?.total || 0) : 0;
+    const activeTotal = skillsData?.total ?? 0;
+    const otherTotal = otherData?.total;
+    const countLabel = (tab: SkillTab) => {
+        const n = tab === activeTab ? activeTotal : otherTotal;
+        return n === undefined ? '' : ` (${n})`;
+    };
 
     // Editor State
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
@@ -167,7 +184,7 @@ export default function Skills() {
                                 activeTab === 'mine' ? "text-primary" : "text-muted-foreground hover:text-foreground"
                         )}
                     >
-                        My Skills ({totalMy})
+                        My Skills{countLabel('mine')}
                         {activeTab === 'mine' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
                     </button>
                     <button
@@ -179,7 +196,7 @@ export default function Skills() {
                             activeTab === 'public' ? "text-primary" : "text-muted-foreground hover:text-foreground"
                         )}
                     >
-                        Public Library ({totalPublic})
+                        Public Library{countLabel('public')}
                         {activeTab === 'public' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
                     </button>
                 </div>

@@ -21,6 +21,8 @@ interface ChatHeaderProps {
   historyOpen: boolean;
   onOpenHistory: () => void;
   session: ChatSession | null;
+  /** The last conversation is still being fetched, so this is not a new one. */
+  restoring?: boolean;
   /** The "Memory off" chip: opens the settings dialog as it is. */
   onShowSettings: () => void;
   /** The gear button: resets the prompt draft to the saved one, then opens the dialog. */
@@ -32,13 +34,17 @@ export default function ChatHeader({
   historyOpen,
   onOpenHistory,
   session,
+  restoring = false,
   onShowSettings,
   onEditSettings,
 }: ChatHeaderProps) {
   // A saved conversation shows its title; a new one says so plainly. The
   // "Assistant online" pill this replaces was always green — it checked
   // nothing, so it said nothing.
-  const title = session?.title?.trim() || 'New conversation';
+  // While the last conversation is still being fetched this is not a new
+  // one, and saying so invited a message that then landed in the old thread.
+  const title = session?.title?.trim()
+    || (restoring ? 'Opening your last conversation…' : 'New conversation');
 
   return (
     <header className={cn(

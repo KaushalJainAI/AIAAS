@@ -66,6 +66,7 @@ const PublishedPageView = lazyPage(() => import('./pages/PublishedPageView'));
 const Pages = lazyPage(() => import('./pages/Pages'));
 const Templates = lazyPage(() => import('./pages/Templates'));
 const Tools = lazyPage(() => import('./pages/Tools'));
+const NotFound = lazyPage(() => import('./pages/NotFound'));
 
 // Protected route wrapper
 function ProtectedRoute({ children }: { children?: React.ReactNode }) {
@@ -262,12 +263,22 @@ const AppContent = () => {
               <Route path="/extract/*" element={<Navigate to="/documents" replace />} />
               {/* Runs replaced the old dead-end redirect. */}
               <Route path="/executions" element={<Navigate to="/runs" replace />} />
+              {/* Studio is the sidebar's name for Imagine; the obvious guess
+                  at its address should land on it. */}
+              <Route path="/studio" element={<Navigate to="/imagine" replace />} />
+              <Route path="/explore" element={<Navigate to="/templates" replace />} />
+              {/* Anything else, signed in: say so inside the shell, where the
+                  sidebar is the way back. */}
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Route>
         </Routes>
         </Suspense>
       </Router>
-      <Toaster richColors position="bottom-left" theme={resolvedTheme} duration={1500} />
+      {/* Bottom-right: bottom-left sat on top of the sidebar's lower links and
+          swallowed their clicks. Three at most, each closable. */}
+      <Toaster richColors closeButton visibleToasts={3} position="bottom-right"
+        theme={resolvedTheme} duration={1500} />
     </>
   );
 };

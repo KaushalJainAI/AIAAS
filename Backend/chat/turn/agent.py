@@ -1523,7 +1523,8 @@ async def _require_approval(call: ToolCall, turn: TurnContext, meta: dict) -> No
     # `JSON.stringify(args, null, 2)`.
     from chat.tools.describe import describe_call_async
 
-    detail = await describe_call_async(call.name, call.arguments)
+    detail = await describe_call_async(
+        call.name, call.arguments, user_id=turn.user_id)
     # An agent run queues the pause as a `HITLRequest` instead (see
     # `agents/agent/hitl.py`), and the reminder ladder hanging off that row is
     # what notifies — honouring the agent's `notifyOnHitl`, the user's device

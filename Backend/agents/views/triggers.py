@@ -156,6 +156,9 @@ class TriggerSerializer(serializers.ModelSerializer):
     #: The run the last firing started, as the id the Runs page links by
     #: (`/runs?run=<uuid>`). Null when nothing has fired yet.
     last_run_id = serializers.SerializerMethodField()
+    #: How that run ended. `last_outcome` is the sweep's verdict and stops at
+    #: 'fired'; without this a run that finished days ago still read "Started".
+    last_run_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Trigger
@@ -166,7 +169,7 @@ class TriggerSerializer(serializers.ModelSerializer):
             'enabled', 'overlap', 'origin', 'starts_at', 'ends_at',
             'last_fired_at', 'next_due_at', 'queued_for', 'consecutive_failures',
             'last_outcome', 'last_error', 'description', 'upcoming',
-            'status', 'status_message', 'last_run_id',
+            'status', 'status_message', 'last_run_id', 'last_run_status',
             'webhook_url', 'created_at', 'updated_at',
         )
         read_only_fields = (
@@ -198,6 +201,10 @@ class TriggerSerializer(serializers.ModelSerializer):
     def get_last_run_id(self, obj) -> str | None:
         log = obj.last_execution
         return str(log.execution_id) if log is not None else None
+
+    def get_last_run_status(self, obj) -> str | None:
+        log = obj.last_execution
+        return log.status if log is not None else None
 
     def get_webhook_url(self, obj) -> str | None:
         """The secret is only ever shown through this field, to the owner."""

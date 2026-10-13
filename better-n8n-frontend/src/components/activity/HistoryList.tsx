@@ -9,7 +9,7 @@
  * spend totals don't drop. Destructive actions use the in-app ConfirmDialog,
  * never `window.confirm`.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -125,6 +125,32 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
   const linkedRunHidden = !!openId && !isLoading
     && !runs.some((r) => r.execution_id === openId);
 
+  // Arriving on a link to one run (`?run=`, from the Run button or a
+  // schedule): bring it into view. This list is the last section of a long
+  // page, so the link used to open on the overview with the run below the fold.
+  const openRef = useRef<HTMLDivElement | null>(null);
+  const scrolledFor = useRef<string | null>(null);
+  const [linkedOnArrival] = useState(openId);
+  useEffect(() => {
+    if (!linkedOnArrival || isLoading || scrolledFor.current === linkedOnArrival) return;
+    if (!openRef.current) return;
+    scrolledFor.current = linkedOnArrival;
+    openRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [linkedOnArrival, isLoading, linkedRunHidden]);
+
+  // Whether the list is narrowed by anything, so an empty list can say
+  // "nothing matches" instead of "no activity yet" beside an open run.
+  const narrowed = effectiveFilter !== 'all' || showEval || !!agentFilter || !!urlFailure;
+  const clearNarrowing = () => {
+    setFilter('all');
+    setShowEval(false);
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const key of ['agent', 'status', 'failure_category']) next.delete(key);
+      return next;
+    }, { replace: true });
+  };
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['runs'] });
     queryClient.invalidateQueries({ queryKey: ['run'] });
@@ -208,7 +234,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
             onChange={(e) => setShowEval(e.target.checked)}
             className="accent-current"
           />
-          Show evaluation runs
+          Evaluation runs only
         </label>
         {agentFilter && (
           <button
@@ -285,7 +311,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
       </div>
 
       {linkedRunHidden && (
-        <div className="mb-4 border border-primary/40 rounded bg-card">
+        <div ref={openRef} className="mb-4 border border-primary/40 rounded bg-card scroll-mt-4">
           <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
             <span className="font-medium text-sm flex-1 truncate">
               {detail?.workflow_name ?? 'Linked run'}
@@ -324,6 +350,22 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
         <div className="flex items-center justify-center py-20 text-muted-foreground">
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
+      ) : runs.length === 0 && narrowed ? (
+        <div className="text-center py-12">
+          <h3 className="text-base font-semibold mb-1">No runs match these filters</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-3">
+            {showEval
+              ? 'Only evaluation runs are being shown, and there are none.'
+              : 'Your other runs are hidden by the filter above.'}
+          </p>
+          <button
+            type="button"
+            onClick={clearNarrowing}
+            className="px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary"
+          >
+            Show all runs
+          </button>
+        </div>
       ) : runs.length === 0 ? (
         <div className="text-center py-20">
           <h3 className="text-lg font-semibold mb-1">
@@ -340,7 +382,8 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
           {runs.map((run) => {
             const open = openId === run.execution_id;
             return (
-              <div key={run.execution_id} className="border-b border-border last:border-b-0">
+              <div key={run.execution_id} ref={open ? openRef : undefined}
+                className="border-b border-border last:border-b-0 scroll-mt-4">
                 <button
                   onClick={() => setOpenId(open ? null : run.execution_id)}
                   className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-secondary transition-colors"

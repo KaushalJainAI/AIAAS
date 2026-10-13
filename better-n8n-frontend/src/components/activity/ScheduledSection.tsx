@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import triggersService, { type Trigger } from '../../api/triggers';
 import missionsService from '../../api/missions';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { when } from './bits';
+import { until } from './bits';
 
 function UpcomingRow({ trigger }: { trigger: Trigger }) {
   const queryClient = useQueryClient();
@@ -47,7 +47,7 @@ function UpcomingRow({ trigger }: { trigger: Trigger }) {
         <p className="text-[11px] text-muted-foreground truncate">
           {trigger.agent_name}
           {trigger.description && ` · ${trigger.description}`}
-          {trigger.next_due_at && ` · next ${when(trigger.next_due_at)}`}
+          {trigger.next_due_at && ` · next ${until(trigger.next_due_at)}`}
           {trigger.queued_for && ' · one firing queued'}
         </p>
         {trigger.status !== 'ok' && trigger.status_message && (
@@ -135,7 +135,7 @@ export default function ScheduledSection() {
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium truncate" title={m.goal}>{m.goal}</p>
             <p className="text-[11px] text-muted-foreground">
-              Mission · wakes {m.next_wake_at ? when(m.next_wake_at) : 'soon'}
+              Mission · wakes {m.next_wake_at ? until(m.next_wake_at) : 'soon'}
             </p>
           </div>
         </div>

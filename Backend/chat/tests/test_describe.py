@@ -183,3 +183,43 @@ class WorkerLabelTests(SimpleTestCase):
         self.assertNotIn('#', plain['title'])
         self.assertEqual(labelled['fields'], plain['fields'])
         self.assertIn(plain['tool'], labelled['tool'])
+
+
+class DelegationCardTests(TestCase):
+    """Handing work to an agent names the agent and shows the instruction.
+
+    The card used to read "Agent id: 21 / Goal: 69 words" — consent to a
+    number and a count.
+    """
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        from agents.models import SubAgent
+
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username='boss', email='boss@example.com', password='x')
+        self.other = User.objects.create_user(
+            username='stranger', email='stranger@example.com', password='x')
+        self.agent = SubAgent.objects.create(user=self.user, name='Writer')
+        self.foreign = SubAgent.objects.create(user=self.other, name='Secret plan')
+
+    def _describe(self, args, user):
+        return async_to_sync(describe_call_async)('run_agent', args, user_id=user.id)
+
+    def test_the_agent_is_named_and_the_goal_is_shown(self):
+        goal = 'Write a one page note on retrieval. ' * 20
+        detail = self._describe({'agent_id': self.agent.id, 'goal': goal}, self.user)
+
+        self.assertIn('Writer', detail['sentence'])
+        self.assertEqual(detail['fields'][0], {'label': 'Agent', 'value': 'Writer'})
+        shown = detail['fields'][1]['value']
+        self.assertTrue(shown.startswith('Write a one page note'))
+        self.assertIn('words)', shown)
+
+    def test_someone_elses_agent_is_never_named(self):
+        detail = self._describe({'agent_id': self.foreign.id, 'goal': 'x'}, self.user)
+
+        self.assertNotIn('Secret plan', str(detail))
+        self.assertEqual(detail['fields'][0]['label'], 'Agent id')
