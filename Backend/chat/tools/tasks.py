@@ -423,6 +423,10 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
                 task_claims=tuple(claims), task_id=task_id, worker_label=label,
                 write_paths=effective_paths, command_scope=narrowed_commands,
                 parent_autonomy=str(context.get('autonomy') or ''),
+                # The chat's org, so a worker reads and feeds the same solution
+                # library the conversation does (`runtime._remember_org`).
+                org_id=context.get('org_id'),
+                share_solutions=bool(context.get('share_solutions')),
             )
             answer = await _bound_answer(run.answer or '', context, handle)
             _tasks.finish(record, status='paused' if run.awaiting_approval else 'done',

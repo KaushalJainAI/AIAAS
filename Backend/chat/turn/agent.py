@@ -377,7 +377,9 @@ class TurnContext:
     caller: str = 'chat'
 
     #: The organisation this conversation belongs to (`ChatSession.org`), or
-    #: None for a personal chat and for agent runs. It scopes the solution
+    #: None for a personal chat. An agent run carries the org of the chat that
+    #: started it (`runtime._remember_org`), re-checked against live
+    #: membership; schedules, triggers and missions have none. It scopes the solution
     #: tools — search reads this org's shared solutions plus the user's own
     #: private ones from it, and a save lands in it and nowhere else.
     org_id: int | None = None
@@ -910,8 +912,11 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     # cannot shape how it spends the rounds before that. Same trailing shape as
     # the plan above and for the same reason; skipped on the last pass, where
     # the continuation nudge already says to answer.
-    if not at_limit and (budget := pace.render(tier, iteration, limit)):
-        history.append({"role": "system", "content": budget})
+    if not at_limit:
+        budget = (pace.render(tier, iteration, limit) if tier
+                  else pace.render_run(iteration, limit))
+        if budget:
+            history.append({"role": "system", "content": budget})
 
     # Withholding tools on the last permitted iteration is what forces an answer
     # instead of a loop that runs out of budget mid-tool-call.

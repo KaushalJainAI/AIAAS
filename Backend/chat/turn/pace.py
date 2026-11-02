@@ -35,8 +35,9 @@ turn promoted before an approval pause is still `deep` when it resumes.
 every pass; the system prompt is the session's cached prefix (the clock trap,
 `prompts.py`).
 
-A caller that sets no pace (no `metadata['pace']`: agent runs, evals) gets
-none of this — its cap is `max_iterations` and nothing is rendered.
+A caller that sets no pace (no `metadata['pace']`: agent runs, evals) keeps
+`max_iterations` as its cap and gets no tiers or promotion, but is still told
+its budget every pass (`render_run`) — the longest runs need it most.
 """
 from __future__ import annotations
 
@@ -197,6 +198,43 @@ def render(tier: str, iteration: int, limit: int) -> str:
         " This is your last tool round: after it you must answer with what "
         "you have and say what is missing."
     )
+
+
+def render_run(iteration: int, limit: int) -> str:
+    """The budget line for a caller with no pace (agent runs, evals).
+
+    Pace is a chat idea — a person waiting on an answer — but the budget is
+    not: an agent run may take forty model calls, and before this it learned
+    where it stood only when tools were withheld on the last one. That is the
+    run that most needs to spend its rounds deliberately, so it is told the
+    count every pass, in the same trailing shape as `render` and for the same
+    reason (it changes every pass; the system prompt is the cached prefix).
+
+    Nothing for a tiny budget: a three-call run has no rounds to plan across,
+    and the line would only cost tokens. Not called on the last pass, where
+    `CONTINUE_AT_LIMIT` already says to answer.
+    """
+    if limit < RUN_BUDGET_MIN_LIMIT:
+        return ""
+    left = max(0, limit - 1 - iteration)
+    rounds = "1 tool round" if left == 1 else f"{left} tool rounds"
+    line = (f"BUDGET: model call {iteration + 1} of {limit}; {rounds} left "
+            "before you must answer. Batch independent calls together.")
+    if left <= 1:
+        return line + (" This is your last tool round. Finish what you can, "
+                       "mark what is left as blocked in the plan, then answer.")
+    if left <= max(2, limit // 4):
+        return line + (" You are near the end: stop starting new work, finish "
+                       "the items in progress, and mark the rest blocked with "
+                       "a reason rather than leaving them open.")
+    if iteration == 0:
+        return line + (" If the job has several steps, write the plan with "
+                       "`update_todos` first so the rounds go to it.")
+    return line
+
+
+#: Below this many model calls a run gets no budget line (see `render_run`).
+RUN_BUDGET_MIN_LIMIT = 6
 
 
 def summary(metadata: Mapping[str, Any] | None) -> str:
