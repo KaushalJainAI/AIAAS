@@ -14,7 +14,8 @@ from django.test import TestCase
 from rest_framework.test import APITestCase
 
 from core import orgs
-from solutions.access import get_visible, visible
+from solutions import api
+from solutions.access import can_manage, get_visible, visible
 
 from .helpers import SolutionsTestMixin
 
@@ -80,6 +81,71 @@ class OrgBoundaryTests(SolutionsTestMixin, TestCase):
         from solutions.models import Solution
 
         self.assertFalse(Solution.objects.filter(id=self.shared.id).exists())
+
+
+class AdversarialBoundaryTests(SolutionsTestMixin, TestCase):
+    """Edges found by probing the boundary rather than walking its happy path:
+    the shared vector cache, roles inside one org, and corrections."""
+
+    def setUp(self):
+        super().setUp()
+        self.alice = self.make_user('alice')   # owner, org A
+        self.bob = self.make_user('bob')       # member, org A
+        self.carol = self.make_user('carol')   # owner, org B
+        self.org_a = self.make_org(self.alice, 'A', self.bob)
+        self.org_b = self.make_org(self.carol, 'B')
+
+    def test_a_colleagues_private_row_is_not_found_by_meaning(self):
+        """The org's vector matrix holds every member's rows; only the live
+        visible set may pick from it."""
+        private = self.save(self.bob, self.org_a.id, share=False,
+                            problem='Kafka consumer lag spikes after a rebalance storm')
+        found = self.find(self.alice.id, self.org_a.id, 'kafka consumer lag rebalance')
+        self.assertNotIn(private.id, [r['id'] for r in found['results']])
+
+    def test_a_warm_cache_for_one_org_never_answers_for_another(self):
+        orgs.add_member(self.alice, self.org_a.id, self.carol.email)
+        in_b = self.save(self.carol, self.org_b.id, share=True,
+                         problem='Postgres deadlock on the nightly batch job')
+        self.find(self.carol.id, self.org_b.id, 'postgres deadlock')   # warm B
+        self.find(self.carol.id, self.org_a.id, 'anything at all')    # warm A
+        found = self.find(self.carol.id, self.org_a.id, 'postgres deadlock nightly batch')
+        self.assertNotIn(in_b.id, [r['id'] for r in found['results']])
+
+    def test_a_removed_member_gets_nothing_from_a_warm_cache(self):
+        shared = self.save(self.alice, self.org_a.id, share=True)
+        self.assertTrue(self.find(self.bob.id, self.org_a.id, shared.problem)['results'])
+        orgs.remove_member(self.alice, self.org_a.id, self.bob.id)
+        self.assertEqual(self.find(self.bob.id, self.org_a.id, shared.problem)['results'], [])
+
+    def test_a_member_cannot_unshare_a_colleagues_fix(self):
+        shared = self.save(self.alice, self.org_a.id, share=True)
+        self.assertIsNotNone(get_visible(self.bob.id, self.org_a.id, shared.id))
+        with self.assertRaises(api.SolutionError):
+            api.set_shared(self.bob, shared.id, self.org_a.id, False)
+
+    def test_an_admin_manages_shared_rows_but_not_private_ones(self):
+        orgs.set_role(self.alice, self.org_a.id, self.bob.id, 'admin')
+        shared = self.save(self.alice, self.org_a.id, share=True)
+        private = self.save(self.alice, self.org_a.id, share=False)
+        self.assertTrue(can_manage(self.bob.id, shared))
+        self.assertFalse(can_manage(self.bob.id, private))
+
+    def test_a_members_correction_flags_the_original_without_hiding_it(self):
+        original = self.save(self.alice, self.org_a.id, share=True,
+                             problem='Build fails: missing libssl')
+        api.save(self.bob, org_id=self.org_a.id, share=True,
+                 draft=api.Draft(problem='Build fails: missing libssl',
+                                 resolution='Install libssl3, not libssl-dev.'),
+                 supersedes_id=original.id)
+        original.refresh_from_db()
+        self.assertEqual(original.status, 'needs_check')
+        self.assertIsNotNone(get_visible(self.alice.id, self.org_a.id, original.id))
+
+    def test_leaving_clears_the_org_new_chats_start_in(self):
+        orgs.set_active(self.bob, self.org_a.id)
+        orgs.remove_member(self.alice, self.org_a.id, self.bob.id)
+        self.assertIsNone(orgs.active_org_id(self.bob))
 
 
 class ApiBoundaryTests(SolutionsTestMixin, APITestCase):

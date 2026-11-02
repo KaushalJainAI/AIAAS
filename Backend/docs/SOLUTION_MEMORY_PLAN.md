@@ -375,9 +375,13 @@ makes it trustworthy.
 - **Vectors are float16 rows in the database** (§7a option c), loaded per
   scope on demand, four scopes cached, and always filtered by the live
   visible-id set. So a stale cache can never show a removed member anything.
-- **Agent runs search only their owner's personal solutions.** `org_id` is
-  carried on `TurnContext`, and only chat sets it. Giving agents (and
-  delegated workers) the org scope is the next step.
+- **Agent runs from a chat carry that chat's org (2026-11-02).** `run_agent`,
+  `invoke_subagent` and `start_tasks` pass the chat's org and share setting to
+  the run, which stamps them on `ExecutionLog.input_data`. Membership is
+  re-checked live on every start and resume; a non-member gets the personal
+  library, not an error. Eval runs always stay personal. Schedules, triggers
+  and missions still have no org and search only the owner's personal library.
+  Tests: `agents/tests/test_run_org.py`.
 - **Capture triggers:** a thumbs-up, or the person's next message saying it
   worked (a regex, no model cost). The "completed fix run" trigger is not
   built.

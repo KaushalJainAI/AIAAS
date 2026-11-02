@@ -696,7 +696,12 @@ left and, for `quick`/`standard`, how to get more (plan first); one round
 before the end it says the next reply must be the answer. Trailing, never the
 system prompt — it changes every pass (the clock trap). And **`classify_intent`
 infers nothing**: only an explicit Search/Research is seeded. A caller with no
-`metadata['pace']` (agent runs, evals) is unchanged. Not done, deliberately:
+`metadata['pace']` (agent runs, evals) gets no tiers and keeps `max_iterations`
+as its cap. Since 2026-11-02 it is still told its budget on every pass,
+because the longest runs need it most: `pace.render_run` adds a trailing line
+with the model call it is on and the tool rounds left (plan first on pass one,
+wrap up in the last quarter), and omits it below `RUN_BUDGET_MIN_LIMIT`, where
+a run has no rounds to plan across. Not done, deliberately:
 reasoning effort is left as the user set it, and a per-agent pace on
 `SubAgent` is not built. `[Latency] turn total=… pace=quick>deep tool_calls=…`
 is the line to grep; the eval grader `max_tool_calls` joins `max_duration_ms`.
@@ -2669,9 +2674,12 @@ reason; reviews record the model, so a better model later can clear or raise
 it. Search (`solutions/search.py`) is signature + keyword + meaning, merged by
 RRF, re-scored by Wilson track record, and **abstains** below its evidence bar.
 Vectors are float16 rows loaded per scope (an in-memory index per org does
-not fit 384 MB). Agent runs have no `org_id` yet and search only their owner's
+not fit 384 MB). An agent run started from a chat carries that chat's org: it is
+stamped on the run's log, and membership is re-checked live on every start and
+resume (2026-11-02), so a person who has left loses the org at once, with no
+error. Schedules, triggers and missions still search only their owner's
 personal library. Tests: `solutions/tests/` (start at `test_isolation.py`),
-`core/tests/test_orgs.py`.
+`core/tests/test_orgs.py`, `agents/tests/test_run_org.py`.
 
 **Guardrails from the external review (2026-09-26).** A web review (OWASP
 Agentic Top 10 2026, LLM Top 10, NIST AI 600-1, the lethal trifecta, MCP tool

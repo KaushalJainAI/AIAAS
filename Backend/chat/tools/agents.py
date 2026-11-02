@@ -574,6 +574,10 @@ async def run_agent(args: Dict, context: Dict) -> str:
             # The chat's mode: an `auto` chat does not start a worker that
             # asks about every undoable step (`runtime.lifted_autonomy`).
             parent_autonomy=str(context.get("autonomy") or ""),
+            # The chat's org, so a worker reads and feeds the same solution
+            # library the conversation does (`runtime._remember_org`).
+            org_id=context.get("org_id"),
+            share_solutions=bool(context.get("share_solutions")),
         )
     except AgentRunRefused as exc:
         # A guardrail said no — spend cap, disabled agent. The user can act
@@ -1075,6 +1079,10 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             write_paths=narrowed_paths,
             command_scope=narrowed_commands,
             parent_autonomy=str(context.get("autonomy") or ""),
+            # The chat's org, so a worker reads and feeds the same solution
+            # library the conversation does (`runtime._remember_org`).
+            org_id=context.get("org_id"),
+            share_solutions=bool(context.get("share_solutions")),
         )
         return WorkerResult(
             index=index, task=task, answer=run.answer or "",
