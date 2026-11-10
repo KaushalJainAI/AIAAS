@@ -378,6 +378,14 @@ RETIRED_MODEL_VALUES = [
     "qwen/qwen3.8-omni-flash",
     # Same family as GLM 5.3 Flash, dearer on both prices.
     "z-ai/glm-5.3-flashx",
+    # Pruned 2026-11-11 (useless or dominated). Each loses to a row that
+    # stays on price or window, or is a prior generation of a local model.
+    # Dearer than Qwen3.7 Flash and MiMo V2.6 Flash on output, with a smaller window.
+    "stepfun/step-3.7-flash",
+    # Dearer on both prices than Qwen3.8 Flash at the same 1M window; the local Qwen 3.8 27B stays.
+    "qwen/qwen3.8-27b",
+    # Prior local generation; Qwen 3.8 27B and Qwen 3.5 9B cover the local tiers.
+    "qwen3.6:latest",
 ]
 
 
@@ -842,17 +850,18 @@ def populate():
                 # --- google (3.8 Flash + Nano Banana 2.1 current; older gens retire below) ---
                 m("Google Gemini 3.8 Flash", "google/gemini-3.8-flash", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="0.8250", output_price="4.1250", cached_price="0.0825", cache_write_price="0.0417", context=1048576, effort=EFFORT_STANDARD),
                 m("Google Gemini 4 Argon", "google/gemini-4-argon", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="0.1875", context=1048576, effort=EFFORT_STANDARD, description="Intro price until 2026-11-30; $4.00/$20.00 from 2026-12-01. AA index 53 at ~82 tok/s."),
+                m("Google Gemini 4 Carbon", "google/gemini-4-carbon", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.1000", cache_write_price="0.1875", context=1048576, effort=EFFORT_STANDARD, description="Gemini 4 Carbon, live on OpenRouter since 2026-11-10. Priced from /v1/models; not benchmarked here."),
                 # Gemma 4 current; Gemma 3 retired below.
                 m("Google Gemma 4 26B A4B", "google/gemma-4-26b-a4b-it", caps={**VISION_CAPS, "video_input": True}, input_price="0.0800", output_price="0.1000", cached_price="0.0460", context=262144),
-                m("Google Gemma 4 31B", "google/gemma-4-31b-it", caps={**VISION_CAPS, "video_input": True}, input_price="0.2000", output_price="0.4000", cached_price="0.0500", context=262144),
+                m("Google Gemma 4 31B", "google/gemma-4-31b-it", caps={**VISION_CAPS, "video_input": True}, input_price="0.2000", output_price="0.4000", context=262144),
                 # --- inclusionai ---
                 m("inclusionAI Ling 3.0 Flash VL", "inclusionai/ling-3.0-flash-vl", caps={**VISION_CAPS, "video_input": True}, input_price="0.0600", output_price="0.1800", cached_price="0.0120", context=131072),
                 # --- meta ---
                 # --- meta (Spark 1.3 current, also the eval judge; older gens retire below) ---
                 m("Meta Muse Spark 1.3", "meta/muse-spark-1.3", caps={**VISION_CAPS, "video_input": True, "document_input": True}, input_price="1.2500", output_price="4.2500", cached_price="0.1500", context=1048576),
                 m("Meta Muse Spark 1.3 Contributor", "meta/muse-spark-1.3-contributor", caps={**VISION_CAPS, "video_input": True, "document_input": True}, input_price="0.1000", output_price="0.2000", cached_price="0.0020", context=1048576),
-                m("Meta Muse Wonder", "meta/muse-wonder", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="4.0000", output_price="20.0000", context=1048576, description="Meta Muse Wonder, released 2026-10-12. Not benchmarked in this catalogue yet."),
-                m("Meta Muse Ember", "meta/muse-ember", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="0.1000", output_price="0.5000", context=1048576, description="Meta Muse Ember, released 2026-11-09. Not benchmarked in this catalogue yet."),
+                m("Meta Muse Wonder", "meta/muse-wonder", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="4.0000", output_price="20.0000", cached_price="0.2000", context=1048576, description="Meta Muse Wonder, released 2026-10-12. Not benchmarked in this catalogue yet."),
+                m("Meta Muse Ember", "meta/muse-ember", caps={**VISION_CAPS, "video_input": True, "audio_input": True, "document_input": True}, input_price="0.1000", output_price="0.5000", cached_price="0.0040", cache_write_price="0.1250", context=1048576, description="Meta Muse Ember, released 2026-11-09. Not benchmarked in this catalogue yet."),
                 # --- meta-llama (Scout stays: the chat `auto` reviewer; Maverick retired below) ---
                 m("Meta Llama 4 Scout", "meta-llama/llama-4-scout", caps=VISION_CAPS, input_price="0.1000", output_price="0.3000", context=1310720),
                 # --- minimax (M3.1 Flash is M3 at half the price, same window) ---
@@ -866,8 +875,8 @@ def populate():
                 # --- moonshotai (K3 is the 1M flagship; the three 262K K2 rows
                 # retired below) ---
                 m("MoonshotAI Kimi K3", "moonshotai/kimi-k3", caps={**VISION_CAPS, "video_input": True}, input_price="0.1920", output_price="16.0000", cached_price="0.1820", context=1048576),
-                m("MoonshotAI Kimi K2.6", "moonshotai/kimi-k2.6", caps=VISION_CAPS, input_price="0.4650", output_price="2.4500", cached_price="0.0975", context=262144),
-                m("MoonshotAI Kimi K3.1 Pro", "moonshotai/kimi-k3.1-pro", caps={**VISION_CAPS, "video_input": True}, input_price="2.0000", output_price="10.0000", context=1048576),
+                m("MoonshotAI Kimi K2.6", "moonshotai/kimi-k2.6", caps=VISION_CAPS, input_price="0.6500", output_price="3.4100", cached_price="0.1500", context=262144),
+                m("MoonshotAI Kimi K3.1 Pro", "moonshotai/kimi-k3.1-pro", caps={**VISION_CAPS, "video_input": True}, input_price="2.0000", output_price="10.0000", cached_price="0.2000", context=1048576),
                 # --- nex-agi ---
                 # --- openai (GPT-6.1 Sol + Luna current, Astra flagship; 4.x/5.x
                 # and the o-series retire below, GPT-6 Sol superseded by 6.1) ---
@@ -886,13 +895,11 @@ def populate():
                 # ultra-cheap long-context pick, 3.7 Plus retires (covered by
                 # 3.8 Flash at a lower price).
                 m("Qwen3.7 Flash", "qwen/qwen3.7-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.0300", output_price="0.1300", cached_price="0.0060", cache_write_price="0.0380", context=1000000, effort=EFFORT_TOGGLEABLE),
-                m("Qwen3.8 27B", "qwen/qwen3.8-27b", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="1.8750", cached_price="0.0375", context=1048575),
-                m("Qwen3.8 Flash", "qwen/qwen3.8-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="0.4700", cached_price="0.0160", cache_write_price="0.2000", context=1000000, effort=EFFORT_TOGGLEABLE),
-                m("Qwen3.8 Max (0902)", "qwen/qwen3.8-max-0902", caps={**VISION_CAPS, "video_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.2500", cache_write_price="2.5000", context=1000000),
+                m("Qwen3.8 Flash", "qwen/qwen3.8-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.1500", output_price="0.4700", cached_price="0.0160", context=1000000, effort=EFFORT_TOGGLEABLE),
+                m("Qwen3.8 Max (0902)", "qwen/qwen3.8-max-0902", caps={**VISION_CAPS, "video_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.2500", context=1000000),
                 # --- sakana (Namazu stays; Fugu Max retired below with the
                 # Ultra rows as the same orchestration product) ---
                 # --- stepfun ---
-                m("StepFun Step 3.7 Flash", "stepfun/step-3.7-flash", caps={**VISION_CAPS, "video_input": True}, input_price="0.2000", output_price="1.1500", cached_price="0.0400", context=262144),
                 # --- unbiased ---
                 # --- x-ai (4.7 current; older numbered gens retire below) ---
                 m("SpaceXAI Grok 4.7", "x-ai/grok-4.7", caps={**VISION_CAPS, "document_input": True}, input_price="2.0000", output_price="6.0000", cached_price="0.5000", context=500000, effort=EFFORT_STANDARD),
@@ -998,7 +1005,6 @@ def populate():
                 # retire below; Llama 4 Scout does read images but is 18 months
                 # old and scores 8 on the AA index.
                 m("Qwen 3.8 27B", "qwen3.8:27b", True, VISION_CAPS, input_price="0.0000", output_price="0.0000", context=262144, effort=EFFORT_TOGGLEABLE),
-                m("Qwen 3.6", "qwen3.6:latest", True, VISION_CAPS, input_price="0.0000", output_price="0.0000", context=262144, effort=EFFORT_TOGGLEABLE),
                 m("Qwen 3.5 9B", "qwen3.5:9b", True, VISION_CAPS, input_price="0.0000", output_price="0.0000", context=262144, effort=EFFORT_TOGGLEABLE),
             ],
         },
