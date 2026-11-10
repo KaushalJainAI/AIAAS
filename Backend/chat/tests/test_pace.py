@@ -72,7 +72,7 @@ class BudgetTests(SimpleTestCase):
         # Agent runs and evals set no pace and must behave as before.
         self.assertEqual(pace.current({}), "")
         self.assertEqual(pace.cap("", 40), 40)
-        self.assertEqual(pace.render("", 0, 40), "")
+        self.assertEqual(pace.render("", 0, 40), "")  # see RunBudgetTests
 
     def test_the_line_counts_down_and_warns_one_round_early(self):
         limit = pace.cap(pace.STANDARD, 100)
@@ -89,6 +89,39 @@ class BudgetTests(SimpleTestCase):
         # or ignore the budget.
         for tier in (pace.QUICK, pace.STANDARD):
             self.assertIn("update_todos", pace.render(tier, 0, pace.cap(tier, 100)))
+
+
+class RunBudgetTests(SimpleTestCase):
+    """Agent runs have no pace but are still told their budget.
+
+    Before this, a forty-call run learned where it stood only when tools were
+    withheld on its last pass — the longest runs were the least guided.
+    """
+
+    def test_the_line_counts_model_calls_and_rounds_left(self):
+        line = pace.render_run(0, 40)
+        self.assertIn("model call 1 of 40", line)
+        self.assertIn("39 tool rounds left", line)
+        self.assertIn("update_todos", line)  # the first pass asks for a plan
+
+    def test_middle_passes_are_just_the_count(self):
+        line = pace.render_run(10, 40)
+        self.assertIn("model call 11 of 40", line)
+        self.assertNotIn("near the end", line)
+        self.assertNotIn("update_todos", line)
+
+    def test_the_last_quarter_says_to_finish_and_mark_the_rest_blocked(self):
+        line = pace.render_run(32, 40)
+        self.assertIn("near the end", line)
+        self.assertIn("blocked", line)
+
+    def test_the_last_tool_round_says_so(self):
+        line = pace.render_run(38, 40)
+        self.assertIn("1 tool round left", line)
+        self.assertIn("last tool round", line)
+
+    def test_a_tiny_budget_gets_no_line(self):
+        self.assertEqual(pace.render_run(0, pace.RUN_BUDGET_MIN_LIMIT - 1), "")
 
 
 class PromotionTests(SimpleTestCase):
@@ -239,6 +272,21 @@ class PaceInTheLoopTests(TestCase):
         self.assertEqual(pace.summary(result.metadata), "quick>deep")
         self.assertEqual(result.metadata["pace"]["promoted_by"], "update_todos")
         self.assertIn("PACE: DEEP", model.budget_line(2))
+
+    def test_a_run_with_no_pace_is_told_its_budget_every_pass(self):
+        """What actually reaches the provider for an agent-shaped turn."""
+        model = _Model()
+        self.run_with(model, "pace-run-budget", None)
+
+        def budget(call):
+            return next((line for line in model.system_lines[call - 1]
+                         if line.startswith("BUDGET:")), "")
+
+        limit = PACE_ITERATIONS[pace.DEEP]
+        self.assertIn(f"model call 1 of {limit}", budget(1))
+        self.assertIn("last tool round", budget(model.calls - 1))
+        # The last pass has no tools; the continuation nudge speaks there.
+        self.assertEqual(budget(model.calls), "")
 
     def test_a_turn_with_no_pace_runs_as_before(self):
         model = _Model()

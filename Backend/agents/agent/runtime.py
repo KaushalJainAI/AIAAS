@@ -903,6 +903,32 @@ def _remember_parent_autonomy(log, parent: str) -> str:
     return str(data.get('parent_autonomy') or '')
 
 
+@sync_to_async
+def _remember_org(log, user_id, org_id, share: bool) -> tuple[int | None, bool]:
+    """Stamp (or read back) the org a run was started from, checked live.
+
+    The org comes from the chat that delegated — never from an argument the
+    model wrote — and is stamped on the log for the reason
+    `_remember_parent_autonomy` is: a resumed run knows only the log.
+    Membership is re-read on every start and resume (`core/orgs.py`'s one
+    rule), so a run started before its owner left the org cannot read that
+    org's solutions afterwards. Not a member means personal, never an error:
+    losing the org only narrows what the solution tools can see.
+    """
+    from core.orgs import is_member
+
+    data = dict(log.input_data or {})
+    if org_id and data.get('org_id') != org_id:
+        data['org_id'] = int(org_id)
+        data['share_solutions'] = bool(share)
+        log.input_data = data
+        log.save(update_fields=['input_data', 'updated_at'])
+    stamped = data.get('org_id')
+    if not stamped or not is_member(user_id, stamped):
+        return None, False
+    return int(stamped), bool(data.get('share_solutions'))
+
+
 def switchable_modes(toolbox: AgentToolbox) -> dict:
     """Every level a running agent can be switched to, resolved against its toolbox.
 
@@ -1930,7 +1956,9 @@ async def run_agent(agent, goal: str, *, user, sink=None,
                      gated_calls: str = 'run',
                      environment: Any = None,
                      mission_id: int | None = None,
-                     parent_autonomy: str = '') -> AgentRun:
+                     parent_autonomy: str = '',
+                     org_id: int | None = None,
+                     share_solutions: bool = False) -> AgentRun:
     """Run `agent` against `goal` and record the run.
 
     `gated_calls` applies to `caller='eval'` only: a call that would pause is
@@ -2024,6 +2052,17 @@ async def run_agent(agent, goal: str, *, user, sink=None,
         except Exception:  # noqa: BLE001 — losing the lift only means more asking
             logger.exception('[AgentRuntime] Could not record the parent mode')
         autonomy = lifted_autonomy(autonomy, parent_autonomy, caller)
+        # Eval worlds stay personal: the solution tools are withheld there,
+        # and an eval must never read or write a real org's library.
+        if environment is None:
+            try:
+                org_id, share_solutions = await _remember_org(
+                    log, user.id, org_id, share_solutions)
+            except Exception:  # noqa: BLE001 — losing the org only narrows search
+                logger.exception('[AgentRuntime] Could not record the run org')
+                org_id, share_solutions = None, False
+        else:
+            org_id, share_solutions = None, False
         if environment is not None:
             # Prepared by the caller (`eval/runner.py`): the attempt folder
             # and the simulators already exist. Rooted here, the walk itself
@@ -2182,6 +2221,8 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             worker_label=worker_label or '',
             execution_id=str(log.execution_id),
             mission_id=mission_id,
+            org_id=org_id,
+            share_solutions=share_solutions,
         )
 
         # The backstop under the soft stop. The loop checks the clock between
@@ -2419,7 +2460,9 @@ async def start_agent_run(agent, goal: str, *, user,
                           workspace: tuple[str, ...] = (),
                           mission_id: int | None = None,
                           gated_calls: str = 'run',
-                          parent_autonomy: str = '') -> str:
+                          parent_autonomy: str = '',
+                          org_id: int | None = None,
+                          share_solutions: bool = False) -> str:
     """Begin a run in the background and return its execution id immediately.
 
     `workspace` is the caller's own write folder, granted to the run as a
@@ -2501,7 +2544,9 @@ async def start_agent_run(agent, goal: str, *, user,
                                 log=log, workspace=workspace,
                                 mission_id=mission_id,
                                 gated_calls=gated_calls,
-                                parent_autonomy=parent_autonomy)
+                                parent_autonomy=parent_autonomy,
+                                org_id=org_id,
+                                share_solutions=share_solutions)
         except admission.AdmissionTimeout as exc:
             # Nothing ran, so there is nothing to report as having failed
             # part-way. The log is closed here because `run_agent` never got to
