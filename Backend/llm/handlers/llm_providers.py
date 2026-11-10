@@ -56,7 +56,7 @@ class OpenRouterNode(OpenAICompatibleLLMNode):
     provider_slug = "openrouter"
     api_label = "OpenRouter"
     base_url = "https://openrouter.ai/api/v1"
-    default_model = "nvidia/nemotron-3-super-120b-a12b:free"
+    default_model = "nvidia/nemotron-3.5-lightning:free"
     image_endpoint = "https://openrouter.ai/api/v1/images/generations"
     #: OpenRouter attributes traffic by referer/title for its dashboard and
     #: rate-limit tiers; requests without them are treated as anonymous.
@@ -68,7 +68,10 @@ class OpenRouterNode(OpenAICompatibleLLMNode):
 
     #: Kept as a class attribute because the 404-retry path below and existing
     #: callers both reference it by name.
-    FALLBACK_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+    #: Was `nvidia/nemotron-3-super-120b-a12b:free`, which OpenRouter dropped
+    #: from /v1/models on 2026-11-10. Lightning is the free 1M-context tier in
+    #: the same family, so a 404 retry still lands on a model that exists.
+    FALLBACK_MODEL = "nvidia/nemotron-3.5-lightning:free"
 
     def reasoning_payload(self, effort):
         """OpenRouter wraps the level in a `reasoning` object.

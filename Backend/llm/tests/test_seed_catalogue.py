@@ -285,7 +285,7 @@ class ImageInputRuleTests(SimpleTestCase):
         # `NvidiaNode.default_model`.
         'nvidia/nemotron-3-super-120b-a12b',
         # `OpenRouterNode.default_model` and its 404-retry `FALLBACK_MODEL`.
-        'nvidia/nemotron-3-super-120b-a12b:free',
+        'nvidia/nemotron-3.5-lightning:free',
     }
 
     def _caps(self, kwargs):
