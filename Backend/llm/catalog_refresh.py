@@ -62,13 +62,13 @@ VARIANT_SUFFIXES = (':free', ':batch', ':nitro', ':online', ':floor')
 #: Known renames, for the `replaced_by` hint. A hint only — nothing applies it
 #: automatically, and staff can edit it in admin.
 SUGGESTED_SUCCESSORS = {
-    'inception/mercury-2.5-preview': 'deepseek/deepseek-v4.1-flash',
-    'inception/mercury-2.5': 'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4-pro': 'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4-flash': 'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4-flash-0731': 'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4-pro-0813': 'deepseek/deepseek-v4.1-flash',
-    'deepseek/deepseek-v4-flash-vision-exp': 'deepseek/deepseek-v4.1-flash',
+    'inception/mercury-2.5-preview': 'deepseek/deepseek-v4.1-flash-1017',
+    'inception/mercury-2.5': 'deepseek/deepseek-v4.1-flash-1017',
+    'deepseek/deepseek-v4-pro': 'deepseek/deepseek-v4.1-flash-1017',
+    'deepseek/deepseek-v4-flash': 'deepseek/deepseek-v4.1-flash-1017',
+    'deepseek/deepseek-v4-flash-0731': 'deepseek/deepseek-v4.1-flash-1017',
+    'deepseek/deepseek-v4-pro-0813': 'deepseek/deepseek-v4.1-flash-1017',
+    'deepseek/deepseek-v4-flash-vision-exp': 'deepseek/deepseek-v4.1-flash-1017',
     # 3.6 and 3.7 both go straight to 3.8, not to each other. Chaining them
     # (3.6 -> 3.7 -> 3.8) reads like a tidy migration path and is not one:
     # 3.7 was itself retired on 2026-09-23, so the first hop already pointed
@@ -192,12 +192,35 @@ SUGGESTED_SUCCESSORS = {
     'qwen/qwen3.7-plus': 'qwen/qwen3.8-flash',
     'moonshotai/kimi-k2.7-code': 'xiaomi/mimo-v2.6-pro',
     'moonshotai/kimi-k3': 'xiaomi/mimo-v2.6-pro',
-    'minimax/minimax-m3': 'deepseek/deepseek-v4.1-flash',
-    'thinkingmachines/inkling': 'deepseek/deepseek-v4.1-flash',
-    'thinkingmachines/inkling-small': 'deepseek/deepseek-v4.1-flash',
+    'minimax/minimax-m3': 'minimax/minimax-m3.1-flash',
+    'thinkingmachines/inkling': 'deepseek/deepseek-v4.1-flash-1017',
+    'thinkingmachines/inkling-small': 'deepseek/deepseek-v4.1-flash-1017',
     'z-ai/glm-5.3': 'z-ai/glm-5.3-flash',
     'stepfun/step-3.7-flash': 'z-ai/glm-5.3-flash',
     'bytedance-seed/seed-2-1-turbo': 'z-ai/glm-5.3-flash',
+    # Pruned 2026-11-10 (eleventh wave). Hints only, like the rest: the row
+    # stays retired; this says where a pin on it should move.
+    'moonshotai/kimi-k2.5': 'bytedance-seed/seed-2-1-turbo',
+    'moonshotai/kimi-k2.6': 'bytedance-seed/seed-2-1-turbo',
+    'mistralai/ministral-14b-2512': 'mistralai/mistral-small-2603',
+    'mistralai/ministral-8b-2512': 'mistralai/mistral-small-2603',
+    'mistralai/ministral-3b-2512': 'mistralai/mistral-small-2603',
+    'mistralai/mistral-large-2512': 'mistralai/mistral-large-4-0',
+    'mistralai/mistral-medium-3': 'mistralai/mistral-large-4-0',
+    'mistralai/mistral-medium-3.1': 'mistralai/mistral-large-4-0',
+    'mistralai/mistral-medium-3-5': 'mistralai/mistral-large-4-0',
+    'mistralai/mistral-small-3.1-24b-instruct': 'mistralai/mistral-small-2603',
+    'qwen/qwen3-vl-30b-a3b-instruct': 'qwen/qwen3.8-flash',
+    'qwen/qwen3-vl-30b-a3b-thinking': 'qwen/qwen3.8-flash',
+    'qwen/qwen3-vl-8b-instruct': 'qwen/qwen3.8-flash',
+    'bytedance-seed/seed-2.0-lite': 'bytedance-seed/seed-2.0-mini',
+    'openai/gpt-chat-latest': 'openai/gpt-6.1-sol',
+    'cohere/command-a-plus': 'openai/gpt-6-luna',
+    'sakana/fugu-max': 'sakana/sakana-namazu',
+    'rekaai/reka-edge': 'qwen/qwen3.7-flash',
+    'perceptron/perceptron-mk1.5': 'xiaomi/mimo-v2.6-flash',
+    'z-ai/glm-5v-turbo': 'z-ai/glm-5.3-flash',
+    'deepseek/deepseek-v4.1-flash': 'deepseek/deepseek-v4.1-flash-1017',
     'openrouter/pareto-code': 'openrouter/auto',
 }
 
