@@ -78,6 +78,17 @@ class KnowledgeBaseSerializer(serializers.ModelSerializer):
         return value
 
 
+class KnowledgeBaseShareSerializer(serializers.Serializer):
+    """The one writable part of a KB over HTTP: where it is shared (K6).
+
+    `org` is an organisation id (or null to stop sharing); the view checks the
+    caller belongs to it. Nothing here decides who may read — that is
+    `inference/kb_access.py`, read live on every request.
+    """
+    org = serializers.IntegerField(allow_null=True, required=False)
+    shared_with_org = serializers.BooleanField(required=False)
+
+
 class FolderSerializer(serializers.ModelSerializer):
     """One folder as the API presents it.
 

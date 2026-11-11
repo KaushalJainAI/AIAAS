@@ -225,6 +225,12 @@ async def _run_detail_retention():
     return await sync_to_async(run_retention_sweep)()
 
 
+async def _stale_solutions():
+    # Weekly digest of team solutions that may be out of date (`solutions/stale.py`).
+    from solutions.stale import run_stale_sweep
+    return await sync_to_async(run_stale_sweep)()
+
+
 PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
     PeriodicJob('notifications.sweep_scheduled', 'SCHEDULED_SWEEP_SECONDS',
                 _scheduled_notifications),
@@ -237,6 +243,8 @@ PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
     PeriodicJob('missions.sweep_missions', 'MISSION_SWEEP_SECONDS', _missions),
     PeriodicJob('logs.redact_old_run_detail', 'RUN_DETAIL_RETENTION_SWEEP_SECONDS',
                 _run_detail_retention),
+    PeriodicJob('solutions.sweep_stale', 'SOLUTION_STALE_SWEEP_SECONDS',
+                _stale_solutions),
 )
 
 #: Beat entries this loop deliberately does not run, and why.

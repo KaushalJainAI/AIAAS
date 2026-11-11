@@ -2677,9 +2677,46 @@ Vectors are float16 rows loaded per scope (an in-memory index per org does
 not fit 384 MB). An agent run started from a chat carries that chat's org: it is
 stamped on the run's log, and membership is re-checked live on every start and
 resume (2026-11-02), so a person who has left loses the org at once, with no
-error. Schedules, triggers and missions still search only their owner's
-personal library. Tests: `solutions/tests/` (start at `test_isolation.py`),
+error. Tests: `solutions/tests/` (start at `test_isolation.py`),
 `core/tests/test_orgs.py`, `agents/tests/test_run_org.py`.
+
+**Team knowledge is a product, not a hidden store (2026-11-11).**
+`Backend/docs/ORG_KNOWLEDGE_PLAN.md` (K0–K7, built, undeployed) turned the
+library into something a team fills, trusts and can see working. Six things
+carry it. **Nobody joins an org without agreeing**: `core/orgs.py::invite`
+replaced `add_member`, answers the same for registered and unregistered
+emails, and accepting needs a verified email (`UserProfile.email_verified_at`).
+**Nothing reaches the whole org without a person choosing it**: in a
+`capture_mode='suggest'` org (the default for new orgs; existing ones were
+migrated to `auto`) a captured fix is a `draft` the author shares, keeps or
+discards from a card in chat, and a `review_policy='curated'` org sends every
+share to a `pending_review` queue for the new `curator` role (approves and edits
+solutions, never manages people). `solutions/api.py::starting_state` is the one
+table that decides a new row's status; drafts and waiting rows are never
+searched. **Freshness is only reset by a check**: an edit keeps `valid_as_of`
+unless the editor ticks `verified`, and every edit leaves an `edited` review.
+**It shows itself working**: a turn records the team solutions it read
+(`meta['solutions_used']`, `solutions_update` frame, "Checked N team solutions"
+chip with Worked / Didn't work), and a thumbs-up credits them. **It does not
+start empty**: a person can write one, or import a document as drafts
+(`solutions/importer.py`, 5 a day). **It stays true and shows its value**: a
+weekly sweep (`solutions/stale.py`) nudges authors and curators about fixes
+whose claims may be stale, and curators get an Insights tab built from
+`SolutionSearchLog` (scrubbed queries, chat only in the tiles, 90 days),
+including the questions nobody has answered. Caps bound platform-key spend:
+`SOLUTION_CAPTURE_DAILY_CAP` and `SOLUTION_IMPORT_DAILY_CAP`; one capture per
+answer is a DB constraint. Knowledge bases can be **shared read-only with an
+org** (`inference/kb_access.py`, the one door): only from a chat in that org,
+only while reader and owner are both members, never an eval corpus; agent runs
+read their owner's KBs only. An agent's `agent_context['orgId']` gives runs
+nobody started from a conversation (schedule, trigger, mission, Run button) that
+org's solutions; a run from a chat keeps the chat's org or stays personal, and
+unattended callers may read team solutions but never save or review one. Links
+carry `&org=` so a notification opens in its own org. The page is `/team`
+("Team knowledge"; `/solutions` kept). Tests: `solutions/tests/test_workflow.py`,
+`test_import.py`, `test_stale.py`, `test_list.py`, `test_insights.py`,
+`chat/tests/test_solution_citations.py`, `test_session_org.py`,
+`inference/tests/test_kb_sharing.py`.
 
 **Guardrails from the external review (2026-09-26).** A web review (OWASP
 Agentic Top 10 2026, LLM Top 10, NIST AI 600-1, the lethal trifecta, MCP tool
@@ -2839,6 +2876,9 @@ MCP_ALLOW_STDIO=True               # Local-process MCP servers; deployment defau
 SOLUTION_CAPTURE_ENABLED=True      # Auto-save solved problems (thumbs-up / "that worked")
 SOLUTION_CAPTURE_PROVIDER=         # Blank = CONTEXT_SUMMARY_PROVIDER (platform key)
 SOLUTION_CAPTURE_MODEL=            # Blank = CONTEXT_SUMMARY_MODEL
+SOLUTION_CAPTURE_DAILY_CAP=30      # Captures (one cheap-model call each) per user per day; 0 = off
+SOLUTION_IMPORT_DAILY_CAP=5        # Documents imported as draft solutions per user per day
+SOLUTION_STALE_SWEEP_SECONDS=604800  # Weekly "may be out of date" nudge + search-log purge
 RUN_DETAIL_RETENTION_DAYS=180      # Finished runs lose reasoning + tool payloads after this (record kept)
 OUTBOUND_DAILY_CAP=100             # Messages an account's agents may send per 24 h, all channels
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
@@ -3032,6 +3072,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `CONCURRENCY_LAG_FIX_PLAN.md` — The plan (proposed 2026-09-24; Phases 0–5 built 2026-09-24, Phase 5 as the t3.small option — needs the instance resize to take effect; Phase 6 conditional on measurements) for the "lags with several runs, even one user" problem: DB connections held across model calls (pool of 10), the SQLite checkpointer's global lock + full-state serialise on the event loop, per-run/global single-thread `sync_to_async`, memory overcommit on the 913 MB box; Phase 0 measures first
 - `GAP_CLOSURE_PLAN.md` — The plan (proposed 2026-09-24, implemented 2026-09-24) from a codebase-wide gap sweep: digest-only email default, pack availability in Explore, the order-dependent test failures, lint back to zero, Memory and Missions UI, and CLAUDE.md drift
 - `SECURITY_REVIEW_FIX_PLAN.md` — The whole-project security review of 2026-09-25 and its fixes (implemented, undeployed): Google sign-in no longer links into an unverified password account (pre-account takeover), `UserProfile.tokens_valid_after` revokes every JWT on password/email change (`core/auth/revocation.py`, checked by REST, refresh and WebSocket), `token_blacklist` actually installed, no `?token=` HTTP auth, API keys stored as SHA-256, the workspace job hook scoped to its owner and detached, `CSP: sandbox` on file responses. Learning: `learning/15_whole_project_security_review.md`
+- `ORG_KNOWLEDGE_PLAN.md` — The plan (K0–K7 built 2026-11-11, undeployed, not yet checked in a browser) that made solution memory a team product: invitations, drafts and curators, citations in chat, import, stale nudges, insights, KBs shared read-only with an org, org choice per chat and per scheduled agent
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix
 - `CHATGPT_PLAN_PROVIDER_PLAN.md` — The plan (built 2026-10-11; **not yet run against a real ChatGPT account** — `scripts/chatgpt_plan_spike.py` is Phase 0 and §10 is still empty) that removed OpenCode Zen and added a `chatgpt` provider through OpenAI's official Sign in with ChatGPT flow (Responses API, loopback redirect, rotating refresh tokens). Self-hosted installs only until OpenAI approves the hosted site

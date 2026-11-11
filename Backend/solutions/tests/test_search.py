@@ -4,12 +4,17 @@ Finding the right past fix — and saying nothing when there isn't one.
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest import mock
 
+from asgiref.sync import async_to_sync
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.test import APIRequestFactory, force_authenticate
 
-from solutions import freshness, signatures
+from chat.models import ChatMessage, ChatSession
+from solutions import capture, freshness, signatures
 from solutions.models import Solution
+from solutions.views import SolutionListView
 
 from .helpers import SolutionsTestMixin, no_embed
 
@@ -103,6 +108,53 @@ class KeywordOnlyTests(SolutionsTestMixin, TestCase):
         found = self.find(user.id, None, 'docker build no space left on device')
         self.assertEqual(found['results'][0]['id'], solution.id)
         self.assertFalse(found['semantic'])
+
+
+class UseCountTests(SolutionsTestMixin, TestCase):
+    """`reuse_count` means an answer used the fix, not that someone looked at it."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = self.make_user('reader')
+        self.org = self.make_org(self.user)
+        self.nginx = self.save(self.user, self.org.id,
+                               problem='Nginx returns 502 Bad Gateway after reload',
+                               resolution='Gunicorn socket path changed; update proxy_pass.')
+
+    def reuse(self):
+        return Solution.objects.get(id=self.nginx.id).reuse_count
+
+    def test_page_search_does_not_count_as_use(self):
+        request = APIRequestFactory().get('/api/solutions/', {
+            'q': 'nginx 502 bad gateway after reload', 'org': str(self.org.id)})
+        force_authenticate(request, user=self.user)
+        response = SolutionListView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.nginx.id, [s['id'] for s in response.data['solutions']])
+        self.assertEqual(self.reuse(), 0)
+
+        # Control: the same query from a chat answer is a use.
+        self.find(self.user.id, self.org.id, 'nginx 502 bad gateway after reload')
+        self.assertEqual(self.reuse(), 1)
+
+    def test_capture_dedupe_search_does_not_count_as_use(self):
+        session = ChatSession.objects.create(user=self.user, title='t', org=self.org,
+                                             share_solutions=True)
+        ChatMessage.objects.create(session=session, role='user',
+                                   content='Nginx returns 502 Bad Gateway after reload, what now?')
+        answer = ChatMessage.objects.create(session=session, role='assistant',
+                                            content='Update proxy_pass.')
+        seen = {}
+
+        async def extract(user_id, transcript, similar):
+            seen['ids'] = [s['id'] for s in similar]
+            return {'decision': 'skip'}, 0, 'fake:model'
+
+        with mock.patch.object(capture, '_extract', extract):
+            out = async_to_sync(capture.capture_answer)(answer.id, trigger='test')
+        self.assertEqual(out['outcome'], 'skip')
+        self.assertIn(self.nginx.id, seen['ids'])  # the duplicate check did find it
+        self.assertEqual(self.reuse(), 0)
 
 
 class FreshnessTests(TestCase):

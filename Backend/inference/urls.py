@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import dashboard_views, folder_views, page_views, recent_views, views
+from . import dashboard_views, folder_views, kb_views, page_views, recent_views, views
 
 app_name = 'inference'
 
@@ -54,6 +54,12 @@ urlpatterns = [
     path('dashboards/<int:dashboard_id>/', dashboard_views.dashboard_detail, name='dashboard_detail'),
     path('dashboards/<int:dashboard_id>/refresh/', dashboard_views.dashboard_refresh,
          name='dashboard_refresh'),
+
+    # Knowledge bases — the list a person sees (`?org=` adds the team's shared
+    # ones) and the sharing switch. Read sharing only (inference/kb_access.py).
+    path('knowledge-bases/', kb_views.knowledge_base_list, name='knowledge_base_list'),
+    path('knowledge-bases/<int:kb_id>/', kb_views.knowledge_base_detail,
+         name='knowledge_base_detail'),
 
     # RAG
     path('rag/search/', views.rag_search, name='rag_search'),

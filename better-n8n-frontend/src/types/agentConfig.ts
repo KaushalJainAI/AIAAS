@@ -139,6 +139,13 @@ export interface AgentConfig {
    * grants it had been refused. Empty means any of them.
    */
   delegatesTo: number[];
+  /**
+   * The organisation whose team solutions this agent's unattended runs may
+   * search (schedules, triggers, missions). Null is personal. Solutions only:
+   * knowledge bases stay owner-only for every agent run. The server reports
+   * null for an org the owner has left.
+   */
+  orgId: number | null;
   /** Sites `browser_act` may click and type on (hostnames; subdomains
    *  included). Empty: it may browse but never act. */
   browserDomains: string[];
@@ -291,6 +298,7 @@ export const DEFAULT_AGENT: AgentConfig = {
   knowledgeBases: [],
   skills: [],
   delegatesTo: [],
+  orgId: null,
   browserDomains: [],
   browserLogins: [],
   recipients: [],

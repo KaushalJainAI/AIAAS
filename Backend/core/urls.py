@@ -33,6 +33,10 @@ from .org_views import (
     ActiveOrgView,
     OrgDetailView,
     OrgListView,
+    MyInviteRespondView,
+    MyInvitesView,
+    OrgInviteDetailView,
+    OrgInvitesView,
     OrgMemberDetailView,
     OrgMembersView,
 )
@@ -56,6 +60,13 @@ urlpatterns = [
     path('orgs/<int:org_id>/members/', OrgMembersView.as_view(), name='org_members'),
     path('orgs/<int:org_id>/members/<int:user_id>/', OrgMemberDetailView.as_view(),
          name='org_member_detail'),
+    # Invitations: nobody joins until they accept one from their own account.
+    path('orgs/<int:org_id>/invites/', OrgInvitesView.as_view(), name='org_invites'),
+    path('orgs/<int:org_id>/invites/<int:invite_id>/', OrgInviteDetailView.as_view(),
+         name='org_invite_detail'),
+    path('orgs/invites/', MyInvitesView.as_view(), name='my_invites'),
+    path('orgs/invites/<int:invite_id>/', MyInviteRespondView.as_view(),
+         name='my_invite_respond'),
 
     path('auth/register/',UserRegistrationView.as_view(), name='register'),
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='login'),

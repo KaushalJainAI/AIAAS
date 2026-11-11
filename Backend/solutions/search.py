@@ -39,11 +39,15 @@ from asgiref.sync import sync_to_async
 from django.db.models import F
 from django.utils import timezone
 
+from core.orgs import is_member
+
 from . import freshness, signatures
 from .access import visible
+from .api import scrub
 from . import index as _index
 from .index import from_bytes, tokenize
-from .models import Solution, SolutionSignature, SolutionTerm, SolutionVector
+from .models import (Solution, SolutionSearchLog, SolutionSignature, SolutionTerm,
+                     SolutionVector)
 
 logger = logging.getLogger(__name__)
 
@@ -237,8 +241,47 @@ def present(solution: Solution, *, viewer_id=None, environment=None,
     return out
 
 
+#: Where a logged search came from. `chat` is the assistant asking; `page` is
+#: someone browsing the library. Capture and import are not logged at all.
+SEARCH_SOURCES = ('chat', 'page')
+
+
+async def _record_search(user_id, org_id, query: str, source: str | None,
+                         results: list, top_id: int | None) -> None:
+    """Write one `SolutionSearchLog` row for a search made inside an org.
+
+    Logging must never fail a search, so every failure is logged and dropped.
+    A personal search (no org) is not logged: there is no team to show it to.
+    A caller who is not a member (or names an unknown org) is not logged
+    either, so the table only ever holds the org's own searches.
+    """
+    if not (source and org_id and user_id):
+        return
+    try:
+        if not await sync_to_async(is_member)(user_id, org_id):
+            return
+        await SolutionSearchLog.objects.acreate(
+            org_id=org_id, user_id=user_id, source=source,
+            query=scrub(query)[:300], result_count=len(results),
+            top_solution_id=top_id,
+        )
+    except Exception:
+        logger.warning('[Solutions] search log not written', exc_info=True)
+
+
 async def search(user_id, org_id, query: str, *, environment: dict | None = None,
-                 limit: int = 3) -> dict:
+                 limit: int = 3, record_use: bool = True,
+                 log_source: str | None = None) -> dict:
+    """Find solutions for `query`. A result is *shown*; it is *used* only when
+    an answer took it. Pass `record_use=False` for anything that is not an
+    answer (the library page, capture's duplicate check), or `reuse_count`
+    measures browsing.
+
+    `log_source` ('chat' | 'page') records the search for the org's insight
+    page (K5.1). Leave it None for capture, import and tests: those are not
+    people asking."""
+    if log_source is not None and log_source not in SEARCH_SOURCES:
+        raise ValueError(f'unknown search source: {log_source!r}')
     started = time.monotonic()
     query = (query or '').strip()
     if not query:
@@ -246,6 +289,9 @@ async def search(user_id, org_id, query: str, *, environment: dict | None = None
 
     ids = await sync_to_async(_visible_ids)(user_id, org_id)
     if not ids:
+        # Nothing visible is still an answer to log: "nobody has solved this"
+        # is exactly the gap the insight page is for.
+        await _record_search(user_id, org_id, query, log_source, [], None)
         return {'results': [], 'abstained': True, 'semantic': True, 'searched': 0}
 
     sig_hits = await sync_to_async(_signature_hits)(query, ids)
@@ -303,10 +349,12 @@ async def search(user_id, org_id, query: str, *, environment: dict | None = None
         }
         results.append(item)
 
-    if chosen:
+    if chosen and record_use:
         await Solution.objects.filter(id__in=[s.id for _, _, s in chosen]).aupdate(
             reuse_count=F('reuse_count') + 1, last_used_at=now,
         )
+    await _record_search(user_id, org_id, query, log_source, results,
+                         results[0]['id'] if results else None)
     logger.info('[Latency] solutions.search %dms hits=%d scope=%d semantic=%s',
                 (time.monotonic() - started) * 1000, len(results), len(ids), semantic)
     return {'results': results, 'abstained': not results, 'semantic': semantic,

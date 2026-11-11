@@ -146,6 +146,22 @@ AUTONOMY_TO_SUPERVISION = {
 SUPERVISION_TO_AUTONOMY = {'none': 'full', 'error_only': 'ask', 'full': 'review'}
 
 
+def _live_org_id(agent, ctx: dict) -> int | None:
+    """The agent's stored org, or None if its owner is no longer in that org.
+
+    Read live, as every other membership question is (`core/orgs.py`'s one
+    rule). Reporting the stale id would put a value on the builder that the
+    runtime already ignores, and a save from that screen would then be refused
+    for a reason the user cannot see; reporting None says what the runtime does.
+    """
+    from core.orgs import is_member
+
+    org_id = ctx.get('orgId')
+    if not org_id:
+        return None
+    return int(org_id) if is_member(agent.user_id, int(org_id)) else None
+
+
 class AgentSerializer(serializers.Serializer):
     """The knob board, as a wire contract.
 
@@ -232,6 +248,15 @@ class AgentSerializer(serializers.Serializer):
     delegatesTo = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list,
     )
+    #: The organisation whose solutions this agent's runs may search, when they
+    #: start without one from a chat (schedules, triggers, missions, the API).
+    #: None is personal. It gives team *solutions* only: knowledge bases stay
+    #: owner-only for every agent run (`chat/tools/knowledge.py::chat_org_id`
+    #: keys on `execution_id`). Membership is checked here on save, and `to_config`
+    #: reports None for an org the owner has since left, so a stale value never
+    #: reaches the builder. The runtime re-checks it on every start and resume
+    #: (`agents/agent/runtime.py::_remember_org`).
+    orgId = serializers.IntegerField(required=False, allow_null=True, default=None)
     skills = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
     #: Exactly which built-in tools this agent may use. Empty: everything its
     #: grants unlock, which is what every agent saved before this means.
@@ -736,6 +761,25 @@ class AgentSerializer(serializers.Serializer):
         """
         return self._owned_ids(SubAgent, value, 'agent')
 
+    def validate_orgId(self, value):
+        """Only an organisation the owner is in, or None to clear it.
+
+        The owner is the signed-in user on every view path (`agent_detail` is
+        filtered to `request.user`). Chat authoring passes no request, but the
+        value it merges in is `to_config`'s, which already dropped any org the
+        owner has left, and `orgId` is not in its writable set, so a model
+        cannot introduce one.
+        """
+        if value is None:
+            return None
+        from core.orgs import is_member
+
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is not None and not is_member(user.id, value):
+            raise serializers.ValidationError('You are not in that organisation.')
+        return value
+
     def _owned_ids(self, model, ids, label):
         """Reject any id the caller does not own.
 
@@ -879,6 +923,7 @@ class AgentSerializer(serializers.Serializer):
             'knowledgeBases': ctx.get('knowledgeBases', []),
             'skills': ctx.get('skills', []),
             'delegatesTo': ctx.get('delegatesTo', []),
+            'orgId': _live_org_id(agent, ctx),
             'browserDomains': ctx.get('browserDomains', []),
             'browserLogins': ctx.get('browserLogins', []),
             'recipients': ctx.get('recipients', []),
@@ -973,6 +1018,8 @@ class AgentSerializer(serializers.Serializer):
             'delegatesTo': [
                 i for i in data.get('delegatesTo', []) if i != workflow.id
             ],
+            # None clears it. Stored whole, like every other key here.
+            'orgId': data.get('orgId'),
             'browserDomains': data.get('browserDomains', []),
             'browserLogins': data.get('browserLogins', []),
             'recipients': data.get('recipients', []),

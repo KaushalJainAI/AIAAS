@@ -534,6 +534,17 @@ class Organization(models.Model):
     #: What a new chat in this org starts with for "share solutions from this
     #: chat". The person can flip it per chat; this is only the starting value.
     share_by_default = models.BooleanField(default=True)
+    #: What happens when a fix is found in chat (`solutions/capture.py`).
+    #: `suggest` keeps it as a draft for its author; `auto` saves it.
+    CAPTURE_CHOICES = [('suggest', 'Suggest it to the author'),
+                       ('auto', 'Save automatically')]
+    capture_mode = models.CharField(max_length=10, choices=CAPTURE_CHOICES,
+                                    default='suggest')
+    #: Whether a share goes straight to the team, or waits for a curator.
+    REVIEW_CHOICES = [('open', 'Shared at once'),
+                      ('curated', 'A curator approves each one')]
+    review_policy = models.CharField(max_length=10, choices=REVIEW_CHOICES,
+                                     default='open')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -553,6 +564,7 @@ class Membership(models.Model):
     ROLE_CHOICES = [
         ('owner', 'Owner'),
         ('admin', 'Admin'),
+        ('curator', 'Curator'),
         ('member', 'Member'),
     ]
 
@@ -572,3 +584,30 @@ class Membership(models.Model):
 
     def __str__(self):
         return f'{self.user_id} in {self.org_id} ({self.role})'
+
+
+class OrgInvite(models.Model):
+    """An offer to join an org. Nobody is a member until they accept.
+
+    Pending means not accepted, not declined and not expired (`core/orgs.py`).
+    A revoked invite is recorded as declined, so there is one "closed" state.
+    """
+
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE,
+                            related_name='invites')
+    #: Stored lower-cased and stripped (`core/orgs.py::invite`).
+    email = models.EmailField()
+    #: `admin` | `curator` | `member` (an owner is never invited).
+    role = models.CharField(max_length=10, default='member')
+    invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    declined_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['email', 'accepted_at', 'declined_at'])]
+
+    def __str__(self):
+        return f'{self.email} invited to {self.org_id} as {self.role}'

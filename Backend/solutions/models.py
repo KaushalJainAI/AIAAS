@@ -23,11 +23,17 @@ class Solution(models.Model):
         ('needs_check', 'Needs check'),
         ('superseded', 'Superseded'),
         ('retracted', 'Retracted'),
+        #: Saved by a model, waiting for its author. Never shared.
+        ('draft', 'Draft'),
+        #: The author asked to share it in a curated org. Shared, but hidden
+        #: from everyone except the author and the org's curators until approved.
+        ('pending_review', 'Waiting for review'),
     ]
     CAPTURED_BY = [
         ('auto', 'Captured automatically'),
         ('tool', 'Saved by the assistant'),
         ('user', 'Saved by a person'),
+        ('import', 'Imported from a document'),
     ]
 
     #: The org this was solved in — fixed at creation, never edited. Null for a
@@ -57,9 +63,18 @@ class Solution(models.Model):
     phrasings = models.JSONField(default=list, blank=True)
     tags = models.JSONField(default=list, blank=True)
 
-    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='active')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='active')
     superseded_by = models.ForeignKey('self', on_delete=models.SET_NULL,
                                       null=True, blank=True, related_name='supersedes')
+    #: A correction saved as a draft or waiting for review: the fix it means
+    #: to replace. Applied (the old one superseded or flagged) when this row
+    #: first goes live, not when it is saved, so the team keeps the old fix
+    #: until the correction is actually shared. Cleared once applied.
+    replaces = models.ForeignKey('self', on_delete=models.SET_NULL,
+                                 null=True, blank=True, related_name='+')
+    #: On a draft: the author's sharing switch from the chat, so the card can
+    #: preselect "Share with team".
+    share_requested = models.BooleanField(default=False)
     #: When it was last known true — capture, then every confirmation or
     #: successful re-check. Freshness is computed from this at read time.
     valid_as_of = models.DateTimeField()
@@ -94,6 +109,15 @@ class Solution(models.Model):
             models.Index(fields=['org', 'shared', 'status']),
             models.Index(fields=['author', 'org', 'status']),
         ]
+        constraints = [
+            # One saved solution per chat answer, across every worker. The
+            # process-local `_IN_FLIGHT` set in capture.py cannot do this.
+            models.UniqueConstraint(
+                fields=['source_message_id'],
+                condition=models.Q(source_message_id__isnull=False),
+                name='unique_solution_per_source_message',
+            ),
+        ]
 
     def __str__(self):
         return self.problem[:80]
@@ -114,6 +138,7 @@ class SolutionReview(models.Model):
         ('cleared', 'Doubt cleared'),
         ('verified', 'Re-checked and still true'),
         ('contradicted', 'Re-checked and no longer true'),
+        ('edited', 'Edited'),
     ]
 
     solution = models.ForeignKey(Solution, on_delete=models.CASCADE,
@@ -155,3 +180,28 @@ class SolutionVector(models.Model):
                                  related_name='vectors')
     kind = models.CharField(max_length=10, default='question')
     vector = models.BinaryField()
+
+
+class SolutionSearchLog(models.Model):
+    """One search, for the team's insight page. Scrubbed, short, short-lived.
+
+    Written only for a search made inside an org (`search(..., log_source=...)`),
+    and read only by the org's curators (`insights.py`). Who asked is kept for
+    the 90-day retention window and never shown: the insight page is about the
+    query, not the person. Deleted by the weekly stale sweep (`stale.py`).
+    """
+
+    SOURCES = ('chat', 'page')
+
+    org = models.ForeignKey('core.Organization', on_delete=models.CASCADE,
+                            null=True, blank=True, related_name='+')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                             null=True, related_name='+')
+    source = models.CharField(max_length=8)        # 'chat' | 'page'
+    query = models.CharField(max_length=300)       # api.scrub(...)[:300]
+    result_count = models.SmallIntegerField(default=0)
+    top_solution_id = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['org', '-created_at'])]

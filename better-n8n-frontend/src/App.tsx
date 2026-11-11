@@ -227,6 +227,8 @@ const AppContent = () => {
                   then runs). /inbox is kept as redirect. */}
               <Route path="/orchestrator" element={<Navigate to="/runs" replace />} />
               <Route path="/skills" element={<Skills />} />
+              {/* Team knowledge. /solutions is the older name and stays, since notifications link to it. */}
+              <Route path="/team" element={<Solutions />} />
               <Route path="/solutions" element={<Solutions />} />
               <Route path="/evals" element={<Evals />} />
               <Route path="/imagine" element={<Imagine />} />

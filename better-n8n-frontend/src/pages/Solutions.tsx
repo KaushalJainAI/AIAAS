@@ -1,256 +1,321 @@
 /**
- * Organisation & Solutions — who you share with, and what you have solved.
+ * Team knowledge — what your organisation has already solved, and what the
+ * team's knowledge bases hold. Served at `/team`; `/solutions` opens the same page.
  *
- * Two tabs (`?tab=solutions|organisation`): the solutions library, and the
- * organisation settings that used to sit in Settings (create an org, add
- * people, pick where new chats start). They share a page because the second
- * decides what the first shows.
+ * Tabs (`?tab=`):
+ *   library  — the solutions your organisation has solved; write, import or search
+ *              them here. Filters: `?attention=1` (needs attention), `?tag=`,
+ *              `?mine=1` (only the ones you wrote). Shows the team documents too.
+ *   drafts   — fixes a chat found for you, waiting for you to share or discard;
+ *   queue    — curators only: what is waiting for a curator's decision;
+ *   insights — curators only: what the team searched for and what it found;
+ *   team     — the organisation's people and settings, and the knowledge bases
+ *              you share with it.
  *
- * Solutions — problems your organisation has already solved.
+ * Scope is `?org=<id>` or `?org=personal`. Notification links carry it, so a
+ * link opens the solution in the organisation it belongs to. Without it, the
+ * organisation the viewer has active is used. A solution is opened with `?id=`.
  *
- * Saved automatically when someone says a fix worked (or gives it a thumbs
- * up), or by the assistant when a problem is clearly solved. The assistant
- * searches this library first for troubleshooting questions; this page is
- * where people read it, say whether a fix worked, flag one that looks wrong,
- * change who can see it, or remove it.
- *
- * Each claim in a fix carries how fast it goes stale; a claim past its window
- * is marked "check", and the assistant must re-verify it or say it may have
- * changed before relying on it.
+ * Saved solutions are written by the assistant when a fix works, or by hand.
+ * Each claim in a fix says how fast it goes stale; a claim past its window is
+ * marked "check", and the assistant must re-verify it before relying on it.
  */
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Building2, CheckCircle2, Lightbulb, Loader2, Search, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import {
+  BarChart3,
+  Building2,
+  ClipboardCheck,
+  Lightbulb,
+  Pencil,
+  Plus,
+  Search,
+  Upload,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 
-import orgsService from '../api/orgs';
-import solutionsService, { type ReviewKind, type Solution } from '../api/solutions';
+import orgsService, { CURATOR_ROLES, type Org } from '../api/orgs';
+import solutionsService, {
+  type DraftFields,
+  type Solution,
+  type SolutionListStatus,
+} from '../api/solutions';
 import PageHeader from '../components/layout/PageHeader';
+import KnowledgeBaseSharing from '../components/documents/KnowledgeBaseSharing';
 import OrganizationTab from '../components/settings/OrganizationTab';
+import DocumentImportDialog from '../components/solutions/DocumentImportDialog';
+import LibraryEmptyState from '../components/solutions/LibraryEmptyState';
+import SolutionDetail from '../components/solutions/SolutionDetail';
+import SolutionForm from '../components/solutions/SolutionForm';
+import SolutionInsights from '../components/solutions/SolutionInsights';
+import SolutionRow from '../components/solutions/SolutionRow';
+import TeamDocuments from '../components/solutions/TeamDocuments';
+import { markLeaving, restoreRows, type ListRow } from '../components/solutions/rowExit';
+import { Button } from '../components/ui/Button';
+import { SkeletonList } from '../components/ui/Skeleton';
+import { detailOf, emptyValues } from '../lib/solutionForm';
+import {
+  cleanTag,
+  flagOn,
+  isCuratorTab,
+  nextPageParam,
+  openIdOf,
+  paramOfScope,
+  scopeOfParam,
+  teamTabOf,
+  visibleTabs,
+  type TeamTab,
+} from '../lib/solutionsPage';
 import { toast } from '../lib/toastStore';
 import { cn } from '../lib/utils';
 
-const KIND_LABEL: Record<string, string> = {
-  principle: 'General rule',
-  procedure: 'Steps',
-  versioned: 'Version-specific',
-  config: 'Setting',
-  time_sensitive: 'Changes often',
-  ephemeral: 'Momentary',
+type WorkTab = Extract<TeamTab, 'library' | 'drafts' | 'queue'>;
+
+/** Every solutions query starts with `solutions`, so one invalidation refreshes them all. */
+const ROOT = 'solutions';
+
+/** The tab icons, labels and counts. Queue and insights appear for curators only. */
+const TAB_META: Record<TeamTab, { label: string; icon: LucideIcon }> = {
+  library: { label: 'Library', icon: Lightbulb },
+  drafts: { label: 'My drafts', icon: Pencil },
+  queue: { label: 'Review queue', icon: ClipboardCheck },
+  insights: { label: 'Insights', icon: BarChart3 },
+  team: { label: 'Team', icon: Users },
 };
 
-function detailOf(error: unknown, fallback: string): string {
-  return (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
+/** A count query: one per (scope, status), used for the tab badges. */
+function countKey(scope: number | null, status: SolutionListStatus): QueryKey {
+  return [ROOT, 'count', scope, status];
 }
 
-function Badges({ s }: { s: Solution }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 text-[11px]">
-      {s.doubtful && (
-        <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
-          <AlertTriangle className="h-3 w-3" /> Doubtful
-        </span>
-      )}
-      {s.status === 'needs_check' && (
-        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">Needs check</span>
-      )}
-      {s.status === 'superseded' && (
-        <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">Replaced</span>
-      )}
-      {s.checks_needed.length > 0 && (
-        <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">
-          {s.checks_needed.length} claim{s.checks_needed.length === 1 ? '' : 's'} may be out of date
-        </span>
-      )}
-      <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">
-        {s.shared_with_org ? 'Shared' : 'Private'}
-      </span>
-    </div>
-  );
-}
-
-function Detail({ org, id, onClose }: { org: number | null; id: number; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [reason, setReason] = useState('');
-  const { data: s, isLoading, isError } = useQuery({
-    queryKey: ['solution', org, id],
-    queryFn: () => solutionsService.get(org, id),
-  });
-  const refresh = () => {
-    void qc.invalidateQueries({ queryKey: ['solution', org, id] });
-    void qc.invalidateQueries({ queryKey: ['solutions'] });
-  };
-  const review = useMutation({
-    mutationFn: (kind: ReviewKind) => solutionsService.review(org, id, kind, reason),
-    onSuccess: () => { setReason(''); refresh(); toast.success('Recorded.'); },
-    onError: (e) => toast.error(detailOf(e, 'Could not record that.')),
-  });
-  const share = useMutation({
-    mutationFn: (shared: boolean) => solutionsService.setShared(org, id, shared),
-    onSuccess: refresh,
-    onError: (e) => toast.error(detailOf(e, 'Could not change sharing.')),
-  });
-  const retract = useMutation({
-    mutationFn: () => solutionsService.retract(org, id),
-    onSuccess: () => { refresh(); onClose(); toast.success('Removed.'); },
-    onError: (e) => toast.error(detailOf(e, 'Could not remove it.')),
-  });
-
-  if (isLoading) return <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" />;
-  if (isError || !s) return <p className="py-6 text-sm text-muted-foreground">This solution is not available.</p>;
-
-  return (
-    <div className="space-y-4 text-sm">
-      <div>
-        <h3 className="text-base font-medium">{s.problem}</h3>
-        <p className="mt-1 text-[12px] text-muted-foreground">
-          Solved by {s.solved_by}{s.solved_on ? ` on ${s.solved_on}` : ''} · last known true {s.last_known_true}
-          {' '}· worked for {s.track_record.worked}, failed for {s.track_record.failed}
-        </p>
-        <div className="mt-2"><Badges s={s} /></div>
-      </div>
-      {s.doubtful && (
-        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[13px]">
-          <strong>Flagged as possibly wrong:</strong> {s.doubtful}
-        </p>
-      )}
-      {s.symptoms && (<section><h4 className="text-[12px] font-semibold uppercase text-muted-foreground">Symptoms</h4><pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px]">{s.symptoms}</pre></section>)}
-      {s.root_cause && (<section><h4 className="text-[12px] font-semibold uppercase text-muted-foreground">Cause</h4><p className="mt-1 whitespace-pre-wrap">{s.root_cause}</p></section>)}
-      <section><h4 className="text-[12px] font-semibold uppercase text-muted-foreground">Fix</h4><p className="mt-1 whitespace-pre-wrap">{s.resolution}</p></section>
-      {s.claims.length > 0 && (
-        <section>
-          <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">What could change</h4>
-          <ul className="mt-1 space-y-1">
-            {s.claims.map((c, i) => (
-              <li key={i} className="flex flex-wrap items-baseline gap-2">
-                <span className={cn('rounded px-1.5 py-0.5 text-[11px]',
-                  c.state === 'check' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
-                  {c.state === 'check' ? 'Check' : 'Current'}
-                </span>
-                <span className="text-[11px] text-muted-foreground">{KIND_LABEL[c.kind] ?? c.kind}</span>
-                <span>{c.text}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {Object.keys(s.environment || {}).length > 0 && (
-        <p className="text-[12px] text-muted-foreground">
-          Applied to: {Object.entries(s.environment).map(([k, v]) => `${k} ${v}`).join(', ')}
-        </p>
-      )}
-
-      <div className="space-y-2 border-t border-border/60 pt-3">
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => review.mutate('confirmed')} className="inline-flex items-center gap-1 rounded border border-border px-2.5 py-1 text-[12px] hover:bg-secondary">
-            <ThumbsUp className="h-3.5 w-3.5" /> It worked for me
-          </button>
-          <button type="button" onClick={() => review.mutate('failed')} className="inline-flex items-center gap-1 rounded border border-border px-2.5 py-1 text-[12px] hover:bg-secondary">
-            <ThumbsDown className="h-3.5 w-3.5" /> It did not work
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why? (needed to flag or clear a doubt)"
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2.5 py-1 text-[12px]" />
-          {s.doubtful ? (
-            <button type="button" disabled={!reason.trim()} onClick={() => review.mutate('cleared')} className="inline-flex items-center gap-1 rounded border border-border px-2.5 py-1 text-[12px] hover:bg-secondary disabled:opacity-50">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Clear doubt
-            </button>
-          ) : (
-            <button type="button" disabled={!reason.trim()} onClick={() => review.mutate('doubt')} className="inline-flex items-center gap-1 rounded border border-border px-2.5 py-1 text-[12px] hover:bg-secondary disabled:opacity-50">
-              <AlertTriangle className="h-3.5 w-3.5" /> Flag as doubtful
-            </button>
-          )}
-        </div>
-        {s.can_manage && (
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            {org != null && (
-              <label className="flex items-center gap-2 text-[12px]">
-                <input type="checkbox" checked={s.shared_with_org} onChange={(e) => share.mutate(e.target.checked)} />
-                Shared with the organisation
-              </label>
-            )}
-            <button type="button" onClick={() => retract.mutate()} className="inline-flex items-center gap-1 text-[12px] text-destructive">
-              <Trash2 className="h-3.5 w-3.5" /> Remove
-            </button>
-          </div>
-        )}
-      </div>
-
-      {(s.reviews ?? []).length > 0 && (
-        <section>
-          <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">History</h4>
-          <ul className="mt-1 space-y-1 text-[12px] text-muted-foreground">
-            {(s.reviews ?? []).map((r, i) => (
-              <li key={i}>
-                {new Date(r.at).toLocaleDateString()} — {r.kind} by {r.by}{r.model ? ` (${r.model})` : ''}{r.reason ? `: ${r.reason}` : ''}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
-  );
-}
-
-type Tab = 'solutions' | 'organisation';
-
-const TABS: { id: Tab; label: string; icon: typeof Lightbulb }[] = [
-  { id: 'solutions', label: 'Solutions', icon: Lightbulb },
-  { id: 'organisation', label: 'Organisation', icon: Building2 },
-];
-
-export default function OrganisationAndSolutions() {
+export default function TeamKnowledge() {
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get('tab') === 'organisation' ? 'organisation' : 'solutions';
-  const pick = (next: Tab) => {
+  const { data: orgData } = useQuery({ queryKey: ['orgs'], queryFn: orgsService.list });
+  const ready = orgData !== undefined;
+  const orgs = orgData?.orgs ?? [];
+  const tab = teamTabOf(params.get('tab'));
+
+  // A deep link names its scope. An organisation the viewer is not in cannot be
+  // honoured, so the active one is used and the page says so.
+  const urlScope = scopeOfParam(params.get('org'));
+  const urlHonoured = urlScope !== undefined
+    && (urlScope === null || !ready || orgs.some((o) => o.id === urlScope));
+  const scope: number | null = urlHonoured ? (urlScope as number | null) : (orgData?.active_org_id ?? null);
+  const notMember = ready && urlScope != null && !orgs.some((o) => o.id === urlScope);
+
+  const scopeOrg: Org | undefined = orgs.find((o) => o.id === scope);
+  const canCurate = !!scopeOrg && CURATOR_ROLES.includes(scopeOrg.role);
+
+  const draftCount = useQuery({
+    queryKey: countKey(scope, 'draft'),
+    queryFn: () => solutionsService.list(scope, { status: 'draft' }),
+    enabled: ready,
+  });
+  const queueCount = useQuery({
+    queryKey: countKey(scope, 'pending_review'),
+    queryFn: () => solutionsService.list(scope, { status: 'pending_review' }),
+    enabled: ready && canCurate,
+  });
+
+  const tabs = visibleTabs(canCurate).map((id) => ({
+    id,
+    ...TAB_META[id],
+    count: id === 'drafts' ? draftCount.data?.total : id === 'queue' ? queueCount.data?.total : undefined,
+  }));
+
+  /** Changing tab keeps the scope and drops the open solution and the library-only filters. */
+  const pick = (next: TeamTab) => {
     const q = new URLSearchParams(params);
     q.delete('id');
-    if (next === 'solutions') q.delete('tab'); else q.set('tab', next);
+    q.set('tab', next);
+    if (next !== 'library') {
+      q.delete('attention');
+      q.delete('tag');
+      q.delete('mine');
+    }
     setParams(q, { replace: true });
   };
+
+  const pickScope = (next: number | null) => {
+    const q = new URLSearchParams(params);
+    q.delete('id');
+    q.set('org', paramOfScope(next));
+    setParams(q, { replace: true });
+  };
+
+  /** The address of a solution in the library, in the scope the page is showing. */
+  const hrefFor = (id: number) => {
+    const q = new URLSearchParams(params);
+    q.set('tab', 'library');
+    q.set('org', paramOfScope(scope));
+    q.set('id', String(id));
+    q.delete('attention');
+    return `?${q.toString()}`;
+  };
+
+  const curatorOnly = isCuratorTab(tab) && ready && !canCurate;
 
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        title="Organisation & Solutions"
-        subtitle="The people you share with, and the problems already solved"
+        title="Team knowledge"
+        subtitle="The problems your team has already solved, and the documents it shares"
         icon={Building2}
       />
       <div className="px-4 pt-6 md:px-8">
-        <div className="flex gap-1" role="tablist" aria-label="Section">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pick(id)}
-              className={cn('inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[13px] transition-colors',
-                tab === id ? 'border-primary/40 bg-primary/10 font-medium' : 'border-border/60 text-muted-foreground hover:text-foreground')}>
-              <Icon className="h-3.5 w-3.5" /> {label}
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Section">
+          {tabs.map(({ id, label, icon: Icon, count }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`solutions-tab-${id}`}
+              aria-selected={tab === id}
+              aria-controls="solutions-panel"
+              onClick={() => pick(id)}
+              className={cn(
+                'relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 py-1.5 text-[13px] transition-colors duration-normal ease-standard',
+                tab === id
+                  ? 'border-primary/40 bg-primary/10 font-medium'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              {label}
+              {count != null && count > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary tabular-nums">
+                  {count}
+                </span>
+              )}
+              {/* The active underline grows in and shrinks out on transform alone (no layout). */}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'pointer-events-none absolute inset-x-2 -bottom-1 h-0.5 rounded-full bg-primary transition-transform duration-normal ease-decelerate',
+                  tab === id ? 'scale-x-100' : 'scale-x-0',
+                )}
+              />
             </button>
           ))}
         </div>
       </div>
-      {tab === 'organisation'
-        ? <div className="px-4 py-6 md:px-8"><OrganizationTab /></div>
-        : <SolutionsLibrary />}
+
+      {notMember && (
+        <p role="status" className="px-4 pt-4 text-[13px] text-muted-foreground md:px-8">
+          That organisation is not one you belong to, so this shows your active organisation.
+        </p>
+      )}
+
+      <div id="solutions-panel" role="tabpanel" aria-labelledby={`solutions-tab-${tab}`}>
+        {curatorOnly ? (
+          <p className="px-4 py-12 text-center text-sm text-muted-foreground md:px-8">
+            {tab === 'insights'
+              ? 'Only the curators of this organisation see the insights.'
+              : 'Only the curators of this organisation see the review queue.'}
+          </p>
+        ) : tab === 'team' ? (
+          <div key={tab} className="animate-fade-in space-y-10 px-4 py-6 md:px-8">
+            <OrganizationTab />
+            <section aria-labelledby="team-documents-heading" className="space-y-3">
+              <h2 id="team-documents-heading" className="text-base font-medium">Team documents</h2>
+              <p className="text-[13px] text-muted-foreground">
+                A knowledge base you own can be shared with an organisation you belong to. Its members can search it from
+                chat. They cannot upload to it or delete from it.
+              </p>
+              <KnowledgeBaseSharing orgs={orgs} />
+            </section>
+          </div>
+        ) : tab === 'insights' ? (
+          <div key={tab} className="animate-fade-in px-4 py-6 md:px-8">
+            {scopeOrg ? (
+              <SolutionInsights org={scopeOrg.id} orgName={scopeOrg.name} hrefFor={hrefFor} />
+            ) : null}
+          </div>
+        ) : (
+          <SolutionsWorkspace
+            key={String(scope)}
+            tab={tab as WorkTab}
+            scope={scope}
+            scopeOrg={scopeOrg}
+            canCurate={canCurate}
+            ready={ready}
+            orgs={orgs}
+            onScope={pickScope}
+          />
+        )}
+      </div>
     </div>
   );
 }
 
-function SolutionsLibrary() {
+/** The list-and-detail view for the library, the drafts and the queue. */
+function SolutionsWorkspace({
+  tab,
+  scope,
+  scopeOrg,
+  canCurate,
+  ready,
+  orgs,
+  onScope,
+}: {
+  tab: WorkTab;
+  scope: number | null;
+  scopeOrg: Org | undefined;
+  canCurate: boolean;
+  ready: boolean;
+  orgs: Org[];
+  onScope: (next: number | null) => void;
+}) {
+  const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [submitted, setSubmitted] = useState('');
-  const { data: orgData } = useQuery({ queryKey: ['orgs'], queryFn: orgsService.list });
-  const orgs = useMemo(() => orgData?.orgs ?? [], [orgData]);
-  const [org, setOrg] = useState<number | null | undefined>(undefined);
-  const scope = org === undefined ? (orgData?.active_org_id ?? null) : org;
-  const openId = params.get('id') ? Number(params.get('id')) : null;
+  const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  /** The row whose "Edit" was pressed: its detail opens already in the edit form. */
+  const [editRequest, setEditRequest] = useState<number | null>(null);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['solutions', scope, submitted],
-    queryFn: () => solutionsService.list(scope, submitted),
-    enabled: orgData !== undefined,
+  const isLibrary = tab === 'library';
+  const attention = isLibrary && flagOn(params.get('attention'));
+  const mine = isLibrary && flagOn(params.get('mine'));
+  const tag = isLibrary ? cleanTag(params.get('tag')) : '';
+  const status: SolutionListStatus | undefined =
+    tab === 'drafts' ? 'draft' : tab === 'queue' ? 'pending_review' : undefined;
+  // The attention view ignores search and status on the server, so it is shown without them.
+  const search = isLibrary && !attention ? submitted : '';
+  const openId = openIdOf(params.get('id'));
+  const listEnabled = ready && (tab !== 'queue' || canCurate);
+
+  const pages = useInfiniteQuery({
+    queryKey: [ROOT, 'pages', scope, status ?? 'library', search, tag, mine, attention],
+    queryFn: ({ pageParam }) =>
+      solutionsService.list(scope, { q: search, status, tag, mine, attention, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: nextPageParam,
+    enabled: listEnabled,
   });
-  const items = data?.solutions ?? [];
+  const items: ListRow[] = pages.data?.pages.flatMap((p) => p.solutions) ?? [];
+  const lastPage = pages.data ? pages.data.pages[pages.data.pages.length - 1] : undefined;
+  const attentionCut = attention && lastPage?.truncated === true;
+  const tagCapped = lastPage?.tag_scan_capped === true;
+
+  /** The count on the "Needs attention" chip, under the same tag and "mine" filters as the list. */
+  const attentionCount = useQuery({
+    queryKey: [ROOT, 'attention', scope, tag, mine],
+    queryFn: () => solutionsService.list(scope, { attention: true, tag, mine }),
+    enabled: listEnabled && isLibrary,
+  });
+
+  const setParam = (updates: Record<string, string | null>) => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value == null) next.delete(key); else next.set(key, value);
+    }
+    setParams(next, { replace: true });
+  };
 
   const open = (id: number | null) => {
     const next = new URLSearchParams(params);
@@ -258,73 +323,266 @@ function SolutionsLibrary() {
     setParams(next, { replace: true });
   };
 
+  /** A row opened normally: its detail is not in the edit form. */
+  const openRow = (id: number) => {
+    setEditRequest(null);
+    open(id);
+  };
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: [ROOT] });
+
+  const create = useMutation({
+    mutationFn: ({ draft, share }: { draft: DraftFields; share: boolean }) =>
+      solutionsService.create(scope, draft, share),
+    onSuccess: (saved) => {
+      setCreating(false);
+      setCreateError(null);
+      void invalidate();
+      toast.success('Saved.');
+      open(saved.id);
+    },
+    onError: (e) => setCreateError(detailOf(e, 'Could not save the solution.')),
+  });
+
+  // Both leave the attention view, so the row collapses at once and is rolled back if the write fails.
+  const stillTrue = useMutation({
+    mutationFn: (s: Solution) => solutionsService.review(scope, s.id, 'verified', ''),
+    onMutate: (s) => markLeaving(qc, s.id),
+    onSuccess: () => {
+      toast.success('Marked as still true.');
+      void invalidate();
+    },
+    onError: (e, _vars, snapshot) => {
+      if (snapshot) restoreRows(qc, snapshot);
+      toast.error(detailOf(e, 'Could not record that.'));
+    },
+  });
+
+  const retract = useMutation({
+    mutationFn: (id: number) => solutionsService.retract(scope, id),
+    onMutate: (id) => markLeaving(qc, id),
+    onSuccess: (_result, id) => {
+      if (openId === id) open(null);
+      toast.success('Removed.');
+      void invalidate();
+    },
+    onError: (e, _vars, snapshot) => {
+      if (snapshot) restoreRows(qc, snapshot);
+      toast.error(detailOf(e, 'Could not remove it.'));
+    },
+  });
+
+  const rowBusy = stillTrue.isPending || retract.isPending;
+
+  const emptyText = tab === 'drafts'
+    ? 'No drafts. When a fix is found in a team chat, its draft waits here for you to share or discard.'
+    : tab === 'queue'
+      ? 'Nothing is waiting for review.'
+      : attention
+        ? 'Nothing needs attention right now.'
+        : submitted || tag || mine
+          ? 'No saved solution matches these filters.'
+          : '';
+
+  const showCards = isLibrary && !attention && !submitted && !tag && !mine;
+  const emptyCards = showCards && ready && !pages.isLoading && !pages.isError && items.length === 0;
+
   return (
-    <div>
-      <div className="px-4 py-6 md:px-8">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <select
-            value={scope ?? ''}
-            onChange={(e) => {
-              setOrg(e.target.value ? Number(e.target.value) : null);
-              setSubmitted('');
-              setQuery('');
-              open(null);
-            }}
-            className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-            aria-label="Whose solutions"
+    <div className="px-4 py-6 md:px-8">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <select
+          value={scope ?? ''}
+          onChange={(e) => onScope(e.target.value ? Number(e.target.value) : null)}
+          className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+          aria-label="Whose solutions"
+        >
+          <option value="">Just mine (no organisation)</option>
+          {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>
+
+        {isLibrary && !attention && (
+          <form
+            className="flex min-w-[12rem] flex-1 gap-2"
+            role="search"
+            onSubmit={(e) => { e.preventDefault(); setSubmitted(query); }}
           >
-            <option value="">Just mine (no organisation)</option>
-            {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
-          <form className="flex min-w-0 flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); setSubmitted(query); }}>
             <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)}
+              <Search className="absolute left-2 top-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Describe the problem or paste the error"
-                className="w-full rounded border border-border bg-background py-1.5 pl-8 pr-2 text-sm" />
+                aria-label="Search solutions"
+                className="w-full rounded border border-border bg-background py-1.5 pl-8 pr-2 text-sm"
+              />
             </div>
-            <button type="submit" className="rounded bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground">Search</button>
+            <Button type="submit" size="sm">Search</Button>
           </form>
+        )}
+
+        {isLibrary && (
+          <>
+            <Button size="sm" variant="secondary" onClick={() => { setCreating((v) => !v); setCreateError(null); }} aria-expanded={creating}>
+              <Plus className="h-3.5 w-3.5" /> New solution
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>
+              <Upload className="h-3.5 w-3.5" /> Import from a document
+            </Button>
+          </>
+        )}
+      </div>
+
+      {isLibrary && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
+          <button
+            type="button"
+            aria-pressed={attention}
+            onClick={() => setParam({ attention: attention ? null : '1' })}
+            className={cn(
+              'rounded-full border px-2.5 py-1 transition-colors',
+              attention
+                ? 'border-amber-500/50 bg-amber-500/15 font-medium text-amber-700 dark:text-amber-300'
+                : 'border-border/60 text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Needs attention{attentionCount.data?.total != null ? ` (${attentionCount.data.total})` : ''}
+          </button>
+          <button
+            type="button"
+            aria-pressed={mine}
+            onClick={() => setParam({ mine: mine ? null : '1' })}
+            className={cn(
+              'rounded-full border px-2.5 py-1 transition-colors',
+              mine ? 'border-primary/40 bg-primary/10 font-medium' : 'border-border/60 text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Only mine
+          </button>
+          {tag && (
+            <button
+              type="button"
+              onClick={() => setParam({ tag: null })}
+              aria-label={`Clear the tag filter ${tag}`}
+              className="rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium"
+            >
+              Tagged {tag} ×
+            </button>
+          )}
+        </div>
+      )}
+
+      {isLibrary && creating && (
+        <section aria-label="New solution" className="mb-6 rounded-lg border border-border/60 bg-card/40 p-4">
+          <h3 className="mb-3 text-base font-medium">New solution</h3>
+          <SolutionForm
+            mode="new"
+            initial={emptyValues()}
+            shareOption={scope != null}
+            orgName={scopeOrg?.name}
+            submitLabel="Save solution"
+            busy={create.isPending}
+            serverError={createError}
+            onSubmit={(draft, options) => create.mutate({ draft, share: options.share })}
+            onCancel={() => { setCreating(false); setCreateError(null); }}
+          />
+        </section>
+      )}
+
+      {isLibrary && importing && (
+        <DocumentImportDialog org={scope} onClose={() => setImporting(false)} />
+      )}
+
+      {/* With an empty library the start cards take the full width: a reading
+          pane beside them has nothing to show and squeezes the cards. */}
+      <div className={cn(
+        'grid gap-4',
+        !(emptyCards && openId == null) && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]',
+      )}>
+        {/* Keyed on the tab: switching tabs fades the list in and replays the row stagger. */}
+        <div key={tab} className="min-w-0 animate-fade-in">
+          {(pages.isLoading || !ready) && <SkeletonList rows={4} label="Loading solutions" />}
+          {pages.isError && <p className="py-10 text-center text-sm text-muted-foreground">Solutions could not be loaded.</p>}
+
+          {!pages.isLoading && !pages.isError && ready && items.length === 0 && (
+            isLibrary && showCards ? (
+              <LibraryEmptyState
+                hasOrg={orgs.length > 0}
+                onWrite={() => { setCreating(true); setCreateError(null); }}
+                onImport={() => setImporting(true)}
+                teamHref="?tab=team"
+              />
+            ) : (
+              <p className="mx-auto max-w-md py-12 text-center text-sm leading-relaxed text-muted-foreground">{emptyText}</p>
+            )
+          )}
+
+          {attentionCut && (
+            <p className="mb-2 text-[12px] text-muted-foreground">
+              Only the first 500 solutions were checked. Older ones are not in this list.
+            </p>
+          )}
+          {tagCapped && (
+            <p className="mb-2 text-[12px] text-muted-foreground">
+              This tag was searched among the newest solutions only. Older matches may be missing.
+            </p>
+          )}
+
+          <ul className="stagger-children space-y-2">
+            {items.map((s) => (
+              <SolutionRow
+                key={s.id}
+                s={s}
+                selected={openId === s.id}
+                attentionView={attention}
+                leaving={s.leaving}
+                busy={rowBusy}
+                onOpen={openRow}
+                onTag={(t) => setParam({ tag: t })}
+                onStillTrue={(row) => stillTrue.mutate(row)}
+                onEdit={(row) => { setEditRequest(row.id); open(row.id); }}
+                onRetract={(row) => retract.mutate(row.id)}
+              />
+            ))}
+          </ul>
+
+          {pages.hasNextPage && (
+            <div className="pt-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={pages.isFetchingNextPage}
+                onClick={() => void pages.fetchNextPage()}
+              >
+                Load more
+              </Button>
+            </div>
+          )}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <div>
-            {isLoading && <div className="flex justify-center py-16 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}
-            {isError && <p className="py-10 text-center text-sm text-muted-foreground">Solutions could not be loaded.</p>}
-            {!isLoading && !isError && items.length === 0 && (
-              <p className="mx-auto max-w-md py-12 text-center text-sm leading-relaxed text-muted-foreground">
-                {submitted
-                  ? 'No saved solution matches that. If you solve it, say "that worked" in chat and it will be saved here.'
-                  : 'Nothing saved yet. When a fix works in chat — say "that worked" or give it a thumbs up — it is saved here.'}
-              </p>
-            )}
-            <ul className="space-y-2">
-              {items.map((s) => (
-                <li key={s.id}>
-                  <button type="button" onClick={() => open(s.id)}
-                    className={cn('w-full rounded-lg border p-3 text-left transition-colors',
-                      openId === s.id ? 'border-primary/50 bg-primary/5' : 'border-border/60 bg-card/60 hover:bg-secondary/50')}>
-                    <p className="text-sm font-medium">{s.problem}</p>
-                    <p className="mt-0.5 text-[12px] text-muted-foreground">
-                      {s.solved_by} · {s.solved_on} · worked for {s.track_record.worked}
-                    </p>
-                    <div className="mt-1.5"><Badges s={s} /></div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="lg:sticky lg:top-4 lg:self-start">
-            {openId != null ? (
-              <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-                <Detail org={scope} id={openId} onClose={() => open(null)} />
-              </div>
-            ) : (
-              <p className="hidden py-12 text-center text-sm text-muted-foreground lg:block">Pick a solution to read it.</p>
-            )}
-          </div>
+        <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
+          {openId != null ? (
+            <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+              <SolutionDetail
+                key={`${openId}:${editRequest === openId ? 'edit' : 'view'}`}
+                org={scope}
+                orgName={scopeOrg?.name}
+                id={openId}
+                canCurate={canCurate}
+                startEditing={editRequest === openId}
+                onClose={() => open(null)}
+              />
+            </div>
+          ) : emptyCards ? null : (
+            <p className="hidden py-12 text-center text-sm text-muted-foreground lg:block">Pick a solution to read it.</p>
+          )}
         </div>
       </div>
+
+      {isLibrary && scopeOrg && (
+        <div className="mt-10">
+          <TeamDocuments org={scopeOrg.id} />
+        </div>
+      )}
     </div>
   );
 }

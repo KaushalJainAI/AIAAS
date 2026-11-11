@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 
 from core import orgs
+from core.models import Membership, Organization
 from solutions import api, index, search
 
 DIM = 64
@@ -55,10 +56,24 @@ class SolutionsTestMixin:
         )
 
     @staticmethod
-    def make_org(owner, name='Acme', *members):
+    def join(org, user, role='member'):
+        """Make `user` a member of `org` directly. Invitations (core/orgs.py
+        `invite` + `respond`) are tested in core; these tests need only the
+        membership, so they do not depend on that flow or on email verification."""
+        Membership.objects.get_or_create(org=org, user=user, defaults={'role': role})
+
+    @classmethod
+    def make_org(cls, owner, name='Acme', *members, capture_mode='auto',
+                 review_policy='open'):
+        """An org configured the way the older tests assume: captured fixes are
+        shared at once. New orgs default to `suggest` (K2.1); a workflow test
+        asks for that explicitly, by passing `capture_mode='suggest'`."""
         org = orgs.create(owner, name)
+        Organization.objects.filter(id=org.id).update(
+            capture_mode=capture_mode, review_policy=review_policy)
+        org.refresh_from_db()
         for member in members:
-            orgs.add_member(owner, org.id, member.email)
+            cls.join(org, member)
         return org
 
     @staticmethod
