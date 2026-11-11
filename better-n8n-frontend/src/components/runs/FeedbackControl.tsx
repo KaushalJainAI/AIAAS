@@ -49,8 +49,8 @@ export default function FeedbackControl({
         aria-label="Thumbs up"
         onClick={() => submit.mutate(1)}
         className={cn(
-          'p-1 rounded hover:bg-secondary',
-          rating === 1 ? 'text-emerald-600' : 'text-muted-foreground',
+          'p-1 rounded-md hover:bg-secondary',
+          rating === 1 ? 'text-success' : 'text-muted-foreground',
         )}
       >
         <ThumbsUp className="w-4 h-4" />
@@ -60,7 +60,7 @@ export default function FeedbackControl({
         aria-label="Thumbs down"
         onClick={() => (rating === -1 ? setOpen((o) => !o) : (setOpen(true), submit.mutate(-1)))}
         className={cn(
-          'p-1 rounded hover:bg-secondary',
+          'p-1 rounded-md hover:bg-secondary',
           rating === -1 ? 'text-red-600' : 'text-muted-foreground',
         )}
       >

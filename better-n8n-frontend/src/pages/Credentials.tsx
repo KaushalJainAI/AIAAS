@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { credentialsService } from '../api/credentials';
 import type { Credential, CredentialType } from '../api/credentials';
+import { healthView, maskedKey } from '../lib/credentialHealth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import CredentialModal from '../components/credentials/CredentialModal';
 import PageHeader from '../components/layout/PageHeader';
@@ -155,12 +156,12 @@ export default function Credentials() {
   const renderCredentialCard = (credential: Credential) => (
     <div
       key={credential.id}
-      className="group relative bg-card border border-border rounded-lg p-6 card-hover cursor-pointer flex flex-col"
+      className="group relative flex flex-col gap-3 bg-card p-4 cursor-pointer transition-colors hover:bg-secondary/50"
       onClick={() => setViewingCredential(credential)}
     >
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
+          <div className="p-3 bg-primary/10 rounded-md group-hover:bg-primary/20 transition-colors">
             {(() => {
                 const type = credentialTypes.find(t => t.id === credential.credential_type);
                 return renderIcon(type?.icon || 'Key');
@@ -175,7 +176,7 @@ export default function Credentials() {
         </div>
         <div className="relative">
           <button 
-            className="p-1.5 hover:bg-muted rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="p-1.5 hover:bg-muted rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Credential actions"
             aria-expanded={openDropdown === credential.id}
             onClick={(e) => {
@@ -187,7 +188,7 @@ export default function Credentials() {
           </button>
           
           {openDropdown === credential.id && (
-            <div role="menu" className="absolute right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-10 py-1 min-w-32 entrance-modal">
+            <div role="menu" className="absolute right-0 top-full mt-1 bg-card border border-border rounded-md shadow-lg z-10 py-1 min-w-32 entrance-modal">
               <button
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted"
                 onClick={(e) => {
@@ -219,11 +220,11 @@ export default function Credentials() {
                     setOpenDropdown(null);
                 }}
               >
-                <Shield className="w-4 h-4 text-green-600" />
+                <Shield className="w-4 h-4 text-success" />
                 Verify
               </button>
               <button
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted text-red-600"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted text-destructive"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowDeleteConfirm(credential.id);
@@ -238,20 +239,26 @@ export default function Credentials() {
         </div>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-border/60 space-y-2">
+      <div className="pt-3 border-t border-border/60 space-y-2">
+        {maskedKey(credential) && (
+          <p className="font-mono text-[12px] text-muted-foreground truncate">{maskedKey(credential)}</p>
+        )}
         {!credential.is_verified && credential.last_error && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed line-clamp-2" title={credential.last_error}>
+          <p className="text-xs text-warning leading-relaxed line-clamp-2" title={credential.last_error}>
             {credential.last_error}
           </p>
         )}
-        <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            {credential.is_verified ? (
-               <Check className="w-3 h-3 text-green-500" />
-            ) : (
-               <Shield className="w-3 h-3 text-amber-500" />
-            )}
-            <span className={credential.is_verified ? "text-green-500 font-bold" : "text-amber-600 font-bold"}>{credential.is_verified ? 'Verified' : 'Needs verification'}</span>
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <div className="flex min-w-0 items-center gap-2">
+            {(() => {
+              const h = healthView(credential);
+              return (
+                <>
+                  <span aria-hidden className={cn('inline-block h-1.5 w-1.5 shrink-0 rounded-full', h.dot)} />
+                  <span className={cn('truncate', h.tone)} data-testid="credential-health">{h.text}</span>
+                </>
+              );
+            })()}
           </div>
           {!credential.is_verified ? (
             <button
@@ -259,7 +266,7 @@ export default function Credentials() {
                 e.stopPropagation();
                 handleVerifyCredential(credential.id);
               }}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-success-subtle text-success border border-border text-xs font-semibold hover:bg-success-subtle/80 transition-colors"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-subtle text-primary text-xs font-medium hover:bg-primary-subtle/80 transition-colors"
             >
               <Shield className="w-3 h-3" />
               Verify
@@ -298,23 +305,23 @@ export default function Credentials() {
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-2 text-sm">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-semibold">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-success-subtle text-success font-semibold">
               <Check className="w-3.5 h-3.5" />
               {verifiedCredentials.length} verified
             </span>
             {unverifiedCredentials.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-warning-subtle text-warning font-semibold">
                 <Shield className="w-3.5 h-3.5" />
                 {unverifiedCredentials.length} need verification
               </span>
             )}
-            <div className="ml-2 flex items-center gap-1 border border-border rounded-full p-0.5">
+            <div className="ml-2 flex items-center gap-1 border border-border rounded-md p-0.5">
               {(['all', 'verified', 'unverified'] as const).map(f => (
                 <button
                   key={f}
                   onClick={() => setStatusFilter(f)}
                   className={cn(
-                    "px-2.5 py-1 rounded-full text-xs font-semibold transition-colors",
+                    "px-2.5 py-1 rounded text-xs font-semibold transition-colors",
                     statusFilter === f ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
                   )}
                 >
@@ -347,14 +354,14 @@ export default function Credentials() {
           stay on the same page so a new key never looks lost before Verify. */}
       <div className="flex-1 overflow-auto p-4 md:p-8 space-y-10 animate-in fade-in duration-500">
         {unverifiedCredentials.length > 0 && statusFilter === 'all' && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <div className="rounded-md border border-warning/40 bg-warning-subtle px-4 py-3 text-sm text-warning">
             {unverifiedCredentials.length} credential{unverifiedCredentials.length === 1 ? '' : 's'} {unverifiedCredentials.length === 1 ? 'needs' : 'need'} verification — only verified keys are used for AI calls. Press Verify on the card.
           </div>
         )}
         {groupedCredentials.map(group => (
           <section key={group.type}>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-3">{group.type} ({group.items.length})</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 stagger-children">
+            <h3 className="label-mono mb-2">{group.type} ({group.items.length})</h3>
+            <div className="flex flex-col overflow-hidden rounded-md border border-border/60 divide-y divide-border/60 bg-card stagger-children">
               {group.items.map(renderCredentialCard)}
             </div>
           </section>
@@ -363,9 +370,9 @@ export default function Credentials() {
         {/* Empty State */}
         {visibleCredentials.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-20 entrance-overlay">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-muted/30">
+            <div className="w-20 h-20 rounded-md flex items-center justify-center mb-6 bg-muted/30">
               {statusFilter === 'verified' ? (
-                <Check className="w-10 h-10 text-emerald-500" />
+                <Check className="w-10 h-10 text-success" />
               ) : (
                 <Shield className="w-10 h-10 text-muted-foreground/50" />
               )}
@@ -418,7 +425,7 @@ export default function Credentials() {
              {/* ... View Mode Content Stays ... */}
             <div className="p-6 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-muted/80 rounded-lg">
+                <div className="p-2 bg-muted/80 rounded-md">
                    {(() => {
                         const type = credentialTypes.find(t => t.id === viewingCredential.credential_type);
                         return renderIcon(type?.icon || 'Key');
@@ -434,7 +441,7 @@ export default function Credentials() {
                   setViewingCredential(null);
                   setVisibleFields(new Set());
                 }}
-                className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                className="p-1.5 hover:bg-muted rounded-md transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -468,7 +475,7 @@ export default function Credentials() {
                       title="Copy"
                     >
                       {copiedField === field.key ? (
-                        <Check className="w-4 h-4 text-green-500" />
+                        <Check className="w-4 h-4 text-success" />
                       ) : (
                         <Copy className="w-4 h-4" />
                       )}
@@ -485,7 +492,7 @@ export default function Credentials() {
               <div className="flex gap-2">
                 <button 
                     onClick={() => handleVerifyCredential(viewingCredential.id)}
-                    className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg bg-success-subtle text-success hover:bg-success-subtle/80 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 border border-border rounded-md bg-success-subtle text-success hover:bg-success-subtle/80 transition-colors"
                 >
                     <Shield className="w-4 h-4" />
                     Verify
@@ -496,7 +503,7 @@ export default function Credentials() {
                     setShowModal(true);
                     setViewingCredential(null);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 border border-border/60 rounded-lg hover:bg-muted transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 border border-border/60 rounded-md hover:bg-muted transition-colors"
                 >
                   <Edit className="w-4 h-4" />
                   Edit
@@ -520,13 +527,13 @@ export default function Credentials() {
             <div className="flex justify-end gap-2">
               <button 
                 onClick={() => setShowDeleteConfirm(null)}
-                className="px-4 py-2 border border-border/60 rounded-lg hover:bg-muted transition-colors"
+                className="px-4 py-2 border border-border/60 rounded-md hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
               <button 
                 onClick={() => handleDeleteCredential(showDeleteConfirm)}
-                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors"
+                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
               >
                 Delete
               </button>

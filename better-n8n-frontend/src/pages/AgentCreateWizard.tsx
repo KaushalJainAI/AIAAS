@@ -85,10 +85,10 @@ export default function AgentCreateWizard() {
       />
 
       {step === 'describe' && (
-        <section className="border border-border rounded bg-card p-4 space-y-3">
+        <section className="border border-border rounded-md bg-card p-4 space-y-3">
           <label className="text-[13px] font-semibold">What should this agent do?</label>
           <textarea
-            className="w-full min-h-28 border border-border rounded p-2 text-sm bg-background"
+            className="w-full min-h-28 border border-border rounded-md p-2 text-sm bg-background"
             placeholder="e.g. Read invoices from Gmail every Monday and chase anything overdue by 30 days"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -101,7 +101,7 @@ export default function AgentCreateWizard() {
       )}
 
       {step === 'questions' && (
-        <section className="border border-border rounded bg-card p-4 space-y-4">
+        <section className="border border-border rounded-md bg-card p-4 space-y-4">
           {memoryHints.length > 0 && (
             <p className="text-xs text-muted-foreground">{memoryHints.join(' · ')}</p>
           )}
@@ -111,7 +111,7 @@ export default function AgentCreateWizard() {
               {q.why && <p className="text-xs text-muted-foreground">{q.why}</p>}
               {q.options ? (
                 <select
-                  className="w-full border border-border rounded p-2 text-sm bg-background"
+                  className="w-full border border-border rounded-md p-2 text-sm bg-background"
                   value={answers[q.id] ?? ''}
                   onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
                 >
@@ -120,7 +120,7 @@ export default function AgentCreateWizard() {
                 </select>
               ) : (
                 <input
-                  className="w-full border border-border rounded p-2 text-sm bg-background"
+                  className="w-full border border-border rounded-md p-2 text-sm bg-background"
                   value={answers[q.id] ?? ''}
                   onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
                   placeholder="Type your answer"
@@ -139,15 +139,15 @@ export default function AgentCreateWizard() {
       )}
 
       {step === 'proposal' && proposal && (
-        <section className="border border-border rounded bg-card p-4 space-y-3">
+        <section className="border border-border rounded-md bg-card p-4 space-y-3">
           <h3 className="text-[13px] font-semibold">Proposal — approve before anything exists</h3>
           <ul className="text-xs text-muted-foreground space-y-1">
             {proposal.explanations.map((e) => <li key={e}>· {e}</li>)}
           </ul>
           {proposal.warnings.map((w) => (
-            <p key={w} className="text-xs text-amber-600 dark:text-amber-400">⚠ {w}</p>
+            <p key={w} className="text-xs text-warning">⚠ {w}</p>
           ))}
-          <pre className="text-xs bg-muted rounded p-2 overflow-auto max-h-64">
+          <pre className="text-xs bg-muted rounded-md p-2 overflow-auto max-h-64">
             {JSON.stringify(proposal.config, null, 2)}
           </pre>
           <div className="flex gap-2">
@@ -161,7 +161,7 @@ export default function AgentCreateWizard() {
       )}
 
       {step === 'done' && (
-        <section className="border border-border rounded bg-card p-4 space-y-3">
+        <section className="border border-border rounded-md bg-card p-4 space-y-3">
           <h3 className="text-[13px] font-semibold">Installed. Now prove it works.</h3>
           <p className="text-xs text-muted-foreground">
             Clone the starter eval for this agent and run it for a 0–100 scorecard.

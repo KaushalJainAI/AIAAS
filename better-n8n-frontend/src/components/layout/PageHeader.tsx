@@ -6,6 +6,7 @@ import SidebarMenuButton from './SidebarMenuButton';
 interface PageHeaderProps {
   title: string;
   subtitle: string;
+  /** Accepted for every existing caller; the compact row no longer draws it. */
   icon: LucideIcon;
   iconClassName?: string;
   actions?: ReactNode;
@@ -13,41 +14,38 @@ interface PageHeaderProps {
   className?: string;
 }
 
-export default function PageHeader({ 
-  title, 
-  subtitle, 
-  icon: Icon,
-  iconClassName,
+/* The page title row: 44px tall, title and a short muted subtitle inline,
+ * actions on the right, a bottom border. The mobile menu button sits in-flow at
+ * the start (desktop never sees it, the sidebar is always there). Children
+ * render beneath the row, for a page's own tabs or filters. */
+export default function PageHeader({
+  title,
+  subtitle,
   actions,
   children,
-  className 
+  className,
 }: PageHeaderProps) {
   return (
-    <div className={cn("px-4 py-6 md:px-8 md:py-8 border-b border-border bg-card sticky top-0 z-20", className)}>
-      <div className={cn("flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6", children && "mb-6 md:mb-8")}>
-        {/* Menu button is in-flow at the row start (md:hidden), so the title
-            never needs clearance padding and the 40px slot is identical on
-            every page — that slot is what standardises the title bar. */}
-        <div className="flex items-center gap-3 md:gap-4 min-w-0">
-          <SidebarMenuButton />
-          <div className="p-2.5 md:p-3 bg-primary/10 rounded-lg shrink-0">
-            <Icon className={cn("w-5 h-5 md:w-6 md:h-6 text-primary", iconClassName)} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl md:text-2xl font-bold truncate">{title}</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {subtitle}
-            </p>
-          </div>
+    <div className={cn("sticky top-0 z-20 bg-card", className)}>
+      <div className="flex h-11 items-center gap-3 border-b border-border px-3 md:px-4">
+        <SidebarMenuButton />
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          {/* On phones the 52px top bar already names the page, so the title is
+              kept for screen readers only there; the subtitle and actions stay. */}
+          <h1 className="sr-only md:not-sr-only md:max-w-[60%] md:shrink-0 md:truncate md:text-[15px] md:font-semibold md:text-foreground">
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="min-w-0 truncate text-xs text-muted-foreground">{subtitle}</p>
+          )}
         </div>
-        
         {actions && (
-          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             {actions}
           </div>
         )}
       </div>
-      
+
       {children}
     </div>
   );

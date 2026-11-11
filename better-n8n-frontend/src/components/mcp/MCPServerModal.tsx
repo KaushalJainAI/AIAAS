@@ -46,7 +46,7 @@ interface MCPServerModalProps {
 }
 
 const inputCls =
-  'w-full px-4 py-2.5 bg-background border border-input rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary transition-colors text-sm';
+  'w-full px-4 py-2.5 bg-background border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary transition-colors text-sm';
 const monoCls = cn(inputCls, 'font-mono');
 const labelCls = 'block text-sm font-bold mb-2';
 const tooltipCls =
@@ -308,7 +308,7 @@ export default function MCPServerModal({
           type="button"
           onClick={onRemove}
           aria-label="Remove row"
-          className="mt-2.5 p-1.5 hover:bg-destructive/10 rounded-lg text-muted-foreground hover:text-destructive transition-colors"
+          className="mt-2.5 p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive transition-colors"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -321,11 +321,11 @@ export default function MCPServerModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] animate-in fade-in duration-200">
-      <div className="bg-card border border-border/60 rounded-lg shadow-lg w-full max-w-2xl mx-4 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+      <div className="bg-card border border-border/60 rounded-md shadow-lg w-full max-w-2xl mx-4 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="p-6 border-b border-border/40 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+            <div className="p-2 bg-primary/10 rounded-md text-primary">
               <Cpu className="w-5 h-5" />
             </div>
             <div>
@@ -339,7 +339,7 @@ export default function MCPServerModal({
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-muted rounded-full transition-colors"
+            className="p-2 hover:bg-muted rounded-md transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -348,7 +348,7 @@ export default function MCPServerModal({
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-6">
           {error && (
-            <div className="p-4 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg text-sm flex items-start gap-3">
+            <div className="p-4 bg-destructive/10 text-destructive border border-destructive/20 rounded-md text-sm flex items-start gap-3">
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <div className="font-medium">{error}</div>
             </div>
@@ -378,7 +378,7 @@ export default function MCPServerModal({
                     type="button"
                     onClick={() => setType('stdio')}
                     className={cn(
-                      'flex items-center justify-center gap-2 p-3 border rounded-lg transition-colors font-semibold text-sm',
+                      'flex items-center justify-center gap-2 p-3 border rounded-md transition-colors font-semibold text-sm',
                       type === 'stdio'
                         ? 'bg-primary/10 border-primary text-primary'
                         : 'border-border/60 hover:border-border hover:bg-muted/50'
@@ -391,7 +391,7 @@ export default function MCPServerModal({
                     type="button"
                     onClick={() => setType(isRemote ? type : 'http')}
                     className={cn(
-                      'flex items-center justify-center gap-2 p-3 border rounded-lg transition-colors font-semibold text-sm',
+                      'flex items-center justify-center gap-2 p-3 border rounded-md transition-colors font-semibold text-sm',
                       isRemote
                         ? 'bg-primary/10 border-primary text-primary'
                         : 'border-border/60 hover:border-border hover:bg-muted/50'
@@ -439,7 +439,7 @@ export default function MCPServerModal({
                             onClick={() => setArgsRows((prev) => prev.filter((_, j) => j !== i))}
                             disabled={argsRows.length === 1}
                             aria-label="Remove argument"
-                            className="p-1.5 hover:bg-destructive/10 rounded-lg text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30"
+                            className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -543,7 +543,7 @@ export default function MCPServerModal({
                         type="button"
                         onClick={() => toggleCred(ct.slug)}
                         className={cn(
-                          'w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
+                          'w-full flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors',
                           requiredCreds.includes(ct.slug)
                             ? 'bg-primary/5 border-primary/30 text-primary shadow-sm ring-1 ring-primary/20'
                             : 'border-border/40 hover:bg-muted/50'
@@ -700,7 +700,7 @@ export default function MCPServerModal({
                             type="button"
                             onClick={() => insertToken(i)}
                             disabled={!tokenSlug || !tokenField}
-                            className="px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors disabled:opacity-40"
+                            className="px-3 py-1.5 rounded-md bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors disabled:opacity-40"
                           >
                             Insert
                           </button>
@@ -721,7 +721,7 @@ export default function MCPServerModal({
           </div>
 
           {/* Status */}
-          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border/40">
+          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-md border border-border/40">
             <div>
               <div className="text-sm font-bold">Enabled</div>
               <div className="text-xs text-muted-foreground">
@@ -750,7 +750,7 @@ export default function MCPServerModal({
           </div>
 
           {/* JSON preview */}
-          <div className="border border-border/40 rounded-lg overflow-hidden">
+          <div className="border border-border/40 rounded-md overflow-hidden">
             <button
               type="button"
               onClick={() => setShowPreview((v) => !v)}
@@ -772,7 +772,7 @@ export default function MCPServerModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-6 py-2.5 border border-border/60 rounded-lg font-bold text-sm hover:bg-muted transition-colors"
+            className="px-6 py-2.5 border border-border/60 rounded-md font-bold text-sm hover:bg-muted transition-colors"
             disabled={saving}
           >
             Cancel

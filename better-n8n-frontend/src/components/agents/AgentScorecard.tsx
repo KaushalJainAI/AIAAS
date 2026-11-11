@@ -98,7 +98,7 @@ export default function AgentScorecard({ agentId, currentRevision }: {
             )}
             <button type="button" onClick={() => run.mutate(suite.suite_id)}
               disabled={run.isPending}
-              className="px-2 h-6 rounded border border-border hover:bg-secondary disabled:opacity-50">
+              className="px-2 h-6 rounded-md border border-border hover:bg-secondary disabled:opacity-50">
               Run
             </button>
           </li>

@@ -161,7 +161,7 @@ export default function ShareDialog({ doc, onClose, beforeShare }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-card shadow-xl sm:rounded-xl">
+      <div className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-card shadow-xl sm:rounded-md">
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
           <Share2 className="h-4 w-4 shrink-0 text-primary" />
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">Share “{doc.filename}”</h2>
@@ -236,7 +236,7 @@ export default function ShareDialog({ doc, onClose, beforeShare }: Props) {
                       aria-checked={active}
                       onClick={() => setAudience(option.value)}
                       className={cn(
-                        'flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                        'flex w-full items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors',
                         active ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/60',
                       )}
                     >
@@ -268,7 +268,7 @@ export default function ShareDialog({ doc, onClose, beforeShare }: Props) {
             </section>
           )}
 
-          <section aria-label="Send a copy" className="flex items-center gap-3 rounded-lg border border-border/60 px-3 py-2.5">
+          <section aria-label="Send a copy" className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2.5">
             <Send className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-medium">Send a copy instead</span>

@@ -59,7 +59,7 @@ export default function MemoryTab() {
   });
 
   if (isLoading) {
-    return <div className="h-16 rounded-lg bg-card border border-border/60 animate-pulse" />;
+    return <div className="h-16 rounded-md bg-card border border-border/60 animate-pulse" />;
   }
 
   return (
@@ -73,7 +73,7 @@ export default function MemoryTab() {
             wrong or that you would rather it not keep.
           </p>
           {hiddenCount > 0 && (
-            <p className="text-[12px] text-amber-600 dark:text-amber-400 mt-2 max-w-xl">
+            <p className="text-[12px] text-warning dark:text-warning mt-2 max-w-xl">
               {hiddenCount === 1 ? '1 fact is' : `${hiddenCount} facts are`} stored
               but not shown to the assistant, because the memory space is full.
               Remove facts you no longer need to make room.
@@ -97,7 +97,7 @@ export default function MemoryTab() {
           Could not load memories. Reload the page to try again.
         </p>
       ) : memories.length === 0 ? (
-        <div className="mt-4 text-center py-8 border border-dashed border-border/60 rounded-lg bg-card/30">
+        <div className="mt-4 text-center py-8 border border-dashed border-border/60 rounded-md bg-card/30">
           <Brain className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-50" />
           <p className="text-sm text-muted-foreground font-medium">Nothing remembered yet</p>
           <p className="text-[12px] text-muted-foreground mt-1 max-w-sm mx-auto px-4">
@@ -109,7 +109,7 @@ export default function MemoryTab() {
         <div className="mt-4 space-y-5">
           {groups.map((group) => (
             <section key={group.category}>
-              <h4 className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
+              <h4 className="label-mono">
                 {group.label}
                 <span className="ml-2 tabular-nums normal-case font-normal">
                   {group.items.length}
@@ -120,7 +120,7 @@ export default function MemoryTab() {
                 {group.items.map((memory) => (
                   <li
                     key={memory.id}
-                    className="p-3 rounded-lg border border-border/60 bg-card/60 flex gap-3 items-start"
+                    className="p-3 rounded-md border border-border/60 bg-card/60 flex gap-3 items-start"
                   >
                     <div className="flex-1 min-w-0">
                       <p
@@ -131,7 +131,7 @@ export default function MemoryTab() {
                         {memory.text}
                       </p>
                       {isHidden(memory) && (
-                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                        <p className="text-[11px] text-warning dark:text-warning mt-1">
                           Not shown to the assistant — memory is full
                         </p>
                       )}

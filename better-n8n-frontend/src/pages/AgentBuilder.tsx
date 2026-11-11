@@ -70,7 +70,7 @@ function Section({ icon: Icon, title, hint, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-border rounded bg-card break-inside-avoid">
+    <section className="border border-border rounded-md bg-card break-inside-avoid">
       <header className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
         <Icon className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-[13px] font-semibold">{title}</h3>
@@ -132,7 +132,7 @@ function AgentSchedules({ agentId, allowUnattended, hasPrompt }: {
               key={s.id}
               type="button"
               onClick={() => setModal({ trigger: s })}
-              className="flex w-full items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-left hover:bg-secondary"
+              className="flex w-full items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-left hover:bg-secondary"
             >
               <span className={cn(
                 'h-2 w-2 shrink-0 rounded-full',
@@ -157,7 +157,7 @@ function AgentSchedules({ agentId, allowUnattended, hasPrompt }: {
       <button
         type="button"
         onClick={() => setModal({ trigger: null })}
-        className="mt-2 flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-1.5 text-[13px] hover:bg-secondary"
+        className="mt-2 flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-[13px] hover:bg-secondary"
       >
         <Clock className="w-3.5 h-3.5" />
         Add schedule
@@ -231,7 +231,7 @@ function Knob({ path, label, hint, children }: {
   path: string; label: string; hint?: string; children: React.ReactNode;
 }) {
   return (
-    <div data-field={path} className="rounded -mx-2 px-2 py-1.5">
+    <div data-field={path} className="rounded-md -mx-2 px-2 py-1.5">
       <div className="flex items-center gap-2 mb-1">
         <label className="text-[13px] font-medium text-foreground">{label}</label>
         {hint && <span className="ml-auto text-[11px] text-muted-foreground">{hint}</span>}
@@ -251,7 +251,7 @@ function Choice<T extends string>({ value, onChange, options }: {
           key={o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            'w-full text-left px-3 py-2 rounded border transition-colors',
+            'w-full text-left px-3 py-2 rounded-md border transition-colors',
             value === o.id ? 'border-primary bg-primary-subtle' : 'border-border hover:bg-secondary'
           )}
         >
@@ -331,7 +331,7 @@ function TagInput({ value, onChange }: {
     <div className="flex flex-wrap items-center gap-1.5">
       {value.map((tag) => (
         <span key={tag}
-          className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded border border-border bg-card text-[12px]">
+          className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-md border border-border bg-card text-[12px]">
           {tag}
           <button type="button" onClick={() => onChange(value.filter((t) => t !== tag))}
             title={`Remove ${tag}`}
@@ -351,7 +351,7 @@ function TagInput({ value, onChange }: {
         }}
         onBlur={commit}
         placeholder={value.length ? 'Add another…' : 'finance, weekly'}
-        className="flex-1 min-w-[8rem] h-7 px-2 rounded border border-input bg-background text-[12px]"
+        className="flex-1 min-w-[8rem] h-7 px-2 rounded-md border border-input bg-background text-[12px]"
       />
     </div>
   );
@@ -776,7 +776,7 @@ export default function AgentBuilder() {
           wraps with the actions instead of floating over the corner. */}
       <header className="px-4 md:px-6 py-3 md:py-4 border-b border-border flex flex-wrap items-center gap-3">
         <SidebarMenuButton />
-        <div className="p-2 bg-agent-subtle border border-agent-line rounded shrink-0">
+        <div className="p-2 bg-agent-subtle border border-agent-line rounded-md shrink-0">
           <Bot className="w-5 h-5 text-agent" />
         </div>
         <div className="min-w-0 flex-1">
@@ -792,7 +792,7 @@ export default function AgentBuilder() {
               disabled={duplicate.isPending}
               title="Make a copy of the saved configuration, without its schedule"
               aria-label="Duplicate agent"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary">
               <Copy className="w-4 h-4" />
               <span className="hidden sm:inline">Duplicate</span>
             </button>
@@ -803,7 +803,7 @@ export default function AgentBuilder() {
               disabled={archive.isPending}
               title="Hide it and stop it running automatically. Restorable."
               aria-label="Archive agent"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary">
               <Archive className="w-4 h-4" />
               <span className="hidden sm:inline">Archive</span>
             </button>
@@ -813,7 +813,7 @@ export default function AgentBuilder() {
               onClick={() => setConfirmDelete(true)}
               title="Delete this agent"
               aria-label="Delete agent"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border text-destructive hover:bg-destructive-subtle">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border text-destructive hover:bg-destructive-subtle">
               <Trash2 className="w-4 h-4" />
               <span className="hidden sm:inline">Delete</span>
             </button>
@@ -822,7 +822,7 @@ export default function AgentBuilder() {
             <Link to={`/runs?agent=${agentId}`}
               title="This agent's runs"
               aria-label="View runs"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary">
               <Activity className="w-4 h-4" />
               <span className="hidden sm:inline">Runs</span>
             </Link>
@@ -831,7 +831,7 @@ export default function AgentBuilder() {
             <button onClick={() => setRunning(true)}
               title="Start a run of the saved configuration"
               aria-label="Run agent"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary">
               <Play className="w-4 h-4" />
               <span className="hidden sm:inline">Run</span>
             </button>
@@ -840,7 +840,7 @@ export default function AgentBuilder() {
             <button onClick={() => setSharing(true)}
               title="Share to the platform — publish for others to install"
               aria-label="Share agent to platform"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary">
               <Share2 className="w-4 h-4" />
               <span className="hidden sm:inline">Share</span>
             </button>
@@ -848,14 +848,14 @@ export default function AgentBuilder() {
           <button onClick={reset}
             title="Discard unsaved changes"
             aria-label="Reset changes"
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary">
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary">
             <RotateCcw className="w-4 h-4" />
             <span className="hidden sm:inline">Reset</span>
           </button>
           <button
             onClick={submit}
             disabled={save.isPending || isLoading}
-            className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-sm font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
             {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {isNew ? 'Create agent' : 'Save changes'}
           </button>
@@ -871,7 +871,7 @@ export default function AgentBuilder() {
             key={t.id}
             onClick={() => setTab(t.id)}
             className={cn(
-              'shrink-0 py-2.5 text-[13px] font-semibold border-b-2 -mb-px transition-colors',
+              'shrink-0 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors',
               tab === t.id
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -882,7 +882,7 @@ export default function AgentBuilder() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-bg-1">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-muted">
         {/* Single column on phones; two across on desktop so the board uses
             the width instead of centering a narrow strip in it. Fragments
             flatten, so each Section below is a grid item directly. */}
@@ -893,12 +893,12 @@ export default function AgentBuilder() {
               <Knob path="name" label="Name">
                 <input value={cfg.name} onChange={(e) => set('name', e.target.value)}
                   placeholder="Finance agent"
-                  className="w-full h-9 px-3 rounded border border-input bg-background text-sm" />
+                  className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm" />
               </Knob>
               <Knob path="brief" label="Brief" hint="What it is for, in one or two sentences">
                 <textarea value={cfg.brief} onChange={(e) => set('brief', e.target.value)}
                   rows={3} placeholder="Reads invoices from Gmail and chases anything overdue…"
-                  className="w-full px-3 py-2 rounded border border-input bg-background text-sm resize-none" />
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none" />
               </Knob>
               {/* Not the same field as the brief, and the difference matters:
                   the brief is what the agent is *told*, this is what another
@@ -911,7 +911,7 @@ export default function AgentBuilder() {
                 <input value={cfg.description}
                   onChange={(e) => set('description', e.target.value)}
                   placeholder="Chases overdue invoices and reports what is stuck."
-                  className="w-full h-9 px-3 rounded border border-input bg-background text-sm" />
+                  className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm" />
               </Knob>
               <Knob path="tags" label="Tags" hint="for grouping and search">
                 <TagInput value={cfg.tags} onChange={(v) => set('tags', v)} />
@@ -1049,7 +1049,7 @@ export default function AgentBuilder() {
                     value={Math.round(cfg.maxRunSeconds / 60)}
                     onChange={(e) => set('maxRunSeconds',
                       Math.max(1, Math.min(120, Number(e.target.value))) * 60)}
-                    className="w-full h-9 px-2 rounded border border-input bg-background text-sm" />
+                    className="w-full h-9 px-2 rounded-md border border-input bg-background text-sm" />
                   <span className="text-sm text-muted-foreground shrink-0">minutes</span>
                 </div>
               </Knob>
@@ -1057,7 +1057,7 @@ export default function AgentBuilder() {
                 {[5, 15, 30, 60].map((m) => (
                   <button key={m} type="button"
                     onClick={() => set('maxRunSeconds', m * 60)}
-                    className={`h-7 px-2.5 rounded border text-[12px] transition-colors ${
+                    className={`h-7 px-2.5 rounded-md border text-[12px] transition-colors ${
                       Math.round(cfg.maxRunSeconds / 60) === m
                         ? 'border-primary text-primary bg-primary/10'
                         : 'border-input text-muted-foreground hover:text-foreground'
@@ -1096,7 +1096,7 @@ export default function AgentBuilder() {
                   {[null, 2, 4, 8].map((n) => (
                     <button key={String(n)} type="button"
                       onClick={() => set('fanoutParallel', n)}
-                      className={`h-7 px-2.5 rounded border text-[12px] transition-colors ${
+                      className={`h-7 px-2.5 rounded-md border text-[12px] transition-colors ${
                         cfg.fanoutParallel === n
                           ? 'border-primary text-primary bg-primary/10'
                           : 'border-input text-muted-foreground hover:text-foreground'
@@ -1182,7 +1182,7 @@ export default function AgentBuilder() {
                         ?? `Connection ${id}`;
                       return (
                         <div key={id}
-                          className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded border border-border bg-card">
+                          className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-card">
                           <span className="text-[12px] font-medium mr-auto">{label}</span>
                           {(['all', 'read', 'selected'] as ConnectorMode[]).map((mode) => (
                             <button key={mode} type="button"
@@ -1243,7 +1243,7 @@ export default function AgentBuilder() {
                       const mode = (cfg.toolPermissions ?? {})[t.id];
                       return (
                         <div key={t.id}
-                          className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded border border-border bg-card">
+                          className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-card">
                           <span className="mr-auto min-w-0">
                             <span className="block text-[12px] font-medium truncate">{t.label}</span>
                             <span className="block text-[11px] text-muted-foreground truncate">{t.hint}</span>
@@ -1280,7 +1280,7 @@ export default function AgentBuilder() {
                     value={cfg.browserDomains.join(', ')}
                     onChange={(e) => set('browserDomains', e.target.value.split(',').map((d) => d.trim()).filter(Boolean))}
                     placeholder="e.g. portal.supplier.com, forms.example.org"
-                    className="w-full h-9 px-3 rounded border border-input bg-background text-sm" />
+                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm" />
                   <p className="mt-1.5 px-2 text-[11px] text-muted-foreground">
                     Empty means it can read any page but never click or type. Subdomains are included.
                   </p>
@@ -1408,7 +1408,7 @@ export default function AgentBuilder() {
                   <span className="text-sm text-muted-foreground">₹</span>
                   <input type="number" min={0} step={50} value={cfg.spendCapRupees}
                     onChange={(e) => set('spendCapRupees', Number(e.target.value))}
-                    className="w-full h-9 px-2 rounded border border-input bg-background text-sm" />
+                    className="w-full h-9 px-2 rounded-md border border-input bg-background text-sm" />
                 </div>
               </Knob>
             </Section>
@@ -1491,15 +1491,15 @@ export default function AgentBuilder() {
         </div>
       </div>
 
-      <div className="border-t border-border bg-bg-1 px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
+      <div className="border-t border-border bg-muted px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
         <button
           onClick={submit}
           disabled={save.isPending}
-          className="px-4 py-2 text-sm font-semibold rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+          className="px-4 py-2 text-sm font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
           {isNew ? 'Create agent' : 'Save changes'}
         </button>
         <button onClick={() => navigate('/agents')}
-          className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary">
+          className="px-4 py-2 text-sm rounded-md border border-border hover:bg-secondary">
           Cancel
         </button>
       </div>

@@ -211,7 +211,8 @@ function Switch({
       aria-checked={isOn}
       aria-label={`${isOn ? 'Turn off' : 'Turn on'} ${label}`}
       className={cn(
-        'inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors',
+        // Squared (6px track, 4px knob) and a 44px-wide hit area on phones.
+        'inline-flex h-6 w-11 md:h-5 md:w-9 shrink-0 items-center rounded p-0.5 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
         'focus-visible:ring-offset-2 focus-visible:ring-offset-card',
         'disabled:opacity-40 disabled:cursor-not-allowed',
@@ -220,8 +221,8 @@ function Switch({
     >
       <span
         className={cn(
-          'h-4 w-4 shrink-0 rounded-full bg-white shadow-sm transition-transform',
-          isOn ? 'translate-x-4' : 'translate-x-0',
+          'h-5 w-5 md:h-4 md:w-4 shrink-0 rounded-sm bg-white transition-transform',
+          isOn ? 'translate-x-5 md:translate-x-4' : 'translate-x-0',
         )}
       />
     </button>
@@ -257,11 +258,10 @@ function ToolRow({
       }}
       title={tool.description || tool.displayName}
       className={cn(
-        'group flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors cursor-pointer',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-        off
-          ? 'border-dashed border-border bg-muted/20 opacity-70'
-          : 'border-border bg-card hover:bg-secondary hover:border-strong',
+        // A row in a divided list, not a card: the section draws the outline.
+        'group flex items-center gap-3 px-4 py-2.5 text-left transition-colors cursor-pointer',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40',
+        off ? 'bg-muted/20 opacity-70' : 'bg-card hover:bg-secondary',
       )}
     >
       <div className="flex-1 min-w-0">
@@ -343,7 +343,7 @@ function CategorySection({
   return (
     <section
       className={cn(
-        'bg-card border border-border rounded-lg overflow-hidden transition-colors',
+        'bg-card border border-border rounded-md overflow-hidden transition-colors',
         onCount === 0 && tools.length > 0 && 'border-dashed',
       )}
     >
@@ -354,7 +354,7 @@ function CategorySection({
           className="flex items-center gap-3 flex-1 min-w-0 text-left disabled:cursor-default"
           aria-expanded={open}
         >
-          <div className="w-8 h-8 rounded-lg bg-primary/10 border border-border flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-md bg-primary/10 border border-border flex items-center justify-center shrink-0">
             <Icon className="w-4 h-4 text-primary" />
           </div>
           <div className="min-w-0">
@@ -410,7 +410,7 @@ function CategorySection({
 
       {category.note && (
         <div className="px-4 pb-3">
-          <div className="flex gap-2 text-[12px] text-muted-foreground bg-muted/40 border border-border rounded-lg px-3 py-2">
+          <div className="flex gap-2 text-[12px] text-muted-foreground bg-muted/40 border border-border rounded-md px-3 py-2">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span className="truncate" title={category.note}>
               {category.note}
@@ -429,7 +429,7 @@ function CategorySection({
       )}
 
       {open && tools.length > 0 && (
-        <div className="px-3 pb-3 grid gap-2 grid-cols-1 lg:grid-cols-2">
+        <div className="flex flex-col divide-y divide-border/60 border-t border-border/60">
           {tools.map((tool) => (
             <ToolRow
               key={tool.name}
@@ -472,14 +472,14 @@ function SettingsEditor({
 
   return (
     <div>
-      <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+      <h3 className="label-mono mb-2">
         Settings
       </h3>
       <div className="space-y-3">
         {tool.settings.map((setting) => (
           <div
             key={setting.key}
-            className="border border-border/60 rounded-lg px-3 py-3 bg-background/40"
+            className="border border-border/60 rounded-md px-3 py-3 bg-background/40"
           >
             <div className="flex items-center justify-between gap-3">
               <label htmlFor={`${tool.name}-${setting.key}`} className="text-[13px] font-semibold">
@@ -494,7 +494,7 @@ function SettingsEditor({
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, [setting.key]: Number(e.target.value) }))
                 }
-                className="w-28 h-9 px-2 text-right rounded-lg bg-background border border-border/60 text-[13px] tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
+                className="w-28 h-9 px-2 text-right rounded-md bg-background border border-border/60 text-[13px] tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary/50"
               />
             </div>
             <p className="text-[11px] text-muted-foreground mt-1.5">
@@ -599,7 +599,7 @@ function ToolDrawer({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-secondary shrink-0"
+            className="p-1.5 rounded-md hover:bg-secondary shrink-0"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
@@ -611,7 +611,7 @@ function ToolDrawer({
               what the assistant can do, so it does not belong under the fold. */}
           <div
             className={cn(
-              'flex items-start gap-3 rounded-lg border px-4 py-3',
+              'flex items-start gap-3 rounded-md border px-4 py-3',
               tool.enabled ? 'border-border bg-muted/30' : 'border-dashed border-border bg-muted/20',
             )}
           >
@@ -646,7 +646,7 @@ function ToolDrawer({
           </div>
 
           <div>
-            <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+            <h3 className="label-mono mb-2">
               What it does
             </h3>
             <p className="text-[13px] leading-relaxed">{tool.description || 'No description.'}</p>
@@ -662,12 +662,12 @@ function ToolDrawer({
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
-            <div className="bg-muted/40 border border-border/60 rounded-lg px-3 py-2.5">
+            <div className="bg-muted/40 border border-border/60 rounded-md px-3 py-2.5">
               <div className="text-muted-foreground text-[11px]">Effect</div>
               <div className="font-semibold">{effect.label}</div>
               <div className="text-[11px] text-muted-foreground mt-1">{effect.blurb}</div>
             </div>
-            <div className="bg-muted/40 border border-border/60 rounded-lg px-3 py-2.5">
+            <div className="bg-muted/40 border border-border/60 rounded-md px-3 py-2.5">
               <div className="text-muted-foreground text-[11px]">Availability</div>
               <div className="font-semibold">
                 {tool.alwaysAvailable ? 'Always on' : tool.requires ? 'Conditional' : 'By grant'}
@@ -684,10 +684,10 @@ function ToolDrawer({
 
           {paramEntries.length > 0 && (
             <div>
-              <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+              <h3 className="label-mono mb-2">
                 Parameters
               </h3>
-              <div className="border border-border/60 rounded-lg overflow-hidden divide-y divide-border/60">
+              <div className="border border-border/60 rounded-md overflow-hidden divide-y divide-border/60">
                 {paramEntries.map(([key, def]) => (
                   <div key={key} className="px-3 py-2.5 flex gap-3">
                     <span className="text-[13px] font-mono font-medium shrink-0">
@@ -827,7 +827,7 @@ export default function Tools() {
         <PageHeader icon={Wrench} title="Tools" subtitle="Loading your tool library…" />
         <div className="flex-1 p-4 md:p-8 space-y-3">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-lg bg-card border border-border/60 animate-pulse" />
+            <div key={i} className="h-20 rounded-md bg-card border border-border/60 animate-pulse" />
           ))}
         </div>
       </div>
@@ -869,16 +869,19 @@ export default function Tools() {
               placeholder="Search tools by name or what they do…"
             />
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Segmented control: one bordered strip, the chosen segment raised. */}
+          <div role="group" aria-label="Filter tools" className="flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5 flex-wrap self-start">
             {FILTERS.map((f) => (
               <button
                 key={f.key}
+                type="button"
+                aria-pressed={filter === f.key}
                 onClick={() => setFilter(f.key)}
                 className={cn(
-                  'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                  'h-7 px-2.5 rounded text-[12.5px] transition-colors',
                   filter === f.key
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-background/50 text-muted-foreground border-border/60 hover:text-foreground',
+                    ? 'bg-secondary font-medium text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {f.label}
@@ -889,7 +892,7 @@ export default function Tools() {
       </PageHeader>
 
       {mutation.isError && (
-        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-3 rounded-lg border border-destructive/20 flex items-center gap-3">
+        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-3 rounded-md border border-destructive/20 flex items-center gap-3">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <p className="text-sm font-medium">
             That change didn't save. Nothing has been switched off — try again.

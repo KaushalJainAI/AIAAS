@@ -67,8 +67,8 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-4 p-4 rounded-lg border border-border/50 bg-card/40">
-      <div className="mt-0.5 shrink-0 p-2 bg-background rounded-full border border-border/50">
+    <div className="flex items-start gap-4 p-4 rounded-md border border-border/50 bg-card/40">
+      <div className="mt-0.5 shrink-0 p-2 bg-background rounded-md border border-border/50">
         {icon}
       </div>
       <div className="flex-1 min-w-0">
@@ -158,9 +158,9 @@ export default function ReminderPreferences() {
       </div>
 
       {permission === 'denied' && (
-        <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-warning-subtle text-sm">
-          <BellOff className="w-4 h-4 text-amber-500 shrink-0" />
-          <span className="text-amber-600 dark:text-amber-400">
+        <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-warning-subtle text-sm">
+          <BellOff className="w-4 h-4 text-warning shrink-0" />
+          <span className="text-warning dark:text-warning">
             This browser is blocking notifications for the site. Device pings stay off until you
             allow them in site settings.
           </span>
@@ -168,7 +168,7 @@ export default function ReminderPreferences() {
       )}
 
       <Row
-        icon={<MonitorSmartphone className="w-4 h-4 text-blue-500" />}
+        icon={<MonitorSmartphone className="w-4 h-4 text-primary" />}
         title="Device notifications"
         description={
           permission === 'unsupported'
@@ -184,7 +184,7 @@ export default function ReminderPreferences() {
       </Row>
 
       <Row
-        icon={<Bell className="w-4 h-4 text-sky-500" />}
+        icon={<Bell className="w-4 h-4 text-primary" />}
         title="Background notifications"
         description={
           !webPush.supported
@@ -202,7 +202,7 @@ export default function ReminderPreferences() {
       </Row>
 
       <Row
-        icon={<Bell className="w-4 h-4 text-emerald-500" />}
+        icon={<Bell className="w-4 h-4 text-success" />}
         title="Escalating reminders"
         description="Nudge straight away, again after an hour, then once more a day later. Stops as soon as you respond."
       >
@@ -214,7 +214,7 @@ export default function ReminderPreferences() {
       </Row>
 
       <Row
-        icon={<Clock className="w-4 h-4 text-violet-500" />}
+        icon={<Clock className="w-4 h-4 text-agent" />}
         title="Hourly reminders"
         description="Optional. One extra ping every hour for as long as anything is still waiting on you."
       >
@@ -225,10 +225,10 @@ export default function ReminderPreferences() {
         />
       </Row>
 
-      <div className="p-4 rounded-lg border border-border/50 bg-card/40 space-y-4">
+      <div className="p-4 rounded-md border border-border/50 bg-card/40 space-y-4">
         <div className="flex items-start gap-4">
-          <div className="mt-0.5 shrink-0 p-2 bg-background rounded-full border border-border/50">
-            <Mail className="w-4 h-4 text-amber-500" />
+          <div className="mt-0.5 shrink-0 p-2 bg-background rounded-md border border-border/50">
+            <Mail className="w-4 h-4 text-warning" />
           </div>
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-semibold">Daily email digest</h4>
@@ -259,7 +259,7 @@ export default function ReminderPreferences() {
                   update({ daily_digest_time: next });
                 }
               }}
-              className="px-3 py-1.5 rounded-lg bg-background border border-border/60 text-sm"
+              className="px-3 py-1.5 rounded-md bg-background border border-border/60 text-sm"
             />
             <span className="text-xs text-muted-foreground">
               {prefs.effective_timezone}
@@ -274,10 +274,10 @@ export default function ReminderPreferences() {
         )}
       </div>
 
-      <div className="p-4 rounded-lg border border-border/50 bg-card/40 space-y-4">
+      <div className="p-4 rounded-md border border-border/50 bg-card/40 space-y-4">
         <div className="flex items-start gap-4">
-          <div className="mt-0.5 shrink-0 p-2 bg-background rounded-full border border-border/50">
-            <Moon className="w-4 h-4 text-indigo-400" />
+          <div className="mt-0.5 shrink-0 p-2 bg-background rounded-md border border-border/50">
+            <Moon className="w-4 h-4 text-primary" />
           </div>
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-semibold">Quiet hours</h4>
@@ -305,7 +305,7 @@ export default function ReminderPreferences() {
                   update({ quiet_hours_start: next });
                 }
               }}
-              className="px-3 py-1.5 rounded-lg bg-background border border-border/60"
+              className="px-3 py-1.5 rounded-md bg-background border border-border/60"
             />
             <span className="text-muted-foreground text-xs">to</span>
             <input
@@ -318,7 +318,7 @@ export default function ReminderPreferences() {
                   update({ quiet_hours_end: next });
                 }
               }}
-              className="px-3 py-1.5 rounded-lg bg-background border border-border/60"
+              className="px-3 py-1.5 rounded-md bg-background border border-border/60"
             />
           </div>
         )}

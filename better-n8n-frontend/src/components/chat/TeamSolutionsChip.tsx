@@ -70,7 +70,7 @@ export default function TeamSolutionsChip({ items, orgName, onReview }: TeamSolu
         aria-expanded={open}
         aria-controls={panelId}
         className={cn(
-          'flex min-h-[32px] items-center gap-2 rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors duration-normal ease-standard',
+          'flex min-h-[32px] items-center gap-2 rounded-md border px-3 py-1.5 text-[12px] font-medium transition-colors duration-normal ease-standard',
           open
             ? 'border-primary/30 bg-primary/10 text-primary'
             : 'border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
@@ -94,9 +94,9 @@ export default function TeamSolutionsChip({ items, orgName, onReview }: TeamSolu
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-2 space-y-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+          <div className="mt-2 space-y-2 rounded-md border border-border/40 bg-muted/20 p-3">
             {orgName && (
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="label-mono">
                 From {orgName}
               </p>
             )}

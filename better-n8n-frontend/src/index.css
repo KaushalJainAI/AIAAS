@@ -1,61 +1,61 @@
-/* Segoe UI first (Windows gets the real thing); Open Sans is the web fallback —
-   Steve Matteson drew both, so the humanist feel survives everywhere else. */
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* IBM Plex Sans for text; IBM Plex Mono for paths, numbers, timers, code and
+   the small labels (.label-mono). Served from Google Fonts. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
  
 /* ─────────────────────────────────────────────────────────────
-   Design tokens — Fluent 2 geometry and neutrals.
+   Design tokens — deep teal (human), violet (agent), amber (waiting).
 
-   THE RULE THAT MATTERS: colour encodes agency.
-     --agent (violet) = the agent did this on its own
-     --primary (blue) = you did this, or it is waiting on you
-   Every surface in the app must honour this. A violet control
-   means "dispatch an agent"; a blue control means "you act".
+   THE RULE THAT MATTERS: colour encodes who acted.
+     --primary (teal)  = you did this, or it is waiting on you
+     --agent (violet)  = an agent did this on its own
+     --warning (amber) = something waits for you
+   Nothing else is coloured. Every surface in the app must honour this.
    ───────────────────────────────────────────────────────────── */
 @layer base {
   :root {
     font-size: 14px;
 
-    /* neutrals — Fluent grey ramp */
-    --background: 0 0% 100%;          /* #ffffff */
-    --foreground: 0 0% 14.1%;         /* #242424 neutralForeground1 */
+    /* neutrals */
+    --background: 0 0% 100%;          /* #FFFFFF */
+    --foreground: 240 15% 5.1%;       /* #0B0B0F, 19.6:1 on white */
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 14.1%;
+    --card-foreground: 240 15% 5.1%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 14.1%;
+    --popover-foreground: 240 15% 5.1%;
 
-    /* human / primary — Fluent communication blue #0f6cbd */
-    --primary: 208 85% 40%;
+    /* human / primary — deep teal #0E6170 (white text 7.1:1) */
+    --primary: 189 78% 24.7%;
     --primary-foreground: 0 0% 100%;
-    --primary-rgb: 15, 108, 189;
-    --primary-subtle: 212 71% 95%;    /* #ebf3fc */
-    --primary-line: 210 84% 84%;      /* #b4d6fa */
+    --primary-rgb: 14, 97, 112;
+    --primary-subtle: 185 33% 92.9%;  /* #E7F2F3 */
+    --primary-line: 188 40% 80.4%;    /* #B9DCE1 */
 
-    /* agent — violet #6b4fbb */
-    --agent: 256 44% 52%;
+    /* agent — violet #7C3AED; text on the subtle fill is 5.0:1 */
+    --agent: 262 83% 58%;
     --agent-foreground: 0 0% 100%;
-    --agent-rgb: 107, 79, 187;
-    --agent-subtle: 256 58% 96%;      /* #f3f0fb */
-    --agent-line: 256 46% 88%;        /* #d6cdf2 */
+    --agent-rgb: 124, 58, 237;
+    --agent-subtle: 258 100% 96.7%;   /* #F3EEFF */
+    --agent-line: 258 85% 89.8%;      /* #DCCFFB */
 
-    --secondary: 0 0% 96.1%;          /* #f5f5f5 */
-    --secondary-foreground: 0 0% 14.1%;
+    --secondary: 240 10% 96.3%;
+    --secondary-foreground: 240 15% 5.1%;
 
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 38%;     /* #616161 neutralForeground2 */
+    --muted: 240 10% 96.3%;
+    --muted-foreground: 240 6% 34.1%; /* #52525C, 7.7:1 on white */
 
-    --accent: 0 0% 92.2%;             /* #ebebeb */
-    --accent-foreground: 0 0% 14.1%;
+    --accent: 240 8% 93%;
+    --accent-foreground: 240 15% 5.1%;
 
     --success: 120 78% 25%;           /* #0e700e */
     --success-subtle: 120 44% 94%;
-    --warning: 22 91% 39%;            /* #bc4b09 */
-    --warning-subtle: 33 87% 95%;
+    --warning: 33 92% 32.9%;          /* #A15C07, 5.0:1 on warning-subtle */
+    --warning-subtle: 45 100% 96.1%;  /* #FFFAEB */
     --destructive: 355 85% 37%;       /* #b10e1c */
     --destructive-foreground: 0 0% 100%;
     --destructive-subtle: 355 78% 97%;
@@ -68,55 +68,57 @@
     --chart-work: 256 44% 52%;        /* #6b4fbb — a run the agent completed */
     --chart-fail: 355 85% 37%;        /* #af0e1c — a run that did not complete */
 
-    --border: 0 0% 89.8%;             /* #e5e5e5 neutralStroke2 */
-    --border-strong: 0 0% 82%;        /* #d1d1d1 neutralStroke1 */
-    --input: 0 0% 82%;
-    --ring: 208 85% 40%;
+    --border: 240 10% 91.8%;          /* #E8E8EC */
+    --border-strong: 240 9% 86.3%;    /* #D9D9DF */
+    --input: 240 9% 86.3%;
+    --ring: 189 78% 24.7%;
 
-    --sidebar-bg: 0 0% 98%;           /* #fafafa */
-    --sidebar-border: 0 0% 89.8%;
+    --sidebar-bg: 240 11% 98.2%;      /* #FAFAFB */
+    --sidebar-border: 240 10% 91.8%;
 
-    /* Fluent shape scale — controls 4px, cards 6px, surfaces 8px */
+    /* Shape scale — controls, cards and panels 6px; tags 4px. */
     --radius: 6px;
   }
 
   .dark {
-    --background: 0 0% 7.8%;          /* #141414 canvas */
-    --foreground: 0 0% 96%;
+    --background: 240 8% 5.1%;        /* #0C0C0E */
+    --foreground: 240 9% 93.5%;       /* #EDEDF0, 16.7:1 */
 
-    --card: 0 0% 12.2%;               /* #1f1f1f */
-    --card-foreground: 0 0% 96%;
+    --card: 240 8% 7.3%;              /* #111114 */
+    --card-foreground: 240 9% 93.5%;
 
-    --popover: 0 0% 16.1%;            /* #292929 */
-    --popover-foreground: 0 0% 96%;
+    --popover: 240 7% 9.5%;
+    --popover-foreground: 240 9% 93.5%;
 
-    --primary: 210 90% 62%;           /* #479ef5 */
-    --primary-foreground: 0 0% 7.8%;
-    --primary-rgb: 71, 158, 245;
-    --primary-subtle: 210 60% 16%;
-    --primary-line: 210 50% 30%;
+    /* #3BB0C1 takes DARK text: white on it is 2.6:1 */
+    --primary: 188 53% 49.4%;
+    --primary-foreground: 188 61% 7.1%;   /* #071A1D, 7.0:1 */
+    --primary-rgb: 59, 176, 193;
+    --primary-subtle: 187 46% 11%;        /* #0F2629 */
+    --primary-line: 188 48% 21.8%;        /* #1D4B52 */
 
-    --agent: 256 65% 74%;
-    --agent-foreground: 0 0% 7.8%;
-    --agent-rgb: 168, 148, 232;
-    --agent-subtle: 256 30% 19%;
-    --agent-line: 256 30% 34%;
+    /* agent text #C4B5FD on subtle #21183A is 9.1:1 */
+    --agent: 252 95% 85.1%;
+    --agent-foreground: 240 8% 5.1%;
+    --agent-rgb: 196, 181, 253;
+    --agent-subtle: 256 41% 16.1%;        /* #21183A */
+    --agent-line: 256 35% 28%;
 
-    --secondary: 0 0% 16.1%;
-    --secondary-foreground: 0 0% 96%;
+    --secondary: 240 6% 11%;
+    --secondary-foreground: 240 9% 93.5%;
 
-    --muted: 0 0% 16.1%;
-    --muted-foreground: 0 0% 67.8%;   /* #adadad */
+    --muted: 240 6% 11%;
+    --muted-foreground: 240 6% 67.1%; /* #A6A6B0, 8.1:1 on the canvas */
 
-    --accent: 0 0% 20%;
-    --accent-foreground: 0 0% 96%;
+    --accent: 240 6% 15%;
+    --accent-foreground: 240 9% 93.5%;
 
     --success: 120 45% 62%;
     --success-subtle: 120 30% 14%;
-    --warning: 28 85% 62%;
-    --warning-subtle: 28 40% 15%;
+    --warning: 43 96% 56.3%;          /* #FBBF24, 10.3:1 on warning-subtle */
+    --warning-subtle: 41 50% 8.6%;    /* #211A0B */
     --destructive: 355 75% 66%;
-    --destructive-foreground: 0 0% 7.8%;
+    --destructive-foreground: 240 8% 5.1%;
     --destructive-subtle: 355 35% 16%;
 
     /* Re-stepped for the dark surface, not flipped from light — the UI tokens
@@ -124,17 +126,55 @@
     --chart-work: 256 60% 66%;        /* #9074dc */
     --chart-fail: 355 70% 60%;        /* #e0525d */
 
-    --border: 0 0% 23.9%;             /* #3d3d3d */
-    --border-strong: 0 0% 30%;
-    --input: 0 0% 30%;
-    --ring: 210 90% 62%;
+    --border: 240 7% 14.7%;           /* #232328 */
+    --border-strong: 240 6% 22%;
+    --input: 240 6% 22%;
+    --ring: 188 53% 49.4%;
 
-    --sidebar-bg: 0 0% 10.2%;
-    --sidebar-border: 0 0% 23.9%;
+    --sidebar-bg: 240 8% 7.3%;        /* #111114 */
+    --sidebar-border: 240 7% 14.7%;
   }
 
-  /* Alternate accent — swaps the *human* colour only.
-     The agent violet is structural and never changes. */
+  /* Accent themes — swap the *human* colour only. The agent violet is
+     structural and never changes. Teal is the default and lives on the base
+     tokens above, so `data-color-theme="teal"` needs no rule of its own.
+
+     Dark variants use `.dark[...]` so they outrank the light variants by
+     specificity: `:root[...]` (0,2,1) would otherwise beat `.dark` (0,1,0). */
+  :root[data-color-theme='ink'] {
+    --primary: 240 6% 10%;            /* #18181B */
+    --primary-rgb: 24, 24, 27;
+    --primary-subtle: 240 5% 96%;
+    --primary-line: 240 5% 84%;
+    --ring: 240 6% 10%;
+  }
+
+  .dark[data-color-theme='ink'] {
+    --primary: 240 5% 96%;            /* #F4F4F5 */
+    --primary-foreground: 240 10% 3.9%; /* #09090B, 18:1 */
+    --primary-rgb: 244, 244, 245;
+    --primary-subtle: 240 5% 12%;
+    --primary-line: 240 4% 26%;
+    --ring: 240 5% 96%;
+  }
+
+  :root[data-color-theme='blue'] {
+    --primary: 224 76% 48%;           /* #1D4ED8, white text 6.7:1 */
+    --primary-rgb: 29, 78, 216;
+    --primary-subtle: 221 83% 95.5%;  /* #EAF0FD */
+    --primary-line: 221 75% 84.1%;    /* #B8CBF5 */
+    --ring: 224 76% 48%;
+  }
+
+  .dark[data-color-theme='blue'] {
+    --primary: 213 94% 67.8%;         /* #60A5FA */
+    --primary-foreground: 220 49% 8.4%; /* #0B1220, 7.4:1 */
+    --primary-rgb: 96, 165, 250;
+    --primary-subtle: 219 49% 14.7%;  /* #132038 */
+    --primary-line: 217 55% 25.9%;    /* #1E3A66 */
+    --ring: 213 94% 67.8%;
+  }
+
   :root[data-color-theme='magenta'] {
     --primary: 322 68% 42%;
     --primary-rgb: 178, 34, 111;
@@ -145,13 +185,14 @@
 
   .dark[data-color-theme='magenta'] {
     --primary: 322 75% 68%;
+    --primary-foreground: 240 8% 5.1%;
     --primary-rgb: 232, 121, 184;
     --primary-subtle: 322 30% 18%;
     --primary-line: 322 30% 34%;
     --ring: 322 75% 68%;
   }
 }
- 
+
 @layer base {
   * {
     @apply border-border;
@@ -223,7 +264,6 @@
   .glass {
     background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
-    box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 2px rgba(0,0,0,.12);
   }
 
   .dark .glass {
@@ -240,19 +280,36 @@
   }
 
   .modal {
-    @apply bg-card border border-border rounded-lg shadow-lg overflow-hidden;
+    @apply bg-card border border-border rounded-md shadow-lg overflow-hidden;
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg font-semibold text-sm shadow-sm transition-colors duration-150;
+    @apply inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md font-semibold text-sm transition-colors duration-150;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 border border-border rounded-lg font-semibold text-sm hover:bg-secondary transition-colors duration-150;
+    @apply inline-flex items-center justify-center gap-2 border border-border rounded-md font-semibold text-sm hover:bg-secondary transition-colors duration-150;
+  }
+
+  /* Small section labels: mono, lowercase, muted. Not spaced capitals. */
+  .label-mono {
+    font-family: theme('fontFamily.mono');
+    font-size: 12px;
+    line-height: 16px;
+    text-transform: lowercase;
+    font-weight: 500;
+    letter-spacing: normal;
+    color: hsl(var(--muted-foreground));
   }
 
   .micro-label {
-    @apply text-[11px] font-semibold uppercase tracking-wide text-muted-foreground;
+    font-family: theme('fontFamily.mono');
+    font-size: 12px;
+    line-height: 16px;
+    text-transform: lowercase;
+    font-weight: 500;
+    letter-spacing: normal;
+    color: hsl(var(--muted-foreground));
   }
 
   /* ── Card hover ──
@@ -497,32 +554,40 @@ select optgroup {
   select:open::picker-icon {
     rotate: 180deg;
   }
+  /* The panel: 6px corners, one hairline border. A menu is one of the few
+     surfaces that may carry a shadow. */
   ::picker(select) {
     margin-block: 4px;
     padding: 4px;
     border: 1px solid hsl(var(--border));
-    border-radius: 0.5rem;
+    border-radius: 6px;
     background: hsl(var(--popover));
     color: hsl(var(--popover-foreground));
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
     max-height: 320px;
   }
+  /* Option rows: 32px tall, 4px corners, no checkmark glyph — the checked row
+     is shown by its tint instead. */
   select option {
-    padding: 0.4rem 0.6rem;
-    border-radius: 0.375rem;
+    min-height: 32px;
+    box-sizing: border-box;
+    padding: 0 0.6rem;
+    border-radius: 4px;
     background: transparent;
     font-size: 0.875rem;
     cursor: pointer;
   }
+  select option::checkmark {
+    display: none;
+  }
   select option:hover,
   select option:focus-visible {
-    /* accent, not secondary: in the dark theme secondary is the popover's
-       own grey, so a hover would be invisible. */
-    background: hsl(var(--accent));
+    /* muted: a quiet hover that stays visible in both themes. */
+    background: hsl(var(--muted));
     outline: none;
   }
   select option:checked {
-    background: hsl(var(--primary) / 0.15);
+    background: hsl(var(--primary-subtle));
     color: hsl(var(--primary));
     font-weight: 500;
   }

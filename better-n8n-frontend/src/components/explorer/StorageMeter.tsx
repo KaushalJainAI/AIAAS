@@ -51,7 +51,7 @@ export default function StorageMeter({ onOpenTrash }: { onOpenTrash: () => void 
         <div
           className={cn(
             'h-full rounded-full transition-[width]',
-            tone === 'full' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-primary',
+            tone === 'full' ? 'bg-destructive' : tone === 'warn' ? 'bg-warning' : 'bg-primary',
           )}
           style={{ width: `${Math.max(percent, 1)}%` }}
         />

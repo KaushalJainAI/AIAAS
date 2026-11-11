@@ -102,7 +102,7 @@ export default function DocumentImportDialog({
               {shown.length === 0 ? (
                 <p className="py-4 text-center text-[12px] text-muted-foreground">No file matches that name.</p>
               ) : (
-                <ul className="max-h-[50dvh] divide-y divide-border/60 overflow-y-auto rounded-lg border border-border/60">
+                <ul className="max-h-[50dvh] divide-y divide-border/60 overflow-y-auto rounded-md border border-border/60">
                   {shown.map((doc) => (
                     <li key={doc.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                       <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />

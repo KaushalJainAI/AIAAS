@@ -181,7 +181,7 @@ function LibraryDetail({
 
       {(s.reviews ?? []).length > 0 && (
         <section>
-          <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">History</h4>
+          <h4 className="label-mono">History</h4>
           <ul className="mt-1 space-y-1 text-[12px] text-muted-foreground">
             {(s.reviews ?? []).map((r, i) => (
               <li key={i}>

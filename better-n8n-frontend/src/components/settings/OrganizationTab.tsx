@@ -58,7 +58,7 @@ function Invitations({ org }: { org: Org }) {
   return (
     <div className="mt-4">
       <p className="text-[12px] font-medium text-muted-foreground">Pending invitations</p>
-      <ul className="mt-2 divide-y divide-border/60 border border-border/60 rounded-lg bg-card/60">
+      <ul className="mt-2 divide-y divide-border/60 border border-border/60 rounded-md bg-card/60">
         {invites.map((i) => (
           <li key={i.id} className="flex items-center gap-3 px-3 py-2 text-sm">
             <div className="flex-1 min-w-0">
@@ -119,7 +119,7 @@ function Members({ org }: { org: Org }) {
   if (isLoading) return <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mt-3" />;
   return (
     <div className="mt-3 space-y-2">
-      <ul className="divide-y divide-border/60 border border-border/60 rounded-lg bg-card/60">
+      <ul className="divide-y divide-border/60 border border-border/60 rounded-md bg-card/60">
         {members.map((m) => (
           <li key={m.user_id} className="flex items-center gap-3 px-3 py-2 text-sm">
             <div className="flex-1 min-w-0">
@@ -224,7 +224,7 @@ function MyInvitations() {
       {invites.map((invite) => (
         <div
           key={invite.id}
-          className="flex flex-wrap items-center gap-3 p-4 rounded-lg border border-primary/40 bg-card"
+          className="flex flex-wrap items-center gap-3 p-4 rounded-md border border-primary/40 bg-card"
         >
           <Mail className="w-4 h-4 text-muted-foreground" />
           <div className="flex-1 min-w-[200px] text-sm">
@@ -370,7 +370,7 @@ export default function OrganizationTab() {
   });
 
   if (isLoading) {
-    return <div className="h-16 rounded-lg bg-card border border-border/60 animate-pulse" />;
+    return <div className="h-16 rounded-md bg-card border border-border/60 animate-pulse" />;
   }
 
   return (
@@ -400,7 +400,7 @@ export default function OrganizationTab() {
 
       <div className="mt-6 space-y-6">
         {orgs.map((org) => (
-          <section key={org.id} className="p-4 rounded-lg border border-border/60 bg-card/40">
+          <section key={org.id} className="p-4 rounded-md border border-border/60 bg-card/40">
             <div className="flex flex-wrap items-center gap-2">
               <Building2 className="w-4 h-4 text-muted-foreground" />
               <h4 className="font-medium">{org.name}</h4>

@@ -54,11 +54,11 @@ export default function NavPane({ location, trail, onNavigate, onDropOn, canDrop
   return (
     <nav className="flex min-h-0 flex-col gap-3 overflow-auto p-2" aria-label="Folders">
       <div>
-        <p className="px-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/80">Quick access</p>
+        <p className="label-mono px-2 pb-1">Quick access</p>
         {place({ kind: 'recent' }, 'Recent', Clock)}
       </div>
       <div>
-        <p className="px-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/80">My files</p>
+        <p className="label-mono px-2 pb-1">My files</p>
         <TreeNode
           id={null}
           name="Home"
@@ -73,7 +73,7 @@ export default function NavPane({ location, trail, onNavigate, onDropOn, canDrop
         />
       </div>
       <div>
-        <p className="px-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/80">More</p>
+        <p className="label-mono px-2 pb-1">More</p>
         {place({ kind: 'public' }, 'Public library', BookOpen)}
         {place({ kind: 'extraction' }, 'Extraction', ScanText)}
         {place({ kind: 'trash' }, 'Trash', Trash2)}
@@ -147,7 +147,7 @@ function TreeNode({
             active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          <Icon className={cn('h-4 w-4 shrink-0', id === null ? '' : 'text-amber-500')} />
+          <Icon className={cn('h-4 w-4 shrink-0', id === null ? '' : 'text-warning')} />
           <span className="truncate">{name}</span>
         </button>
       </div>

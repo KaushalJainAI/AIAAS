@@ -11,7 +11,7 @@ export function GenerationBubble({ generation, onOpen }: Props) {
 
   if (status === 'pending' || status === 'processing') {
     return (
-      <div className="rounded-lg border border-border/50 bg-muted/30 p-4 my-2 flex items-center gap-3">
+      <div className="rounded-md border border-border/50 bg-muted/30 p-4 my-2 flex items-center gap-3">
         <Loader2 className="animate-spin text-primary" size={18} />
         <div>
           <div className="text-sm font-medium">Generating {type}…</div>
@@ -23,7 +23,7 @@ export function GenerationBubble({ generation, onOpen }: Props) {
 
   if (status === 'failed') {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 my-2 flex items-start gap-3">
+      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 my-2 flex items-start gap-3">
         <AlertTriangle className="text-destructive shrink-0" size={18} />
         <div className="text-sm">
           <div className="font-medium text-destructive">Generation failed</div>
@@ -36,7 +36,7 @@ export function GenerationBubble({ generation, onOpen }: Props) {
   if (!output_url) return null;
 
   return (
-    <div className="rounded-lg overflow-hidden border border-border/50 bg-card/60 my-2 group">
+    <div className="rounded-md overflow-hidden border border-border/50 bg-card/60 my-2 group">
       <div className="relative bg-black/5">
         {type === 'image' && (
           <img src={output_url} alt={prompt} className="w-full max-h-[420px] object-contain" />
@@ -52,7 +52,7 @@ export function GenerationBubble({ generation, onOpen }: Props) {
         {type !== 'audio' && onOpen && (
           <button
             onClick={onOpen}
-            className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 backdrop-blur opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-2 right-2 p-1.5 rounded-md bg-background/80 backdrop-blur opacity-0 group-hover:opacity-100 transition-opacity"
             title="Open"
           >
             <Maximize2 size={14} />

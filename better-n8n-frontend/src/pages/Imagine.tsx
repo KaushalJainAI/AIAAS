@@ -94,7 +94,7 @@ function toLightboxItem(generation: Generation, url?: string): LightboxItem {
 function SectionLabel({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-2 px-0.5">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+      <span className="label-mono">
         {children}
       </span>
       {aside}
@@ -148,7 +148,7 @@ export default function Imagine() {
         {viewMode === 'agent' && (
           <button
             onClick={() => setShowAgentHistory(true)}
-            className="p-2 rounded-lg border border-border/60 bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            className="p-2 rounded-md border border-border/60 bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Conversation history"
             title="Conversations — independent contexts"
           >
@@ -158,12 +158,12 @@ export default function Imagine() {
         <Palette size={18} className="text-primary shrink-0" />
         <h1 className="text-lg font-semibold truncate">Imagine</h1>
         {viewMode === 'agent' && agent.conversations.length > 0 && (
-          <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+          <span className="inline-flex items-center rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
             {agent.conversations.length} chats
           </span>
         )}
       </div>
-      <div className="flex p-1 bg-muted rounded-lg border border-border shrink-0">
+      <div className="flex p-1 bg-muted rounded-md border border-border shrink-0">
         {(['agent', 'studio'] as const).map(view => (
           <button
             key={view}
@@ -198,9 +198,9 @@ export default function Imagine() {
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-primary/70" />
             <span className="text-xs font-bold tracking-wide">Conversations</span>
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{agent.conversations.length}</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{agent.conversations.length}</span>
           </div>
-          <button onClick={() => setShowAgentHistory(false)} className="rounded-lg p-1.5 hover:bg-muted">
+          <button onClick={() => setShowAgentHistory(false)} className="rounded-md p-1.5 hover:bg-muted">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -210,7 +210,7 @@ export default function Imagine() {
               agent.newConversation();
               setShowAgentHistory(false);
             }}
-            className="flex w-full items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-4 w-4" /> New conversation
           </button>
@@ -232,7 +232,7 @@ export default function Imagine() {
                     setShowAgentHistory(false);
                   }}
                   className={cn(
-                    'group flex items-center gap-2 rounded-lg px-3 py-2.5 text-left cursor-pointer transition-colors border',
+                    'group flex items-center gap-2 rounded-md px-3 py-2.5 text-left cursor-pointer transition-colors border',
                     agent.conversationId === c.id ? 'bg-primary/10 border-primary/20' : 'hover:bg-muted/60 border-transparent'
                   )}
                 >
@@ -332,7 +332,7 @@ export default function Imagine() {
           <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 py-5 space-y-6">
             {/* Modality */}
             <div className="flex items-center justify-center">
-              <div className="flex p-1 bg-muted rounded-lg border border-border">
+              <div className="flex p-1 bg-muted rounded-md border border-border">
                 {MODES.map(tab => (
                   <button
                     key={tab.id}
@@ -340,7 +340,7 @@ export default function Imagine() {
                     className={cn(
                       'flex items-center gap-2 px-5 sm:px-7 py-2 rounded-md text-xs font-semibold transition-colors',
                       mode === tab.id
-                        ? 'bg-card text-foreground shadow-sm border border-border'
+                        ? 'bg-card text-foreground border border-border'
                         : 'text-muted-foreground hover:text-foreground',
                     )}
                   >
@@ -378,7 +378,7 @@ export default function Imagine() {
 
             {/* Prompt */}
             <section className="space-y-2.5">
-              <div className="rounded-lg border border-border/60 bg-card focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 transition-colors">
+              <div className="rounded-md border border-border/60 bg-card focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 transition-colors">
                 <textarea
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
@@ -428,7 +428,7 @@ export default function Imagine() {
                   <button
                     onClick={() => setOptionsOpen(true)}
                     title="All options"
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-border/60 text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border border-border/60 text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                   >
                     <Settings2 size={11} />
                     More
@@ -452,7 +452,7 @@ export default function Imagine() {
                     <button
                       key={starter}
                       onClick={() => setPrompt(starter)}
-                      className="text-[11px] px-2.5 py-1.5 rounded-lg border border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+                      className="text-[11px] px-2.5 py-1.5 rounded-md border border-border/50 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
                     >
                       {starter}
                     </button>
@@ -482,8 +482,8 @@ export default function Imagine() {
               </SectionLabel>
 
               {results.length === 0 && !isGenerating ? (
-                <div className="flex flex-col items-center justify-center py-14 text-center rounded-lg border border-dashed border-border/50">
-                  <div className="h-12 w-12 rounded-lg bg-muted/50 flex items-center justify-center">
+                <div className="flex flex-col items-center justify-center py-14 text-center rounded-md border border-dashed border-border/50">
+                  <div className="h-12 w-12 rounded-md bg-muted/50 flex items-center justify-center">
                     <ImageIcon size={20} className="text-muted-foreground/40" />
                   </div>
                   <p className="mt-3.5 text-sm font-medium">Nothing generated yet</p>
@@ -494,7 +494,7 @@ export default function Imagine() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {isGenerating && (
-                    <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 aspect-square flex flex-col items-center justify-center gap-3 p-6">
+                    <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 aspect-square flex flex-col items-center justify-center gap-3 p-6">
                       <Loader2 size={24} className="animate-spin text-primary" />
                       <p className="text-xs font-semibold text-primary">Generating {mode}…</p>
                       <p className="text-[11px] text-muted-foreground text-center line-clamp-2">
@@ -520,7 +520,7 @@ export default function Imagine() {
         <aside className="hidden xl:flex w-[310px] shrink-0 border-l border-border/40 bg-card/30 flex-col">
           <div className="px-5 py-4 border-b border-border/40 flex items-center gap-2">
             <Settings2 size={14} className="text-primary" />
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <h2 className="label-mono">
               Options
             </h2>
           </div>
@@ -567,13 +567,13 @@ export default function Imagine() {
             <div className="px-5 py-4 border-b border-border/40 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Settings2 size={14} className="text-primary" />
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <h2 className="label-mono">
                   Options
                 </h2>
               </div>
               <button
                 onClick={() => setOptionsOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground"
+                className="p-1.5 rounded-md hover:bg-muted/60 text-muted-foreground"
                 aria-label="Close options"
               >
                 <X size={16} />
@@ -583,7 +583,7 @@ export default function Imagine() {
             <div className="p-4 border-t border-border/40">
               <button
                 onClick={() => setOptionsOpen(false)}
-                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+                className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
               >
                 Done
               </button>

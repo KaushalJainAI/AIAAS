@@ -131,14 +131,14 @@ export default function AppBar(props: Props) {
           title={`Switch app (now in ${app.title})`}
           className="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 hover:bg-muted"
         >
-          <span className={cn('inline-flex rounded-md bg-gradient-to-br p-1 text-white', app.tint)}>
+          <span className={cn('inline-flex rounded-md bg-primary-subtle p-1 text-primary')}>
             <Icon className="h-4 w-4" />
           </span>
           <span className="hidden text-[13px] font-semibold sm:inline">{app.title}</span>
           <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:inline" />
         </button>
         {switcherOpen && (
-          <div className="absolute left-0 top-full z-40 mt-1 grid w-[min(22rem,80vw)] grid-cols-2 gap-1 rounded-lg border border-border/60 bg-popover p-2 shadow-lg">
+          <div className="absolute left-0 top-full z-40 mt-1 grid w-[min(22rem,80vw)] grid-cols-2 gap-1 rounded-md border border-border/60 bg-popover p-2 shadow-lg">
             {APPS.filter((a) => a.kind === 'workspace').map((a) => {
               const AIcon = a.icon;
               const active = a.id === app.id;
@@ -153,7 +153,7 @@ export default function AppBar(props: Props) {
                     active && 'bg-primary/10',
                   )}
                 >
-                  <span className={cn('inline-flex rounded-md bg-gradient-to-br p-1 text-white', a.tint)}>
+                  <span className={cn('inline-flex rounded-md bg-primary-subtle p-1 text-primary')}>
                     <AIcon className="h-3.5 w-3.5" />
                   </span>
                   <span className="truncate text-[12.5px] text-foreground">{a.title}</span>

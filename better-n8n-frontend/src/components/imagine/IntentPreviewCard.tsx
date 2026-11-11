@@ -37,9 +37,9 @@ export function IntentPreviewCard({
   );
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 my-2 shadow-sm">
+    <div className="rounded-md border border-border bg-card p-4 my-2">
       <div className="flex items-center gap-2 mb-3">
-        <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+        <div className="p-1.5 rounded-md bg-primary/10 text-primary">
           <Icon size={16} />
         </div>
         <span className="text-sm font-medium capitalize">{intent.type}</span>
@@ -55,7 +55,7 @@ export function IntentPreviewCard({
       ) : (
         <div className="space-y-2 mb-3">
           <textarea
-            className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 resize-none"
+            className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 resize-none"
             rows={3}
             value={editPrompt}
             onChange={e => setEditPrompt(e.target.value)}
@@ -71,7 +71,7 @@ export function IntentPreviewCard({
             />
           ) : (
             <input
-              className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2"
+              className="w-full text-sm bg-background border border-border rounded-md px-3 py-2"
               placeholder="model id"
               value={editModel}
               onChange={e => setEditModel(e.target.value)}
@@ -83,7 +83,7 @@ export function IntentPreviewCard({
       {chips.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
           {chips.map(([k, v]) => (
-            <span key={k} className="text-[11px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">
+            <span key={k} className="text-[11px] px-2 py-0.5 rounded bg-muted/60 text-muted-foreground">
               {k}: {String(v)}
             </span>
           ))}
@@ -103,7 +103,7 @@ export function IntentPreviewCard({
               disabled={disabled}
               onClick={onApprove}
               className={cn(
-                'flex-1 inline-flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg',
+                'flex-1 inline-flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md',
                 'bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50'
               )}
             >
@@ -112,14 +112,14 @@ export function IntentPreviewCard({
             <button
               disabled={disabled}
               onClick={() => setEditing(true)}
-              className="inline-flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+              className="inline-flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-md border border-border hover:bg-muted/50 transition-colors"
             >
               <Pencil size={14} /> Edit
             </button>
             <button
               disabled={disabled}
               onClick={onCancel}
-              className="inline-flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+              className="inline-flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-md border border-border hover:bg-muted/50 transition-colors"
             >
               <X size={14} /> Cancel
             </button>
@@ -129,14 +129,14 @@ export function IntentPreviewCard({
             <button
               disabled={disabled}
               onClick={() => onEdit({ prompt: editPrompt, model: editModel || intent.model || undefined })}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               <Check size={14} /> Generate with edits
             </button>
             <button
               disabled={disabled}
               onClick={() => setEditing(false)}
-              className="inline-flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+              className="inline-flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-md border border-border hover:bg-muted/50 transition-colors"
             >
               Back
             </button>

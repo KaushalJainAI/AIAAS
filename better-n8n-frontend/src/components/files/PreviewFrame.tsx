@@ -47,7 +47,7 @@ export function ExportMenu({ doc, formats, onDone }: {
   const [busy, setBusy] = useState<string | null>(null);
   if (!formats.length) return null;
   return (
-    <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-lg border border-border/60 bg-popover p-1 shadow-lg">
+    <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-md border border-border/60 bg-popover p-1 shadow-lg">
       {formats.map((fmt) => (
         <button
           key={fmt}

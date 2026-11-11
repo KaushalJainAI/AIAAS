@@ -5,6 +5,7 @@ import authService from '../api/auth';
 import { Button } from '../components/ui/Button';
 import { Alert } from '../components/ui/Alert';
 import { IconTile } from '../components/ui/IconTile';
+import AuthShell from './AuthShell';
 
 type Step = 'email' | 'otp' | 'password';
 
@@ -75,8 +76,8 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8 animate-slide-up">
+    <AuthShell>
+      <div className="w-full max-w-sm space-y-6 animate-slide-up">
         <div>
           <Link to="/login" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6">
             <ArrowLeft className="w-4 h-4" />
@@ -93,7 +94,7 @@ export default function ForgotPassword() {
           </div>
         </div>
 
-        <div className="glass rounded-lg p-8">
+        <div>
           {error && (
             <div className="mb-4">
               <Alert tone="error">{error}</Alert>
@@ -110,7 +111,7 @@ export default function ForgotPassword() {
               <label className="block text-sm font-medium" htmlFor="email">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 pl-10 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="name@example.com" />
+                <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 pl-10 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="name@example.com" />
               </div>
               <Button loading={isLoading} className="w-full">
                 {!isLoading && <>Send OTP</>}
@@ -122,7 +123,7 @@ export default function ForgotPassword() {
           {step === 'otp' && (
             <form onSubmit={submitOTP} className="space-y-6">
               <label className="block text-sm font-medium" htmlFor="otp">6-digit OTP</label>
-              <input id="otp" inputMode="numeric" maxLength={6} required value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))} className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-center text-lg tracking-[0.4em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="000000" />
+              <input id="otp" inputMode="numeric" maxLength={6} required value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))} className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-center text-lg tracking-[0.4em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="000000" />
               <Button loading={isLoading} disabled={otpCode.length !== 6} className="w-full">
                 {!isLoading && <>Verify OTP</>}
                 {isLoading && <>Verifying...</>}
@@ -132,8 +133,8 @@ export default function ForgotPassword() {
 
           {step === 'password' && (
             <form onSubmit={submitPassword} className="space-y-5">
-              <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="New password" />
-              <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="Confirm new password" />
+              <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="New password" />
+              <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="Confirm new password" />
               <Button loading={isLoading} className="w-full">
                 {!isLoading && <>Reset Password</>}
                 {isLoading && <>Resetting...</>}
@@ -142,6 +143,6 @@ export default function ForgotPassword() {
           )}
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

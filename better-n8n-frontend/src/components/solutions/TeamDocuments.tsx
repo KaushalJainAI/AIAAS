@@ -21,7 +21,7 @@ export default function TeamDocuments({ org }: { org: number }) {
     return (
       <section aria-labelledby="team-documents-library" aria-busy="true" className="space-y-2">
         <h2 id="team-documents-library" className="text-sm font-medium">Team documents</h2>
-        <div className="space-y-2 rounded-lg border border-border/60 bg-card/60 p-2">
+        <div className="space-y-2 rounded-md border border-border/60 bg-card/60 p-2">
           <Skeleton className="h-[44px] w-full" />
           <Skeleton className="h-[44px] w-full" />
         </div>
@@ -41,7 +41,7 @@ export default function TeamDocuments({ org }: { org: number }) {
           Nothing shared yet. A knowledge base is shared from the Team tab, by the person who owns it.
         </p>
       ) : (
-        <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-card/60">
+        <ul className="divide-y divide-border/60 rounded-md border border-border/60 bg-card/60">
           {shared.map((kb) => (
             <li key={kb.id} className="flex items-center gap-3 px-3 py-2 text-sm">
               <Database className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />

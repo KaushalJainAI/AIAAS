@@ -193,7 +193,7 @@ export default function SolutionForm({
       </fieldset>
 
       {/* Claims: optional. Each says how fast the statement goes stale. */}
-      <div className="rounded-lg border border-border/60">
+      <div className="rounded-md border border-border/60">
         <button
           type="button"
           aria-expanded={showClaims}

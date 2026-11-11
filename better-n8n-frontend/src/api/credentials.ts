@@ -51,6 +51,13 @@ export interface Credential {
   created_at: string;
   updated_at: string;
   fields: CredentialField[];
+  /** When the stored token stops working (ISO), or null when it does not expire. */
+  token_expires_at?: string | null;
+  /**
+   * Last known state. Optional: rows and servers from before this field fall
+   * back to the old is_valid/is_verified reading.
+   */
+  health?: 'ok' | 'expiring' | 'failed' | 'unverified';
 }
 
 export interface CreateCredentialData {

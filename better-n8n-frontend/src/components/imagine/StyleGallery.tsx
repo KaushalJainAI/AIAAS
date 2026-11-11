@@ -36,8 +36,7 @@ export function StyleGallery({ kind, value, onChange }: Props) {
             >
               <div
                 className={cn(
-                  'h-[46px] w-full rounded-lg bg-gradient-to-br transition-all',
-                  preset.swatch,
+                  'h-[46px] w-full rounded-md bg-muted transition-all',
                   isActive
                     ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
                     : 'opacity-75 group-hover:opacity-100',

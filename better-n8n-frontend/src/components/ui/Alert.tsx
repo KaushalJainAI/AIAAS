@@ -25,7 +25,7 @@ export function Alert({
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       className={cn(
-        'p-3 rounded-lg border flex items-center gap-2 text-sm entrance-modal',
+        'p-3 rounded-md border flex items-center gap-2 text-sm entrance-modal',
         tone === 'error'
           ? 'bg-destructive-subtle border-border text-destructive'
           : 'bg-success-subtle border-border text-success',

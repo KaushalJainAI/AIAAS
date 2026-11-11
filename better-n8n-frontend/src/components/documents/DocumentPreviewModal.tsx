@@ -48,7 +48,7 @@ export function DocumentPreviewModal({ doc, onClose }: Props) {
       aria-modal="true"
       aria-label={`Preview of ${doc.filename}`}
     >
-      <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-border/60 bg-card shadow-lg entrance-modal">
+      <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md border border-border/60 bg-card shadow-lg entrance-modal">
         <PreviewFrame doc={doc} onClose={onClose}>
           <FilePreview doc={doc} className="min-h-0 flex-1 overflow-auto" />
         </PreviewFrame>

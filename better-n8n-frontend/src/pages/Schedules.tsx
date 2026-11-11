@@ -43,7 +43,6 @@ import {
   AlertTriangle,
   CalendarClock,
   Check,
-  Clock,
   Copy,
   KeyRound,
   Loader2,
@@ -76,6 +75,28 @@ import { absoluteHookUrl, curlFor } from '../lib/webhooks';
  * only unambiguously good one; the rest each have a different fix, which is
  * exactly why the backend returns a word rather than a boolean.
  */
+/**
+ * The status dot beside a run's outcome. Keyed on the same tone strings the
+ * copy tables use, with the class names spelled out in full: Tailwind only
+ * generates classes it can find literally in the source.
+ */
+const DOT_FOR_TONE: Record<string, string> = {
+  'text-success': 'bg-success',
+  'text-destructive': 'bg-destructive',
+  'text-warning': 'bg-warning',
+  'text-agent': 'bg-agent',
+  'text-muted-foreground': 'bg-muted-foreground/50',
+};
+
+function ToneDot({ tone }: { tone: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn('mr-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full align-middle', DOT_FOR_TONE[tone] ?? 'bg-muted-foreground/50')}
+    />
+  );
+}
+
 const OUTCOME_COPY: Record<FireOutcome, { label: string; hint: string; tone: string }> = {
   fired: {
     label: 'Started',
@@ -171,7 +192,7 @@ function OutcomeBanner({ outcome }: { outcome: FireOutcome }) {
   const copy = OUTCOME_COPY[outcome];
   if (!copy) return null;
   return (
-    <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2">
+    <div className="mt-3 rounded-md border border-border/60 bg-secondary/40 px-3 py-2">
       <p className={cn('text-[13px] font-semibold', copy.tone)}>{copy.label}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{copy.hint}</p>
     </div>
@@ -255,7 +276,7 @@ function TriggerCard({ trigger, onEdit }: {
 
   return (
     <div className={cn(
-      'rounded-lg border border-border/60 bg-card p-4',
+      'rounded-md border border-border/60 bg-card p-4',
       !trigger.enabled && 'opacity-70',
     )}>
       <div className="flex items-start justify-between gap-4">
@@ -268,7 +289,7 @@ function TriggerCard({ trigger, onEdit }: {
             >
               {trigger.name || trigger.agent_name}
             </Link>
-            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <span className="label-mono">
               {mode.label}
             </span>
           </div>
@@ -282,6 +303,11 @@ function TriggerCard({ trigger, onEdit }: {
               live only inside the editor's Custom tab. */}
           {trigger.description && (
             <p className="mt-1 text-[13px]">{trigger.description}</p>
+          )}
+          {/* The plain words above, the cron under them in mono: the words say
+              what happens, the cron is what the schedule actually stores. */}
+          {isSchedule && trigger.schedule_cron && (
+            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{trigger.schedule_cron}</p>
           )}
           {trigger.goal && (
             <p className="mt-1 text-[12px] text-muted-foreground line-clamp-2">
@@ -303,7 +329,10 @@ function TriggerCard({ trigger, onEdit }: {
           <div>
             <p className="text-muted-foreground">Next run</p>
             <p className="font-medium flex items-center gap-1">
-              <Clock className="w-3 h-3" />
+              <span
+                aria-hidden
+                className={cn('inline-block h-1.5 w-1.5 shrink-0 rounded-full', trigger.enabled ? 'bg-primary' : 'bg-muted-foreground/50')}
+              />
               {trigger.enabled ? relative(trigger.next_due_at) : 'paused'}
             </p>
             {/* Relative and absolute from the same stored `next_due_at`.
@@ -322,10 +351,11 @@ function TriggerCard({ trigger, onEdit }: {
                   to={`/runs?run=${trigger.last_run_id}`}
                   className={cn('block truncate hover:underline', lastCopy.tone)}
                 >
+                  <ToneDot tone={lastCopy.tone} />
                   {lastCopy.label}
                 </Link>
               ) : (
-                <p className={cn('truncate', lastCopy.tone)}>{lastCopy.label}</p>
+                <p className={cn('truncate', lastCopy.tone)}><ToneDot tone={lastCopy.tone} />{lastCopy.label}</p>
               )
             )}
           </div>
@@ -340,8 +370,8 @@ function TriggerCard({ trigger, onEdit }: {
       )}
 
       {isWebhook && hookUrl && (
-        <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        <div className="mt-3 rounded-md border border-border/60 bg-secondary/40 p-3">
+          <p className="label-mono">
             POST to this URL
           </p>
           {/* `break-all` because the secret is 48 hex characters with nowhere
@@ -378,7 +408,7 @@ function TriggerCard({ trigger, onEdit }: {
       )}
 
       {confirmRotate && (
-        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+        <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
           <p className="text-[12px] text-destructive">
             A new URL is issued immediately and this one stops working. Anything
             already pointed at it will start getting 404s until you update it.
@@ -387,14 +417,14 @@ function TriggerCard({ trigger, onEdit }: {
             <button
               onClick={() => rotate.mutate()}
               disabled={rotate.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[12px] font-medium text-destructive-foreground disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1 text-[12px] font-medium text-destructive-foreground disabled:opacity-50"
             >
               {rotate.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
               Issue a new URL
             </button>
             <button
               onClick={() => setConfirmRotate(false)}
-              className="rounded-lg px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
             >
               Keep this one
             </button>
@@ -417,7 +447,7 @@ function TriggerCard({ trigger, onEdit }: {
           card to learn "is this working?". `ok` shows nothing at all. */}
       {isSchedule && trigger.status !== 'ok' && (
         <div className={cn(
-          'mt-3 flex items-start gap-2 rounded-lg border px-3 py-2',
+          'mt-3 flex items-start gap-2 rounded-md border px-3 py-2',
           statusTone(trigger.status) === 'warn'
             ? 'border-warning/40 bg-warning/5'
             : 'border-destructive/40 bg-destructive/5',
@@ -437,7 +467,7 @@ function TriggerCard({ trigger, onEdit }: {
               {trigger.status === 'needs_permission' && (
                 <button
                   onClick={() => setConfirmAllow(true)}
-                  className="rounded-lg bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground"
+                  className="rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground"
                 >
                   Allow it
                 </button>
@@ -446,7 +476,7 @@ function TriggerCard({ trigger, onEdit }: {
                 <button
                   onClick={() => resumeAgent.mutate()}
                   disabled={resumeAgent.isPending}
-                  className="rounded-lg bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
+                  className="rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
                 >
                   {resumeAgent.isPending ? 'Resuming…' : 'Resume agent'}
                 </button>
@@ -455,7 +485,7 @@ function TriggerCard({ trigger, onEdit }: {
                 <button
                   onClick={() => toggle.mutate(true)}
                   disabled={toggle.isPending}
-                  className="rounded-lg bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
+                  className="rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
                 >
                   Turn back on
                 </button>
@@ -466,7 +496,7 @@ function TriggerCard({ trigger, onEdit }: {
       )}
 
       {confirmAllow && (
-        <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2">
+        <div className="mt-3 rounded-md border border-border/60 bg-secondary/40 px-3 py-2">
           <p className="text-[12px]">
             Let {trigger.agent_name} run when nobody is watching? It will
             still stop and ask before anything it&rsquo;s set to ask about.
@@ -475,13 +505,13 @@ function TriggerCard({ trigger, onEdit }: {
             <button
               onClick={() => allowUnattended.mutate()}
               disabled={allowUnattended.isPending}
-              className="rounded-lg bg-primary px-3 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
             >
               {allowUnattended.isPending ? 'Allowing…' : 'Allow it'}
             </button>
             <button
               onClick={() => setConfirmAllow(false)}
-              className="rounded-lg px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
@@ -490,7 +520,7 @@ function TriggerCard({ trigger, onEdit }: {
       )}
 
       {outcome === 'fired' && runId ? (
-        <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2">
+        <div className="mt-3 rounded-md border border-border/60 bg-secondary/40 px-3 py-2">
           <p className="text-[13px] font-semibold text-success">
             Started ·{' '}
             <Link to={`/runs?run=${runId}`} className="underline">
@@ -503,7 +533,7 @@ function TriggerCard({ trigger, onEdit }: {
       )}
 
       {confirmDelete && (
-        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+        <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
           <p className="text-[12px] text-destructive">
             Delete this {isWebhook ? 'webhook' : 'schedule'}? This can&rsquo;t be undone.
             {isWebhook && ' Anything pointed at its URL will start getting 404s.'}
@@ -512,14 +542,14 @@ function TriggerCard({ trigger, onEdit }: {
             <button
               onClick={() => remove.mutate()}
               disabled={remove.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1 text-[12px] font-medium text-destructive-foreground disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1 text-[12px] font-medium text-destructive-foreground disabled:opacity-50"
             >
               {remove.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
               Delete
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="rounded-lg px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
+              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:text-foreground"
             >
               Keep it
             </button>
@@ -532,7 +562,7 @@ function TriggerCard({ trigger, onEdit }: {
           <button
             onClick={() => runNow.mutate()}
             disabled={runNow.isPending || !trigger.enabled}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
           >
             {runNow.isPending
               ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -543,7 +573,7 @@ function TriggerCard({ trigger, onEdit }: {
         {trigger.mode !== 'event' && (
           <button
             onClick={onEdit}
-            className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-1.5 text-[12px] hover:bg-secondary"
+            className="flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-[12px] hover:bg-secondary"
           >
             <Pencil className="w-3 h-3" />
             Edit
@@ -553,7 +583,7 @@ function TriggerCard({ trigger, onEdit }: {
           <button
             onClick={() => setConfirmRotate(true)}
             disabled={rotate.isPending || confirmRotate}
-            className="flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-1.5 text-[12px] hover:bg-secondary disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-[12px] hover:bg-secondary disabled:opacity-50"
             title="Issue a new URL and revoke this one"
           >
             <KeyRound className="w-3 h-3" />
@@ -563,7 +593,7 @@ function TriggerCard({ trigger, onEdit }: {
         <button
           onClick={() => setConfirmDelete(true)}
           disabled={remove.isPending || confirmDelete}
-          className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground hover:text-destructive disabled:opacity-50"
+          className="ml-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted-foreground hover:text-destructive disabled:opacity-50"
         >
           <Trash2 className="w-3 h-3" />
           Delete
@@ -599,7 +629,7 @@ function NewTriggerPicker({ mode, onPick, onCancel }: {
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-sm rounded-lg border border-border/60 bg-card p-4 shadow-md"
+        className="w-full max-w-sm rounded-md border border-border/60 bg-card p-4 shadow-md"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-[15px] font-semibold">
@@ -639,7 +669,7 @@ function NewTriggerPicker({ mode, onPick, onCancel }: {
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded-lg px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+            className="rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
           >
             Cancel
           </button>
@@ -654,7 +684,7 @@ function NewTriggerPicker({ mode, onPick, onCancel }: {
               // blank decides whether the goal field is optional.
               hasPrompt: Boolean((chosen.brief || '').trim()),
             })}
-            className="rounded-lg bg-primary px-4 py-1.5 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
+            className="rounded-md bg-primary px-4 py-1.5 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
           >
             Continue
           </button>
@@ -705,7 +735,7 @@ export default function Schedules() {
 
       <div className="px-4 py-6 md:px-8">
         {schedulerDown && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
             <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             <p className="text-[13px] text-destructive">
               Schedules are not running right now. The scheduler last checked
@@ -716,14 +746,14 @@ export default function Schedules() {
         <div className="mb-4 flex items-center justify-end gap-3">
           <button
             onClick={() => setPicking('webhook')}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
           >
             <Webhook className="w-4 h-4" />
             New webhook
           </button>
           <button
             onClick={() => setPicking('schedule')}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground"
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground"
           >
             <Plus className="w-4 h-4" />
             New schedule
@@ -735,7 +765,7 @@ export default function Schedules() {
             <Loader2 className="w-4 h-4 animate-spin" /> Loading…
           </div>
         ) : triggers.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/60 p-8 text-center">
+          <div className="rounded-md border border-dashed border-border/60 p-8 text-center">
             <CalendarClock className="w-8 h-8 mx-auto text-muted-foreground/50" />
             <p className="mt-3 text-sm font-medium">Nothing runs on its own yet</p>
             <p className="mt-1 text-[13px] text-muted-foreground">
@@ -747,7 +777,7 @@ export default function Schedules() {
             </p>
             <button
               onClick={() => setPicking('schedule')}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-medium text-primary-foreground"
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-medium text-primary-foreground"
             >
               <Plus className="w-4 h-4" />
               New schedule

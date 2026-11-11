@@ -34,7 +34,7 @@ interface Props {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-xs bg-muted/30 border border-border/50 rounded-lg outline-none ' +
+  'w-full px-3 py-2 text-xs bg-muted/30 border border-border/50 rounded-md outline-none ' +
   'focus:border-primary/50 transition-colors';
 
 /** Which frame slot reads as what. The API spells them `first_frame`/`last_frame`. */
@@ -47,7 +47,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <label className="label-mono">
           {label}
         </label>
         {hint && <span className="text-[11px] text-primary font-medium">{hint}</span>}
@@ -76,7 +76,7 @@ function ChipRow<T extends string | number>({
           type="button"
           onClick={() => onSelect(option)}
           className={cn(
-            'px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors',
+            'px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors',
             value === option
               ? 'bg-primary/10 border-primary/50 text-primary'
               : 'border-border/50 text-muted-foreground hover:bg-muted/60',
@@ -122,7 +122,7 @@ function UrlList({
             type="button"
             onClick={() => onChange(urls.filter((_, j) => j !== i))}
             title="Remove"
-            className="px-2.5 rounded-lg border border-border/50 text-muted-foreground hover:bg-muted/60 transition-colors"
+            className="px-2.5 rounded-md border border-border/50 text-muted-foreground hover:bg-muted/60 transition-colors"
           >
             <X size={13} />
           </button>
@@ -132,7 +132,7 @@ function UrlList({
         <button
           type="button"
           onClick={() => onChange([...urls, ''])}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-dashed border-border/60 text-muted-foreground hover:bg-muted/60 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold border border-dashed border-border/60 text-muted-foreground hover:bg-muted/60 transition-colors"
         >
           <ImagePlus size={12} />
           Add reference {urls.length > 0 && `(${urls.length}/${max})`}
@@ -374,7 +374,7 @@ export function GenerationControls({ kind, model, params, onChange }: Props) {
             value={params.negativePrompt}
             onChange={e => onChange({ negativePrompt: e.target.value })}
             placeholder="What to avoid — text, watermarks, blur…"
-            className="w-full min-h-[80px] p-3 text-xs bg-muted/30 border border-border/50 rounded-lg outline-none focus:border-primary/50 transition-colors resize-none leading-relaxed"
+            className="w-full min-h-[80px] p-3 text-xs bg-muted/30 border border-border/50 rounded-md outline-none focus:border-primary/50 transition-colors resize-none leading-relaxed"
           />
         </Field>
       )}
@@ -393,7 +393,7 @@ export function GenerationControls({ kind, model, params, onChange }: Props) {
               type="button"
               onClick={() => onChange({ seed: String(Math.floor(Math.random() * 1_000_000)) })}
               title="Randomize seed"
-              className="px-3 rounded-lg border border-border/50 text-muted-foreground hover:bg-muted/60 transition-colors"
+              className="px-3 rounded-md border border-border/50 text-muted-foreground hover:bg-muted/60 transition-colors"
             >
               <Dices size={14} />
             </button>

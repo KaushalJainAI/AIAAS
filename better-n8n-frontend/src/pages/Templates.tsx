@@ -200,13 +200,13 @@ function TemplateCard({
   return (
     <div
       className={cn(
-        'bg-card border rounded flex flex-col hover:border-border-strong transition-colors',
+        'bg-card border rounded-md flex flex-col hover:border-border-strong transition-colors',
         isInstalled ? 'border-agent-line' : 'border-border',
       )}
     >
       <div className="p-4 flex-1">
         <div className="flex items-start gap-3 mb-3">
-          <span className="w-9 h-9 rounded bg-agent-subtle border border-agent-line text-agent flex items-center justify-center shrink-0">
+          <span className="w-9 h-9 rounded-md bg-agent-subtle border border-agent-line text-agent flex items-center justify-center shrink-0">
             <Icon className="w-4 h-4" />
           </span>
           <div className="min-w-0">
@@ -225,7 +225,7 @@ function TemplateCard({
                   stranger wrote and one we curate warrant different amounts of
                   reading before you hand either your mailbox. */}
               {template.source === 'curated' ? (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-primary-line bg-primary-subtle text-primary text-[11px] font-semibold">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-secondary text-foreground text-[11px] font-semibold">
                   <Sparkles className="w-3 h-3" />
                   Built in
                 </span>
@@ -248,7 +248,7 @@ function TemplateCard({
               {unavailable && (
                 <span
                   title={unavailableReason}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-semibold"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-secondary text-muted-foreground text-[11px] font-semibold"
                 >
                   <AlertTriangle className="w-3 h-3" />
                   Not available on this server
@@ -377,13 +377,13 @@ function PackSection({
 
   return (
     <section className="mb-8">
-      <div className="rounded border border-agent-line bg-agent-subtle p-4 mb-3 flex items-start gap-3">
-        <span className="w-9 h-9 rounded bg-card border border-agent-line text-agent flex items-center justify-center shrink-0">
+      <div className="rounded-md border border-agent-line bg-agent-subtle p-4 mb-3 flex items-start gap-3">
+        <span className="w-9 h-9 rounded-md bg-card border border-agent-line text-agent flex items-center justify-center shrink-0">
           <PackIcon className="w-4 h-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <h2 className="font-semibold text-foreground text-[14px]">{title}</h2>
+            <h2 className="text-[13px] font-semibold text-muted-foreground">{title}</h2>
             <span className="text-[12px] text-muted-foreground tabular-nums">
               {installedCount} of {members.length} installed
             </span>
@@ -392,7 +392,7 @@ function PackSection({
           {!packDown.available && (
             <p
               title={packUnavailableReason}
-              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-amber-600 dark:text-amber-400 leading-relaxed mt-1.5"
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-warning leading-relaxed mt-1.5"
             >
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
               Not available on this server — {packUnavailableReason}
@@ -404,7 +404,7 @@ function PackSection({
             <button
               type="button"
               onClick={() => onUninstall(installedAgents, title)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-card text-muted-foreground text-[12px] font-semibold hover:bg-secondary"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-muted-foreground text-[12px] font-semibold hover:bg-secondary"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Uninstall
@@ -421,7 +421,7 @@ function PackSection({
                   ? 'Every member of this pack is installed'
                   : undefined
             }
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 disabled:opacity-50"
           >
             {packBusy ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -520,7 +520,7 @@ function InstallDialog({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-card border border-border rounded-md shadow-lg w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-4 p-5 border-b border-border">
           <div>
             <h2 className="font-semibold text-lg">Install {template.name}</h2>
@@ -531,7 +531,7 @@ function InstallDialog({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded hover:bg-secondary text-muted-foreground shrink-0"
+            className="p-1 rounded-md hover:bg-secondary text-muted-foreground shrink-0"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -544,7 +544,7 @@ function InstallDialog({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm"
+              className="mt-1 w-full px-3 py-2 bg-background border border-border rounded-md text-sm"
             />
           </label>
 
@@ -610,7 +610,7 @@ function InstallDialog({
                             return next;
                           })
                         }
-                        className="w-full px-3 py-2 bg-background border border-border rounded text-sm"
+                        className="w-full px-3 py-2 bg-background border border-border rounded-md text-sm"
                       >
                         <option value="">Choose…</option>
                         {req.snapshot && (
@@ -687,7 +687,7 @@ function InstallDialog({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary"
+              className="px-4 py-2 text-sm rounded-md border border-border hover:bg-secondary"
             >
               Cancel
             </button>
@@ -706,7 +706,7 @@ function InstallDialog({
                   : undefined
               }
               onClick={() => install.mutate()}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-2"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-2"
             >
               {install.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
               Install
@@ -919,13 +919,13 @@ export default function Templates() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search templates and packs…"
-              className="w-full pl-8 pr-8 py-2 bg-background border border-border rounded text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full pl-8 pr-8 py-2 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-secondary text-muted-foreground"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-secondary text-muted-foreground"
                 aria-label="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
@@ -946,7 +946,7 @@ export default function Templates() {
               type="button"
               onClick={() => setFilter(f.key)}
               className={cn(
-                'px-3 py-1.5 rounded text-[12px] font-semibold border',
+                'px-3 py-1.5 rounded-md text-[12px] font-semibold border',
                 filter === f.key
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'border-border text-muted-foreground hover:bg-secondary',
@@ -1009,7 +1009,7 @@ export default function Templates() {
             {showCurated && solo.length > 0 && (
               <section className="mb-8">
                 <div className="mb-3">
-                  <h2 className="font-semibold text-foreground text-[14px]">Standalone agents</h2>
+                  <h2 className="text-[13px] font-semibold text-muted-foreground">Standalone agents</h2>
                   <p className="text-[13px] text-muted-foreground leading-relaxed mt-0.5">
                     Installed one at a time — these belong to no pack.
                   </p>
@@ -1030,7 +1030,7 @@ export default function Templates() {
             {showCommunity && community.length > 0 && (
               <section className="mb-8">
                 <div className="mb-3">
-                  <h2 className="font-semibold text-foreground text-[14px]">
+                  <h2 className="text-[13px] font-semibold text-muted-foreground">
                     {filter === 'mine' ? 'Shared by you' : 'From the community'}
                   </h2>
                   <p className="text-[13px] text-muted-foreground leading-relaxed mt-0.5">

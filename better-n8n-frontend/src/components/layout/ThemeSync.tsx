@@ -1,19 +1,23 @@
 /**
- * Apply the account's saved theme on a browser that has none of its own.
+ * Keep the account's theme and accent in step with this browser.
  *
- * Settings → Save writes `theme_preference` and `accent_color` to the profile,
- * and nothing ever read them back: the theme lived in `localStorage` only, so a
- * new device, a new browser or cleared storage came up in the default theme
- * whatever the account said. The browser's own choice still wins — someone who
- * picks dark on their laptop and light on their phone keeps both — so this
- * fills a gap and never overrides.
+ * The profile carries `theme_preference` and `accent_color`. ThemeContext writes
+ * the accent through to the profile on every change, so the account is the
+ * source of truth: when a user loads, their saved accent is applied even if
+ * this browser remembers another. localStorage only paints the first frame
+ * before the profile arrives.
+ *
+ * The theme keeps its earlier rule: it is applied only to a browser with no
+ * choice of its own, so one device's pick is not overwritten.
  */
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/authState';
+import type { ColorTheme } from '../../contexts/themeState';
 import { useTheme } from '../../hooks/useTheme';
 
 const THEMES = ['light', 'dark', 'system'] as const;
-const ACCENTS = ['blue', 'magenta'] as const;
+// Same list as ACCENTS in contexts/ThemeContext.tsx.
+const ACCENTS: readonly ColorTheme[] = ['teal', 'ink', 'blue', 'magenta'];
 
 function hasLocal(key: string): boolean {
   try {
@@ -23,23 +27,29 @@ function hasLocal(key: string): boolean {
   }
 }
 
+function isAccent(value: string | undefined): value is ColorTheme {
+  return !!value && (ACCENTS as readonly string[]).includes(value);
+}
+
 export default function ThemeSync() {
   const { user } = useAuth();
-  const { setTheme, setColorTheme } = useTheme();
-  const applied = useRef(false);
+  const { colorTheme, setTheme, setColorTheme } = useTheme();
+  // Applied once per signed-in account, not on every render.
+  const appliedFor = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!user || applied.current) return;
-    applied.current = true;
+    if (!user || appliedFor.current === user.id) return;
+    appliedFor.current = user.id;
     const theme = user.theme_preference;
     if (theme && !hasLocal('theme') && (THEMES as readonly string[]).includes(theme)) {
       setTheme(theme);
     }
+    // An older server omits accent_color; then nothing changes.
     const accent = user.accent_color;
-    if (accent && !hasLocal('colorTheme') && (ACCENTS as readonly string[]).includes(accent)) {
-      setColorTheme(accent as (typeof ACCENTS)[number]);
+    if (isAccent(accent) && accent !== colorTheme) {
+      setColorTheme(accent);
     }
-  }, [user, setTheme, setColorTheme]);
+  }, [user, colorTheme, setTheme, setColorTheme]);
 
   return null;
 }

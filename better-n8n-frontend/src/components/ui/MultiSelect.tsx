@@ -83,7 +83,7 @@ export default function MultiSelect({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full min-h-9 px-2 py-1.5 rounded border border-input bg-background text-left flex items-center gap-1.5 flex-wrap"
+        className="w-full min-h-9 px-2 py-1.5 rounded-md border border-input bg-background text-left flex items-center gap-1.5 flex-wrap"
       >
         {selected.length === 0 ? (
           <span className="text-sm text-muted-foreground px-1">{placeholder}</span>
@@ -118,7 +118,7 @@ export default function MultiSelect({
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1 w-full bg-card border border-border rounded shadow-lg">
+        <div className="absolute z-30 mt-1 w-full bg-card border border-border rounded-md shadow-lg">
           <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border">
             <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <input
@@ -152,7 +152,7 @@ export default function MultiSelect({
                   <button
                     key={o.id}
                     onClick={() => toggle(o.id)}
-                    className="w-full flex items-start gap-2.5 px-3 py-1.5 text-left hover:bg-secondary"
+                    className="w-full flex items-start gap-2.5 px-3 py-1.5 text-left hover:bg-muted"
                   >
                     <span
                       className={cn(

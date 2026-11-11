@@ -70,7 +70,7 @@ export default function SolutionRow({
         <div
           key={changed ? String(s.updated_at) : 'steady'}
           className={cn(
-            'min-w-0 rounded-lg border p-3 transition-[opacity] duration-normal ease-accelerate',
+            'min-w-0 rounded-md border p-3 transition-[opacity] duration-normal ease-accelerate',
             selected ? 'border-primary/50 bg-primary/5' : 'border-border/60 bg-card/60',
             exiting && 'opacity-0',
             changed && !exiting && 'animate-flash',
@@ -92,7 +92,7 @@ export default function SolutionRow({
           {attentionView && reasons.length > 0 && (
             <ul className="mt-2 flex flex-wrap gap-1.5 text-[11px]" aria-label="Why it needs attention">
               {reasons.map((reason) => (
-                <li key={reason} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+                <li key={reason} className="rounded bg-warning/15 px-1.5 py-0.5 text-warning dark:text-warning">
                   {attentionLabel(reason)}
                 </li>
               ))}
@@ -107,7 +107,7 @@ export default function SolutionRow({
                     type="button"
                     onClick={() => onTag(tag)}
                     aria-label={`Show only solutions tagged ${tag}`}
-                    className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="rounded border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
                   >
                     {tag}
                   </button>

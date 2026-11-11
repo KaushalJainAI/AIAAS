@@ -185,7 +185,7 @@ export default function TeamKnowledge() {
               <Icon className="h-3.5 w-3.5" aria-hidden="true" />
               {label}
               {count != null && count > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary tabular-nums">
+                <span className="rounded bg-primary/15 px-1.5 text-[11px] font-semibold text-primary tabular-nums">
                   {count}
                 </span>
               )}
@@ -439,9 +439,9 @@ function SolutionsWorkspace({
             aria-pressed={attention}
             onClick={() => setParam({ attention: attention ? null : '1' })}
             className={cn(
-              'rounded-full border px-2.5 py-1 transition-colors',
+              'rounded border px-2.5 py-1 transition-colors',
               attention
-                ? 'border-amber-500/50 bg-amber-500/15 font-medium text-amber-700 dark:text-amber-300'
+                ? 'border-warning/50 bg-warning/15 font-medium text-warning dark:text-warning'
                 : 'border-border/60 text-muted-foreground hover:text-foreground',
             )}
           >
@@ -452,7 +452,7 @@ function SolutionsWorkspace({
             aria-pressed={mine}
             onClick={() => setParam({ mine: mine ? null : '1' })}
             className={cn(
-              'rounded-full border px-2.5 py-1 transition-colors',
+              'rounded border px-2.5 py-1 transition-colors',
               mine ? 'border-primary/40 bg-primary/10 font-medium' : 'border-border/60 text-muted-foreground hover:text-foreground',
             )}
           >
@@ -463,7 +463,7 @@ function SolutionsWorkspace({
               type="button"
               onClick={() => setParam({ tag: null })}
               aria-label={`Clear the tag filter ${tag}`}
-              className="rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium"
+              className="rounded border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium"
             >
               Tagged {tag} ×
             </button>
@@ -472,7 +472,7 @@ function SolutionsWorkspace({
       )}
 
       {isLibrary && creating && (
-        <section aria-label="New solution" className="mb-6 rounded-lg border border-border/60 bg-card/40 p-4">
+        <section aria-label="New solution" className="mb-6 rounded-md border border-border/60 bg-card/40 p-4">
           <h3 className="mb-3 text-base font-medium">New solution</h3>
           <SolutionForm
             mode="new"
@@ -561,7 +561,7 @@ function SolutionsWorkspace({
 
         <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
           {openId != null ? (
-            <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+            <div className="rounded-md border border-border/60 bg-card/40 p-4">
               <SolutionDetail
                 key={`${openId}:${editRequest === openId ? 'edit' : 'view'}`}
                 org={scope}

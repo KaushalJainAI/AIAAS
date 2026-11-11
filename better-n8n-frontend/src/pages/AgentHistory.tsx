@@ -69,7 +69,7 @@ export default function AgentHistory() {
         actions={
           <Link
             to={`/agents/${agentId}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium hover:bg-muted"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[13px] font-medium hover:bg-muted"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to builder
@@ -125,7 +125,7 @@ export default function AgentHistory() {
             <button
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"
             >
               {isFetchingNextPage && <Loader2 className="w-4 h-4 animate-spin" />}
               {isFetchingNextPage ? 'Loading…' : 'Show more'}

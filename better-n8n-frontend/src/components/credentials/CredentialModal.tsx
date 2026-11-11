@@ -246,7 +246,7 @@ export default function CredentialModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-      <div className="bg-card border border-border rounded-lg shadow-xl w-full max-w-2xl mx-4 flex flex-col max-h-[90vh]">
+      <div className="bg-card border border-border rounded-md shadow-xl w-full max-w-2xl mx-4 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-6 border-b border-border flex items-center justify-between shrink-0">
           <div>
@@ -274,8 +274,8 @@ export default function CredentialModal({
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
           {error && (
-            <div className="mb-6 p-3 bg-red-50 text-red-600 border border-red-200 rounded-md text-sm flex items-center gap-2">
-              <div className="w-1 h-1 rounded-full bg-red-600" />
+            <div className="mb-6 p-3 bg-destructive-subtle text-destructive border border-destructive/30 rounded-md text-sm flex items-center gap-2">
+              <div className="w-1 h-1 rounded-full bg-destructive" />
               {error}
             </div>
           )}
@@ -310,9 +310,9 @@ export default function CredentialModal({
                           <button
                             key={type.id}
                             onClick={() => handleSelectType(type)}
-                            className="flex items-start gap-4 p-4 border border-border rounded-xl hover:bg-accent/50 hover:border-primary/50 transition-all text-left group bg-card"
+                            className="flex items-start gap-4 p-4 border border-border rounded-md hover:bg-accent/50 hover:border-primary/50 transition-all text-left group bg-card"
                           >
-                             <div className="p-2.5 bg-muted rounded-lg group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                             <div className="p-2.5 bg-muted rounded-md group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                                 <Icon className="w-6 h-6" />
                              </div>
                              <div>
@@ -337,7 +337,7 @@ export default function CredentialModal({
             <div className="space-y-4">
               {/* Name */}
               <div>
-                <label className="block text-sm font-medium mb-1">Name <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-1">Name <span className="text-destructive">*</span></label>
                 <input
                   type="text"
                   value={name}
@@ -351,7 +351,7 @@ export default function CredentialModal({
               {/* OAuth types are populated by the provider — the token fields
                   below are written by the callback, not typed in by hand. */}
               {selectedType?.auth_method === 'oauth2' && (
-                <div className="p-4 border border-border rounded-lg bg-muted/30 space-y-2">
+                <div className="p-4 border border-border rounded-md bg-muted/30 space-y-2">
                   <p className="text-sm">
                     Connect your account to authorize access. Tokens are stored
                     and refreshed automatically.
@@ -375,7 +375,7 @@ export default function CredentialModal({
                 <div key={field.name}>
                    <label className="block text-sm font-medium mb-1">
                       {field.label}
-                      {field.required && <span className="text-red-500">*</span>}
+                      {field.required && <span className="text-destructive">*</span>}
                    </label>
                    
                    {field.type === 'select' ? (

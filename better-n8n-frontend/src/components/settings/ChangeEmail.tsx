@@ -58,7 +58,7 @@ export default function ChangeEmail({ current, onChanged }: {
     }
   };
 
-  const input = 'w-full px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50';
+  const input = 'w-full px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50';
 
   return (
     <div>
@@ -68,14 +68,14 @@ export default function ChangeEmail({ current, onChanged }: {
           className={`${input} text-muted-foreground`} />
         {step === 'idle' && (
           <button type="button" onClick={() => setStep('request')}
-            className="px-3 py-2 border border-border rounded-lg hover:bg-muted text-sm whitespace-nowrap">
+            className="px-3 py-2 border border-border rounded-md hover:bg-muted text-sm whitespace-nowrap">
             Change
           </button>
         )}
       </div>
 
       {step === 'request' && (
-        <div className="mt-3 p-3 rounded-lg border border-border space-y-2">
+        <div className="mt-3 p-3 rounded-md border border-border space-y-2">
           <input type="email" placeholder="New email address" value={email}
             onChange={(e) => setEmail(e.target.value)} className={input} autoFocus />
           <input type="password" placeholder="Current password (leave blank if you sign in with Google)"
@@ -85,26 +85,26 @@ export default function ChangeEmail({ current, onChanged }: {
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={send} disabled={busy || !email.trim()}
-              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50">
+              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50">
               {busy ? 'Sending…' : 'Send code'}
             </button>
             <button type="button" onClick={reset}
-              className="px-3 py-1.5 rounded-lg border border-border text-sm">Cancel</button>
+              className="px-3 py-1.5 rounded-md border border-border text-sm">Cancel</button>
           </div>
         </div>
       )}
 
       {step === 'confirm' && (
-        <div className="mt-3 p-3 rounded-lg border border-border space-y-2">
+        <div className="mt-3 p-3 rounded-md border border-border space-y-2">
           <input inputMode="numeric" placeholder={`Code sent to ${email}`} value={code}
             onChange={(e) => setCode(e.target.value)} className={input} autoFocus />
           <div className="flex gap-2">
             <button type="button" onClick={confirm} disabled={busy || !code.trim()}
-              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50">
+              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50">
               {busy ? 'Checking…' : 'Confirm'}
             </button>
             <button type="button" onClick={reset}
-              className="px-3 py-1.5 rounded-lg border border-border text-sm">Cancel</button>
+              className="px-3 py-1.5 rounded-md border border-border text-sm">Cancel</button>
           </div>
         </div>
       )}

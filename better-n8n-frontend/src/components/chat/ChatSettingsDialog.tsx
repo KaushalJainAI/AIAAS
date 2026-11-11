@@ -41,7 +41,7 @@ export default function ChatSettingsDialog({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg mx-4 rounded-lg border border-border bg-card shadow-lg
+        className="w-full max-w-lg mx-4 rounded-md border border-border bg-card shadow-lg
                    animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300 ease-out"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
@@ -49,7 +49,7 @@ export default function ChatSettingsDialog({
           <h2 className="text-sm font-bold text-foreground">Chat settings</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="p-1 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="w-4 h-4" />
           </button>
@@ -70,7 +70,7 @@ export default function ChatSettingsDialog({
               onChange={e => onPromptDraftChange(e.target.value)}
               rows={5}
               placeholder="e.g. Answer concisely. Prefer tables over prose. Always cite sources."
-              className="mt-2 w-full resize-y rounded-lg border border-border bg-background px-3 py-2
+              className="mt-2 w-full resize-y rounded-md border border-border bg-background px-3 py-2
                          text-xs leading-relaxed text-foreground outline-none
                          transition-colors duration-200 placeholder:text-muted-foreground/50
                          focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
@@ -78,7 +78,7 @@ export default function ChatSettingsDialog({
           </div>
 
           {!isGuest ? (
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/20 p-3.5">
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
               <div className="min-w-0">
                 <div className="text-xs font-bold text-foreground">Memory</div>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -94,7 +94,7 @@ export default function ChatSettingsDialog({
                 disabled={saving}
                 onClick={() => onSave({ memory_enabled: !session.memory_enabled })}
                 className={cn(
-                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5",
+                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
                   "transition-colors duration-300 ease-out",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
@@ -104,14 +104,14 @@ export default function ChatSettingsDialog({
               >
                 <span
                   className={cn(
-                    "h-5 w-5 shrink-0 rounded-full bg-white shadow-sm transition-transform duration-300 ease-out",
+                    "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
                     session.memory_enabled ? "translate-x-5" : "translate-x-0"
                   )}
                 />
               </button>
             </div>
           ) : (
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-warning-subtle p-3.5">
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-warning-subtle p-3.5">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                   <span>Memory</span>
@@ -127,14 +127,14 @@ export default function ChatSettingsDialog({
                 aria-label="Memory requires login"
                 disabled
                 title="Log in to use memory"
-                className="mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 bg-muted-foreground/20 opacity-50 cursor-not-allowed"
+                className="mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5 bg-muted-foreground/20 opacity-50 cursor-not-allowed"
               >
-                <span className="h-5 w-5 shrink-0 rounded-full bg-white shadow-sm translate-x-0" />
+                <span className="h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm translate-x-0" />
               </button>
             </div>
           )}
           {!isGuest && session.org ? (
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/20 p-3.5">
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
               <div className="min-w-0">
                 <div className="text-xs font-bold text-foreground">Share solutions with {session.org_name || 'your organisation'}</div>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -150,7 +150,7 @@ export default function ChatSettingsDialog({
                 disabled={saving}
                 onClick={() => onSave({ share_solutions: !session.share_solutions })}
                 className={cn(
-                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5",
+                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
                   "transition-colors duration-300 ease-out",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
@@ -160,7 +160,7 @@ export default function ChatSettingsDialog({
               >
                 <span
                   className={cn(
-                    "h-5 w-5 shrink-0 rounded-full bg-white shadow-sm transition-transform duration-300 ease-out",
+                    "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
                     session.share_solutions ? "translate-x-5" : "translate-x-0"
                   )}
                 />
@@ -168,7 +168,7 @@ export default function ChatSettingsDialog({
             </div>
           ) : null}
 
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/20 p-3.5">
+          <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
             <div className="min-w-0">
               <div className="text-xs font-bold text-foreground">Read replies aloud</div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -182,7 +182,7 @@ export default function ChatSettingsDialog({
               aria-label="Read replies aloud"
               onClick={onToggleReadAloud}
               className={cn(
-                "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5",
+                "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
                 "transition-colors duration-300 ease-out",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                 "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
@@ -191,7 +191,7 @@ export default function ChatSettingsDialog({
             >
               <span
                 className={cn(
-                  "h-5 w-5 shrink-0 rounded-full bg-white shadow-sm transition-transform duration-300 ease-out",
+                  "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
                   readAloud ? "translate-x-5" : "translate-x-0"
                 )}
               />
@@ -202,7 +202,7 @@ export default function ChatSettingsDialog({
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground
+            className="rounded-md px-3 py-1.5 text-xs font-semibold text-muted-foreground
                        transition-colors hover:bg-muted hover:text-foreground"
           >
             Cancel
@@ -210,7 +210,7 @@ export default function ChatSettingsDialog({
           <button
             disabled={saving}
             onClick={() => onSave({ system_prompt: promptDraft })}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-bold
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-xs font-bold
                        text-primary-foreground transition-colors duration-200
                        hover:brightness-110 active:scale-95 disabled:opacity-50"
           >

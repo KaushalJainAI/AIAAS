@@ -50,7 +50,7 @@ export default function FolderPickerModal({
 
   return (
     <div className="overlay z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-lg bg-card shadow-lg border border-border overflow-hidden">
+      <div className="w-full max-w-md rounded-md bg-card shadow-lg border border-border overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="font-semibold text-foreground">{title}</h2>
           <button

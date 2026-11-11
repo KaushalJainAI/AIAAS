@@ -107,7 +107,7 @@ function Field({ label, hint, children }: {
 }
 
 const inputCls =
-  'w-full h-9 px-3 rounded-lg border border-input bg-background text-sm ' +
+  'w-full h-9 px-3 rounded-md border border-input bg-background text-sm ' +
   'focus:outline-none focus:ring-1 focus:ring-primary';
 
 export default function ScheduleEditor({
@@ -224,7 +224,7 @@ export default function ScheduleEditor({
   return (
     <div className="space-y-4">
       {!agentAllowsUnattended && agentId != null && (
-        <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+        <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <div className="min-w-0 flex-1">
             <p className="text-[12px] text-destructive">
@@ -235,7 +235,7 @@ export default function ScheduleEditor({
               type="button"
               onClick={() => allow.mutate()}
               disabled={allow.isPending}
-              className="mt-1.5 rounded-lg bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
+              className="mt-1.5 rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
             >
               {allow.isPending ? 'Allowing…' : 'Allow it'}
             </button>
@@ -243,7 +243,7 @@ export default function ScheduleEditor({
         </div>
       )}
       {!agentAllowsUnattended && agentId == null && (
-        <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+        <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-[12px] text-destructive">
             This agent is not cleared to run with nobody watching, so every
@@ -262,7 +262,7 @@ export default function ScheduleEditor({
               type="button"
               onClick={() => applySpec({ ...spec, kind })}
               className={cn(
-                'rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors',
+                'rounded-md border px-2.5 py-1.5 text-[12px] transition-colors',
                 spec.kind === kind
                   ? 'border-primary bg-primary/10 text-primary font-medium'
                   : 'border-border/60 text-muted-foreground hover:text-foreground',
@@ -286,7 +286,7 @@ export default function ScheduleEditor({
                 type="button"
                 onClick={() => applySpec({ ...spec, interval: n })}
                 className={cn(
-                  'w-11 rounded-lg border py-1.5 text-[12px] tabular-nums',
+                  'w-11 rounded-md border py-1.5 text-[12px] tabular-nums',
                   spec.interval === n
                     ? 'border-primary bg-primary/10 text-primary font-medium'
                     : 'border-border/60 text-muted-foreground hover:text-foreground',
@@ -315,7 +315,7 @@ export default function ScheduleEditor({
                       : [...spec.weekdays, day].sort((a, b) => a - b),
                   })}
                   className={cn(
-                    'w-12 rounded-lg border py-1.5 text-[12px]',
+                    'w-12 rounded-md border py-1.5 text-[12px]',
                     on
                       ? 'border-primary bg-primary/10 text-primary font-medium'
                       : 'border-border/60 text-muted-foreground hover:text-foreground',
@@ -406,7 +406,7 @@ export default function ScheduleEditor({
           onChange={(e) => set({ goal: e.target.value })}
           rows={2}
           placeholder="What should it do each time this fires?"
-          className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm resize-y focus:outline-none focus:ring-1 focus:ring-primary"
+          className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-y focus:outline-none focus:ring-1 focus:ring-primary"
         />
       </Field>
 
@@ -424,12 +424,23 @@ export default function ScheduleEditor({
       </Field>
 
       {/* The proof. */}
-      <div className="rounded-lg border border-border/60 bg-secondary/30 p-3">
+      <div className="rounded-md bg-primary-subtle p-3">
         <div className="flex items-start gap-2">
           <CalendarClock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">
+            <p className="text-[13px] font-medium text-foreground">
               {reading || (checking ? 'Reading…' : 'Nothing scheduled yet')}
+              {/* "Runs at … · next: …" — the reading already says when; the next
+                  slot in the person's own time says exactly when it fires first. */}
+              {preview?.valid && preview.upcoming.length > 0 && (
+                <span className="text-muted-foreground">
+                  {' · next: '}
+                  {new Date(preview.upcoming[0]).toLocaleString(undefined, {
+                    weekday: 'short', day: 'numeric', month: 'short',
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </span>
+              )}
             </p>
             <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
               {value.cron || '—'}
@@ -449,7 +460,7 @@ export default function ScheduleEditor({
 
         {preview?.valid && preview.upcoming.length > 0 && (
           <div className="mt-2 border-t border-border/60 pt-2">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <p className="label-mono">
               Next runs, in your time
             </p>
             <ul className="mt-1 space-y-0.5">
@@ -515,7 +526,7 @@ export default function ScheduleEditor({
                       type="button"
                       onClick={() => set({ overlap: id })}
                       className={cn(
-                        'w-full text-left rounded-lg border px-3 py-2 transition-colors',
+                        'w-full text-left rounded-md border px-3 py-2 transition-colors',
                         value.overlap === id
                           ? 'border-primary bg-primary/5'
                           : 'border-border/60 hover:border-border',

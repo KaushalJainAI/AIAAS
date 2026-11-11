@@ -19,7 +19,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 const MISSION_STATUS_STYLE: Record<Mission['status'], string> = {
   active: 'border-agent-line bg-agent-subtle text-agent',
   waiting: 'border-primary-line bg-primary-subtle text-primary',
-  paused: 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  paused: 'border-border bg-secondary text-muted-foreground',
   done: 'border-border bg-secondary text-muted-foreground',
   failed: 'border-destructive/40 bg-destructive/10 text-destructive',
   cancelled: 'border-border bg-secondary text-muted-foreground',
@@ -48,7 +48,7 @@ function MissionCard({
     : null;
 
   return (
-    <div className="bg-card border border-border rounded flex flex-col">
+    <div className="bg-card border border-border rounded-md flex flex-col">
       <button
         type="button"
         onClick={onToggle}
@@ -114,7 +114,7 @@ function MissionCard({
                 type="button"
                 onClick={onPauseResume}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-card text-[12px] font-semibold hover:bg-secondary disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-[12px] font-semibold hover:bg-secondary disabled:opacity-50"
               >
                 {mission.status === 'paused' ? (
                   <>
@@ -134,7 +134,7 @@ function MissionCard({
                 type="button"
                 onClick={onCancel}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-card text-[12px] font-semibold text-destructive hover:bg-secondary disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-[12px] font-semibold text-destructive hover:bg-secondary disabled:opacity-50"
               >
                 <X className="w-3.5 h-3.5" />
                 Cancel
@@ -145,7 +145,7 @@ function MissionCard({
                 type="button"
                 onClick={onDelete}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-card text-[12px] font-semibold text-muted-foreground hover:bg-secondary disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-[12px] font-semibold text-muted-foreground hover:bg-secondary disabled:opacity-50"
               >
                 <X className="w-3.5 h-3.5" />
                 Delete
@@ -234,15 +234,15 @@ export default function MissionsSection() {
   if (!isLoading && !isError && missions.length === 0) return null;
 
   return (
-    <section className="mb-4 border border-border rounded-lg bg-card overflow-hidden">
+    <section className="mb-4 border border-border rounded-md bg-card overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <Target className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Missions</h2>
+        <h2 className="text-[13px] font-semibold text-muted-foreground">Missions</h2>
         <span className="text-[12px] text-muted-foreground">
           {isLoading ? 'Loading…' : `${live.length} live · ${done.length} finished`}
         </span>
       </div>
-      <div className="p-4 space-y-3 bg-bg-1">
+      <div className="p-4 space-y-3 bg-muted">
         {isLoading ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 className="w-4 h-4 animate-spin" />

@@ -225,10 +225,10 @@ export default function WorldCard({ suiteId, hasAgent }: {
         </div>
       )}
       {pending?.status === 'failed' && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="flex items-start gap-2 min-w-0">
-              <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-red-600 dark:text-red-400" />
+              <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-destructive dark:text-destructive" />
               <span className="min-w-0 break-words">
                 World v{pending.version} could not be built: {pending.error_message || 'unknown error'}
               </span>
@@ -247,7 +247,7 @@ export default function WorldCard({ suiteId, hasAgent }: {
         </div>
       )}
       {draft && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+        <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs">
               <span className="font-medium">World v{draft.version} draft</span>

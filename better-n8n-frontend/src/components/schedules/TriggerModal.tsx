@@ -125,7 +125,7 @@ export default function TriggerModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg border border-border/60 bg-card shadow-md"
+        className="w-full max-w-lg rounded-md border border-border/60 bg-card shadow-md"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
@@ -172,14 +172,14 @@ export default function TriggerModal({
         <div className="flex items-center justify-end gap-2 border-t border-border/60 px-4 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+            className="rounded-md px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
           >
             Cancel
           </button>
           <button
             onClick={() => save.mutate()}
             disabled={save.isPending || incomplete}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
           >
             {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             {trigger ? 'Save' : (isWebhook ? 'Create webhook' : 'Create schedule')}

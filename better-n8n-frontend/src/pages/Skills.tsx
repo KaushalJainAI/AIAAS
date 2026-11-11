@@ -27,6 +27,13 @@ import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 /** One page holds a whole library; at 20 the tab said "(24)" over 20 cards. */
 const SKILLS_PAGE_SIZE = 100;
 
+/** "Used by N agents" / "Not used yet"; nothing when an older server sent no count. */
+function usageLabel(used: number | null | undefined): string {
+    if (used == null) return '';
+    if (used === 0) return 'Not used yet';
+    return `Used by ${used} agent${used === 1 ? '' : 's'}`;
+}
+
 export default function Skills() {
     const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = usePersistedState('skills.search', '', { storage: 'session' });
@@ -154,7 +161,7 @@ export default function Skills() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <div className="flex items-center gap-3 md:gap-4 min-w-0">
                         <SidebarMenuButton />
-                        <div className="p-2.5 md:p-3 bg-primary/10 rounded-lg shrink-0">
+                        <div className="p-2.5 md:p-3 bg-primary/10 rounded-md shrink-0">
                             <GraduationCap className="w-5 h-5 md:w-6 md:h-6 text-primary" />
                         </div>
                         <div className="min-w-0">
@@ -166,7 +173,7 @@ export default function Skills() {
                     </div>
                     <button
                         onClick={handleCreateSkill}
-                        className="flex items-center gap-2 px-4 h-10 bg-primary text-primary-foreground rounded-lg text-sm font-semibold whitespace-nowrap transition-colors hover:bg-primary/90"
+                        className="flex items-center gap-2 px-4 h-10 bg-primary text-primary-foreground rounded-md text-sm font-semibold whitespace-nowrap transition-colors hover:bg-primary/90"
                     >
                         <Plus className="w-4 h-4" />
                         Create skill
@@ -206,7 +213,7 @@ export default function Skills() {
                     <input
                         type="text"
                         placeholder="Search skills..."
-                        className="w-full h-11 pl-11 pr-4 rounded-lg bg-background border border-border focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-colors text-foreground placeholder:text-muted-foreground shadow-sm"
+                        className="w-full h-11 pl-11 pr-4 rounded-md bg-background border border-border focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-colors text-foreground placeholder:text-muted-foreground shadow-sm"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -225,7 +232,7 @@ export default function Skills() {
                     </div>
                 ) : !isLoading && currentSkills.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-center max-w-sm mx-auto">
-                        <div className="p-6 bg-muted rounded-full mb-6">
+                        <div className="p-6 bg-muted rounded-md mb-6">
                             <Search className="w-12 h-12 text-muted-foreground/40" />
                         </div>
                         <h3 className="text-xl font-bold text-foreground mb-2">No skills found</h3>
@@ -235,7 +242,7 @@ export default function Skills() {
                         {!searchQuery && activeTab === 'mine' && (
                             <button 
                                 onClick={handleCreateSkill}
-                                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-lg font-bold text-sm hover:bg-primary/90 transition-all"
+                                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-md font-bold text-sm hover:bg-primary/90 transition-all"
                             >
                                 <Plus className="w-4 h-4" />
                                 Create your first skill
@@ -248,10 +255,10 @@ export default function Skills() {
                             <div 
                                 key={skill.id}
                                 onClick={() => handleOpenSkill(skill)}
-                                className="group relative bg-card border border-border/60 rounded-lg p-6 transition-all hover:border-primary/40 cursor-pointer flex flex-col h-[240px]"
+                                className="group relative bg-card border border-border/60 rounded-md p-6 transition-all hover:border-primary/40 cursor-pointer flex flex-col h-[240px]"
                             >
                                 <div className="flex items-start justify-between mb-4">
-                                    <div className="p-3 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
+                                    <div className="p-3 bg-primary/10 rounded-md group-hover:bg-primary/20 transition-colors">
                                         <FileText className="w-5 h-5 text-primary" />
                                     </div>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-colors">
@@ -277,7 +284,7 @@ export default function Skills() {
                                                     e.stopPropagation(); 
                                                     handleIncorporate(skill);
                                                 }}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground rounded-lg text-xs font-bold transition-all"
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground rounded-md text-xs font-bold transition-all"
                                                 title="Incorporate to My Skills"
                                             >
                                                 <Download className="w-3.5 h-3.5" />
@@ -292,13 +299,14 @@ export default function Skills() {
                                     {skill.description}
                                 </p>
                                 
-                                <div className="pt-4 border-t border-border/60 flex items-center justify-between text-[11px] font-bold ">
-                                    <span className="text-primary/70">{skill.category}</span>
-                                    <span className="text-muted-foreground">By {skill.author}</span>
+                                <div className="pt-4 border-t border-border/60 flex items-center justify-between gap-2 text-[11px] font-mono">
+                                    <span className="text-primary/70 truncate">{skill.category}</span>
+                                    <span className="text-muted-foreground truncate">By {skill.author}</span>
                                 </div>
+                                <p className="mt-2 text-[11px] font-mono text-muted-foreground">{usageLabel(skill.used_by)}</p>
 
                                 {skill.isShared && activeTab === 'mine' && (
-                                    <div className="absolute -top-2 -right-2 px-2 py-0.5 bg-green-500 text-white text-[10px] font-bold rounded-lg shadow-sm">
+                                    <div className="absolute -top-2 -right-2 px-2 py-0.5 bg-success text-white text-[10px] font-bold rounded-md shadow-sm">
                                         Shared
                                     </div>
                                 )}
@@ -312,11 +320,11 @@ export default function Skills() {
             {/* Markdown Editor Modal */}
             {isEditing && (
                 <div className="fixed inset-0 z-50 bg-black/50 flex flex-col items-center justify-center animate-in fade-in duration-200">
-                    <div className="bg-card border border-border/60 w-full max-w-6xl h-[90vh] rounded-lg shadow-lg flex flex-col overflow-hidden entrance-modal">
+                    <div className="bg-card border border-border/60 w-full max-w-6xl h-[90vh] rounded-md shadow-lg flex flex-col overflow-hidden entrance-modal">
                         {/* Modal Header */}
                         <div className="p-4 md:p-6 border-b border-border/60 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 bg-card">
                             <div className="flex items-center gap-2 md:gap-4 flex-1 lg:mr-4">
-                                <div className="p-2 bg-primary/10 rounded-lg">
+                                <div className="p-2 bg-primary/10 rounded-md">
                                     <Edit3 className="w-5 h-5 text-primary" />
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -337,7 +345,7 @@ export default function Skills() {
                                             <select
                                                 value={editCategory}
                                                 onChange={(e) => setEditCategory(e.target.value)}
-                                                className="appearance-none bg-secondary text-secondary-foreground text-xs font-semibold pl-3 pr-8 py-1.5 rounded-full border border-border/50 hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 cursor-pointer transition-colors leading-none h-7"
+                                                className="appearance-none bg-secondary text-secondary-foreground text-xs font-semibold pl-3 pr-8 py-1.5 rounded-md border border-border/50 hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 cursor-pointer transition-colors leading-none h-7"
                                             >
                                                 <option value="General">General</option>
                                                 <option value="Data Science">Data science</option>
@@ -355,12 +363,12 @@ export default function Skills() {
                             </div>
                             
                             <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center bg-muted p-1 rounded-lg lg:mr-4 w-full justify-between sm:w-auto">
+                                <div className="flex items-center bg-muted p-1 rounded-md lg:mr-4 w-full justify-between sm:w-auto">
                                     <button 
                                         onClick={() => setEditorMode('edit')}
                                         className={cn(
                                             "p-1.5 px-3 rounded-md text-xs font-bold transition-all flex items-center gap-2",
-                                            editorMode === 'edit' ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                            editorMode === 'edit' ? "bg-card text-primary" : "text-muted-foreground hover:text-foreground"
                                         )}
                                     >
                                         <Edit3 className="w-4 h-4" />
@@ -370,7 +378,7 @@ export default function Skills() {
                                         onClick={() => setEditorMode('split')}
                                         className={cn(
                                             "p-1.5 px-3 rounded-md text-xs font-bold transition-all flex items-center gap-2",
-                                            editorMode === 'split' ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                            editorMode === 'split' ? "bg-card text-primary" : "text-muted-foreground hover:text-foreground"
                                         )}
                                     >
                                         Split
@@ -379,7 +387,7 @@ export default function Skills() {
                                         onClick={() => setEditorMode('preview')}
                                         className={cn(
                                             "p-1.5 px-3 rounded-md text-xs font-bold transition-all flex items-center gap-2",
-                                            editorMode === 'preview' ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                            editorMode === 'preview' ? "bg-card text-primary" : "text-muted-foreground hover:text-foreground"
                                         )}
                                     >
                                         <Eye className="w-4 h-4" />
@@ -389,14 +397,14 @@ export default function Skills() {
                                 
                                 <button 
                                     onClick={handleSave}
-                                    className="px-6 py-2 bg-primary text-white rounded-lg font-bold text-sm transition-all shadow-sm flex items-center gap-2"
+                                    className="px-6 py-2 bg-primary text-white rounded-md font-bold text-sm transition-all shadow-sm flex items-center gap-2"
                                 >
                                     <Check className="w-4 h-4" />
                                     Save skill
                                 </button>
                                 <button 
                                     onClick={() => setIsEditing(false)}
-                                    className="p-2 hover:bg-muted rounded-lg transition-colors"
+                                    className="p-2 hover:bg-muted rounded-md transition-colors"
                                 >
                                     <X className="w-6 h-6" />
                                 </button>
@@ -413,7 +421,7 @@ export default function Skills() {
                                     <textarea 
                                         value={editContent}
                                         onChange={(e) => setEditContent(e.target.value)}
-                                        className="w-full h-full bg-transparent border-none text-blue-400 focus:ring-0 p-0 resize-none font-mono text-sm leading-relaxed"
+                                        className="w-full h-full bg-transparent border-none text-primary focus:ring-0 p-0 resize-none font-mono text-sm leading-relaxed"
                                         style={{ outline: 'none' }}
                                     />
                                 </div>

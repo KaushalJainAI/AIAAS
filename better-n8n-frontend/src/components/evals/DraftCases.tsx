@@ -133,8 +133,8 @@ export default function DraftCases({ suiteId, hasAgent, drafts }: {
       </div>
 
       {drafts.length > 0 && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5">
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-amber-500/20">
+        <div className="rounded-md border border-warning/30 bg-warning/5">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-warning/20">
             <span className="text-xs font-medium">
               {drafts.length} draft{drafts.length === 1 ? '' : 's'} to review — not scored until accepted
             </span>
@@ -170,12 +170,12 @@ export default function DraftCases({ suiteId, hasAgent, drafts }: {
                   </button>
                   <div className="flex gap-1 shrink-0">
                     <button type="button" aria-label="Reject draft"
-                      className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1.5 inline-flex items-center justify-center rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-600"
+                      className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1.5 inline-flex items-center justify-center rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
                       disabled={review.isPending} onClick={() => review.mutate({ reject: [d.id] })}>
                       <X className="w-3.5 h-3.5" />
                     </button>
                     <button type="button" aria-label="Accept draft"
-                      className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1.5 inline-flex items-center justify-center rounded hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-600"
+                      className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1.5 inline-flex items-center justify-center rounded hover:bg-success/10 text-muted-foreground hover:text-success"
                       disabled={review.isPending} onClick={() => review.mutate({ accept: [d.id] })}>
                       <Check className="w-3.5 h-3.5" />
                     </button>

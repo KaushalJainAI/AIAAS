@@ -116,7 +116,7 @@ export default function CommandPalette({
         role="listbox"
         aria-label="Slash commands"
         className={cn(
-          'absolute z-[61] overflow-hidden rounded-xl border border-border bg-card shadow-xl',
+          'absolute z-[61] overflow-hidden rounded-md border border-border bg-card shadow-xl',
           // Phone: full-width sheet above the composer, thumb-reachable rows.
           // Desktop: anchored popover, same component.
           'inset-x-0 bottom-[calc(100%+8px)] max-h-[min(60vh,380px)]',
@@ -147,7 +147,7 @@ export default function CommandPalette({
           )}
           {[...grouped.entries()].map(([group, items]) => (
             <div key={group}>
-              <div className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">
+              <div className="label-mono px-2.5 pb-1 pt-2">
                 {GROUP_LABELS[group] ?? group}
               </div>
               {items.map((command) => {
@@ -162,9 +162,9 @@ export default function CommandPalette({
                     onMouseEnter={() => setActive(index)}
                     className={cn(
                       // 44px rows: thumb-reachable on phones, roomy on desktop.
-                      'flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 py-2 text-left',
+                      'flex min-h-[44px] w-full items-center gap-3 rounded-md px-3 py-2 text-left',
                       index === active
-                        ? 'bg-primary/10 text-foreground'
+                        ? 'bg-primary-subtle text-foreground'
                         : 'text-foreground/80 hover:bg-muted/50',
                     )}
                   >

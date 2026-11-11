@@ -56,7 +56,7 @@ export default function SolutionDraftCard({ draft, busy = false, onAction }: Sol
   return (
     <section
       aria-label="Save this fix for your team?"
-      className="rounded-lg border border-border/70 bg-card/60 p-3 text-sm"
+      className="rounded-md border border-border/70 bg-card/60 p-3 text-sm"
     >
       <p className="font-medium">Save this fix for your team?</p>
       <p className="mt-0.5 text-[13px] text-muted-foreground break-words">{draft.problem}</p>
@@ -102,7 +102,7 @@ export default function SolutionDraftCard({ draft, busy = false, onAction }: Sol
             role="status"
             className="col-start-1 row-start-1 flex min-h-[32px] items-center gap-1.5 text-[13px] text-foreground animate-fade-in"
           >
-            <Check className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />
+            <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
             {resolved}
           </p>
         )}

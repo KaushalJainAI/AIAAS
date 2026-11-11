@@ -18,13 +18,12 @@ import type { LucideIcon } from 'lucide-react';
 
 /* Single source of truth for app navigation.
  *
- * The shell used to be one sidebar holding every destination. It now has
- * three surfaces sharing this file, modelled on nidhigrahudyog.com:
- * desktop Topbar (brand left, primary tabs centre, actions right, the rest
- * under "More"), mobile top bar (menu + brand + actions) and mobile bottom
- * tab bar (4 destinations + a centre New action + More opening the drawer).
- * The sidebar stays as the full catalogue / drawer so no route is reachable
- * from only one surface.
+ * Three surfaces share this file. Desktop: the sidebar, which is the full
+ * catalogue (there is no top bar). Phones: a one-line title bar (the current
+ * destination's name, read from here) and a bottom tab bar (Ask / Agents /
+ * New / Activity / More, where More opens the drawer). `primaryNav` is the
+ * daily loop the bottom bar draws from; the sidebar keeps every route, so no
+ * route is reachable from only one surface.
  */
 
 export type NavItem = {
@@ -84,8 +83,7 @@ export const navGroups: NavGroup[] = [
   },
 ];
 
-/* Primary tabs — the daily loop, always visible in the desktop topbar centre.
- * Mirrors the reference site's Home / Products / Combos / Offers row:
+/* Primary tabs — the daily loop the phone bottom bar draws from.
  * Ask (home), Automations (catalogue), Explore (bundles), Activity (needs you). */
 export const primaryNav: NavItem[] = [
   { icon: MessageCircle, label: 'Ask', path: '/ai-chat', guestOk: true },
@@ -94,9 +92,9 @@ export const primaryNav: NavItem[] = [
   { icon: Activity, label: 'Activity', path: '/runs', agent: true, pending: true },
 ];
 
-/* Everything not in the primary row — the "⋯ More" menu on desktop. Derived,
- * never hand-synced, so adding a route to `navGroups` cannot leave the More
- * menu behind. */
+/* Everything not in the primary row — what the phone drawer adds beyond the
+ * bottom bar. Derived, never hand-synced, so adding a route to `navGroups`
+ * cannot leave the drawer behind. */
 export const moreNavItems: NavItem[] = navGroups
   .flatMap((g) => g.items)
   .filter((item) => !primaryNav.some((p) => p.path === item.path));

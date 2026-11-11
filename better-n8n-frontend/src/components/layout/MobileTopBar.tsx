@@ -1,21 +1,22 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { GitGraph, Plus } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import { isNavActive, navGroups } from '../../lib/navigation';
 import { useAuth } from '../../contexts/authState';
 import { useHitlPending } from '../../hooks/useHitlPending';
 import { useLiveCount } from '../../hooks/useActivityLive';
 
-/* Phone top bar — brand + actions.
+/* Phone top bar — one 52px row: where you are, what waits for you, and the
+ * account. No logo row: the bottom bar carries navigation and the brand lives
+ * in the drawer. The title is the current destination's name (the same lookup
+ * the desktop top bar used); a route outside the catalogue falls back to the
+ * instance name.
  *
- * The reference site condenses its desktop header on phones to logo + icons
- * and moves navigation to the bottom tabs; this does the same. There is
- * deliberately no menu button here: every page header already owns the one
- * `Open menu` button (the mobile e2e pins exactly one), and the bottom bar's
- * "More" opens the same drawer. The pending pill deep-links to Activity so
- * an approval is one tap away.
+ * Every page header still owns the one `Open menu` button (the mobile e2e pins
+ * exactly one), so there is no menu button here. The pending pill deep-links
+ * to Activity so an approval is one tap away.
  */
 export default function MobileTopBar() {
-  const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthenticated } = useAuth();
   const customName = user?.instance_name?.trim();
   const brand = customName && customName !== 'AIAAS Instance' ? customName : 'AIAAS';
@@ -23,6 +24,16 @@ export default function MobileTopBar() {
   const { data: pending = [] } = useHitlPending(isAuthenticated);
   const pendingCount = pending.length;
   const runningCount = useLiveCount(isAuthenticated);
+
+  const current = navGroups
+    .flatMap((g) => g.items)
+    .find((item) => isNavActive(location.pathname, item));
+  const title = current?.label ?? brand;
+  // Activity is the one destination whose state is worth a line under its name.
+  const subtitle =
+    current?.path === '/runs' && isAuthenticated
+      ? `${pendingCount} need${pendingCount === 1 ? 's' : ''} you · ${runningCount} live`
+      : null;
 
   const initials = (() => {
     if (user?.name) {
@@ -35,50 +46,43 @@ export default function MobileTopBar() {
   })();
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-3 md:hidden">
-      <Link to={isAuthenticated ? '/ai-chat' : '/'} className="flex min-w-0 items-center gap-2" aria-label={`${brand} home`}>
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10">
-          <GitGraph className="h-3.5 w-3.5 text-primary" />
-        </span>
-        <span className="truncate text-base font-bold tracking-tight" title={brand}>
-          {brand}
-        </span>
-      </Link>
-      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-border bg-background px-4 md:hidden">
+      <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <h1 className="truncate text-[15px] font-semibold leading-tight text-foreground" title={title}>
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="truncate text-[11px] leading-tight text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
         {isAuthenticated && (pendingCount > 0 || runningCount > 0) && (
           <Link
             to="/runs"
             aria-label={`${pendingCount} approvals waiting`}
             className={cn(
-              'flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-semibold',
+              'flex h-10 min-w-10 items-center justify-center gap-1.5 rounded px-2.5 text-[13px] font-semibold',
               pendingCount > 0
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-agent-subtle text-agent border border-agent-line',
+                ? 'bg-warning-subtle text-warning'
+                : 'bg-agent-subtle text-agent',
             )}
           >
+            {pendingCount > 0 && <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />}
             {pendingCount > 0 ? pendingCount : runningCount}
           </Link>
         )}
-        <button
-          type="button"
-          aria-label="New chat"
-          onClick={() => navigate(isAuthenticated ? '/ai-chat' : '/', { state: { newChat: true } })}
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        >
-          <Plus className="h-5 w-5" />
-        </button>
         {isAuthenticated ? (
           <Link
             to="/profile"
             aria-label="Profile and settings"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-muted-foreground"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-muted-foreground"
           >
             {initials}
           </Link>
         ) : (
           <Link
             to="/login"
-            className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+            className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
           >
             Log in
           </Link>

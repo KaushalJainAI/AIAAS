@@ -143,7 +143,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
   };
 
   const composer = (
-    <div className="rounded-lg border border-border/60 bg-card focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 transition-all">
+    <div className="rounded-md border border-border/60 bg-card focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 transition-all">
       <textarea
         value={draft}
         onChange={e => setDraft(e.target.value)}
@@ -160,7 +160,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
         className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed outline-none max-h-40 placeholder:text-muted-foreground/40"
       />
       <div className="flex items-center gap-2 px-3 pb-2.5 pt-1 flex-wrap">
-        <div className="flex p-0.5 bg-muted/40 rounded-lg border border-border/50">
+        <div className="flex p-0.5 bg-muted/40 rounded-md border border-border/50">
           {KIND_OPTIONS.map(option => (
             <button
               key={option.id}
@@ -173,7 +173,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
               className={cn(
                 'flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors',
                 kind === option.id
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'bg-background text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -199,7 +199,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
           {!isConnected && (
             <span
               title="Reconnecting to the live update channel"
-              className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400"
+              className="flex items-center gap-1 text-[11px] text-warning dark:text-warning"
             >
               <WifiOff size={11} />
               <span>Reconnecting</span>
@@ -229,9 +229,9 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-primary/70" />
             <span className="text-xs font-bold tracking-wide">Conversations</span>
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{conversations.length}</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">{conversations.length}</span>
           </div>
-          <button onClick={() => setShowHistory(false)} className="rounded-lg p-1.5 hover:bg-muted">
+          <button onClick={() => setShowHistory(false)} className="rounded-md p-1.5 hover:bg-muted">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -242,7 +242,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
               newConversation();
               setShowHistory(false);
             }}
-            className="flex w-full items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-4 w-4" /> New conversation
           </button>
@@ -268,7 +268,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
                     setShowHistory(false);
                   }}
                   className={cn(
-                    'group flex items-center gap-2 rounded-lg px-3 py-2.5 text-left cursor-pointer transition-colors',
+                    'group flex items-center gap-2 rounded-md px-3 py-2.5 text-left cursor-pointer transition-colors',
                     conversationId === c.id ? 'bg-primary/10 border border-primary/20' : 'hover:bg-muted/60 border border-transparent'
                   )}
                 >
@@ -293,7 +293,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
         </div>
 
         <div className="border-t p-3">
-          <button onClick={() => void refreshConversations()} className="w-full rounded-lg border py-1.5 text-xs font-medium hover:bg-muted">
+          <button onClick={() => void refreshConversations()} className="w-full rounded-md border py-1.5 text-xs font-medium hover:bg-muted">
             Refresh
           </button>
         </div>
@@ -311,7 +311,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
           <div className="flex h-full flex-col items-center justify-center px-4 overflow-y-auto custom-scrollbar">
             <div className="w-full max-w-2xl space-y-5 py-8">
               <div className="text-center space-y-1.5">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-primary/10">
                   <Palette size={20} className="text-primary" />
                 </div>
                 <h2 className="text-xl font-semibold pt-1.5">What should we make?</h2>
@@ -332,7 +332,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
                     <button
                       key={starter.text}
                       onClick={() => submit(starter.text)}
-                      className="group flex items-start gap-2.5 text-left px-3 py-2.5 rounded-lg border border-border/50 hover:border-border hover:bg-muted/40 transition-colors"
+                      className="group flex items-start gap-2.5 text-left px-3 py-2.5 rounded-md border border-border/50 hover:border-border hover:bg-muted/40 transition-colors"
                     >
                       <Icon size={13} className="mt-0.5 shrink-0 text-muted-foreground/60 group-hover:text-primary transition-colors" />
                       <span className="text-xs leading-relaxed text-muted-foreground group-hover:text-foreground transition-colors">
@@ -353,7 +353,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
                   <div key={item.key} className={cn('flex', item.role === 'user' ? 'justify-end' : 'justify-start')}>
                     <div className={cn('max-w-[85%]', item.role === 'user' ? 'order-1' : 'order-none')}>
                       {item.role === 'user' ? (
-                        <div className="bg-primary text-primary-foreground rounded-lg rounded-br-md px-3.5 py-2 text-sm">{item.content}</div>
+                        <div className="bg-primary text-primary-foreground rounded-md rounded-br-md px-3.5 py-2 text-sm">{item.content}</div>
                       ) : (
                         <div>
                           {/* Agent reply — markdown (bold, titles, lists) via the shared renderer. */}

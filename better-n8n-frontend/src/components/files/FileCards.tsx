@@ -75,7 +75,7 @@ function FileCard({ file }: { file: FileCardData }) {
   const folder = file.path.slice(0, Math.max(0, file.path.lastIndexOf('/'))) || '/';
 
   return (
-    <li className="overflow-hidden rounded-lg border border-border/60 bg-card">
+    <li className="overflow-hidden rounded-md border border-border/60 bg-card">
       <div className="flex items-center gap-3 px-3 py-2">
         <Icon className="h-4 w-4 shrink-0 text-primary/80" />
         <Link

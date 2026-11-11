@@ -8,11 +8,11 @@ type Size = 'sm' | 'md' | 'lg';
 
 const VARIANTS: Record<Variant, string> = {
   primary:
-    'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm',
+    'bg-primary text-primary-foreground hover:bg-primary/90',
   secondary:
     'border border-border bg-card hover:bg-secondary text-foreground',
   destructive:
-    'bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm',
+    'bg-destructive text-destructive-foreground hover:bg-destructive/90',
   ghost:
     'text-muted-foreground hover:bg-secondary hover:text-foreground',
 };
@@ -33,7 +33,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * One button for the whole app.
  *
  * Replaces ~65 hand-rolled `bg-primary ... rounded px-4 py-2` copies with
- * 6 radii, 4 paddings and 3 disabled opacities. Radius is always `rounded-lg`,
+ * 6 radii, 4 paddings and 3 disabled opacities. Radius is always `rounded-md` (6px),
  * weight always `font-semibold`, motion always `transition-colors`.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -53,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-semibold',
+        'inline-flex items-center justify-center gap-2 rounded-md font-semibold',
         // Press feedback is a transform, so it gets the fast (100ms) token with the colours.
         'transition-[color,background-color,transform] duration-fast ease-standard',
         'enabled:active:scale-[0.98]',

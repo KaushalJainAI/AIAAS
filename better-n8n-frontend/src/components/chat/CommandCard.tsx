@@ -52,8 +52,8 @@ function Shell({
   return (
     <div
       className={cn(
-        'w-full rounded-xl border bg-card p-4 shadow-sm',
-        tone === 'warn' && 'border-amber-500/40',
+        'w-full rounded-md border bg-card p-4',
+        tone === 'warn' && 'border-warning/40',
         tone === 'confirm' && 'border-primary/40',
         tone === 'default' && 'border-border',
       )}
@@ -89,7 +89,7 @@ function ConfirmButtons({
       <button
         onClick={onConfirm}
         disabled={busy}
-        className="flex h-11 min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-[13px] font-bold text-primary-foreground transition hover:brightness-110 disabled:opacity-50"
+        className="flex h-11 min-h-[44px] flex-1 items-center justify-center gap-2 rounded-md bg-primary px-4 text-[13px] font-bold text-primary-foreground transition hover:brightness-110 disabled:opacity-50"
       >
         <Check className="h-4 w-4" />
         {confirmLabel}
@@ -97,7 +97,7 @@ function ConfirmButtons({
       <button
         onClick={onCancel}
         disabled={busy}
-        className="flex h-11 min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg bg-muted px-4 text-[13px] font-semibold text-muted-foreground transition hover:bg-muted/80 disabled:opacity-50"
+        className="flex h-11 min-h-[44px] flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-[13px] font-semibold text-muted-foreground transition hover:bg-muted/50 disabled:opacity-50"
       >
         <X className="h-4 w-4" />
         Cancel
@@ -173,7 +173,7 @@ function HelpCard({ onNavigate }: { onNavigate?: (path: string) => void }) {
       <div className="grid gap-3 sm:grid-cols-2">
         {groups.map((group) => (
           <div key={group.title}>
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+            <div className="mb-1 label-mono">
               {group.title}
             </div>
             {group.items.map((item) => (
@@ -186,7 +186,7 @@ function HelpCard({ onNavigate }: { onNavigate?: (path: string) => void }) {
       </div>
       <button
         onClick={() => onNavigate?.('/agents')}
-        className="mt-1 min-h-[44px] w-full rounded-lg border border-border/50 px-3 text-[12px] font-semibold text-muted-foreground hover:bg-muted/50"
+        className="mt-1 min-h-[44px] w-full rounded-md border border-border/50 px-3 text-[12px] font-semibold text-muted-foreground hover:bg-muted/50"
       >
         Open your agents
       </button>
@@ -218,7 +218,7 @@ function GoalConfirmCard({
           value={budget}
           onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ''))}
           inputMode="numeric"
-          className="mt-1 h-11 min-h-[44px] w-full rounded-lg border border-border bg-background px-3 text-[14px] text-foreground outline-none focus:border-primary/50"
+          className="mt-1 h-11 min-h-[44px] w-full rounded-md border border-border bg-background px-3 text-[14px] text-foreground outline-none focus:border-primary/50"
         />
       </label>
       <div className="grid grid-cols-2 gap-2">
@@ -228,7 +228,7 @@ function GoalConfirmCard({
             value={deadline}
             onChange={(e) => setDeadline(e.target.value.replace(/[^0-9]/g, ''))}
             inputMode="numeric"
-            className="mt-1 h-11 min-h-[44px] w-full rounded-lg border border-border bg-background px-3 text-[14px] text-foreground outline-none focus:border-primary/50"
+            className="mt-1 h-11 min-h-[44px] w-full rounded-md border border-border bg-background px-3 text-[14px] text-foreground outline-none focus:border-primary/50"
           />
         </label>
         <label className="block text-[12px] font-medium text-muted-foreground">
@@ -237,7 +237,7 @@ function GoalConfirmCard({
             value={maxRuns}
             onChange={(e) => setMaxRuns(e.target.value.replace(/[^0-9]/g, ''))}
             inputMode="numeric"
-            className="mt-1 h-11 min-h-[44px] w-full rounded-lg border border-border bg-background px-3 text-[14px] text-foreground outline-none focus:border-primary/50"
+            className="mt-1 h-11 min-h-[44px] w-full rounded-md border border-border bg-background px-3 text-[14px] text-foreground outline-none focus:border-primary/50"
           />
         </label>
       </div>
@@ -285,11 +285,11 @@ function MissionCard({
         const budget = num(mission.budget_inr);
         return (
           <Shell key={String(mission.mission_id ?? mission.id)} title={`#${String(mission.mission_id ?? mission.id)} ${str(mission.goal).slice(0, 80)}`}>
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide">
+            <div className="flex items-center gap-2 font-mono text-[11px]">
               <span className={cn(
                 'rounded px-1.5 py-0.5',
-                String(mission.status) === 'active' && 'bg-emerald-500/15 text-emerald-600',
-                String(mission.status) === 'waiting' && 'bg-amber-500/15 text-amber-600',
+                String(mission.status) === 'active' && 'bg-agent-subtle text-agent',
+                String(mission.status) === 'waiting' && 'bg-warning-subtle text-warning',
                 (String(mission.status) === 'paused' || String(mission.status) === 'cancelled') && 'bg-muted text-muted-foreground',
               )}>
                 {str(mission.status) || 'active'}
@@ -306,9 +306,9 @@ function MissionCard({
               )}
             </div>
             {total > 0 && (
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-1.5 overflow-hidden rounded bg-muted">
                 <div
-                  className="h-full rounded-full bg-primary"
+                  className="h-full rounded bg-primary"
                   style={{ width: `${Math.round(((total - open) / total) * 100)}%` }}
                 />
               </div>
@@ -320,7 +320,7 @@ function MissionCard({
             )}
             <button
               onClick={() => onNavigate?.(`/runs?mission=${String(mission.mission_id ?? mission.id)}`)}
-              className="min-h-[44px] w-full rounded-lg border border-border/50 px-3 text-[12px] font-semibold text-muted-foreground hover:bg-muted/50"
+              className="min-h-[44px] w-full rounded-md border border-border/50 px-3 text-[12px] font-semibold text-muted-foreground hover:bg-muted/50"
             >
               Open mission runs
             </button>
@@ -350,7 +350,7 @@ function StatusCard({
       {pending.length > 0 && (
         <button
           onClick={() => onNavigate?.('/runs')}
-          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-amber-500/15 px-3 text-[12px] font-bold text-amber-600"
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-md bg-warning-subtle px-3 text-[12px] font-bold text-warning"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
           Review {pending.length} approval{pending.length === 1 ? '' : 's'}
@@ -418,12 +418,12 @@ function MemoryCard({
         {memories.map((memory) => (
           <div
             key={memory.id}
-            className="flex min-h-[44px] items-center gap-2 rounded-lg border border-border/50 px-3 py-2"
+            className="flex min-h-[44px] items-center gap-2 rounded-md border border-border/50 px-3 py-2"
           >
             <MemoryStick className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-[12px] text-foreground">{memory.text}</div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              <div className="label-mono">
                 {memory.category}
               </div>
             </div>
@@ -467,7 +467,7 @@ function ScheduleCard({
             value={cron}
             onChange={(e) => setCron(e.target.value)}
             placeholder="0 9 * * 1-5"
-            className="mt-1 h-11 min-h-[44px] w-full rounded-lg border border-border bg-background px-3 font-mono text-[13px] text-foreground outline-none focus:border-primary/50"
+            className="mt-1 h-11 min-h-[44px] w-full rounded-md border border-border bg-background px-3 font-mono text-[13px] text-foreground outline-none focus:border-primary/50"
           />
         </label>
         {preview && (
@@ -537,7 +537,7 @@ function PublishCard({
             key={level}
             onClick={() => setVisibility(level)}
             className={cn(
-              'min-h-[44px] rounded-lg border px-2 py-2 text-[12px] font-bold',
+              'min-h-[44px] rounded-md border px-2 py-2 text-[12px] font-bold',
               visibility === level
                 ? 'border-primary/50 bg-primary/10 text-primary'
                 : 'border-border/50 text-muted-foreground hover:bg-muted/50',
@@ -573,18 +573,18 @@ function FindingsCard({ card }: { card: CommandCardData }) {
   }
   const tone = (severity: string) =>
     severity === 'blocker' ? 'bg-destructive/15 text-destructive'
-    : severity === 'major' ? 'bg-amber-500/15 text-amber-600'
+    : severity === 'major' ? 'bg-warning-subtle text-warning'
     : 'bg-muted text-muted-foreground';
   return (
     <Shell title={`Review: ${findings.length} finding${findings.length === 1 ? '' : 's'}`}>
       <div className="space-y-2">
         {findings.map((finding, i) => (
-          <div key={i} className="rounded-lg border border-border/50 p-2.5">
+          <div key={i} className="rounded-md border border-border/50 p-2.5">
             <div className="mb-1 flex flex-wrap items-center gap-1.5">
-              <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-bold uppercase', tone(str(finding.severity)))}>
+              <span className={cn('rounded px-1.5 py-0.5 font-mono text-[11px]', tone(str(finding.severity)))}>
                 {str(finding.severity) || 'minor'}
               </span>
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="label-mono">
                 {str(finding.category) || 'readability'}
               </span>
               {(finding.file != null && String(finding.file)) && (
@@ -617,7 +617,7 @@ function AgentRunCard({
   return (
     <Shell title={`${str(card.agent_name) || 'Agent'} is working`}>
       <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-semibold uppercase text-primary">
+        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-primary">
           {str(card.status) || 'running'}
         </span>
         {num(card.todos_open) > 0 && <span>{num(card.todos_open)} todos open</span>}
@@ -626,7 +626,7 @@ function AgentRunCard({
       {executionId && (
         <button
           onClick={() => onNavigate?.(`/runs?run=${executionId}`)}
-          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-border/50 px-3 text-[12px] font-semibold text-muted-foreground hover:bg-muted/50"
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-md border border-border/50 px-3 text-[12px] font-semibold text-muted-foreground hover:bg-muted/50"
         >
           <Play className="h-3.5 w-3.5" />
           Watch the run

@@ -16,7 +16,7 @@ export default function NotFound() {
   return (
     <div className="h-full min-h-[60vh] flex items-center justify-center p-8 bg-background text-foreground">
       <div className="text-center max-w-md">
-        <div className="w-14 h-14 mx-auto mb-5 bg-secondary rounded-full flex items-center justify-center">
+        <div className="w-14 h-14 mx-auto mb-5 bg-secondary rounded-md flex items-center justify-center">
           <Compass className="w-7 h-7 text-muted-foreground" />
         </div>
         <h1 className="text-xl font-bold mb-2">Page not found</h1>
@@ -27,14 +27,14 @@ export default function NotFound() {
         <div className="flex gap-3 justify-center">
           <Link
             to={isAuthenticated ? '/ai-chat' : '/'}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90"
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90"
           >
             Go to chat
           </Link>
           {isAuthenticated && (
             <Link
               to="/agents"
-              className="px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-secondary"
+              className="px-4 py-2 rounded-md border border-border text-sm font-semibold hover:bg-secondary"
             >
               Your agents
             </Link>

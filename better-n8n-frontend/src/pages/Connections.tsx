@@ -90,36 +90,41 @@ interface StatusView {
   badge: string;
 }
 
+/*
+ * One quiet status line per card: a dot and a word, no pill. Green is reserved
+ * for "working"; everything else is muted, because nothing here is waiting for
+ * the user to act (that is the held-for-review banner's job).
+ */
 const STATUS_VIEWS: Record<ConnectionStatus, StatusView> = {
   always: {
     label: 'Ready',
-    dot: 'bg-emerald-500',
-    badge: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+    dot: 'bg-success',
+    badge: 'text-success',
   },
   connected: {
     label: 'Connected',
-    dot: 'bg-primary',
-    badge: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+    dot: 'bg-success',
+    badge: 'text-success',
   },
   needs_auth: {
     label: 'Not connected',
-    dot: 'bg-muted-foreground/30',
-    badge: 'bg-muted/60 text-muted-foreground border-border/40',
+    dot: 'bg-muted-foreground/40',
+    badge: 'text-muted-foreground',
   },
   off: {
     label: 'Off',
-    dot: 'bg-muted-foreground/30',
-    badge: 'bg-muted/60 text-muted-foreground border-border/40',
+    dot: 'bg-muted-foreground/40',
+    badge: 'text-muted-foreground',
   },
   unavailable: {
     label: 'Unavailable',
-    dot: 'bg-amber-400/60',
-    badge: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+    dot: 'bg-muted-foreground/40',
+    badge: 'text-muted-foreground',
   },
   coming_soon: {
     label: 'Coming soon',
-    dot: 'bg-sky-400/60',
-    badge: 'bg-sky-500/10 text-sky-600 border-sky-500/20',
+    dot: 'bg-muted-foreground/40',
+    badge: 'text-muted-foreground',
   },
 };
 
@@ -252,9 +257,9 @@ function ConnectModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative bg-card border border-border rounded-lg shadow-lg w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative bg-card border border-border rounded-md shadow-lg w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-4 p-6 border-b border-border/60">
-          <div className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 bg-muted/60">
+          <div className="w-11 h-11 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/60">
             <Icon style={{ color }} className="w-6 h-6" />
           </div>
           <div className="flex-1 min-w-0">
@@ -265,7 +270,7 @@ function ConnectModal({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-muted rounded-lg transition-colors text-muted-foreground"
+            className="p-1.5 hover:bg-muted rounded-md transition-colors text-muted-foreground"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -275,7 +280,7 @@ function ConnectModal({
         {isOAuth ? (
           <div className="p-6 space-y-4">
             {alreadyHeld && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-500">
+              <div className="flex items-start gap-2 p-3 rounded-md bg-primary-subtle border border-primary/30 text-sm text-primary">
                 <Check className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>
                   Your Google account is already connected — signing in again replaces it.
@@ -288,7 +293,7 @@ function ConnectModal({
               here at any time.
             </p>
             {error && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+              <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>{error}</span>
               </div>
@@ -328,7 +333,7 @@ function ConnectModal({
                         setFormData((prev) => ({ ...prev, [field.name]: e.target.value }))
                       }
                       placeholder={field.placeholder ?? ''}
-                      className="w-full px-4 py-2.5 bg-background border border-border/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm font-mono pr-10"
+                      className="w-full px-4 py-2.5 bg-background border border-border/60 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm font-mono pr-10"
                       autoComplete="off"
                     />
                     {field.type === 'password' && (
@@ -363,7 +368,7 @@ function ConnectModal({
             )}
 
             {error && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+              <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>{error}</span>
               </div>
@@ -373,7 +378,7 @@ function ConnectModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 rounded-lg border border-border/60 text-sm font-semibold hover:bg-muted/50 transition-colors"
+                className="flex-1 py-2.5 rounded-md border border-border/60 text-sm font-semibold hover:bg-muted/50 transition-colors"
               >
                 Cancel
               </button>
@@ -455,7 +460,7 @@ function CapabilityList({ server }: { server: MCPServer }) {
     <ul className="py-2 space-y-1.5">
       {data.tools.map((tool) => (
         <li key={tool.name} className="flex items-start gap-2 text-xs">
-          <Check className="w-3 h-3 mt-0.5 text-emerald-500 flex-shrink-0" />
+          <Check className="w-3 h-3 mt-0.5 text-success flex-shrink-0" />
           <span className="text-foreground/90">
             {humanizeToolName(tool.name)}
             {tool.description && (
@@ -500,7 +505,9 @@ function ConnectionSwitch({
       aria-checked={isOn}
       aria-label={`${isOn ? 'Turn off' : 'Turn on'} ${label}`}
       className={cn(
-        'inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors',
+        // Squared, not pill-shaped: 6px track corners are the house switch.
+        // Phones get a 44px-wide hit area; desktop keeps the compact 36px.
+        'inline-flex h-6 w-11 md:h-5 md:w-9 shrink-0 items-center rounded p-0.5 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
         'focus-visible:ring-offset-2 focus-visible:ring-offset-card',
         'disabled:opacity-50',
@@ -509,8 +516,8 @@ function ConnectionSwitch({
     >
       <span
         className={cn(
-          'h-4 w-4 shrink-0 rounded-full bg-white shadow-sm transition-transform',
-          isOn ? 'translate-x-4' : 'translate-x-0'
+          'h-5 w-5 md:h-4 md:w-4 shrink-0 rounded-sm bg-white transition-transform',
+          isOn ? 'translate-x-5 md:translate-x-4' : 'translate-x-0'
         )}
       />
     </button>
@@ -547,18 +554,21 @@ function ConnectionCard({
   const canShowCapabilities = isOn && (status === 'always' || status === 'connected');
 
   return (
+    // Phones: a row in a bordered list (the group draws the outline). Desktop:
+    // a card in a grid. Same markup, so the handlers and labels are unchanged.
     <div
       className={cn(
-        'bg-card border rounded-lg p-5 flex flex-col gap-4 transition-colors duration-150',
-        isOn ? 'border-border/60' : 'border-dashed border-border/50 opacity-70'
+        'flex flex-col gap-3 bg-card p-3 transition-colors duration-150',
+        'border-b border-border/60 last:border-b-0 md:rounded-md md:border md:p-4',
+        !isOn && 'opacity-70'
       )}
     >
-      <div className="flex items-start gap-3">
-        <div className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 bg-muted/60">
-          <Icon style={{ color }} className="w-5 h-5" />
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 md:w-9 md:h-9 rounded-md flex items-center justify-center flex-shrink-0 bg-muted">
+          <Icon style={{ color }} className="w-4 h-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-sm text-foreground leading-tight truncate">
+          <p className="font-semibold text-sm text-foreground leading-tight truncate">
             {server.label}
           </p>
           {server.tagline && (
@@ -583,7 +593,7 @@ function ConnectionCard({
           this state, and was fetched but never rendered — so every dead card
           was dead for a reason no user could read. */}
       {platformOff && server.setup_notes && (
-        <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-amber-500/30 pl-3">
+        <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-warning pl-3">
           {server.setup_notes}
         </p>
       )}
@@ -605,13 +615,8 @@ function ConnectionCard({
         </div>
       )}
 
-      <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/40">
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full border',
-            isOn || platformOff ? view.badge : STATUS_VIEWS.off.badge
-          )}
-        >
+      <div className="flex items-center gap-2 mt-auto pt-3 border-t border-border/40">
+        <span className={cn('inline-flex flex-1 min-w-0 items-center gap-2 text-xs', isOn || platformOff ? view.badge : STATUS_VIEWS.off.badge)}>
           <span
             className={cn(
               'w-1.5 h-1.5 rounded-full flex-shrink-0',
@@ -621,10 +626,12 @@ function ConnectionCard({
           {isOn || platformOff ? view.label : STATUS_VIEWS.off.label}
         </span>
 
+        {/* Connect is the one solid dark button on the page: it is the next
+            step for this row, and a text link undersold it. */}
         {status === 'needs_auth' && (
           <button
             onClick={onConnect}
-            className="text-xs font-bold text-primary hover:underline"
+            className="h-8 px-3 rounded-md bg-foreground text-background text-[13px] font-medium hover:bg-foreground/90 transition-colors"
           >
             Connect
           </button>
@@ -633,7 +640,7 @@ function ConnectionCard({
           <button
             onClick={onDisconnect}
             disabled={busy}
-            className="text-xs font-bold text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+            className="h-8 px-3 rounded-md border border-border text-[13px] font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
           >
             {busy ? 'Disconnecting…' : 'Disconnect'}
           </button>
@@ -704,7 +711,7 @@ function OAuthConnectButton({ server }: { server: MCPServer }) {
       onClick={server.oauth_connected ? disconnect : connect}
       disabled={busy}
       className={cn(
-        'px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 whitespace-nowrap',
+        'px-2.5 py-1 rounded-md text-xs font-semibold transition-colors disabled:opacity-50 whitespace-nowrap',
         server.oauth_connected
           ? 'text-muted-foreground hover:bg-muted'
           : 'bg-primary/10 text-primary hover:bg-primary/20',
@@ -730,7 +737,7 @@ function CustomServerRow({
 }) {
   const isOn = server.effective_enabled;
   return (
-    <div className="flex items-center gap-3 px-4 py-3 bg-card border border-border/60 rounded-lg">
+    <div className="flex items-center gap-3 px-4 py-3 bg-card border border-border/60 rounded-md">
       <Terminal className="w-4 h-4 text-muted-foreground flex-shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-foreground truncate">{server.label}</p>
@@ -744,14 +751,14 @@ function CustomServerRow({
       <ConnectionSwitch isOn={isOn} onToggle={onToggle} disabled={busy} label={server.label} />
       <button
         onClick={onEdit}
-            className="p-1.5 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Edit ${server.label}`}
       >
         <Settings2 className="w-4 h-4" />
       </button>
       <button
         onClick={onDelete}
-        className="p-1.5 hover:bg-destructive/10 rounded-lg text-muted-foreground hover:text-destructive transition-colors"
+        className="p-1.5 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive transition-colors"
         aria-label={`Remove ${server.label}`}
       >
         <Trash2 className="w-4 h-4" />
@@ -1016,7 +1023,7 @@ export default function Connections() {
         actions={
           connectedCount > 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Check className="w-4 h-4 text-blue-500" />
+              <Check className="w-4 h-4 text-primary" />
               <span>
                 <span className="font-bold text-foreground">{connectedCount}</span> connected
               </span>
@@ -1026,7 +1033,7 @@ export default function Connections() {
       />
 
       {serversQuery.error && (
-        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-4 rounded-lg border border-destructive/20 flex items-center gap-3">
+        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-4 rounded-md border border-destructive/20 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <p className="text-sm font-medium">
             Could not load your connections. Please try again later.
@@ -1034,20 +1041,21 @@ export default function Connections() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-8 space-y-10 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 md:py-8 space-y-8 custom-scrollbar">
         <HeldToolsPanel />
         {CATEGORY_ORDER.map((category) => {
           const group = byCategory.get(category) ?? [];
           if (group.length === 0) return null;
           return (
             <section key={category}>
-              <h2 className="text-base font-bold text-foreground">
+              <h2 className="text-[13px] font-semibold text-muted-foreground">
                 {CATEGORY_LABELS[category]}
               </h2>
-              <p className="text-xs text-muted-foreground mt-0.5 mb-4">
+              <p className="text-xs text-muted-foreground mt-0.5 mb-3">
                 {CATEGORY_BLURBS[category]}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {/* One bordered list per group on phones (a row per connection), a card grid from md up. */}
+              <div className="flex flex-col overflow-hidden rounded-md border border-border/60 md:grid md:grid-cols-2 md:gap-3 md:overflow-visible md:border-0 lg:grid-cols-3 xl:grid-cols-4">
                 {group.map((server) => (
                   <ConnectionCard
                     key={server.id}
@@ -1090,7 +1098,7 @@ export default function Connections() {
 
         {/* Advanced. The MCP vocabulary lives here and nowhere else: it is a real
             capability, but naming a subprocess is not a task for most people. */}
-        <section className="border-t border-border/40 pt-6">
+        <section className="border-t border-border/40 pt-5">
           <button
             onClick={() => setAdvancedOpen((v) => !v)}
             className="flex items-center gap-2 group"
@@ -1100,7 +1108,7 @@ export default function Connections() {
             ) : (
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             )}
-            <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">
+            <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors">
               Advanced
             </span>
             <span className="text-xs text-muted-foreground">
@@ -1136,7 +1144,7 @@ export default function Connections() {
                   setEditingServer(null);
                   setServerModalOpen(true);
                 }}
-                className="flex items-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-lg text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-md text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Add custom server
@@ -1186,8 +1194,8 @@ export default function Connections() {
 
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border/60 rounded-lg shadow-lg w-full max-w-sm p-8">
-            <div className="w-14 h-14 bg-destructive/10 rounded-full flex items-center justify-center mb-6 mx-auto">
+          <div className="bg-card border border-border/60 rounded-md shadow-lg w-full max-w-sm p-8">
+            <div className="w-14 h-14 bg-destructive/10 rounded-md flex items-center justify-center mb-6 mx-auto">
               <Trash2 className="w-7 h-7 text-destructive" />
             </div>
             <h3 className="text-lg font-bold mb-3 text-center">
@@ -1199,14 +1207,14 @@ export default function Connections() {
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="flex-1 px-4 py-3 border border-border/60 rounded-lg font-bold text-sm hover:bg-muted transition-colors"
+                className="flex-1 px-4 py-3 border border-border/60 rounded-md font-bold text-sm hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => deleteServerMutation.mutate(confirmDelete.id)}
                 disabled={deleteServerMutation.isPending}
-                className="flex-1 px-4 py-3 bg-destructive text-destructive-foreground rounded-lg font-bold text-sm hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-3 bg-destructive text-destructive-foreground rounded-md font-bold text-sm hover:bg-destructive/90 transition-colors disabled:opacity-50"
               >
                 Remove
               </button>

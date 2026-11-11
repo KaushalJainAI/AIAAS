@@ -50,7 +50,7 @@ export function AspectRatioSelector({ options, value, onChange }: Props) {
             onClick={() => onChange(ratio)}
             title={ratio === 'auto' ? 'Let the model choose' : `Aspect ratio ${ratio}`}
             className={cn(
-              'flex flex-col items-center justify-end gap-1.5 w-[52px] py-2 rounded-lg border transition-colors',
+              'flex flex-col items-center justify-end gap-1.5 w-[52px] py-2 rounded-md border transition-colors',
               isActive
                 ? 'bg-primary/10 border-primary/50'
                 : 'border-border/50 hover:bg-muted/60 hover:border-border',

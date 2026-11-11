@@ -10,7 +10,7 @@
 import { createContext, useContext } from 'react';
 
 export type Theme = 'light' | 'dark' | 'system';
-export type ColorTheme = 'blue' | 'magenta';
+export type ColorTheme = 'teal' | 'ink' | 'blue' | 'magenta';
 
 export interface ThemeContextType {
   theme: Theme;

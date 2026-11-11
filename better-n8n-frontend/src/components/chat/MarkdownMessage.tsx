@@ -162,7 +162,7 @@ function CodeBlock({ tag, children }: { tag: string; children: ReactNode }) {
   const lines = text.split('\n').length;
 
   return (
-    <div className="relative my-6 rounded-lg overflow-hidden border border-border bg-card shadow-sm">
+    <div className="relative my-6 rounded-md overflow-hidden border border-border bg-card">
       <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b border-border">
         <div className="flex items-center gap-2">
           <span className="micro-label">
@@ -401,10 +401,10 @@ function MarkdownMessage({
         <em {...props}>{children}</em>
       ),
       h1: ({ node: _node, children, ...props }: ElementProps<'h1'>) => (
-        <h1 className="text-xl font-semibold mt-6 mb-3 text-foreground leading-tight" {...props}>{children}</h1>
+        <h1 className="text-xl font-semibold mt-6 mb-3 text-foreground leading-tight max-w-[72ch]" {...props}>{children}</h1>
       ),
       h2: ({ node: _node, children, ...props }: ElementProps<'h2'>) => (
-        <h2 className="text-lg font-semibold mt-5 mb-2.5 text-foreground leading-tight" {...props}>{children}</h2>
+        <h2 className="text-lg font-semibold mt-5 mb-2.5 text-foreground leading-tight max-w-[72ch]" {...props}>{children}</h2>
       ),
       h3: ({ node: _node, children, ...props }: ElementProps<'h3'>) => (
         <h3 className="text-[16px] font-semibold mt-4 mb-2 text-foreground leading-snug" {...props}>{children}</h3>
@@ -413,7 +413,7 @@ function MarkdownMessage({
         <h4 className="text-[15px] font-semibold mt-3 mb-1.5 text-foreground leading-snug" {...props}>{children}</h4>
       ),
       p: ({ node: _node, children, ...props }: ElementProps<'p'>) => (
-        <p className="mb-3 last:mb-0 leading-relaxed" {...props}>{children}</p>
+        <p className="mb-3 last:mb-0 leading-relaxed max-w-[72ch]" {...props}>{children}</p>
       ),
       // Self-styled against ancestor resets: inside `.ai-chat-prose` the
       // container's own `list-none` + custom `::before` bullets would otherwise
@@ -422,7 +422,7 @@ function MarkdownMessage({
       // this component's markers and silence the container's.
       ul: ({ node: _node, children, ...props }: ElementProps<'ul'>) => (
         <ul
-          className="list-disc pl-6 mb-3 space-y-1.5 marker:text-primary [.ai-chat-prose_&]:list-disc [.ai-chat-prose_&]:pl-6"
+          className="list-disc pl-6 mb-3 max-w-[72ch] space-y-1.5 marker:text-primary [.ai-chat-prose_&]:list-disc [.ai-chat-prose_&]:pl-6"
           {...props}
         >
           {children}
@@ -430,7 +430,7 @@ function MarkdownMessage({
       ),
       ol: ({ node: _node, children, ...props }: ElementProps<'ol'>) => (
         <ol
-          className="list-decimal pl-6 mb-3 space-y-1.5 marker:text-primary marker:font-bold [.ai-chat-prose_&]:list-decimal [.ai-chat-prose_&]:pl-6"
+          className="list-decimal pl-6 mb-3 max-w-[72ch] space-y-1.5 marker:text-primary marker:font-bold [.ai-chat-prose_&]:list-decimal [.ai-chat-prose_&]:pl-6"
           {...props}
         >
           {children}
@@ -445,10 +445,10 @@ function MarkdownMessage({
         </li>
       ),
       blockquote: ({ node: _node, children, ...props }: ElementProps<'blockquote'>) => (
-        <blockquote className="border-l-2 border-primary/40 pl-3 my-3 italic text-muted-foreground" {...props}>{children}</blockquote>
+        <blockquote className="border-l-2 border-primary/40 pl-3 my-3 italic text-muted-foreground max-w-[72ch]" {...props}>{children}</blockquote>
       ),
       table: ({ node: _node, children, ...props }: ElementProps<'table'>) => (
-        <span className="block overflow-x-auto my-3 rounded-lg border border-border">
+        <span className="block overflow-x-auto my-3 rounded-md border border-border">
           <table className="w-full border-collapse text-[13px]" {...props}>{children}</table>
         </span>
       ),

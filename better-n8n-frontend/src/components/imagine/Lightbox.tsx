@@ -64,7 +64,7 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
       <button
         onClick={onClose}
         aria-label="Close"
-        className="absolute top-6 right-6 p-2 rounded-full bg-muted/50 hover:bg-muted text-foreground transition-colors z-[60]"
+        className="absolute top-6 right-6 p-2 rounded-md bg-muted/50 hover:bg-muted text-foreground transition-colors z-[60]"
       >
         <X size={22} />
       </button>
@@ -73,7 +73,7 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
         role="dialog"
         aria-modal="true"
         onClick={e => e.stopPropagation()}
-        className="relative flex flex-col md:flex-row w-full max-w-6xl max-h-[90vh] bg-card border border-border/50 rounded-lg overflow-hidden shadow-lg"
+        className="relative flex flex-col md:flex-row w-full max-w-6xl max-h-[90vh] bg-card border border-border/50 rounded-md overflow-hidden shadow-lg"
       >
         <div className="flex-1 bg-black/5 flex items-center justify-center overflow-hidden min-h-[40vh] p-4">
           {result.type === 'image' && (
@@ -100,7 +100,7 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
         <div className="w-full md:w-80 p-6 border-t md:border-t-0 md:border-l border-border/40 flex flex-col justify-between gap-6 overflow-y-auto">
           <div className="space-y-5">
             <div className="space-y-2">
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+              <label className="label-mono">
                 Prompt
               </label>
               <p className="text-sm leading-relaxed text-foreground/85">{result.prompt}</p>
@@ -108,13 +108,13 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                <label className="label-mono">
                   Type
                 </label>
                 <div className="text-xs font-semibold capitalize">{result.type}</div>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                <label className="label-mono">
                   Created
                 </label>
                 <div className="text-xs font-semibold">
@@ -128,7 +128,7 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
 
             {result.model && (
               <div className="space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                <label className="label-mono">
                   Model
                 </label>
                 <div className="text-xs font-medium break-all">{result.model}</div>
@@ -140,7 +140,7 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
             <button
               onClick={() => void handleDownload()}
               disabled={isDownloading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               {isDownloading ? (
                 <Loader2 size={15} className="animate-spin" />
@@ -156,7 +156,7 @@ export function Lightbox({ isOpen, onClose, result, onDelete }: LightboxProps) {
                   onClose();
                 }}
                 title="Delete"
-                className="p-2.5 rounded-lg bg-muted/50 hover:bg-destructive hover:text-white border border-border/50 transition-colors"
+                className="p-2.5 rounded-md bg-muted/50 hover:bg-destructive hover:text-white border border-border/50 transition-colors"
               >
                 <Trash2 size={16} />
               </button>

@@ -269,14 +269,17 @@ describe('ToolApprovalCard', () => {
     expect(screen.getByText('To')).toBeTruthy();
   });
 
-  it('each button answers with the right scope', () => {
+  it('approves with the chosen scope and declines with the call id', () => {
     const onApprove = vi.fn();
     const onDeny = vi.fn();
     render(<ToolApprovalCard call={call} onApprove={onApprove} onDeny={onDeny} />);
+    // No choice made: exactly (callId, scope), no match argument.
     fireEvent.click(screen.getByText('Approve'));
-    fireEvent.click(screen.getByText('Allow for this chat'));
-    fireEvent.click(screen.getByText('Always allow'));
-    fireEvent.click(screen.getByText('Deny'));
+    fireEvent.change(screen.getByLabelText('Applies to'), { target: { value: 'session' } });
+    fireEvent.click(screen.getByText('Approve'));
+    fireEvent.change(screen.getByLabelText('Applies to'), { target: { value: 'always' } });
+    fireEvent.click(screen.getByText('Approve'));
+    fireEvent.click(screen.getByText('Decline'));
     expect(onApprove.mock.calls).toEqual([['c7', 'once'], ['c7', 'session'], ['c7', 'always']]);
     expect(onDeny).toHaveBeenCalledWith('c7');
   });

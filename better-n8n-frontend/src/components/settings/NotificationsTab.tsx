@@ -88,14 +88,14 @@ export default function NotificationsTab() {
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'workflow_failed': return <AlertTriangle className="w-5 h-5 text-red-500" />;
-      case 'hitl_request': return <ShieldAlert className="w-5 h-5 text-amber-500" />;
-      case 'hitl_reminder': return <ShieldAlert className="w-5 h-5 text-amber-500" />;
-      case 'hitl_digest': return <Bell className="w-5 h-5 text-violet-500" />;
-      case 'agent_update': return <Bell className="w-5 h-5 text-violet-500" />;
-      case 'image_ready': return <CheckCircle className="w-5 h-5 text-emerald-500" />;
-      case 'new_message': return <Bell className="w-5 h-5 text-blue-500" />;
-      default: return <Info className="w-5 h-5 text-blue-500" />;
+      case 'workflow_failed': return <AlertTriangle className="w-5 h-5 text-destructive" />;
+      case 'hitl_request': return <ShieldAlert className="w-5 h-5 text-warning" />;
+      case 'hitl_reminder': return <ShieldAlert className="w-5 h-5 text-warning" />;
+      case 'hitl_digest': return <Bell className="w-5 h-5 text-agent" />;
+      case 'agent_update': return <Bell className="w-5 h-5 text-agent" />;
+      case 'image_ready': return <CheckCircle className="w-5 h-5 text-success" />;
+      case 'new_message': return <Bell className="w-5 h-5 text-primary" />;
+      default: return <Info className="w-5 h-5 text-primary" />;
     }
   };
 
@@ -138,7 +138,7 @@ export default function NotificationsTab() {
       </div>
 
       {notifications.length === 0 ? (
-        <div className="text-center py-12 border border-dashed border-border/60 rounded-lg bg-card/30">
+        <div className="text-center py-12 border border-dashed border-border/60 rounded-md bg-card/30">
           <Bell className="w-8 h-8 text-muted-foreground mx-auto mb-3 opacity-50" />
           <p className="text-muted-foreground font-medium">No notifications yet</p>
           <p className="text-xs text-muted-foreground/70 mt-1 max-w-sm mx-auto">
@@ -152,13 +152,13 @@ export default function NotificationsTab() {
             <div
               key={notification.id}
               className={cn(
-                "p-4 rounded-lg border transition-all flex gap-4 items-start",
+                "p-4 rounded-md border transition-all flex gap-4 items-start",
                 notification.is_read
                   ? "bg-card/30 border-border/40 opacity-70"
-                  : "bg-card/80 border-primary/20 shadow-sm"
+                  : "bg-card/80 border-primary/20"
               )}
             >
-              <div className="mt-1 shrink-0 p-2 bg-background rounded-full border border-border/50">
+              <div className="mt-1 shrink-0 p-2 bg-background rounded-md border border-border/50">
                 {getIcon(notification.type)}
               </div>
               <div className="flex-1 min-w-0">

@@ -17,6 +17,7 @@ import { formatDate, formatSize, locationOf, typeName } from '../../lib/fileDisp
 import { cn } from '../../lib/utils';
 import { useBlobUrl } from '../../hooks/useBlobUrl';
 import FileIcon from '../files/FileIcon';
+import AuthorTag from '../documents/AuthorTag';
 
 export type ViewMode = 'details' | 'tiles' | 'list';
 
@@ -146,8 +147,10 @@ function DetailsView(props: Props) {
             <td className="truncate px-3 text-muted-foreground">
               {formatDate(item.kind === 'folder' ? item.folder.updated_at : item.doc.updated_at)}
             </td>
-            <td className="hidden truncate px-3 text-muted-foreground md:table-cell">
-              {item.kind === 'folder' ? 'File folder' : typeName(item.doc)}
+            <td className="hidden truncate px-3 md:table-cell">
+              <span className="inline-flex max-w-full items-center rounded bg-muted px-1.5 py-px font-mono text-[11px] text-muted-foreground">
+                {item.kind === 'folder' ? 'Folder' : typeName(item.doc)}
+              </span>
             </td>
             <td className="hidden truncate px-3 text-right tabular-nums text-muted-foreground sm:table-cell">
               {item.kind === 'doc' ? formatSize(item.doc.file_size) : ''}
@@ -229,7 +232,7 @@ function ItemShell({
 }
 
 function ItemIcon({ item, className }: { item: Item; className?: string }) {
-  if (item.kind === 'folder') return <FolderIcon className={cn('shrink-0 fill-amber-400/80 text-amber-500', className)} />;
+  if (item.kind === 'folder') return <FolderIcon className={cn('shrink-0 fill-muted-foreground/30 text-muted-foreground', className)} />;
   if (item.doc.status === 'uploading') return <Loader2 className={cn('shrink-0 animate-spin text-primary', className)} />;
   return <FileIcon doc={item.doc} className={className} />;
 }
@@ -244,11 +247,15 @@ function NameCell({
   }
   const status = item.kind === 'doc' ? item.doc.status : null;
   const note = subtitle?.(item);
+  const author = item.kind === 'doc' ? item.doc.author : null;
   return (
     <span className={cn('min-w-0', center ? 'w-full' : 'flex-1')}>
       <span className={cn('block text-foreground', center ? 'line-clamp-2 break-words text-[12.5px]' : 'truncate')} title={name}>
         {name}
       </span>
+      {author?.kind === 'agent' && (
+        <AuthorTag author={author} className={cn('mt-0.5', center && 'mx-auto')} />
+      )}
       {note && (
         <span className={cn('block text-[11px] text-muted-foreground', center ? 'line-clamp-2 break-words' : 'truncate')} title={note}>
           {note}
@@ -321,7 +328,7 @@ function Thumb({ item }: { item: Item }) {
   return (
     <div ref={ref} className="flex h-16 w-16 items-center justify-center sm:h-20 sm:w-20">
       {url ? (
-        <img src={url} alt="" className="max-h-full max-w-full rounded object-cover shadow-sm" draggable={false} />
+        <img src={url} alt="" className="max-h-full max-w-full rounded object-cover" draggable={false} />
       ) : (
         <ItemIcon item={item} className="h-12 w-12 sm:h-14 sm:w-14" />
       )}

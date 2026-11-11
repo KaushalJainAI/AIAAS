@@ -61,7 +61,7 @@ export default function ScheduledReminders() {
   });
 
   if (isLoading) {
-    return <div className="h-16 rounded-lg bg-card border border-border/60 animate-pulse" />;
+    return <div className="h-16 rounded-md bg-card border border-border/60 animate-pulse" />;
   }
 
   return (
@@ -73,7 +73,7 @@ export default function ScheduledReminders() {
       </p>
 
       {reminders.length === 0 ? (
-        <div className="mt-4 text-center py-8 border border-dashed border-border/60 rounded-lg bg-card/30">
+        <div className="mt-4 text-center py-8 border border-dashed border-border/60 rounded-md bg-card/30">
           <AlarmClock className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-50" />
           <p className="text-sm text-muted-foreground font-medium">No reminders scheduled</p>
         </div>
@@ -82,9 +82,9 @@ export default function ScheduledReminders() {
           {reminders.map((reminder) => (
             <div
               key={reminder.id}
-              className="p-3 rounded-lg border border-border/60 bg-card/60 flex gap-3 items-start"
+              className="p-3 rounded-md border border-border/60 bg-card/60 flex gap-3 items-start"
             >
-              <div className="mt-0.5 shrink-0 p-1.5 bg-background rounded-full border border-border/50">
+              <div className="mt-0.5 shrink-0 p-1.5 bg-background rounded-md border border-border/50">
                 <AlarmClock className="w-4 h-4 text-primary" />
               </div>
               <div className="flex-1 min-w-0">

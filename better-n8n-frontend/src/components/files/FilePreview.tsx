@@ -188,7 +188,7 @@ export default function FilePreview({ doc, className }: Props) {
     return (
       <div className={cn('p-4', className)}>
         {doc.file_type === 'other' && (
-          <p className="mx-auto mb-3 max-w-2xl rounded-lg border border-border/60 bg-card px-4 py-3 text-center text-[13px] text-muted-foreground">
+          <p className="mx-auto mb-3 max-w-2xl rounded-md border border-border/60 bg-card px-4 py-3 text-center text-[13px] text-muted-foreground">
             No preview for{extensionOfDoc(doc) ? ` .${extensionOfDoc(doc)}` : ''} files
             {doc.file_size ? ` (${formatSize(doc.file_size)})` : ''} — download it to open it.
           </p>
@@ -352,7 +352,7 @@ function LegacyOfficeNotice({ doc }: { doc: Document }) {
   }, [doc.id, doc.content]);
   return (
     <div className="mx-auto max-w-2xl px-2 py-6">
-      <p className="rounded-lg border border-border/60 bg-card px-4 py-3 text-[13px] text-muted-foreground">
+      <p className="rounded-md border border-border/60 bg-card px-4 py-3 text-[13px] text-muted-foreground">
         {legacySentence(doc)}
       </p>
       {text !== null && text.trim() !== '' && (
@@ -389,7 +389,7 @@ function ConvertedImage({ doc }: { doc: Document }) {
   if (failed) {
     return (
       <div className="mx-auto max-w-2xl px-2 py-6">
-        <p className="rounded-lg border border-border/60 bg-card px-4 py-3 text-[13px] text-muted-foreground">
+        <p className="rounded-md border border-border/60 bg-card px-4 py-3 text-[13px] text-muted-foreground">
           This image cannot be shown in the browser
           {extensionOfDoc(doc) === 'heic' || extensionOfDoc(doc) === 'heif'
             ? ' (HEIC needs conversion support the server does not have)'
@@ -547,7 +547,7 @@ function CsvTableView({ table }: { table: ReturnType<typeof parseCsv> }) {
     <div>
       {/* The table scrolls inside its own box; the frame must not scroll
           sideways because one file happens to have forty columns. */}
-      <div className="overflow-x-auto rounded-lg border border-border/60">
+      <div className="overflow-x-auto rounded-md border border-border/60">
         <table className="w-full border-collapse text-xs">
           <thead className="bg-muted/40">
             <tr>

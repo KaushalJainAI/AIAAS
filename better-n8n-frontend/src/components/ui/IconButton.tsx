@@ -22,7 +22,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       aria-label={label}
       title={label}
       className={cn(
-        'p-1.5 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground',
+        'p-1.5 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground',
         'transition-colors duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         'disabled:opacity-50 disabled:pointer-events-none',

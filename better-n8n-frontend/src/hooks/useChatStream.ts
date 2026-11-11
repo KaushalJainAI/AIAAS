@@ -124,6 +124,11 @@ export interface ToolCallDetail {
   server: string;
   tool: string;
   fields: { label: string; value: string }[];
+  /** Optional: see `ApprovalDetailFields` in `api/chat.ts`. Absent on older servers. */
+  effect?: 'read' | 'reversible' | 'irreversible';
+  leaves_workspace?: boolean;
+  first_contact?: boolean;
+  action_label?: string;
 }
 
 export interface ChatStreamState {

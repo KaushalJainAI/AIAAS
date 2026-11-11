@@ -11,8 +11,8 @@
  *
  * | state              | look                        | clickable |
  * |--------------------|-----------------------------|-----------|
- * | idle               | primary circle, `ArrowUp`   | yes       |
- * | busy + `onStop`    | red circle, stop square     | yes       |
+ * | idle               | primary button, `ArrowUp`   | yes       |
+ * | busy + `onStop`    | red button, stop square     | yes       |
  * | busy, no `onStop`  | primary circle, spinner     | no        |
  * | locked             | primary circle, padlock     | no        |
  *
@@ -77,9 +77,9 @@ export function SendButton({
       title={title ?? defaultTitle}
       aria-label={title ?? defaultTitle}
   className={cn(
-    'shrink-0 rounded-full flex items-center justify-center shadow-sm transition-colors duration-150',
+    'shrink-0 rounded-md flex items-center justify-center transition-colors duration-150',
     // Never let a disabled button look pressable.
-    'disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed',
+    'disabled:opacity-40 disabled:cursor-not-allowed',
     canStop
       ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
       : 'bg-primary text-primary-foreground hover:bg-primary/90',

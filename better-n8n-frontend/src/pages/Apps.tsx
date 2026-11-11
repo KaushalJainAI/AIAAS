@@ -124,7 +124,7 @@ export default function Apps() {
                     <li key={d.id}>
                       <Link
                         to={openInAppPath(d, app)!}
-                        className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2.5 no-underline hover:border-primary/40"
+                        className="flex items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2.5 no-underline hover:border-primary/40"
                       >
                         <Icon className={cn('h-5 w-5 shrink-0', fileTint(d))} />
                         <span className="min-w-0 flex-1">
@@ -174,7 +174,7 @@ function JumpBackIn({ rows }: { rows: RecentFile[] }) {
             <li key={d.id} className="group relative">
               <Link
                 to={openInAppPath(d, app)!}
-                className="flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2.5 pr-8 no-underline hover:border-primary/40"
+                className="flex items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2.5 pr-8 no-underline hover:border-primary/40"
               >
                 <Icon className={cn('h-5 w-5 shrink-0', fileTint(d))} />
                 <span className="min-w-0 flex-1">
@@ -204,9 +204,9 @@ function JumpBackIn({ rows }: { rows: RecentFile[] }) {
 function AppTile({ app, meta, onAi }: { app: AppMeta; meta: string; onAi?: () => void }) {
   const Icon = app.icon;
   return (
-    <li className="group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-colors hover:border-primary/40">
+    <li className="group relative flex flex-col overflow-hidden rounded-md border border-border/60 bg-card transition-colors hover:border-primary/40">
       <Link to={app.path} className="flex flex-1 flex-col items-start gap-2 p-4 no-underline">
-        <span className={cn('inline-flex rounded-xl bg-gradient-to-br p-2.5 text-white shadow-sm', app.tint)}>
+        <span className={cn('inline-flex rounded-md bg-primary-subtle p-2.5 text-primary')}>
           <Icon className="h-5 w-5" />
         </span>
         <span className="block text-sm font-semibold text-foreground">{app.title}</span>

@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 type Tone = 'primary' | 'neutral' | 'agent' | 'success' | 'warning';
 
 const TONES: Record<Tone, string> = {
-  primary: 'bg-primary/10 text-primary border-border',
+  primary: 'bg-primary-subtle text-primary border-primary-line',
   neutral: 'bg-muted text-muted-foreground border-border',
   agent: 'bg-agent-subtle text-agent border-agent-line',
   success: 'bg-success-subtle text-success border-border',
@@ -36,7 +36,7 @@ export function IconTile({
   return (
     <div
       className={cn(
-        'rounded-lg border flex items-center justify-center shrink-0',
+        'rounded-md border flex items-center justify-center shrink-0',
         dims,
         TONES[tone],
         className,

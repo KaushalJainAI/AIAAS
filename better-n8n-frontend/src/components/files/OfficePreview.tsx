@@ -601,7 +601,7 @@ function WorkbookPreview({ spec }: { spec: WorkbookSpec }) {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-border/60">
+      <div className="overflow-x-auto rounded-md border border-border/60">
         <table className="w-full border-collapse text-xs">
           <thead className="bg-muted/40">
             <tr>
@@ -758,7 +758,7 @@ function LiveWorkbookPreview({ doc, className }: { doc: Document; className?: st
       {rows.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">This sheet is empty.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border/60">
+        <div className="overflow-x-auto rounded-md border border-border/60">
           <table className="w-full border-collapse text-xs">
             <tbody>
               {rows.map((row, r) => (

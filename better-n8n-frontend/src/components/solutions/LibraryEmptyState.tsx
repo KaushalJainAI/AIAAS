@@ -18,7 +18,7 @@ interface CardProps {
 
 function Card({ icon: Icon, title, body, action }: CardProps) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/60 p-4">
+    <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-card/60 p-4">
       <Icon className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
       <h3 className="text-sm font-medium">{title}</h3>
       <p className="flex-1 text-[13px] leading-relaxed text-muted-foreground">{body}</p>

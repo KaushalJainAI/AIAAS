@@ -28,13 +28,13 @@ import { StatusIcon, StatusPill, ms } from './bits';
 function Step({ step, slowest }: { step: AgentStep; slowest: number }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-secondary">
+      <div className="flex items-center gap-3 py-1.5 px-2 rounded-md hover:bg-secondary">
         <StatusIcon status={step.status} />
         <span className="text-[13px] w-48 truncate" title={step.tool}>{step.tool}</span>
-        <div className="flex-1 h-1.5 bg-secondary rounded overflow-hidden">
+        <div className="flex-1 h-1.5 bg-secondary rounded-md overflow-hidden">
           {/* block, not inline — an inline element ignores width/height */}
           <span
-            className={cn('block h-full rounded', step.status === 'failed' ? 'bg-destructive' : 'bg-agent')}
+            className={cn('block h-full rounded-md', step.status === 'failed' ? 'bg-destructive' : 'bg-agent')}
             style={{ width: `${Math.max(2, ((step.duration_ms || 0) / slowest) * 100)}%` }}
           />
         </div>
@@ -110,7 +110,7 @@ function Turn({ turn, slowest }: { turn: AgentTurn; slowest: number }) {
       ))}
 
       {turn.decision === 'answer' && turn.content && (
-        <div className="mt-3 prose prose-sm dark:prose-invert max-w-none rounded-lg border border-border bg-card px-4 py-3 shadow-sm prose-headings:font-semibold prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-strong:text-foreground prose-p:text-[13.5px] prose-p:leading-relaxed prose-li:text-[13.5px] prose-ul:my-2 prose-ol:my-2">
+        <div className="mt-3 prose prose-sm dark:prose-invert max-w-none rounded-md border border-border bg-card px-4 py-3 prose-headings:font-semibold prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-strong:text-foreground prose-p:text-[13.5px] prose-p:leading-relaxed prose-li:text-[13.5px] prose-ul:my-2 prose-ol:my-2">
           <MarkdownMessage
             content={turn.content + (turn.content_truncated ? "\n\n*… trimmed — open the full trace to see more*" : "")}
             variant="full"
@@ -125,7 +125,7 @@ function Turn({ turn, slowest }: { turn: AgentTurn; slowest: number }) {
 function OrchestratorBanner({ detail }: { detail: { delegated_by: NonNullable<ExecutionDetail['delegated_by']> } }) {
   const by = detail.delegated_by;
   return (
-    <div className="mb-3 px-3 py-2 rounded bg-agent-subtle border border-agent-line">
+    <div className="mb-3 px-3 py-2 rounded-md bg-agent-subtle border border-agent-line">
       <div className="flex items-center gap-2 text-[12px] mb-1">
         <GitBranch className="w-3.5 h-3.5 text-agent shrink-0" />
         <span>
@@ -219,7 +219,7 @@ function RunActions({ detail }: { detail: ExecutionDetail }) {
       />
       <button
         onClick={saveAsCase}
-        className="text-[12px] px-2 py-1 rounded border border-border hover:bg-secondary"
+        className="text-[12px] px-2 py-1 rounded-md border border-border hover:bg-secondary"
         title="Save this run as an eval case for the same agent"
       >
         Save as eval case

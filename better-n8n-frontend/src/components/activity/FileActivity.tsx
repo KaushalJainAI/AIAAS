@@ -47,10 +47,10 @@ export default function FileActivity() {
   if (items.length === 0) return null;
 
   return (
-    <section className="mb-4 border border-border rounded-lg bg-card overflow-hidden">
+    <section className="mb-4 border border-border rounded-md bg-card overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <FileDiff className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Recent files</h2>
+        <h2 className="text-[13px] font-semibold text-muted-foreground">Recent files</h2>
         <span className="text-[12px] text-muted-foreground tabular-nums">
           {items.length}{truncated && '+'}
         </span>
@@ -66,7 +66,7 @@ export default function FileActivity() {
           </div>
           <Link
             to={item.href}
-            className="px-2.5 py-1.5 text-[12px] rounded border border-border hover:bg-secondary shrink-0"
+            className="px-2.5 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary shrink-0"
           >
             Open
           </Link>

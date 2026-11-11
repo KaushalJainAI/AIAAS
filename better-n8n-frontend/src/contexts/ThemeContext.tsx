@@ -1,6 +1,33 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 
+import { authService } from '../api/auth';
 import { ThemeContext, type ColorTheme, type Theme } from './themeState';
+
+/**
+ * Accent themes. `teal` is the default and lives on the base tokens in
+ * index.css; the others override only the human colour. The same list is in
+ * components/layout/ThemeSync.tsx (a component file cannot export a constant
+ * without tripping fast refresh), so change both together.
+ */
+const ACCENTS: readonly ColorTheme[] = ['teal', 'ink', 'blue', 'magenta'];
+const DEFAULT_ACCENT: ColorTheme = 'teal';
+
+function isAccent(value: unknown): value is ColorTheme {
+  return typeof value === 'string' && (ACCENTS as readonly string[]).includes(value);
+}
+
+/**
+ * Writes the accent to the account. A failure (offline, signed out, a server
+ * that does not know the field yet) keeps the local choice: the page is not
+ * undone because the save did not reach the server.
+ */
+async function saveAccent(accent: ColorTheme): Promise<void> {
+  try {
+    await authService.updateProfile({ accent_color: accent });
+  } catch {
+    // Kept on this device only.
+  }
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
@@ -13,14 +40,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return 'system';
   });
 
+  // localStorage only paints the first frame. ThemeSync applies the account's
+  // saved accent as soon as the profile loads.
   const [colorTheme, setColorThemeState] = useState<ColorTheme>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('colorTheme') as ColorTheme;
-      if (saved && ['blue', 'magenta'].includes(saved)) {
-        return saved;
+      try {
+        const saved = localStorage.getItem('colorTheme');
+        if (isAccent(saved)) return saved;
+      } catch {
+        // Storage blocked: the default still paints.
       }
     }
-    return 'blue';
+    return DEFAULT_ACCENT;
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
@@ -65,9 +96,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute('data-color-theme', colorTheme);
-    
-    // Set RGB values for primary for transparency support if needed by inline styles
-    // Computed HSL to RGB can be complex, so we'll rely on index.css mostly
   }, [colorTheme]);
 
   const setTheme = useCallback((newTheme: Theme) => {
@@ -77,7 +105,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setColorTheme = useCallback((newColorTheme: ColorTheme) => {
     setColorThemeState(newColorTheme);
-    localStorage.setItem('colorTheme', newColorTheme);
+    try {
+      localStorage.setItem('colorTheme', newColorTheme);
+    } catch {
+      // Not remembered on this device; the account write still happens.
+    }
+    void saveAccent(newColorTheme);
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -102,4 +135,3 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
-

@@ -48,11 +48,11 @@ const SUPERVISION_HELP: Record<SupervisionPolicy, string> = {
 };
 
 const STATUS_STYLES: Record<string, string> = {
-  completed: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  awaiting_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  running: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  completed: 'bg-success/10 text-success dark:text-success',
+  awaiting_review: 'bg-warning/10 text-warning dark:text-warning',
+  running: 'bg-primary/10 text-primary dark:text-primary',
   queued: 'bg-muted text-muted-foreground',
-  failed: 'bg-red-500/10 text-red-600 dark:text-red-400',
+  failed: 'bg-destructive/10 text-destructive dark:text-destructive',
   cancelled: 'bg-muted text-muted-foreground',
 };
 
@@ -71,7 +71,7 @@ function StatusPill({ status }: { status: string }) {
 function ScoreCell({ run }: { run: Pick<EvalRun, 'score' | 'passed' | 'status' | 'pending_review_count'> }) {
   if (run.status === 'awaiting_review' || run.passed === null) {
     return (
-      <span className="text-xs text-amber-600 dark:text-amber-400" title="Provisional — results are still waiting on a reviewer.">
+      <span className="text-xs text-warning dark:text-warning" title="Provisional — results are still waiting on a reviewer.">
         {run.score === null ? '—' : `${Math.round(run.score * 100)}%`} provisional
         {run.pending_review_count > 0 && ` · ${run.pending_review_count} to review`}
       </span>
@@ -79,7 +79,7 @@ function ScoreCell({ run }: { run: Pick<EvalRun, 'score' | 'passed' | 'status' |
   }
   if (run.score === null) return <span className="text-xs text-muted-foreground">—</span>;
   return (
-    <span className={cn('text-xs font-semibold', run.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+    <span className={cn('text-xs font-semibold', run.passed ? 'text-success dark:text-success' : 'text-destructive dark:text-destructive')}>
       {Math.round(run.score * 100)}% {run.passed ? 'pass' : 'fail'}
     </span>
   );
@@ -204,7 +204,7 @@ export default function Evals() {
         actions={
           <button
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition"
           >
             <Plus className="w-4 h-4" /> New suite
           </button>
@@ -235,7 +235,7 @@ export default function Evals() {
               {count > 0 && (
                 <span className={cn(
                   'ml-2 px-1.5 py-0.5 rounded text-[11px]',
-                  key === 'review' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground',
+                  key === 'review' ? 'bg-warning/15 text-warning dark:text-warning' : 'bg-muted text-muted-foreground',
                 )}>{count}</span>
               )}
             </button>
@@ -329,7 +329,7 @@ function ReviewQueue({
       {queue.map((item) => {
         const hasNoAnswer = item.status === 'error' || item.status === 'skipped';
         return (
-        <div key={item.id} className="rounded-lg border border-border/60 bg-card p-4">
+        <div key={item.id} className="rounded-md border border-border/60 bg-card p-4">
           <div className="flex items-start justify-between gap-4 mb-3">
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{item.case_name || 'Untitled case'}</div>
@@ -339,15 +339,15 @@ function ReviewQueue({
               </div>
             </div>
             {hasNoAnswer ? (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-red-500/10 text-red-600 dark:text-red-400">
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-destructive/10 text-destructive dark:text-destructive">
                 no answer
               </span>
             ) : (
               <span className={cn(
                 'px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap',
                 item.auto_passed === null ? 'bg-muted text-muted-foreground'
-                  : item.auto_passed ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-red-500/10 text-red-600 dark:text-red-400',
+                  : item.auto_passed ? 'bg-success/10 text-success dark:text-success'
+                  : 'bg-destructive/10 text-destructive dark:text-destructive',
               )}>
                 grader: {item.auto_passed === null ? 'no opinion' : item.auto_passed ? 'pass' : 'fail'}
               </span>
@@ -381,7 +381,7 @@ function ReviewQueue({
               <button
                 onClick={() => onVerdict(item.id, 'unsure')}
                 disabled={pendingId === item.id}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-500/20 transition disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-destructive/10 text-destructive dark:text-destructive text-xs font-medium hover:bg-destructive/20 transition disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" /> Dismiss result
               </button>
@@ -390,14 +390,14 @@ function ReviewQueue({
                 <button
                   onClick={() => onVerdict(item.id, 'pass')}
                   disabled={pendingId === item.id}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-success/10 text-success dark:text-success text-xs font-medium hover:bg-success/20 transition disabled:opacity-50"
                 >
                   <Check className="w-3.5 h-3.5" /> Pass
                 </button>
                 <button
                   onClick={() => onVerdict(item.id, 'fail')}
                   disabled={pendingId === item.id}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-500/20 transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-destructive/10 text-destructive dark:text-destructive text-xs font-medium hover:bg-destructive/20 transition disabled:opacity-50"
                 >
                   <X className="w-3.5 h-3.5" /> Fail
                 </button>
@@ -407,7 +407,7 @@ function ReviewQueue({
                 <button
                   onClick={() => onVerdict(item.id, 'unsure')}
                   disabled={pendingId === item.id}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/70 transition disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/70 transition disabled:opacity-50"
                 >
                   <HelpCircle className="w-3.5 h-3.5" /> Unsure
                 </button>
@@ -492,7 +492,7 @@ function SuiteRow({ suite, agents, openSuite, onToggle, onRun, runningId, onDele
   const canRun = suite.case_count > 0 && effectiveAgent !== undefined && runningId !== suite.id;
 
   return (
-    <div className="rounded-lg border border-border/60 bg-card overflow-hidden">
+    <div className="rounded-md border border-border/60 bg-card overflow-hidden">
       <div className="p-4 flex items-center justify-between gap-4 flex-wrap">
         <button onClick={() => onToggle(suite.id)} className="flex items-center gap-3 min-w-0 text-left flex-1">
           <ChevronRight className={cn('w-4 h-4 text-muted-foreground transition', openSuite === suite.id && 'rotate-90')} />
@@ -512,7 +512,7 @@ function SuiteRow({ suite, agents, openSuite, onToggle, onRun, runningId, onDele
             value={agentPick !== '' ? agentPick : (suite.subagent != null ? String(suite.subagent) : '')}
             onChange={(e) => setAgentPick(e.target.value)}
             title="Which agent should this suite run against?"
-            className="max-w-44 truncate border border-border rounded-lg px-2 py-1.5 text-xs bg-background"
+            className="max-w-44 truncate border border-border rounded-md px-2 py-1.5 text-xs bg-background"
           >
             <option value="">Pick an agent…</option>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -527,14 +527,14 @@ function SuiteRow({ suite, agents, openSuite, onToggle, onRun, runningId, onDele
                   ? 'Pick an agent first — this suite names none.'
                   : `Run every case against ${agents.find((a) => a.id === effectiveAgent)?.name ?? 'the agent'}`
             }
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition disabled:opacity-40"
           >
             {runningId === suite.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
             Run
           </button>
           <button
             onClick={() => onDelete(suite.id)}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
             title="Delete suite"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -650,7 +650,7 @@ function CaseRow({ caseData: c, liveVersion, onEdit }: {
               {c.world_version !== null && c.world_version !== undefined && (
                 <span className={cn(
                   'shrink-0 rounded px-1 py-px text-[10px] font-medium',
-                  stale ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground',
+                  stale ? 'bg-warning/10 text-warning dark:text-warning' : 'bg-muted text-muted-foreground',
                 )} title={stale ? 'Built for an older world version — kept, listed, never swept' : 'The world version this case was built for'}>
                   {stale ? `stale (world v${c.world_version})` : `world v${c.world_version}`}
                 </span>
@@ -702,7 +702,7 @@ function RunList({ runs, loading, openRun, onToggle, onDelete, deletingId }: {
         const canDelete = !['pending', 'queued', 'running'].includes(run.status)
           && !(run.status === 'cancelled' && !run.completed_at);
         return (
-          <div key={run.run_id} className="rounded-lg border border-border/60 bg-card overflow-hidden">
+          <div key={run.run_id} className="rounded-md border border-border/60 bg-card overflow-hidden">
             <div className="flex items-center gap-2 pr-3">
               <button
                 onClick={() => onToggle(run.run_id)}
@@ -736,7 +736,7 @@ function RunList({ runs, loading, openRun, onToggle, onDelete, deletingId }: {
                   disabled={deletingId === run.run_id}
                   aria-label={`Delete eval sweep ${run.suite_name || run.run_id}`}
                   title="Delete this sweep and its evaluation traces"
-                  className="shrink-0 p-2 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition disabled:opacity-50"
+                  className="shrink-0 p-2 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition disabled:opacity-50"
                 >
                   {deletingId === run.run_id
                     ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -783,7 +783,7 @@ function StarterKitsCard({ agents, onCloned }: {
   if (kitsQuery.isLoading) return null;
   if (kits.length === 0) return null;
   return (
-    <div className="rounded-lg border border-border/60 bg-card p-4">
+    <div className="rounded-md border border-border/60 bg-card p-4">
       <div className="flex flex-wrap items-center gap-2 mb-1">
         <h3 className="text-sm font-semibold">Start from a starter dataset</h3>
         <span className="text-[11px] text-muted-foreground">Core checks plus real-world tasks · normal · ambiguous · impossible · guardrail · hallucination trap</span>
@@ -803,7 +803,7 @@ function StarterKitsCard({ agents, onCloned }: {
               <div className="text-[13px] font-medium">
                 {k.name}
                 {recommended.has(k.slug) && (
-                  <span className="ml-2 text-[10px] uppercase tracking-wide font-semibold text-primary">Recommended</span>
+                  <span className="ml-2 label-mono text-primary">Recommended</span>
                 )}
               </div>
               <div className="text-xs text-muted-foreground">{k.description} · {k.case_count} cases</div>
@@ -826,7 +826,7 @@ function JudgeCard({ data }: { data?: { calibrations?: Record<string, { judge_mo
   const calib = data?.calibrations?.handwritten ?? data?.calibrations?.gold;
   if (!calib) return null;
   return (
-    <div className="rounded-lg border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
+    <div className="rounded-md border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground">
       Judge <span className="font-mono">{calib.judge_model}</span>
       {' · '}agreement {Math.round(calib.agreement * 100)}%
       {' · '}false-pass {Math.round(calib.false_pass_rate * 100)}%
@@ -843,24 +843,24 @@ function QualityTab({ data, loading }: { data?: Record<string, unknown>; loading
   const recent = (data.recent_thumbs_down ?? []) as Array<{ type: string; id: string | number; agent: string; reason: string; comment: string }>;
   return (
     <div className="space-y-4 text-sm">
-      <div className="rounded-lg border border-border/60 bg-card p-4">
+      <div className="rounded-md border border-border/60 bg-card p-4">
         <h3 className="font-semibold mb-2">Thumbs</h3>
         <p className="text-muted-foreground">Up {String(data.thumbs_up ?? 0)} · Down {String(data.thumbs_down ?? 0)}</p>
       </div>
-      <div className="rounded-lg border border-border/60 bg-card p-4">
+      <div className="rounded-md border border-border/60 bg-card p-4">
         <h3 className="font-semibold mb-2">Failures by category</h3>
         {Object.keys(cats).length === 0
           ? <p className="text-muted-foreground">None recorded.</p>
           : <ul className="space-y-1">{Object.entries(cats).map(([k, v]) => <li key={k}>{k}: {v}</li>)}</ul>}
       </div>
-      <div className="rounded-lg border border-border/60 bg-card p-4">
+      <div className="rounded-md border border-border/60 bg-card p-4">
         <h3 className="font-semibold mb-2">Signals</h3>
         {Object.keys(sigs).length === 0
           ? <p className="text-muted-foreground">None recorded.</p>
           : <ul className="space-y-1">{Object.entries(sigs).map(([k, v]) => <li key={k}>{k}: {v}</li>)}</ul>}
       </div>
       {recent.length > 0 && (
-        <div className="rounded-lg border border-border/60 bg-card p-4">
+        <div className="rounded-md border border-border/60 bg-card p-4">
           <h3 className="font-semibold mb-2">Recent thumbs-down</h3>
           <ul className="space-y-1 text-xs">
             {recent.map((t, i) => (
@@ -940,7 +940,7 @@ function RunResults({ runId, error }: { runId: string; error?: string }) {  cons
   return (
     <div className="border-t border-border/60 bg-muted/20 px-4 py-3 space-y-2">
       {error && (
-        <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
+        <div className="flex items-start gap-2 text-xs text-destructive dark:text-destructive">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {error}
         </div>
       )}
@@ -950,7 +950,7 @@ function RunResults({ runId, error }: { runId: string; error?: string }) {  cons
           <div className="min-w-0">
             <div className="font-medium truncate">{r.case_name || `Case ${r.case ?? r.id}`}</div>
             {r.error_message
-              ? <div className="text-red-600 dark:text-red-400 truncate">{r.error_message}</div>
+              ? <div className="text-destructive dark:text-destructive truncate">{r.error_message}</div>
               : <div className="text-muted-foreground truncate">{r.answer || '(no answer)'}</div>}
             <IntentList intents={r.intents} />
             <ChangedList changes={r.env_changes} />
@@ -964,9 +964,9 @@ function RunResults({ runId, error }: { runId: string; error?: string }) {  cons
             )}
             <span className={cn(
               'px-2 py-0.5 rounded text-[11px] font-medium',
-              r.final_passed === null ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                : r.final_passed ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : 'bg-red-500/10 text-red-600 dark:text-red-400',
+              r.final_passed === null ? 'bg-warning/10 text-warning dark:text-warning'
+                : r.final_passed ? 'bg-success/10 text-success dark:text-success'
+                : 'bg-destructive/10 text-destructive dark:text-destructive',
             )}>
               {r.final_passed === null ? 'awaiting review' : r.final_passed ? 'pass' : 'fail'}
             </span>
@@ -1012,10 +1012,10 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-lg bg-card border border-border/60 shadow-md" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg rounded-md bg-card border border-border/60 shadow-md" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/60">
           <h2 className="text-base font-semibold">New eval suite</h2>
-          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1 rounded-md text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="p-5 space-y-4">
@@ -1025,7 +1025,7 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Refund policy answers"
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
             />
           </label>
 
@@ -1035,7 +1035,7 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm resize-none"
+              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-background text-sm resize-none"
             />
           </label>
 
@@ -1044,7 +1044,7 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
             <select
               value={subagent}
               onChange={(e) => setSubagent(e.target.value === '' ? '' : Number(e.target.value))}
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
             >
               <option value="">Choose when running</option>
               {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -1056,7 +1056,7 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
             <select
               value={supervision}
               onChange={(e) => setSupervision(e.target.value as SupervisionPolicy)}
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+              className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
             >
               {(Object.keys(SUPERVISION_HELP) as SupervisionPolicy[]).map((p) => (
                 <option key={p} value={p}>{p}</option>
@@ -1072,7 +1072,7 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
                 type="number" min={0} max={100}
                 value={samplePercent}
                 onChange={(e) => setSamplePercent(Number(e.target.value))}
-                className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
               />
             </label>
           )}
@@ -1089,11 +1089,11 @@ function CreateSuiteModal({ agents, onClose, onCreated }: {
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-border/60">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground">Cancel</button>
           <button
             onClick={() => create.mutate()}
             disabled={!name.trim() || create.isPending}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
           >
             {create.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Create
           </button>
@@ -1109,7 +1109,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="mt-2">
       <div className="text-[11px] font-medium text-muted-foreground mb-0.5">{label}</div>
-      <div className="text-xs bg-muted/40 rounded-lg px-3 py-2 max-h-40 overflow-auto">{children}</div>
+      <div className="text-xs bg-muted/40 rounded-md px-3 py-2 max-h-40 overflow-auto">{children}</div>
     </div>
   );
 }

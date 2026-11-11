@@ -26,7 +26,7 @@ import RunControls from '../runs/RunControls';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useLiveRun } from '../../hooks/useLiveRun';
 import RunDetail from './RunDetail';
-import { StatusPill, when } from './bits';
+import { StatusDot, StatusPill, when } from './bits';
 
 /** Statuses whose detail can still change, so an open run keeps refreshing. */
 const LIVE_STATUSES = new Set(['running', 'pending', 'paused']);
@@ -218,7 +218,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
             key={f}
             onClick={() => setFilter(f)}
             className={cn(
-              'px-3 py-1.5 text-sm rounded border transition-colors first-letter:uppercase',
+              'px-3 py-1.5 text-sm rounded-md border transition-colors first-letter:uppercase',
               filter === f
                 ? 'bg-primary text-primary-foreground border-primary font-semibold'
                 : 'bg-card border-border hover:bg-secondary'
@@ -244,7 +244,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
               return next;
             }, { replace: true })}
             title="Show every agent's runs"
-            className="px-3 py-1.5 text-sm rounded border border-primary text-primary bg-primary/10"
+            className="px-3 py-1.5 text-sm rounded-md border border-primary text-primary bg-primary/10"
           >
             {runs[0]?.workflow_name ?? 'One agent'} ×
           </button>
@@ -257,7 +257,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
               return next;
             }, { replace: true })}
             title="Clear failure filter"
-            className="px-3 py-1.5 text-sm rounded border border-primary text-primary bg-primary/10"
+            className="px-3 py-1.5 text-sm rounded-md border border-primary text-primary bg-primary/10"
           >
             {urlFailure.replace('_', ' ')} ×
           </button>
@@ -273,7 +273,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
               }, { replace: true });
             }}
             title="Apply linked status as filter"
-            className="px-3 py-1.5 text-sm rounded border border-primary text-primary bg-primary/10"
+            className="px-3 py-1.5 text-sm rounded-md border border-primary text-primary bg-primary/10"
           >
             {urlStatus} ×
           </button>
@@ -282,7 +282,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
           <button
             type="button"
             onClick={() => setClearingFailed(true)}
-            className="px-3 py-1.5 text-[12px] rounded border border-border hover:bg-secondary text-muted-foreground"
+            className="px-3 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground"
             title="Delete every failed run. Cost records are kept."
           >
             Clear failed
@@ -294,7 +294,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
               onChange={(e) => setOlderDays(e.target.value)}
               inputMode="numeric"
               aria-label="Older than, in days"
-              className="w-14 px-2 py-1.5 bg-card border border-border rounded text-[12px] tabular-nums"
+              className="w-14 px-2 py-1.5 bg-card border border-border rounded-md text-[12px] tabular-nums"
             />
             days
           </label>
@@ -302,7 +302,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
             type="button"
             onClick={() => setClearingOld(true)}
             disabled={!/^\d+$/.test(olderDays.trim())}
-            className="px-3 py-1.5 text-[12px] rounded border border-border hover:bg-secondary text-muted-foreground disabled:opacity-50"
+            className="px-3 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground disabled:opacity-50"
             title="Delete failed, cancelled and timed-out runs older than N days. Cost records are kept."
           >
             Clear
@@ -311,7 +311,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
       </div>
 
       {linkedRunHidden && (
-        <div ref={openRef} className="mb-4 border border-primary/40 rounded bg-card scroll-mt-4">
+        <div ref={openRef} className="mb-4 border border-primary/40 rounded-md bg-card scroll-mt-4">
           <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
             <span className="font-medium text-sm flex-1 truncate">
               {detail?.workflow_name ?? 'Linked run'}
@@ -322,13 +322,13 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
               Close
             </button>
           </div>
-          <div className="px-4 py-4 bg-bg-1">
+          <div className="px-4 py-4 bg-muted">
             {detailLoading ? (
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
             ) : detail ? (
               <>
                 {detail.error_message && (
-                  <div className="mb-3 px-3 py-2 rounded bg-destructive-subtle border border-red-200 text-[13px] text-destructive">
+                  <div className="mb-3 px-3 py-2 rounded-md bg-destructive-subtle border border-destructive text-[13px] text-destructive">
                     {detail.error_message}
                   </div>
                 )}
@@ -361,7 +361,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
           <button
             type="button"
             onClick={clearNarrowing}
-            className="px-3 py-1.5 text-sm rounded border border-border hover:bg-secondary"
+            className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary"
           >
             Show all runs
           </button>
@@ -378,7 +378,15 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
           </p>
         </div>
       ) : (
-        <div className="border border-border rounded overflow-hidden bg-card">
+        <div className="border border-border rounded-md overflow-hidden bg-card">
+          <div className="hidden md:flex items-center gap-4 px-4 py-2 border-b border-border bg-secondary/40 label-mono">
+            <span className="flex-1">run</span>
+            <span className="w-28">status</span>
+            <span className="w-24 text-right">caller</span>
+            <span className="w-20 text-right">cost</span>
+            <span className="w-16 text-right">time</span>
+            <span className="w-20 text-right">when</span>
+          </div>
           {runs.map((run) => {
             const open = openId === run.execution_id;
             return (
@@ -397,7 +405,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
                       <Target className="w-3 h-3" />#{run.mission_id}
                     </span>
                   )}
-                  <StatusPill status={run.status} />
+                  <span className="w-28 shrink-0"><StatusDot status={run.status} /></span>
                   <span className="text-[12px] text-muted-foreground w-24 text-right">{CALLER_LABELS[run.caller] ?? run.trigger_type}</span>
                   <span
                     className={cn(
@@ -415,9 +423,9 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
                   </button>
 
                 {open && (
-                  <div className="px-4 pb-4 pl-12 bg-bg-1">
+                  <div className="px-4 pb-4 pl-12 bg-muted">
                     {run.error_message && (
-                      <div className="mb-3 px-3 py-2 rounded bg-destructive-subtle border border-red-200 text-[13px] text-destructive">
+                      <div className="mb-3 px-3 py-2 rounded-md bg-destructive-subtle border border-destructive text-[13px] text-destructive">
                         {run.error_message}
                       </div>
                     )}
@@ -434,7 +442,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
                             <button
                               type="button"
                               onClick={() => setDeleting(run)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded border border-border hover:bg-secondary text-muted-foreground"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground"
                               title="Delete this run and its trace. Cost records are kept."
                             >
                               <Trash2 className="w-3.5 h-3.5" />

@@ -33,7 +33,7 @@ export function EmptyState({
     >
       <div
         className={cn(
-          'rounded-lg bg-muted border border-border flex items-center justify-center mb-3',
+          'rounded-md bg-muted border border-border flex items-center justify-center mb-3',
           centered ? 'p-3' : 'w-10 h-10',
         )}
       >

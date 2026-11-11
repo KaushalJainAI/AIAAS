@@ -192,7 +192,7 @@ export function QueueDetail({
 
   return (
     <div className="space-y-4 text-sm">
-      <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[13px]">
+      <p className="rounded-md border border-warning/40 bg-warning/10 p-2.5 text-[13px]">
         {canCurate
           ? 'Waiting for a curator. Approve it for the team, or send it back to its author with a reason.'
           : 'Waiting for a curator. Until one approves it, only you and the curators can see it.'}

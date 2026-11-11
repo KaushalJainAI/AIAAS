@@ -21,6 +21,28 @@ const statusConfig = {
   paused: { icon: Hand, cls: 'text-warning', bg: 'bg-warning-subtle', label: 'Needs you' },
 } as const;
 
+const dotColour: Record<string, string> = {
+  completed: 'bg-success',
+  failed: 'bg-destructive',
+  running: 'bg-agent',
+  pending: 'bg-muted-foreground',
+  cancelled: 'bg-muted-foreground',
+  paused: 'bg-warning',
+};
+
+/** A status as a coloured dot and its word: the table form, where a filled pill
+ *  in every row is louder than the outcome it reports. */
+export function StatusDot({ status }: { status: string }) {
+  const cfg = statusConfig[status as keyof typeof statusConfig] ?? statusConfig.pending;
+  const dot = dotColour[status] ?? 'bg-muted-foreground';
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-[13px] whitespace-nowrap', cfg.cls)}>
+      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dot)} aria-hidden="true" />
+      {cfg.label}
+    </span>
+  );
+}
+
 export function StatusPill({ status }: { status: string }) {
   const cfg = statusConfig[status as keyof typeof statusConfig] ?? statusConfig.pending;
   const Icon = cfg.icon;

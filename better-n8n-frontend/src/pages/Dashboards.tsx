@@ -68,7 +68,7 @@ export default function Dashboards() {
                 type="button"
                 onClick={() => setOpenId(d.id)}
                 className={cn(
-                  'block w-full rounded-lg border border-border/60 bg-card p-4 text-left hover:border-border-strong',
+                  'block w-full rounded-md border border-border/60 bg-card p-4 text-left hover:border-border-strong',
                   openId === d.id && 'border-primary/40',
                 )}
               >
@@ -82,7 +82,7 @@ export default function Dashboards() {
         </ul>
 
         {open && (
-          <div className="mt-6 rounded-lg border border-border/60 bg-card p-4">
+          <div className="mt-6 rounded-md border border-border/60 bg-card p-4">
             <div className="mb-4 flex items-center gap-2">
               <h2 className="min-w-0 flex-1 truncate text-base font-semibold">{open.title}</h2>
               <button
@@ -117,7 +117,7 @@ function Tile({ dashboard, index }: { dashboard: Dashboard; index: number }) {
   if (!t) return null;
   if (t.kind === 'kpi') {
     return (
-      <div className="rounded-lg border border-border/60 p-4">
+      <div className="rounded-md border border-border/60 p-4">
         {t.title && <p className="text-[12px] text-muted-foreground">{t.title}</p>}
         <p className="mt-1 text-2xl font-bold">{t.value}</p>
         {t.delta && <p className="mt-0.5 text-[12px] text-muted-foreground">{t.delta}</p>}
@@ -126,14 +126,14 @@ function Tile({ dashboard, index }: { dashboard: Dashboard; index: number }) {
   }
   if (t.kind === 'chart' && t.chart) {
     return (
-      <div className="rounded-lg border border-border/60 p-3">
+      <div className="rounded-md border border-border/60 p-3">
         <ChartArtifact chart={t.chart} />
       </div>
     );
   }
   if (t.kind === 'table') {
     return (
-      <div className="overflow-x-auto rounded-lg border border-border/60 p-3">
+      <div className="overflow-x-auto rounded-md border border-border/60 p-3">
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr>{(t.columns ?? []).map((c, i) => <th key={i} className="border-b border-border/60 px-2 py-1 text-left font-semibold">{c}</th>)}</tr>
@@ -148,7 +148,7 @@ function Tile({ dashboard, index }: { dashboard: Dashboard; index: number }) {
     );
   }
   return (
-    <div className="rounded-lg border border-border/60 p-4">
+    <div className="rounded-md border border-border/60 p-4">
       {t.title && <p className="mb-1 text-sm font-semibold">{t.title}</p>}
       <MarkdownMessage content={t.text ?? ''} variant="full" />
     </div>

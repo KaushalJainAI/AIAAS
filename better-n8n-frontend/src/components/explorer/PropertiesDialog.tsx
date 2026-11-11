@@ -36,7 +36,7 @@ export default function PropertiesDialog({ item, location, onClose }: { item: It
       <div className="p-6">
         <div className="mb-4 flex items-center gap-3">
           {item.kind === 'folder' ? (
-            <FolderIcon className="h-9 w-9 shrink-0 fill-amber-400/80 text-amber-500" />
+            <FolderIcon className="h-9 w-9 shrink-0 fill-muted-foreground/30 text-muted-foreground" />
           ) : (
             <FileIcon doc={item.doc} className="h-9 w-9" />
           )}

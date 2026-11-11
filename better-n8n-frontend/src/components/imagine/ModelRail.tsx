@@ -78,7 +78,7 @@ export function ModelRail({
         {[0, 1, 2, 3].map(i => (
           <div
             key={i}
-            className="h-[68px] w-[132px] shrink-0 rounded-lg border border-border/50 bg-muted/30 animate-pulse"
+            className="h-[68px] w-[132px] shrink-0 rounded-md border border-border/50 bg-muted/30 animate-pulse"
           />
         ))}
       </div>
@@ -87,7 +87,7 @@ export function ModelRail({
 
   if (models.length === 0) {
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-dashed border-border/60 px-4 py-3">
+      <div className="flex items-center gap-3 rounded-md border border-dashed border-border/60 px-4 py-3">
         <p className="text-xs text-muted-foreground flex-1">
           No {kind} models available. Check your OpenRouter credential, then refresh.
         </p>
@@ -120,7 +120,7 @@ export function ModelRail({
             onClick={() => onChange(model.id)}
             title={model.id}
             className={cn(
-              'group relative shrink-0 snap-start w-[142px] rounded-lg border p-2.5 text-left transition-all',
+              'group relative shrink-0 snap-start w-[142px] rounded-md border p-2.5 text-left transition-all',
               isActive
                 ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
                 : 'border-border/60 hover:border-border hover:bg-muted/40',
@@ -155,9 +155,9 @@ export function ModelRail({
 
       <button
         onClick={onBrowseAll}
-        className="shrink-0 snap-start w-[142px] rounded-lg border border-dashed border-border/60 p-2.5 text-left hover:border-primary/50 hover:bg-primary/5 transition-colors group"
+        className="shrink-0 snap-start w-[142px] rounded-md border border-dashed border-border/60 p-2.5 text-left hover:border-primary/50 hover:bg-primary/5 transition-colors group"
       >
-        <div className="h-7 w-7 rounded-lg bg-muted flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+        <div className="h-7 w-7 rounded-md bg-muted flex items-center justify-center group-hover:bg-primary/10 transition-colors">
           <Layers size={14} className="text-muted-foreground group-hover:text-primary" />
         </div>
         <div className="mt-2 text-xs font-semibold leading-tight">Browse all</div>

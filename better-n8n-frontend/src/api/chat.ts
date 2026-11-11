@@ -63,6 +63,33 @@ export interface ChatSession {
   cost_source: CostSource | '';
   /** Whose money the total is — see `lib/cost.ts::Payer`. Absent on an older payload. */
   paid_by?: Payer;
+  /**
+   * What the conversation is doing right now, from the session list. `waiting`
+   * means a run is paused on a person (an approval or a question). Absent on
+   * an older server, where the sidebar falls back to its plain list.
+   */
+  run_state?: ChatRunState;
+  /** The worker name that last did work in this conversation, or null. */
+  last_agent?: string | null;
+}
+
+/** What a conversation is doing, as the session list reports it. */
+export type ChatRunState = 'running' | 'waiting' | 'idle';
+
+/**
+ * The fields `chat/tools/describe.py` adds to an approval's description on top
+ * of the sentence and fields. All optional: a server that predates them sends
+ * none, and the card falls back to its plain wording.
+ */
+export interface ApprovalDetailFields {
+  /** How reversible the call is: reads run, reversible writes are checked, irreversible ones always ask. */
+  effect?: 'read' | 'reversible' | 'irreversible';
+  /** The call sends something out of the user's workspace (mail, a post, a publish). */
+  leaves_workspace?: boolean;
+  /** The recipient or host has not been contacted before. */
+  first_contact?: boolean;
+  /** Button text for the approve action, e.g. "Send email". Defaults to "Approve". */
+  action_label?: string;
 }
 
 /** A model-authored HTML snippet, already clamped server-side. */
@@ -230,6 +257,10 @@ export interface ChatMessageMetadata {
   worker_plans?: Record<string, { agent_name?: string; todos?: TodoItem[] }>;
   files?: FileCardData[];
   follow_ups?: string[];
+  /** Wall-clock time the turn took, in milliseconds. Absent on older messages. */
+  elapsed_ms?: number;
+  /** Number of tool calls the turn made. Absent on older messages. */
+  steps?: number;
   [key: string]: unknown;
 }
 
@@ -395,6 +426,13 @@ export const chatService = {
     extras?: {
       /** 'once' | 'session' | 'always'. Supersedes `rememberApproval`. */
       approvalScope?: string;
+      /**
+       * Narrows a `session` approval to calls whose arguments carry these
+       * values, e.g. `{ to: 'a@b.c' }`. Sent as the body's `match`, and only
+       * with `approvalScope: 'session'`: the server checks it is a subset of
+       * the paused call's arguments and refuses anything else.
+       */
+      approvalMatch?: Record<string, unknown>;
       /** Decline a paused call and let the turn carry on without it. */
       rejectToolCall?: string;
       rejectReason?: string;
@@ -417,6 +455,9 @@ export const chatService = {
     if (approveToolCall && rememberApproval) body.remember_approval = true;
     if (approveToolCall && extras?.approvalScope) {
       body.approval_scope = extras.approvalScope;
+      if (extras.approvalScope === 'session' && extras.approvalMatch) {
+        body.match = extras.approvalMatch;
+      }
     }
     if (extras?.rejectToolCall) {
       body.reject_tool_call = extras.rejectToolCall;

@@ -22,13 +22,11 @@ import {
   Video,
   File as FileIcon,
   Shield,
-  ShieldOff,
   ChevronDown,
   BrainCircuit,
   Settings2,
   Lightbulb,
   Zap,
-  Wand2,
   Globe2,
   Code,
   Mail,
@@ -79,7 +77,8 @@ import { useAuth } from '../../contexts/authState';
 import GuestBanner from './GuestBanner';
 import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatHeader from './ChatHeader';
-import ChatMessageItem from './ChatMessageItem';
+import ChatMessageItem, { AssistantHeader, TurnOrPlain } from './ChatMessageItem';
+import { formatSteps } from './format';
 import { useSpeech } from '../../hooks/useSpeech';
 import ChatSettingsDialog from './ChatSettingsDialog';
 import ToolApprovalCard from './ToolApprovalCard';
@@ -931,7 +930,14 @@ export default function StandaloneChat() {
    * since approvals were reworked; this screen was still sending a boolean.
    */
   const handleApproveTool = async (
-    callId: string, scope: 'once' | 'session' | 'always' = 'once',
+    callId: string,
+    scope: 'once' | 'session' | 'always' = 'once',
+    /**
+     * For a `session` approval: the arguments it is narrowed to, e.g.
+     * `{ to: 'a@b.c' }` ("for this recipient only"). Sent as `match`; the server
+     * refuses anything that is not a subset of the paused call's arguments.
+     */
+    match?: Record<string, unknown>,
   ) => {
     if (!conversationId || !pendingToolCall) return;
 
@@ -956,7 +962,10 @@ export default function StandaloneChat() {
           callId,
           scope === 'always',
           effortToSend,
-          { approvalScope: scope },
+          {
+            approvalScope: scope,
+            approvalMatch: scope === 'session' ? match : undefined,
+          },
         ),
       { intent: activeIntent },
     );
@@ -1712,6 +1721,193 @@ export default function StandaloneChat() {
     textareaRef.current?.focus();
   }, [isInitialState]);
 
+  // Agents this turn has started, counted once each: the team's workers and
+  // the lead's own delegated runs. Shown as "N workers" while the turn runs.
+  const workerCount = Math.max(plan.tasks.length, live.workerPlans.length);
+
+  // Run settings: the model and effort the next turn uses. Lives in the
+  // header now, so the composer is only the message box and its send controls.
+  const runSettings = (
+    <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+                      {/* Model selector. Guests have nothing to select: the
+                          backend serves them one pinned model and ignores any
+                          model a client names, so they get a label rather than
+                          a dropdown whose choices would change nothing. */}
+                      {isGuest ? (
+                        <div
+                          className="flex items-center gap-2 h-8 px-3 rounded-md border border-transparent text-[10px] font-bold text-muted-foreground/50"
+                          title="Guest mode runs on NVIDIA NIM — log in to choose a model"
+                        >
+                          <Zap size={14} className="text-muted-foreground/50 shrink-0" />
+                          <span className="inline max-w-[22vw] sm:max-w-[140px] truncate">
+                            {prettyModel(llmModel)}
+                          </span>
+                        </div>
+                      ) : (
+                      <div className="relative min-w-0" ref={dropdownRef}>
+                        <button
+                          onClick={() => setShowModelDropdown(!showModelDropdown)}
+                          className={cn(
+                            "flex items-center gap-1.5 sm:gap-2 h-8 px-2 sm:px-3 rounded-md transition-colors text-[10px] font-bold border min-w-0 max-w-[38vw] sm:max-w-none",
+                            showModelDropdown
+                              ? "bg-primary/10 border-primary/30 text-primary"
+                              : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40"
+                          )}
+                        >
+                          <span className="text-sm leading-none flex items-center">
+                            {dynamicProviders.find(p => p.slug === llmProvider)?.icon ? (
+                              <span>{dynamicProviders.find(p => p.slug === llmProvider)?.icon}</span>
+                            ) : (
+                              <Bot size={14} className="shrink-0" />
+                            )}
+                          </span>
+                          <span className="inline max-w-[22vw] sm:max-w-[120px] truncate">
+                            {dynamicProviders.find(p => p.slug === llmProvider)?.models.find(m => m.value === llmModel)?.name || 'Select model'}
+                          </span>
+                          {/* Only when it is doing something. A badge reading
+                              "Default" on every model would be noise, and one
+                              shown for a model with no effort control would be
+                              a claim about a setting that is not applied. */}
+                          {/* Whose usage this turn spends has to be visible
+                              without opening the picker. */}
+                          {llmProvider === 'chatgpt' && (
+                            <span className="hidden sm:inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-muted text-muted-foreground shrink-0">
+                              ChatGPT plan
+                            </span>
+                          )}
+                          {effortSupported && llmEffort && (
+                            <span className="inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
+                              {EFFORT_LABELS[llmEffort] ?? llmEffort}
+                            </span>
+                          )}
+                          <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", showModelDropdown && "rotate-180")} />
+                        </button>
+
+                        {showModelDropdown && (
+                          <>
+                            {/* Backdrop */}
+                            <div className="fixed inset-0 z-[9998]" onClick={() => setShowModelDropdown(false)} />
+                            
+                            <div className="absolute top-[calc(100%+8px)] right-0 w-[300px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-md shadow-lg z-[9999] backdrop-blur-2xl overflow-hidden animate-in slide-in-from-bottom-3 fade-in duration-200">
+                              
+                              {/* Provider Grid */}
+                              <div className="p-3 border-b border-border/30">
+                                <label className="text-[11px] font-semibold text-muted-foreground mb-2 block px-1">AI provider</label>
+                                <div className="grid grid-cols-4 gap-1.5">
+                                  {dynamicProviders.map(p => (
+                                    <button
+                                      key={p.slug}
+                                      onClick={() => {
+                                        setLlmProvider(p.slug);
+                                        if (p.models.length > 0 && llmProvider !== p.slug) {
+                                          saveLLMSettings(p.slug, p.models[0].value);
+                                        }
+                                      }}
+                                      className={cn(
+                                        "flex flex-col items-center gap-1 p-2 rounded-md border text-center transition-colors",
+                                        llmProvider === p.slug
+                                          ? "bg-primary/10 border-primary/30 text-primary shadow-sm ring-1 ring-primary/10"
+                                          : "border-transparent hover:bg-muted/50 text-muted-foreground hover:text-foreground",
+                                        !p.has_credentials && p.slug !== 'ollama' && "opacity-40"
+                                      )}
+                                    >
+                                      <span className="text-lg leading-none">{p.icon}</span>
+                                      <span className="text-[8px] font-bold truncate w-full">{p.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Search */}
+                              <div className="px-3 pt-2.5 pb-1.5">
+                                <div className="relative">
+                                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/30" />
+                                  <input
+                                    id="model-search-input"
+                                    name="model-search"
+                                    type="text"
+                                    placeholder="Search models..."
+                                    value={modelSearchQuery}
+                                    onChange={(e) => setModelSearchQuery(e.target.value)}
+                                    className="w-full bg-muted/30 border border-border/20 pl-7 pr-3 py-1.5 rounded-md text-[11px] focus:ring-1 focus:ring-primary/30 outline-none placeholder:text-muted-foreground/30"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Model List */}
+                              <div className="max-h-[220px] overflow-y-auto px-2 pb-2 space-y-0.5 scrollbar-thin scrollbar-thumb-border">
+                                {dynamicProviders.find(p => p.slug === llmProvider)?.models
+                                  .filter(m => {
+                                    const q = modelSearchQuery.toLowerCase().trim();
+                                    if (!q) return true;
+                                    return m.name.toLowerCase().includes(q) || m.value.toLowerCase().includes(q) || (q === 'free' && m.is_free);
+                                  })
+                                  .map(m => (
+                                    <button
+                                      key={m.value}
+                                      onClick={() => {
+                                        saveLLMSettings(llmProvider, m.value);
+                                        setShowModelDropdown(false);
+                                      }}
+                                      className={cn(
+                                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left transition-colors text-[12px]",
+                                        llmModel === m.value
+                                          ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 font-bold"
+                                          : "hover:bg-muted/50 text-foreground/70 font-medium"
+                                      )}
+                                    >
+                                      <span className="flex-1 min-w-0">
+                                        <span className="truncate block">{m.name}</span>
+                                      </span>
+                                      {m.is_free && (
+                                        <span className={cn(
+                                          "text-[7px] font-semibold  px-1.5 py-0.5 rounded shrink-0",
+                                          llmModel === m.value
+                                            ? "bg-primary-foreground/20 text-primary-foreground"
+                                            : "bg-success-subtle text-emerald-500 border border-border"
+                                        )}>Free</span>
+                                      )}
+                                    </button>
+                                  ))}
+                                {(() => {
+                                  const filtered = (dynamicProviders.find(p => p.slug === llmProvider)?.models || [])
+                                    .filter(m => {
+                                      const q = modelSearchQuery.toLowerCase().trim();
+                                      if (!q) return true;
+                                      return m.name.toLowerCase().includes(q) || m.value.toLowerCase().includes(q) || (q === 'free' && m.is_free);
+                                    });
+                                  return filtered.length === 0 ? (
+                                    <div className="py-6 text-center text-[10px] text-muted-foreground/40 font-medium italic">
+                                      No models match "{modelSearchQuery}"
+                                    </div>
+                                  ) : null;
+                                })()}
+                              </div>
+
+                              {/* The ChatGPT plan has no key to paste: it
+                                  is a sign-in, and this is where it happens.
+                                  Draws nothing on a server where the feature
+                                  is off. */}
+                              {llmProvider === 'chatgpt' && (
+                                <ChatGPTPlanPanel onChanged={() => { void refreshModels(); }} />
+                              )}
+
+                              {/* Renders nothing when this model has no effort
+                                  control, which is most of the catalogue. */}
+                              <EffortPicker
+                                available={effortLevels}
+                                value={llmEffort}
+                                onChange={saveEffort}
+                              />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      )}
+    </div>
+  );
+
   return (
     <FilePreviewProvider>
     <div className="flex h-full w-full bg-background overflow-hidden relative">
@@ -1748,6 +1944,9 @@ export default function StandaloneChat() {
           orgs={orgData?.orgs ?? []}
           newChatOrgId={newChatOrg !== undefined ? newChatOrg : (orgData?.active_org_id ?? null)}
           onNewChatOrgChange={setNewChatOrg}
+          mode={autonomy}
+          onModeChange={(next) => void setMode(next)}
+          runSettings={runSettings}
           onShowSettings={() => setShowSessionSettings(true)}
           onEditSettings={() => {
             setSystemPromptDraft(currentSession?.system_prompt || '');
@@ -1807,7 +2006,7 @@ export default function StandaloneChat() {
               <TranscriptSkeleton />
             ) : isInitialState ? (
               <div className="text-center space-y-6 mb-4 md:mb-12 animate-in fade-in duration-150">
-                <div className="w-12 h-12 bg-agent-subtle border border-agent-line rounded-lg flex items-center justify-center mx-auto">
+                <div className="w-12 h-12 bg-agent-subtle border border-agent-line rounded-md flex items-center justify-center mx-auto">
                   <BrainCircuit className="w-6 h-6 text-agent" />
                 </div>
                 <div className="space-y-2">
@@ -1907,26 +2106,7 @@ export default function StandaloneChat() {
                      distinction the states do not have. The icon shape already
                      says which phase it is. Sized to match the settled
                      "Answer" label so the row does not resize mid-stream. */
-                  const phaseIcons: Record<string, React.ReactNode> = {
-                    thinking: <BrainCircuit className="w-4 h-4 text-agent" />,
-                    searching: <Search className="w-4 h-4 text-agent" />,
-                    planning: <BrainCircuit className="w-4 h-4 text-agent" />,
-                    reading: <Globe2 className="w-4 h-4 text-agent" />,
-                    analyzing: <Globe2 className="w-4 h-4 text-agent" />,
-                    generating: <Wand2 className="w-4 h-4 text-agent" />,
-                    visualizing: <Wand2 className="w-4 h-4 text-agent" />,
-                    motion_generating: <Video className="w-4 h-4 text-agent" />,
-                  };
-
                   const statusMessage = live.status?.message || 'Thinking...';
-                  /* Once the answer is coming out, the header is the answer's
-                     header — same icon, no pulse — so it survives the settle
-                     untouched. The phase icon is only useful while the phase is
-                     still the thing happening. */
-                  const answering = Boolean(live.content);
-                  const statusIcon = answering
-                    ? <BrainCircuit className="w-4 h-4 text-agent" />
-                    : phaseIcons[live.status?.phase || 'thinking'] || phaseIcons.thinking;
 
                   /* Hoisted because it renders in one of two slots — above the
                      answer before any text arrives, below it afterwards. */
@@ -1940,7 +2120,7 @@ export default function StandaloneChat() {
                         {live.thinking && (
                           <button
                             onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
-                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors text-[10px] font-semibold  text-primary/60"
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors text-[10px] font-semibold  text-primary/60"
                           >
                             <BrainCircuit className="w-3 h-3" />
                             {isReasoningExpanded ? 'Hide reasoning' : 'View reasoning'}
@@ -1950,7 +2130,7 @@ export default function StandaloneChat() {
                       </div>
 
                       {live.thinking && isReasoningExpanded && (
-                        <div className="mt-2 p-4 rounded-lg bg-muted/30 border border-border/40 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="mt-2 p-4 rounded-md bg-muted/30 border border-border/40 animate-in fade-in slide-in-from-top-2 duration-300">
                           <div className="flex items-center gap-2 mb-3">
                             <BrainCircuit className="w-3.5 h-3.5 text-primary/60" />
                             <span className="text-[10px] font-semibold  text-muted-foreground/60">Internal processing</span>
@@ -1965,6 +2145,25 @@ export default function StandaloneChat() {
                     </>
                   );
 
+                  // Agents have worked in this turn so far: then the reply is a
+                  // block, and its header carries the steps and the workers.
+                  const liveWorked = live.activity.length > 0 || live.files.length > 0
+                    || live.workerPlans.length > 0 || Boolean(live.agentRun?.execution_id)
+                    || live.codeExecutions.length > 0;
+                  const liveHeader = (
+                    <AssistantHeader
+                      right={(
+                        <>
+                          {liveWorked && <span>{formatSteps(live.activity.length)}</span>}
+                          {workerCount > 0 && (
+                            <span>working · {workerCount} {workerCount === 1 ? 'worker' : 'workers'}</span>
+                          )}
+                          <ThinkingTimer active={isLoading} />
+                        </>
+                      )}
+                    />
+                  );
+
                   return (
                     /* Rendered as the last child of the message list, not as
                        a sibling of it: the list carries the 3rem turn rhythm, so
@@ -1972,11 +2171,12 @@ export default function StandaloneChat() {
                        rose as it settled. Same "Answer" label, same left edge,
                        no avatar — the in-flight turn now occupies exactly the
                        slot the settled one will take. */
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className={cn("flex items-center", !answering && "animate-pulse")}>{statusIcon}</span>
-                        <span className="text-[13px] font-semibold text-foreground">Answer</span>
-                      </div>
+                    <TurnOrPlain
+                      worked={liveWorked}
+                      live
+                      className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+                      header={liveHeader}
+                    >
                       <div className="w-full space-y-3">
                         {/* Progress belongs above the answer only while there is
                             no answer yet. Once text is streaming it moves below,
@@ -2018,7 +2218,7 @@ export default function StandaloneChat() {
                                 document.getElementById('plan-panel')
                                   ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                               }}
-                              className="my-3 flex items-center gap-2 rounded-lg border border-primary/30 bg-muted/20 px-3 py-1.5 text-[12px] text-muted-foreground hover:bg-muted/40"
+                              className="my-3 flex items-center gap-2 rounded-md border border-primary/30 bg-muted/20 px-3 py-1.5 text-[12px] text-muted-foreground hover:bg-muted/40"
                             >
                               <span className="font-medium text-foreground">Plan updated</span>
                               <span className="tabular-nums">({done}/{total})</span>
@@ -2093,7 +2293,7 @@ export default function StandaloneChat() {
                                    >
                                       <div className="flex items-start gap-3.5 -ml-[30px]">
                                         {isThought ? (
-                                          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 shadow-sm">
+                                          <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 shadow-sm">
                                              <BrainCircuit className="w-3.5 h-3.5 text-primary/60" />
                                           </div>
                                         ) : (
@@ -2167,7 +2367,7 @@ export default function StandaloneChat() {
                             {isLiveCodeExpanded && (
                               <div className="space-y-3">
                                 {live.codeExecutions.map((exec, i) => (
-                                  <div key={i} className="rounded-lg overflow-hidden border border-border bg-success-subtle animate-in slide-in-from-bottom-2 duration-300">
+                                  <div key={i} className="rounded-md overflow-hidden border border-border bg-success-subtle animate-in slide-in-from-bottom-2 duration-300">
                                     <div className="px-4 py-2 bg-success-subtle flex items-center justify-between border-b border-emerald-500/10">
                                        <div className="flex items-center gap-2">
                                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -2175,7 +2375,7 @@ export default function StandaloneChat() {
                                        </div>
                                     </div>
                                     <div className="p-4 space-y-3">
-                                       <pre className="text-[13px] text-foreground/80 font-mono bg-card p-3 rounded-lg overflow-x-auto border border-white/5">
+                                       <pre className="text-[13px] text-foreground/80 font-mono bg-card p-3 rounded-md overflow-x-auto border border-white/5">
                                           <code>{exec.code}</code>
                                        </pre>
                                        {(exec.output || exec.result) && (
@@ -2185,7 +2385,7 @@ export default function StandaloneChat() {
                                                <span className="text-[9px] font-bold text-blue-500/60 uppercase">Console output</span>
                                                <div className="h-px flex-1 bg-blue-500/10" />
                                             </div>
-                                            <pre className="text-[12px] text-blue-400/80 font-mono bg-zinc-950/30 p-3 rounded-lg overflow-x-auto border border-blue-500/5 whitespace-pre-wrap">
+                                            <pre className="text-[12px] text-blue-400/80 font-mono bg-zinc-950/30 p-3 rounded-md overflow-x-auto border border-blue-500/5 whitespace-pre-wrap">
                                                <code>{exec.output || exec.result}</code>
                                             </pre>
                                          </div>
@@ -2200,7 +2400,7 @@ export default function StandaloneChat() {
 
                         {/* Media Generation status (Visualize/Motion) */}
                         {(live.status?.phase === 'visualizing' || live.status?.phase === 'motion_generating') && (
-                          <div className="mt-4 rounded-lg border border-border bg-muted aspect-video max-w-sm w-full flex flex-col items-center justify-center gap-3 text-center p-6">
+                          <div className="mt-4 rounded-md border border-border bg-muted aspect-video max-w-sm w-full flex flex-col items-center justify-center gap-3 text-center p-6">
                             <div className="flex items-center gap-2 text-muted-foreground">
                               {live.status.phase === 'visualizing' ? (
                                   <ImageIcon className="w-6 h-6" />
@@ -2224,7 +2424,7 @@ export default function StandaloneChat() {
                               <button
                                 onClick={() => setIsLiveSourcesExpanded(!isLiveSourcesExpanded)}
                                 className={cn(
-                                  "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors border group",
+                                  "flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors border group",
                                   isLiveSourcesExpanded ? "bg-primary-subtle border-primary-line text-primary" : "bg-secondary border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                                 )}
                               >
@@ -2238,7 +2438,7 @@ export default function StandaloneChat() {
                               <button
                                 onClick={() => setIsLiveMediaExpanded(!isLiveMediaExpanded)}
                                 className={cn(
-                                  "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors border group",
+                                  "flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors border group",
                                   isLiveMediaExpanded ? "bg-success-subtle border-emerald-500/30 text-emerald-600 shadow-sm" : "bg-muted/30 border-border/40 text-muted-foreground hover:bg-muted/50"
                                 )}
                               >
@@ -2264,7 +2464,7 @@ export default function StandaloneChat() {
                               />
                             ))}
                             {live.sources.length > 3 && (
-                              <div className="flex items-center justify-center rounded-lg border border-dashed border-border/40 bg-muted/20 text-[10px] font-bold text-muted-foreground/40 italic">
+                              <div className="flex items-center justify-center rounded-md border border-dashed border-border/40 bg-muted/20 text-[10px] font-bold text-muted-foreground/40 italic">
                                  +{live.sources.length - 3} more...
                               </div>
                             )}
@@ -2295,7 +2495,7 @@ export default function StandaloneChat() {
                                )] : []
                              ))}
                              {(live.images.length > 4 || live.videos.length > 4) && (
-                               <div className="w-24 h-20 shrink-0 flex items-center justify-center rounded-lg bg-muted/20 border border-dashed border-border/40 text-[9px] font-semibold text-muted-foreground/30  text-center px-2">
+                               <div className="w-24 h-20 shrink-0 flex items-center justify-center rounded-md bg-muted/20 border border-dashed border-border/40 text-[9px] font-semibold text-muted-foreground/30  text-center px-2">
                                   +{live.images.length + live.videos.length - 8} more
                                </div>
                              )}
@@ -2309,7 +2509,7 @@ export default function StandaloneChat() {
                           </div>
                         )}
                       </div>
-                    </div>
+                    </TurnOrPlain>
                   );
                 })()}
               </div>
@@ -2317,13 +2517,13 @@ export default function StandaloneChat() {
 
             {isUploading && (
               <div className="flex gap-3 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 border border-border/40 shadow-md bg-muted text-muted-foreground">
+                <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 border border-border/40 shadow-md bg-muted text-muted-foreground">
                   <Settings2 className="w-5 h-5"/>
                 </div>
                 <div className="min-w-0 flex-1 max-w-[92%] md:max-w-[85%] space-y-3">
-                  <div className="bg-muted/30 p-4 rounded-lg shadow-sm border border-border/40 inline-flex flex-col gap-3 min-w-[300px] max-w-sm w-full">
+                  <div className="bg-muted/30 p-4 rounded-md shadow-sm border border-border/40 inline-flex flex-col gap-3 min-w-[300px] max-w-sm w-full">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-background border border-border/50 flex items-center justify-center shrink-0">
+                      <div className="w-10 h-10 rounded-md bg-background border border-border/50 flex items-center justify-center shrink-0">
                         <Loader2 className="w-5 h-5 text-primary animate-spin" />
                       </div>
                       <div className="flex-1">
@@ -2406,14 +2606,14 @@ export default function StandaloneChat() {
                 const followUps = lastAssistant?.metadata?.follow_ups;
                 if (!followUps || followUps.length === 0) return null;
                 return (
-                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card border border-border rounded-md overflow-hidden shadow-sm">
                     <button 
                       onClick={() => setIsFollowUpsExpanded(!isFollowUpsExpanded)}
                       className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
                     >
                       <div className="flex items-center gap-2">
                         <Lightbulb className="w-3.5 h-3.5 text-muted-foreground/60" />
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Continue exploring</span>
+                        <span className="label-mono">Continue exploring</span>
                       </div>
                       <ChevronDown className={cn(
                         "w-4 h-4 text-muted-foreground/50 transition-transform duration-300",
@@ -2436,7 +2636,7 @@ export default function StandaloneChat() {
                               // cascade reads as suggestions worth a glance.
                               style={{ animationDelay: `${i * 70}ms`, animationFillMode: 'backwards' }}
                               className="flex flex-1 min-w-[200px] items-center px-4 py-3 bg-background
-                                         border border-border rounded-xl shadow-sm text-left
+                                         border border-border rounded-md shadow-sm text-left
                                          text-muted-foreground hover:text-foreground
                                          hover:bg-primary/5 hover:border-primary/30
                                          transition-colors duration-200 ease-out
@@ -2457,7 +2657,7 @@ export default function StandaloneChat() {
                   notice: the fix (add + verify in Credentials) needs to stay
                   on screen while the user does it. */}
               {credentialError && !isGuest && (
-                <div className="mb-2 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-warning-subtle
+                <div className="mb-2 flex items-start gap-2.5 rounded-md border border-amber-500/30 bg-warning-subtle
                                 px-3.5 py-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   <div className="flex-1 min-w-0">
@@ -2490,7 +2690,7 @@ export default function StandaloneChat() {
                   rather than a toast: the fix is to change model, and the user
                   needs the message to still be on screen while they do it. */}
               {blockedAttachments && (
-                <div className="mb-2 flex items-start gap-2.5 rounded-lg border border-border bg-warning-subtle
+                <div className="mb-2 flex items-start gap-2.5 rounded-md border border-border bg-warning-subtle
                                 px-3.5 py-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <FileIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   <p className="flex-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
@@ -2512,7 +2712,7 @@ export default function StandaloneChat() {
                  {/* Active Reference Pill */}
                  {activeReference && (
                    <div className="flex animate-in fade-in slide-in-from-bottom-2 duration-300 absolute bottom-full mb-3 left-4">
-                     <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-success-subtle border border-border rounded-lg group">
+                     <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-success-subtle border border-border rounded-md group">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="text-[10px] font-semibold  text-emerald-600 shrink-0">Reference</span>
                           <div className="w-px h-3 bg-emerald-500/30 shrink-0" />
@@ -2534,7 +2734,7 @@ export default function StandaloneChat() {
                     thing on the page; a border that turns primary plus the
                     standard focus ring says "focused" in the same language as
                     every other input in the app. */}
-                <div className="relative flex flex-col bg-card border border-border rounded-xl shadow-sm transition-colors duration-150 focus-within:border-primary focus-within:ring-1 focus-within:ring-ring">
+                <div className="relative flex flex-col bg-card border border-border rounded-md shadow-sm transition-colors duration-150 focus-within:border-primary focus-within:ring-1 focus-within:ring-ring">
                   {/* The `/` palette: fuzzy match, ↑/↓, Enter/Tab, Esc. */}
                   {!isGuest && (
                     <CommandPalette
@@ -2556,43 +2756,6 @@ export default function StandaloneChat() {
                       }}
                       onClose={() => setPaletteOpen(false)}
                     />
-                  )}
-                  {/* Mode picker — Ask · Auto · Full auto · Plan. Auto is amber
-                      and Full auto red on purpose: a mode that acts without
-                      asking must not look like the default. Hidden for
-                      guests, who run one pinned mode. */}
-                  {!isGuest && (
-                    <div className="flex items-center gap-1 px-4 pt-2.5" role="group" aria-label="Chat mode">
-                      {([
-                        { key: 'ask' as const, label: 'Ask', hint: 'Approve side effects (Shift+Tab to cycle)' },
-                        { key: 'auto' as const, label: 'Auto', hint: 'Anything that can be undone runs; sending, publishing and spending are still checked' },
-                        { key: 'full' as const, label: 'Full auto', hint: 'Nothing asks for approval — sending, publishing and spending included. This chat only.' },
-                        { key: 'plan' as const, label: 'Plan', hint: 'Look, don’t touch — no mutating tools' },
-                      ]).map(m => (
-                        <button
-                          key={m.key}
-                          onClick={() => void setMode(m.key)}
-                          title={m.hint}
-                          className={cn(
-                            "flex items-center gap-1 h-6 px-2.5 rounded-md text-[10px] font-bold border",
-                            "transition-colors duration-200 ease-out active:scale-95",
-                            autonomy === m.key
-                              ? m.key === 'auto'
-                                ? 'bg-amber-500/15 border-amber-500/50 text-amber-600 dark:text-amber-400'
-                                : m.key === 'full'
-                                  ? 'bg-red-500/15 border-red-500/50 text-red-600 dark:text-red-400'
-                                : m.key === 'plan'
-                                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-500'
-                                  : 'bg-primary/10 border-primary/30 text-primary'
-                              : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40",
-                          )}
-                        >
-                          {m.key === 'ask' && <Shield className="w-3 h-3" />}
-                          {m.key === 'full' && <ShieldOff className="w-3 h-3" />}
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
                   )}
                   {/* Textarea row */}
                   <div className="p-4 pb-0">
@@ -2657,7 +2820,7 @@ export default function StandaloneChat() {
                     {/* A typed command that failed to parse: 400 under the
                         input, text left in place — never a model turn. */}
                     {commandError && (
-                      <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+                      <div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
                         <p className="flex-1 text-[12px] text-destructive">{commandError}</p>
                         <button
                           onClick={() => setCommandError(null)}
@@ -2749,7 +2912,7 @@ export default function StandaloneChat() {
                                 ? `Attach a file (${attachedFiles.length} attached — the agent works with these)`
                                 : 'Attach a file to this chat'}
                               className={cn(
-                                "flex items-center justify-center h-8 w-8 rounded-lg shrink-0 border",
+                                "flex items-center justify-center h-8 w-8 rounded-md shrink-0 border",
                                 "transition-colors duration-200 ease-out active:scale-95",
                                 "disabled:opacity-40",
                                 attachedFiles.length > 0
@@ -2781,7 +2944,7 @@ export default function StandaloneChat() {
                             aria-expanded={paletteOpen}
                             title="Slash commands ( / )"
                             className={cn(
-                              "flex items-center gap-1.5 h-8 px-3 rounded-lg text-[10px] font-bold shrink-0 border",
+                              "flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
                               "transition-colors duration-200 ease-out active:scale-95",
                               "disabled:opacity-40",
                               paletteOpen
@@ -2810,7 +2973,7 @@ export default function StandaloneChat() {
                             key={tool.key}
                             onClick={() => toggleIntent(tool.key)}
                             className={cn(
-                              "flex items-center gap-1.5 h-8 px-3 rounded-lg text-[10px] font-bold shrink-0 border",
+                              "flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
                               "transition-colors duration-200 ease-out active:scale-95",
                               activeIntent === tool.key
                                 ? tool.color === 'blue' ? 'bg-blue-500/15 border-blue-500/40 text-blue-500'
@@ -2836,182 +2999,6 @@ export default function StandaloneChat() {
                         viewport caps below so queued/dropped badges and the
                         model label truncate instead of colliding on phones. */}
                     <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
-                      {/* Model selector. Guests have nothing to select: the
-                          backend serves them one pinned model and ignores any
-                          model a client names, so they get a label rather than
-                          a dropdown whose choices would change nothing. */}
-                      {isGuest ? (
-                        <div
-                          className="flex items-center gap-2 h-8 px-3 rounded-lg border border-transparent text-[10px] font-bold text-muted-foreground/50"
-                          title="Guest mode runs on NVIDIA NIM — log in to choose a model"
-                        >
-                          <Zap size={14} className="text-muted-foreground/50 shrink-0" />
-                          <span className="inline max-w-[22vw] sm:max-w-[140px] truncate">
-                            {prettyModel(llmModel)}
-                          </span>
-                        </div>
-                      ) : (
-                      <div className="relative min-w-0" ref={dropdownRef}>
-                        <button
-                          onClick={() => setShowModelDropdown(!showModelDropdown)}
-                          className={cn(
-                            "flex items-center gap-1.5 sm:gap-2 h-8 px-2 sm:px-3 rounded-lg transition-colors text-[10px] font-bold border min-w-0 max-w-[38vw] sm:max-w-none",
-                            showModelDropdown
-                              ? "bg-primary/10 border-primary/30 text-primary"
-                              : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40"
-                          )}
-                        >
-                          <span className="text-sm leading-none flex items-center">
-                            {dynamicProviders.find(p => p.slug === llmProvider)?.icon ? (
-                              <span>{dynamicProviders.find(p => p.slug === llmProvider)?.icon}</span>
-                            ) : (
-                              <Bot size={14} className="shrink-0" />
-                            )}
-                          </span>
-                          <span className="inline max-w-[22vw] sm:max-w-[120px] truncate">
-                            {dynamicProviders.find(p => p.slug === llmProvider)?.models.find(m => m.value === llmModel)?.name || 'Select model'}
-                          </span>
-                          {/* Only when it is doing something. A badge reading
-                              "Default" on every model would be noise, and one
-                              shown for a model with no effort control would be
-                              a claim about a setting that is not applied. */}
-                          {/* Whose usage this turn spends has to be visible
-                              without opening the picker. */}
-                          {llmProvider === 'chatgpt' && (
-                            <span className="hidden sm:inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-muted text-muted-foreground shrink-0">
-                              ChatGPT plan
-                            </span>
-                          )}
-                          {effortSupported && llmEffort && (
-                            <span className="inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
-                              {EFFORT_LABELS[llmEffort] ?? llmEffort}
-                            </span>
-                          )}
-                          <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", showModelDropdown && "rotate-180")} />
-                        </button>
-
-                        {showModelDropdown && (
-                          <>
-                            {/* Backdrop */}
-                            <div className="fixed inset-0 z-[9998]" onClick={() => setShowModelDropdown(false)} />
-                            
-                            <div className="absolute bottom-[calc(100%+8px)] right-0 w-[300px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-lg shadow-lg z-[9999] backdrop-blur-2xl overflow-hidden animate-in slide-in-from-bottom-3 fade-in duration-200">
-                              
-                              {/* Provider Grid */}
-                              <div className="p-3 border-b border-border/30">
-                                <label className="text-[11px] font-semibold text-muted-foreground mb-2 block px-1">AI provider</label>
-                                <div className="grid grid-cols-4 gap-1.5">
-                                  {dynamicProviders.map(p => (
-                                    <button
-                                      key={p.slug}
-                                      onClick={() => {
-                                        setLlmProvider(p.slug);
-                                        if (p.models.length > 0 && llmProvider !== p.slug) {
-                                          saveLLMSettings(p.slug, p.models[0].value);
-                                        }
-                                      }}
-                                      className={cn(
-                                        "flex flex-col items-center gap-1 p-2 rounded-lg border text-center transition-colors",
-                                        llmProvider === p.slug
-                                          ? "bg-primary/10 border-primary/30 text-primary shadow-sm ring-1 ring-primary/10"
-                                          : "border-transparent hover:bg-muted/50 text-muted-foreground hover:text-foreground",
-                                        !p.has_credentials && p.slug !== 'ollama' && "opacity-40"
-                                      )}
-                                    >
-                                      <span className="text-lg leading-none">{p.icon}</span>
-                                      <span className="text-[8px] font-bold truncate w-full">{p.name}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-
-                              {/* Search */}
-                              <div className="px-3 pt-2.5 pb-1.5">
-                                <div className="relative">
-                                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/30" />
-                                  <input
-                                    id="model-search-input"
-                                    name="model-search"
-                                    type="text"
-                                    placeholder="Search models..."
-                                    value={modelSearchQuery}
-                                    onChange={(e) => setModelSearchQuery(e.target.value)}
-                                    className="w-full bg-muted/30 border border-border/20 pl-7 pr-3 py-1.5 rounded-lg text-[11px] focus:ring-1 focus:ring-primary/30 outline-none placeholder:text-muted-foreground/30"
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Model List */}
-                              <div className="max-h-[220px] overflow-y-auto px-2 pb-2 space-y-0.5 scrollbar-thin scrollbar-thumb-border">
-                                {dynamicProviders.find(p => p.slug === llmProvider)?.models
-                                  .filter(m => {
-                                    const q = modelSearchQuery.toLowerCase().trim();
-                                    if (!q) return true;
-                                    return m.name.toLowerCase().includes(q) || m.value.toLowerCase().includes(q) || (q === 'free' && m.is_free);
-                                  })
-                                  .map(m => (
-                                    <button
-                                      key={m.value}
-                                      onClick={() => {
-                                        saveLLMSettings(llmProvider, m.value);
-                                        setShowModelDropdown(false);
-                                      }}
-                                      className={cn(
-                                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors text-[12px]",
-                                        llmModel === m.value
-                                          ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 font-bold"
-                                          : "hover:bg-muted/50 text-foreground/70 font-medium"
-                                      )}
-                                    >
-                                      <span className="flex-1 min-w-0">
-                                        <span className="truncate block">{m.name}</span>
-                                      </span>
-                                      {m.is_free && (
-                                        <span className={cn(
-                                          "text-[7px] font-semibold  px-1.5 py-0.5 rounded shrink-0",
-                                          llmModel === m.value
-                                            ? "bg-primary-foreground/20 text-primary-foreground"
-                                            : "bg-success-subtle text-emerald-500 border border-border"
-                                        )}>Free</span>
-                                      )}
-                                    </button>
-                                  ))}
-                                {(() => {
-                                  const filtered = (dynamicProviders.find(p => p.slug === llmProvider)?.models || [])
-                                    .filter(m => {
-                                      const q = modelSearchQuery.toLowerCase().trim();
-                                      if (!q) return true;
-                                      return m.name.toLowerCase().includes(q) || m.value.toLowerCase().includes(q) || (q === 'free' && m.is_free);
-                                    });
-                                  return filtered.length === 0 ? (
-                                    <div className="py-6 text-center text-[10px] text-muted-foreground/40 font-medium italic">
-                                      No models match "{modelSearchQuery}"
-                                    </div>
-                                  ) : null;
-                                })()}
-                              </div>
-
-                              {/* The ChatGPT plan has no key to paste: it
-                                  is a sign-in, and this is where it happens.
-                                  Draws nothing on a server where the feature
-                                  is off. */}
-                              {llmProvider === 'chatgpt' && (
-                                <ChatGPTPlanPanel onChanged={() => { void refreshModels(); }} />
-                              )}
-
-                              {/* Renders nothing when this model has no effort
-                                  control, which is most of the catalogue. */}
-                              <EffortPicker
-                                available={effortLevels}
-                                value={llmEffort}
-                                onChange={saveEffort}
-                              />
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      )}
 
                       {/* What is waiting for the running turn. Shown next to
                           the button that queued it, because the message has
@@ -3021,7 +3008,7 @@ export default function StandaloneChat() {
                           is the failure the mailbox exists to prevent. */}
                       {queuedSteers > 0 && (
                         <span
-                          className="mr-1 shrink-0 max-w-[24vw] truncate rounded-full bg-primary/10 px-2 py-0.5 text-[11px]
+                          className="mr-1 shrink-0 max-w-[24vw] truncate rounded bg-primary/10 px-2 py-0.5 text-[11px]
                                      font-medium tabular-nums text-primary"
                           title="Delivered at the agent's next tool boundary"
                         >
@@ -3030,7 +3017,7 @@ export default function StandaloneChat() {
                       )}
                       {droppedSteers > 0 && (
                         <span
-                          className="mr-1 shrink-0 max-w-[24vw] truncate rounded-full bg-warning-subtle px-2 py-0.5 text-[11px]
+                          className="mr-1 shrink-0 max-w-[24vw] truncate rounded bg-warning-subtle px-2 py-0.5 text-[11px]
                                      font-medium tabular-nums text-amber-600 dark:text-amber-400"
                           title="The mailbox was full; the oldest messages were dropped"
                         >
@@ -3058,17 +3045,43 @@ export default function StandaloneChat() {
                           Expressed here rather than as a new SendButton state
                           because four other call sites share that component
                           and none of them can steer. */}
-                      <SendButton
-                        onClick={() => handleSend()}
-                        onStop={input.trim() ? undefined : stopGeneration}
-                        busy={isLoading && !input.trim()}
-                        disabled={!input.trim()}
-                        title={
-                          isLoading && input.trim()
-                            ? 'Send to the running turn'
-                            : undefined
-                        }
-                      />
+                      {isLoading ? (
+                        <>
+                          {/* Who the message goes to. "Add" steers the running
+                              turn: the lead reads it at its next step, and the
+                              workers see it through the lead. */}
+                          <span
+                            className="hidden sm:inline-flex h-8 items-center rounded-md border border-border px-2 font-mono text-[11px] text-muted-foreground shrink-0"
+                            title="Messages go to the lead, which passes them on to its workers"
+                          >
+                            To Lead{workerCount > 0 ? ` + ${workerCount} ${workerCount === 1 ? 'worker' : 'workers'}` : ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void stopGeneration()}
+                            aria-label="Stop generating"
+                            title="Stop generating"
+                            className="h-8 shrink-0 rounded-md border border-border px-3 text-[12px] font-medium text-foreground hover:bg-secondary transition-colors"
+                          >
+                            Stop
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSend()}
+                            disabled={!input.trim()}
+                            aria-label="Add"
+                            title="Add to the running turn"
+                            className="h-8 shrink-0 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+                          >
+                            Add
+                          </button>
+                        </>
+                      ) : (
+                        <SendButton
+                          onClick={() => handleSend()}
+                          disabled={!input.trim()}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>

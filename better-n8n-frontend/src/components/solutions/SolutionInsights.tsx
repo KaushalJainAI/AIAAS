@@ -30,7 +30,7 @@ export interface SolutionInsightsProps {
 
 function Tile({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-card/60 p-3">
+    <div className="rounded-md border border-border/60 bg-card/60 p-3">
       <p className="text-[12px] text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
       {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
@@ -100,7 +100,7 @@ export default function SolutionInsights({ org, orgName, hrefFor }: SolutionInsi
         {data.top_used.length === 0 ? (
           <p className="text-[12px] text-muted-foreground">No chat answer has used a team solution yet.</p>
         ) : (
-          <ol className="divide-y divide-border/60 rounded-lg border border-border/60 bg-card/60">
+          <ol className="divide-y divide-border/60 rounded-md border border-border/60 bg-card/60">
             {data.top_used.map((row) => (
               <li key={row.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                 <Link to={hrefFor(row.id)} className="min-w-0 flex-1 break-words font-medium text-primary hover:underline">
@@ -124,7 +124,7 @@ export default function SolutionInsights({ org, orgName, hrefFor }: SolutionInsi
               : 'Every question asked in the last 30 days found an answer.'}
           </p>
         ) : (
-          <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-card/60">
+          <ul className="divide-y divide-border/60 rounded-md border border-border/60 bg-card/60">
             {data.gaps.map((gap) => (
               <li key={gap.query} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
                 <div className="min-w-0 flex-1">

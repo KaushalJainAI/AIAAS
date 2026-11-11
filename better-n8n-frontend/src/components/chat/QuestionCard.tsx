@@ -85,9 +85,9 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
                 disabled={busy}
                 onClick={() => toggle(value)}
                 className={cn(
-                  'min-h-11 w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-colors flex items-center gap-3 disabled:opacity-50',
+                  'min-h-11 w-full text-left px-4 py-2.5 rounded-md border text-sm transition-colors flex items-center gap-3 disabled:opacity-50',
                   on
-                    ? 'border-primary bg-primary/10 text-foreground font-medium'
+                    ? 'border-primary bg-primary-subtle text-foreground font-medium'
                     : 'border-border bg-card hover:bg-muted/50 text-foreground',
                 )}
               >
@@ -114,7 +114,7 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
               onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
               placeholder="Your answer"
               aria-label="Other answer"
-              className="min-h-11 w-full px-4 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              className="min-h-11 w-full px-4 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           )}
         </div>
@@ -136,7 +136,7 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
               step={spec.step ?? 'any'}
               onChange={(e) => setNumber(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-              className="min-h-11 w-40 px-4 rounded-lg border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/40"
+              className="min-h-11 w-40 px-4 rounded-md border border-border bg-background text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
             {spec.unit && <span className="text-sm text-muted-foreground">{spec.unit}</span>}
           </div>
@@ -162,7 +162,7 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
           }}
           aria-label={spec.question}
           placeholder="Your answer"
-          className="w-full px-4 py-3 rounded-lg border border-border bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
+          className="w-full px-4 py-3 rounded-md border border-border bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
       )}
 
@@ -171,7 +171,7 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
           type="button"
           onClick={submit}
           disabled={Boolean(problem) || busy}
-          className="min-h-11 px-5 bg-primary text-primary-foreground font-semibold rounded-lg text-sm transition-opacity disabled:opacity-40 flex items-center gap-2"
+          className="min-h-11 px-5 bg-primary text-primary-foreground font-medium rounded-md text-sm transition-opacity disabled:opacity-40 flex items-center gap-2"
         >
           <Check className="w-4 h-4" />
           Send answer
@@ -180,7 +180,7 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
           type="button"
           onClick={onSkip}
           disabled={busy}
-          className="min-h-11 px-4 text-sm text-muted-foreground rounded-lg border border-border/60 hover:bg-muted/50 hover:text-foreground transition-colors flex items-center gap-2 disabled:opacity-50"
+          className="min-h-11 px-4 text-sm text-muted-foreground rounded-md border border-border hover:bg-muted/50 hover:text-foreground transition-colors flex items-center gap-2 disabled:opacity-50"
         >
           <SkipForward className="w-4 h-4" />
           Skip
@@ -198,10 +198,11 @@ export default function QuestionCard({ spec, onSubmit, onSkip, busy = false, bar
 
   return (
     <div className="flex gap-3 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shrink-0 border border-border shadow-sm">
-        <HelpCircle className="w-6 h-6 text-primary-foreground" />
+      <div className="w-10 h-10 rounded-md bg-primary flex items-center justify-center shrink-0">
+        <HelpCircle className="w-5 h-5 text-primary-foreground" />
       </div>
-      <div className="min-w-0 flex-1 max-w-[92%] md:max-w-[85%] bg-card/60 p-5 md:p-6 rounded-lg rounded-tl-none shadow-sm border border-border">
+      <div className="min-w-0 flex-1 max-w-[92%] md:max-w-[85%] bg-card p-5 md:p-6 rounded-md border border-border">
+        <div className="label-mono mb-3">waiting for you</div>
         {body}
       </div>
     </div>

@@ -8,15 +8,14 @@ import { useHitlPending } from '../../hooks/useHitlPending';
 import { useLiveCount } from '../../hooks/useActivityLive';
 import { openSidebar } from './sidebarBus';
 
-/* Phone bottom tab bar — the reference site's Home / Shop / Chat / Offers /
- * Orders row, mapped onto this app: Ask / Automations / New / Activity /
- * More. The centre slot is the primary action (New chat), raised like their
- * floating Chat button. "More" opens the drawer, which stays the full
+/* Phone bottom tab bar, 60px tall: Ask / Agents / New / Activity / More.
+ * New chat is a plain item like the others (plus icon, "New" label), not a
+ * raised round button. "More" opens the drawer, which stays the full
  * catalogue — the bar carries the daily loop, never the whole app.
  *
  * `fixed` + safe-area padding; the shell compensates with bottom padding on
  * <main> so content never slides underneath. Badges reuse the shared query
- * keys, same as the topbar and sidebar.
+ * keys, same as the sidebar.
  */
 export default function MobileBottomNav() {
   const location = useLocation();
@@ -41,23 +40,24 @@ export default function MobileBottomNav() {
 
   const activityActive = isNavActive(location.pathname, { icon: Activity, label: 'Activity', path: '/runs' });
 
+  const itemClass = (active: boolean) =>
+    cn(
+      'relative flex h-full min-h-10 flex-col items-center justify-center gap-0.5 rounded text-[11px] transition-colors',
+      active ? 'font-semibold text-primary' : 'text-muted-foreground hover:text-foreground',
+    );
+
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card md:hidden"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background md:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="grid grid-cols-5 items-stretch px-1 pt-1">
+      <div className="grid h-[60px] grid-cols-5 items-stretch px-1 py-1">
         {/* Ask */}
         <Link
           to="/ai-chat"
           aria-current={askActive ? 'page' : undefined}
-          className={cn(
-            'flex min-h-[56px] flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] transition-colors',
-            askActive
-              ? 'font-semibold text-primary'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
+          className={itemClass(askActive)}
         >
           <MessageCircle className="h-5 w-5" />
           Ask
@@ -67,36 +67,27 @@ export default function MobileBottomNav() {
           to="/agents"
           onClick={guardGuest('Automations')}
           aria-current={agentsActive ? 'page' : undefined}
-          className={cn(
-            'flex min-h-[56px] flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] transition-colors',
-            agentsActive
-              ? 'font-semibold text-primary'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
+          className={itemClass(agentsActive)}
         >
           <Bot className="h-5 w-5" />
           Agents
         </Link>
-        {/* Centre action — New chat */}
-        <div className="flex items-start justify-center">
-          <button
-            type="button"
-            aria-label="New chat"
-            onClick={() => navigate(isGuest ? '/' : '/ai-chat', { state: { newChat: true } })}
-            className="flex h-12 w-12 -translate-y-2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-colors hover:bg-primary/90"
-          >
-            <Plus className="h-6 w-6" />
-          </button>
-        </div>
+        {/* New chat — a plain item like its neighbours */}
+        <button
+          type="button"
+          aria-label="New chat"
+          onClick={() => navigate(isGuest ? '/' : '/ai-chat', { state: { newChat: true } })}
+          className="flex h-full min-h-10 flex-col items-center justify-center gap-0.5 rounded text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Plus className="h-5 w-5" />
+          New
+        </button>
         {/* Activity */}
         <Link
           to="/runs"
           onClick={guardGuest('Activity')}
           aria-current={activityActive ? 'page' : undefined}
-          className={cn(
-            'relative flex min-h-[56px] flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] transition-colors',
-            activityActive ? 'font-semibold text-primary' : 'text-muted-foreground hover:text-foreground',
-          )}
+          className={itemClass(activityActive)}
         >
           <span className="relative">
             <Activity className="h-5 w-5" />
@@ -104,7 +95,7 @@ export default function MobileBottomNav() {
               <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-agent animate-agent-pulse" />
             )}
             {!isGuest && pendingCount > 0 && (
-              <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+              <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded bg-warning px-1 text-[9px] font-bold text-background">
                 {pendingCount > 9 ? '9+' : pendingCount}
               </span>
             )}
@@ -116,7 +107,7 @@ export default function MobileBottomNav() {
           type="button"
           aria-label="More destinations"
           onClick={openSidebar}
-          className="flex min-h-[56px] flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          className="flex h-full min-h-10 flex-col items-center justify-center gap-0.5 rounded text-[11px] text-muted-foreground transition-colors hover:text-foreground"
         >
           <Menu className="h-5 w-5" />
           More

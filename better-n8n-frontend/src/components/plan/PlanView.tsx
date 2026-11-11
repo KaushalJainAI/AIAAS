@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { Ban, Check, ChevronRight, CircleDashed, History, Loader2, MinusCircle } from 'lucide-react';
+import { ChevronRight, History } from 'lucide-react';
 import type { TodoItem } from '../../api/chat';
 import {
   actionLabel,
@@ -20,37 +20,33 @@ import {
  * "dropped", a blocked step says why, and each step lists the tool calls made
  * for it. The list alone cannot show any of that, because `update_todos`
  * replaces it wholesale.
+ *
+ * Steps are numbered in mono. The current step is in the agent colour, done
+ * steps are muted, and the owner sits on the right.
  */
 
 interface Props {
   history: TodoItem[][];
   /** Tool calls carrying the `step` they were made for. */
   actions?: StepAction[];
-  /** No outer frame and header — the dock draws its own. */
+  /** No outer frame and header — the dock and team panel draw their own. */
   bare?: boolean;
   live?: boolean;
 }
 
-const ICONS = {
-  done: Check,
-  doing: Loader2,
-  blocked: Ban,
-  open: CircleDashed,
-} as const;
-
 const TAG = {
-  added: { label: 'added', className: 'border-primary/40 text-primary' },
-  dropped: { label: 'dropped', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  added: { label: 'added', className: 'border-agent-line text-agent' },
+  dropped: { label: 'dropped', className: 'border-warning/50 text-warning' },
   removed: { label: 'removed', className: 'border-border text-muted-foreground' },
 } as const;
 
-function iconClass(item: PlanItemView): string {
+function numberClass(item: PlanItemView): string {
   if (item.change === 'dropped' || item.change === 'removed') return 'text-muted-foreground/60';
   switch (item.status) {
-    case 'done': return 'text-emerald-500';
-    case 'doing': return 'animate-spin text-primary';
-    case 'blocked': return 'text-amber-500';
-    default: return 'text-muted-foreground/50';
+    case 'done': return 'text-muted-foreground';
+    case 'doing': return 'font-semibold text-agent';
+    case 'blocked': return 'text-warning';
+    default: return 'text-muted-foreground/70';
   }
 }
 
@@ -58,39 +54,39 @@ function textClass(item: PlanItemView): string {
   if (item.change === 'dropped' || item.change === 'removed') {
     return 'text-muted-foreground line-through decoration-muted-foreground/50';
   }
-  if (item.status === 'done') return 'text-muted-foreground line-through decoration-muted-foreground/40';
+  if (item.status === 'done') return 'text-muted-foreground';
+  if (item.status === 'doing') return 'font-medium text-agent';
   if (item.status === 'blocked') return 'text-muted-foreground';
   return 'text-foreground';
 }
 
-function PlanRow({ item, actions }: { item: PlanItemView; actions: StepAction[] }) {
+function PlanRow({ item, number, actions }: { item: PlanItemView; number: string; actions: StepAction[] }) {
   const [open, setOpen] = useState(false);
   const gone = item.change === 'dropped' || item.change === 'removed';
-  const Icon = gone ? MinusCircle : (ICONS[item.status] ?? CircleDashed);
   const tag = item.change ? TAG[item.change] : null;
 
   return (
-    <li className="rounded px-1.5 py-1 text-[12px] leading-snug">
-      <div className="flex items-start gap-2">
-        <Icon className={`mt-0.5 h-3 w-3 shrink-0 ${iconClass(item)}`} aria-hidden />
+    <li className="rounded px-1.5 py-1 text-[13px] leading-snug">
+      <div className="flex items-baseline gap-2.5">
+        <span className={`w-5 shrink-0 text-right font-mono text-[11px] tabular-nums ${numberClass(item)}`} aria-hidden>
+          {number}
+        </span>
         <span className="sr-only">{gone ? item.change : item.status}:</span>
         <span className={`min-w-0 flex-1 ${textClass(item)}`}>{item.text}</span>
-        {item.owner && (
-          <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">
-            {item.owner}
-          </span>
-        )}
         {tag && (
-          <span className={`shrink-0 rounded border px-1 text-[10px] ${tag.className}`}>
+          <span className={`shrink-0 rounded border px-1 font-mono text-[10px] ${tag.className}`}>
             {tag.label}
           </span>
+        )}
+        {item.owner && (
+          <span className="shrink-0 text-[11px] text-muted-foreground">{item.owner}</span>
         )}
         {actions.length > 0 && (
           <button
             type="button"
             onClick={() => setOpen(o => !o)}
             aria-expanded={open}
-            className="flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] tabular-nums text-muted-foreground hover:bg-muted"
+            className="flex min-h-10 shrink-0 items-center gap-0.5 font-mono text-[11px] tabular-nums text-muted-foreground hover:text-foreground md:min-h-0"
           >
             {actions.length} action{actions.length === 1 ? '' : 's'}
             <ChevronRight className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} />
@@ -98,16 +94,16 @@ function PlanRow({ item, actions }: { item: PlanItemView; actions: StepAction[] 
         )}
       </div>
       {item.note && (
-        <p className={`ml-5 mt-0.5 text-[11px] ${
-          item.status === 'blocked' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>
+        <p className={`ml-[30px] mt-0.5 text-[12px] ${
+          item.status === 'blocked' ? 'text-warning' : 'text-muted-foreground'}`}>
           {item.status === 'blocked' ? 'Why: ' : ''}{item.note}
         </p>
       )}
       {item.status === 'blocked' && !item.note && !gone && (
-        <p className="ml-5 mt-0.5 text-[11px] text-muted-foreground">No reason given.</p>
+        <p className="ml-[30px] mt-0.5 text-[12px] text-muted-foreground">No reason given.</p>
       )}
       {open && (
-        <ul className="ml-5 mt-1 list-none space-y-0.5 border-l border-border/60 pl-2">
+        <ul className="ml-[30px] mt-1 list-none space-y-0.5 border-l border-border pl-2">
           {actions.map((a, i) => (
             <li key={i} className="truncate font-mono text-[11px] text-muted-foreground">
               {actionLabel(a)}
@@ -127,38 +123,46 @@ function PlanView({ history, actions = [], bare = false, live = false }: Props) 
   if (!view.total && !view.items.length) return null;
   const pct = view.total ? Math.round((view.done / view.total) * 100) : 0;
 
+  // Live steps are numbered in order; steps that were dropped or removed keep
+  // their place at the end and carry a dash instead of a number.
+  let n = 0;
+  const numbered = view.items.map(item => {
+    const gone = item.change === 'dropped' || item.change === 'removed';
+    return { item, number: gone ? '–' : `${++n}` };
+  });
+
   const body = (
     <>
       {/* One bar, one number, same scale — the bar is the count, not a mood. */}
       <div className="h-0.5 w-full bg-muted">
-        <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${pct}%` }} />
+        <div className="h-full bg-agent transition-[width] duration-500" style={{ width: `${pct}%` }} />
       </div>
 
       <ul className="m-0 list-none space-y-0.5 p-2">
-        {view.items.map(item => (
-          <PlanRow key={`${item.change ?? 'live'}-${item.key}`} item={item}
+        {numbered.map(({ item, number }) => (
+          <PlanRow key={`${item.change ?? 'live'}-${item.key}`} item={item} number={number}
             actions={byStep.get(item.key) ?? []} />
         ))}
       </ul>
 
       {view.revisions.length > 1 && (
-        <div className="border-t border-border/60 px-3 py-1.5">
+        <div className="border-t border-border px-3 py-1.5">
           <button
             type="button"
             onClick={() => setShowHistory(s => !s)}
             aria-expanded={showHistory}
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            className="flex min-h-10 items-center gap-1 font-mono text-[11px] text-muted-foreground hover:text-foreground md:min-h-0"
           >
             <History className="h-3 w-3" />
-            Plan history ({view.revisions.length} revisions)
+            plan history ({view.revisions.length} revisions)
             <ChevronRight className={`h-3 w-3 transition-transform ${showHistory ? 'rotate-90' : ''}`} />
           </button>
           {showHistory && (
             <ol className="mt-1 list-none space-y-1 pl-0">
               {view.revisions.map(rev => (
-                <li key={rev.n} className="flex gap-2 text-[11px] leading-snug">
-                  <span className="w-5 shrink-0 text-right tabular-nums text-muted-foreground">{rev.n}.</span>
-                  <span className={rev.dropped.length ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}>
+                <li key={rev.n} className="flex gap-2 text-[12px] leading-snug">
+                  <span className="w-5 shrink-0 text-right font-mono tabular-nums text-muted-foreground">{rev.n}.</span>
+                  <span className={rev.dropped.length ? 'text-warning' : 'text-muted-foreground'}>
                     {describeRevision(rev)}
                   </span>
                 </li>
@@ -173,11 +177,11 @@ function PlanView({ history, actions = [], bare = false, live = false }: Props) 
   if (bare) return body;
 
   return (
-    <div className={`my-3 overflow-hidden rounded-lg border bg-muted/20 ${
-      live ? 'border-primary/30' : 'border-border/60'}`}>
-      <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-3 py-1.5">
-        <span className="text-[11px] font-medium text-muted-foreground">Plan</span>
-        <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+    <div className={`my-3 overflow-hidden rounded-md border bg-card ${
+      live ? 'border-agent-line' : 'border-border'}`}>
+      <div className="flex h-9 items-center gap-2 border-b border-border px-3">
+        <span className="font-mono text-[12px] lowercase text-muted-foreground">plan</span>
+        <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
           {planCounts(view)}
         </span>
       </div>

@@ -133,7 +133,7 @@ export function KnowledgeBaseSharing({ orgs }: { orgs: Org[] }) {
         {ownKbs.length === 0 ? (
           <p className="mt-2 text-[12px] text-muted-foreground">No knowledge bases yet.</p>
         ) : (
-          <ul className="mt-2 divide-y divide-border/60 border border-border/60 rounded-lg bg-card/60">
+          <ul className="mt-2 divide-y divide-border/60 border border-border/60 rounded-md bg-card/60">
             {ownKbs.map((kb) => (
               <OwnRow
                 key={kb.id}
@@ -174,7 +174,7 @@ export function KnowledgeBaseSharing({ orgs }: { orgs: Org[] }) {
               Nothing shared with this organisation yet.
             </p>
           ) : (
-            <ul className="mt-2 divide-y divide-border/60 border border-border/60 rounded-lg bg-card/60">
+            <ul className="mt-2 divide-y divide-border/60 border border-border/60 rounded-md bg-card/60">
               {teamKbs.map((kb) => (
                 <li key={kb.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                   <Database className="w-4 h-4 shrink-0 text-muted-foreground" />

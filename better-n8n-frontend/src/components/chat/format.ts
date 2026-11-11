@@ -22,3 +22,35 @@ export const stripXmlTags = (val: unknown): string => {
   if (typeof val !== 'string') return String(val ?? '');
   return val.replace(/<\/?[a-zA-Z_][a-zA-Z0-9_:.-]*[^>]*>/g, '').trim();
 };
+
+/** A message's time as the transcript shows it, e.g. "14:05". Empty when unknown. */
+export function formatClock(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * A turn's duration for the block header: "4s", "1m 12s". Empty when the
+ * server did not send a figure, so the caller can leave the time out.
+ */
+export function formatElapsed(ms: number | null | undefined): string {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '';
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+/** Initials for an agent badge: the first letters of the first two words, or the first two letters of one word. */
+export function badgeInitials(name: string | null | undefined): string {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'AG';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+/** "3 steps" / "1 step", for the block header. */
+export function formatSteps(count: number): string {
+  return count === 1 ? '1 step' : `${count} steps`;
+}

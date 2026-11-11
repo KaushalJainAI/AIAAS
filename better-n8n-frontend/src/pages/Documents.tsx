@@ -39,6 +39,7 @@ import { runLimited, UPLOAD_CONCURRENCY } from '../lib/runLimited';
 import PropertiesDialog from '../components/explorer/PropertiesDialog';
 import ExtractionPanel from '../components/extraction/ExtractionPanel';
 
+import AuthorTag from '../components/documents/AuthorTag';
 import FilePreview from '../components/files/FilePreview';
 import PreviewFrame from '../components/files/PreviewFrame';
 import ShareDialog from '../components/files/ShareDialog';
@@ -743,7 +744,7 @@ export default function Documents() {
           <RefreshCw className={cn('h-4 w-4', docs.isFetching && 'animate-spin')} />
         </button>
 
-        <nav aria-label="Address" className="mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-md border border-border/60 bg-background px-1.5 py-1 text-[13px]">
+        <nav aria-label="Address" className="mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-md border border-border/60 bg-background px-1.5 py-1 font-mono text-[12.5px]">
           {loc.kind === 'folder' ? (
             <>
               <Crumb label="Home" icon={<Home className="h-3.5 w-3.5" />} onClick={() => go({ kind: 'folder', id: null })} onDrop={dragging ? () => void move(dragging, null) : undefined} current={!currentFolder} />
@@ -805,7 +806,7 @@ export default function Documents() {
                   <FilePlus2 className="h-4 w-4" /> New <ChevronDown className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <Cmd label="Upload" icon={Upload} onClick={pickFiles} disabled={!inFolder} wide />
+              <Cmd label="Upload" icon={Upload} onClick={pickFiles} disabled={!inFolder} wide primary />
               <span className="mx-1 h-5 w-px shrink-0 bg-border/70" />
               {cmd('Cut', Scissors, () => setClipboard({ mode: 'cut', items: selectedItems }), !mine || !selectedItems.length)}
               {cmd('Copy', Copy, () => setClipboard({ mode: 'copy', items: selectedItems.filter((i) => i.kind === 'doc') }), !mine || !selectedDocs.length)}
@@ -827,7 +828,7 @@ export default function Documents() {
                   <ChevronDown className="h-3.5 w-3.5" />
                 </button>
                 {viewMenu && (
-                  <div className="absolute right-0 top-full z-40 mt-1 w-40 rounded-lg border border-border/70 bg-popover p-1 shadow-xl" onMouseLeave={() => setViewMenu(false)}>
+                  <div className="absolute right-0 top-full z-40 mt-1 w-40 rounded-md border border-border/70 bg-popover p-1 shadow-xl" onMouseLeave={() => setViewMenu(false)}>
                     {([['details', 'Details', TableIcon], ['tiles', 'Tiles', LayoutGrid], ['list', 'List', ListIcon]] as const).map(([v, label, I]) => (
                       <button
                         key={v}
@@ -1019,7 +1020,7 @@ export default function Documents() {
               )}
               {osDrop && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <span className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
+                  <span className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
                     Drop to upload to {title}
                   </span>
                 </div>
@@ -1136,8 +1137,8 @@ export default function Documents() {
 // ---------------------------------------------------------------------------------------------
 
 function Cmd({
-  label, icon: I, onClick, disabled, wide,
-}: { label: string; icon: typeof Eye; onClick: () => void; disabled?: boolean; wide?: boolean }) {
+  label, icon: I, onClick, disabled, wide, primary,
+}: { label: string; icon: typeof Eye; onClick: () => void; disabled?: boolean; wide?: boolean; primary?: boolean }) {
   return (
     <button
       type="button"
@@ -1145,7 +1146,14 @@ function Cmd({
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-foreground/80 hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+      className={cn(
+        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] disabled:pointer-events-none disabled:opacity-35',
+        // Upload is the one thing here that adds to the library, so it is the
+        // solid "you act" button; the rest are quiet text commands.
+        primary
+          ? 'bg-primary font-medium text-primary-foreground hover:bg-primary/90'
+          : 'text-foreground/80 hover:bg-muted hover:text-foreground',
+      )}
     >
       <I className="h-4 w-4" />
       <span className={cn(wide ? 'hidden md:inline' : 'hidden xl:inline')}>{label}</span>
@@ -1236,7 +1244,7 @@ function EmptyState({
   if (firstRun) {
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center px-6 py-20 text-center" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-5 rounded-full bg-muted p-5">
+        <div className="mb-5 rounded-md bg-muted p-5">
           <FolderIcon className="h-10 w-10 text-muted-foreground/50" />
         </div>
         <h3 className="mb-1 text-lg font-semibold">Your files live here</h3>
@@ -1287,7 +1295,7 @@ function PreviewPane({
     const f = item.folder;
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-        <FolderIcon className="h-14 w-14 fill-amber-400/80 text-amber-500" />
+        <FolderIcon className="h-14 w-14 fill-muted-foreground/30 text-muted-foreground" />
         <p className="font-medium">{f.name}</p>
         <p className="text-[12.5px] text-muted-foreground">{f.document_count} files · {f.child_count} folders</p>
         <button type="button" onClick={() => onOpen(item)} className="mt-2 rounded-md border border-border/60 px-3 py-1.5 text-[13px] hover:bg-muted">
@@ -1302,9 +1310,12 @@ function PreviewPane({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <p className="shrink-0 border-b border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground" title={formatDateTime(d.updated_at)}>
-        {typeName(d)} · {formatSize(d.file_size)} · {formatDate(d.updated_at)}
-      </p>
+      <div className="shrink-0 space-y-1 border-b border-border/60 px-3 py-1.5">
+        <p className="font-mono text-[11px] text-muted-foreground" title={formatDateTime(d.updated_at)}>
+          {typeName(d)} · {formatSize(d.file_size)} · {formatDate(d.updated_at)}
+        </p>
+        {d.author?.kind === 'agent' && <AuthorTag author={d.author} />}
+      </div>
       <PreviewFrame
         doc={d}
         extra={
@@ -1367,7 +1378,7 @@ function TrashView({
           </tr>
         </thead>
         <tbody>
-          {folders.map((f) => row(`f${f.id}`, f.name, 'File folder', f.deleted_at, () => onRestore({ folder_ids: [f.id] }), FolderIcon, 'text-amber-500'))}
+          {folders.map((f) => row(`f${f.id}`, f.name, 'File folder', f.deleted_at, () => onRestore({ folder_ids: [f.id] }), FolderIcon, 'text-warning'))}
           {docs.map((d) => row(`d${d.id}`, d.filename || d.title, typeName(d), d.deleted_at, () => onRestore({ document_ids: [d.id] }), fileIcon(d), fileTint(d)))}
         </tbody>
       </table>

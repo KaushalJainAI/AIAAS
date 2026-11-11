@@ -17,6 +17,8 @@ export interface Skill {
   isShared: boolean;
   category: string;
   updatedAt: string;
+  /** How many agents attach this skill. Optional: an older server omits it. */
+  used_by?: number | null;
 }
 
 export type SkillTab = 'mine' | 'public';

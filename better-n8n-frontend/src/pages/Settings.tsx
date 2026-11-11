@@ -94,6 +94,32 @@ interface SettingsForm {
   default_autonomy: string;
 }
 
+/**
+ * A small picture of one theme, drawn in neutrals so it reads the same in
+ * either mode. "System" is the two halves side by side.
+ */
+function ThemePreview({ mode }: { mode: 'light' | 'dark' | 'system' }) {
+  const surface = (dark: boolean) => (
+    <span className={`flex flex-1 flex-col gap-1.5 p-2 ${dark ? 'bg-zinc-900' : 'bg-white'}`}>
+      <span className={`h-1.5 w-2/3 rounded ${dark ? 'bg-zinc-600' : 'bg-zinc-300'}`} />
+      <span className={`h-1.5 w-1/2 rounded ${dark ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
+      <span className="mt-auto h-2 w-2 rounded-full bg-primary" />
+    </span>
+  );
+  return (
+    <span aria-hidden className="flex h-16 w-full overflow-hidden rounded border border-border">
+      {mode === 'system' ? (
+        <>
+          {surface(false)}
+          {surface(true)}
+        </>
+      ) : (
+        surface(mode === 'dark')
+      )}
+    </span>
+  );
+}
+
 export default function Settings() {
   const [activeTab, setActiveTab] = usePersistedState<SettingsTab>('settings.tab', 'general');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -386,7 +412,7 @@ export default function Settings() {
             <div>
               <h3 className="text-lg font-medium mb-4">General settings</h3>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-md">
                   <div>
                     <p className="font-medium">Instance name</p>
                     <p className="text-sm text-muted-foreground">Personalize your platform title</p>
@@ -396,19 +422,19 @@ export default function Settings() {
                     name="instance_name"
                     value={formData.instance_name}
                     onChange={handleInputChange}
-                    className="px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
+                    className="px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
                   />
                 </div>
                 
                 {/* Provider, model and effort — the same three choices the
                     chat composer and the agent builder offer, driven by the
                     same catalogue so none of them can drift from the others. */}
-                <div className="p-4 bg-muted/50 rounded-lg border border-primary/10 space-y-4">
+                <div className="p-4 bg-muted/50 rounded-md border border-primary/10 space-y-4">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="font-medium flex items-center gap-2">
                         Default AI provider
-                        <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
+                        <Zap className="w-3 h-3 text-warning fill-warning" />
                       </p>
                       <p className="text-sm text-muted-foreground">Who serves your AI features</p>
                     </div>
@@ -586,7 +612,7 @@ export default function Settings() {
                   )}
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-md">
                   <div>
                     <p className="font-medium">Timezone</p>
                     <p className="text-sm text-muted-foreground">
@@ -612,7 +638,7 @@ export default function Settings() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-md">
                   <div>
                     <p className="font-medium">Language</p>
                     <p className="text-sm text-muted-foreground">
@@ -628,7 +654,7 @@ export default function Settings() {
                 </div>
                 {/* Stored since the profile existed and read by nothing. It is
                     now what a new agent starts at in the builder. */}
-                <div className="flex items-center justify-between gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center justify-between gap-4 p-4 bg-muted/50 rounded-md">
                   <div>
                     <p className="font-medium">Default temperature for new agents</p>
                     <p className="text-sm text-muted-foreground">
@@ -650,20 +676,20 @@ export default function Settings() {
                 </div>
                 {/* New chats start at this mode. `full` is per-chat only and
                     is refused as a default by the backend. */}
-                <div className="flex items-center justify-between gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center justify-between gap-4 p-4 bg-muted/50 rounded-md">
                   <div>
                     <p className="font-medium">Default mode for new chats</p>
                     <p className="text-sm text-muted-foreground">
-                      Ask approves side effects · Auto lets clear matches through · Plan looks, doesn’t touch
+                      Plan only reads · Ask before changes asks for side effects · Ask before irreversible lets reversible work through
                     </p>
                   </div>
                   <Select
                     value={formData.default_autonomy}
                     onChange={(val) => handleSelectChange('default_autonomy', val)}
                     options={[
-                      { value: 'ask', label: 'Ask' },
-                      { value: 'auto', label: 'Auto' },
-                      { value: 'plan', label: 'Plan' },
+                      { value: 'plan', label: 'Plan only' },
+                      { value: 'ask', label: 'Ask before changes' },
+                      { value: 'auto', label: 'Ask before irreversible' },
                     ]}
                     className="w-[200px]"
                   />
@@ -671,7 +697,7 @@ export default function Settings() {
                 {/* Which voice speaks: the agent tool, /speak and the speaker
                     button all resolve these same two fields. Blank = platform
                     default (Kokoro + af_heart). */}
-                <div className="p-4 bg-muted/50 rounded-lg border border-primary/10 space-y-4">
+                <div className="p-4 bg-muted/50 rounded-md border border-primary/10 space-y-4">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="font-medium">Default voice model</p>
@@ -720,7 +746,7 @@ export default function Settings() {
                         value={formData.tts_voice}
                         onChange={handleInputChange}
                         placeholder={formData.tts_model ? 'Model default' : 'af_heart'}
-                        className="w-[250px] px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
+                        className="w-[250px] px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
                       />
                     )}
                   </div>
@@ -735,7 +761,7 @@ export default function Settings() {
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-medium mb-4">Account settings</h3>
-              <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg mb-4">
+              <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-md mb-4">
                 <div 
                   onClick={handleAvatarClick}
                   className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-xl font-bold text-primary ring-4 ring-primary/5 overflow-hidden cursor-pointer group relative"
@@ -755,7 +781,7 @@ export default function Settings() {
                 </div>
                 <button 
                   onClick={handleAvatarClick}
-                  className="ml-auto px-4 py-2 border border-border/60 rounded-lg hover:bg-muted transition-colors"
+                  className="ml-auto px-4 py-2 border border-border/60 rounded-md hover:bg-muted transition-colors"
                 >
                   Change Avatar
                 </button>
@@ -776,7 +802,7 @@ export default function Settings() {
                       name="first_name"
                       value={formData.first_name}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
+                      className="w-full px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
                     />
                   </div>
                   <div>
@@ -786,7 +812,7 @@ export default function Settings() {
                       name="last_name"
                       value={formData.last_name}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
+                      className="w-full px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
                     />
                   </div>
                 </div>
@@ -801,7 +827,7 @@ export default function Settings() {
                     onChange={handleInputChange}
                     maxLength={80}
                     placeholder={formData.first_name || 'Your name'}
-                    className="w-full px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
+                    className="w-full px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200"
                   />
                 </div>
                 <ChangeEmail current={user?.email ?? ''} onChanged={refreshUser} />
@@ -812,7 +838,7 @@ export default function Settings() {
                     value={formData.bio}
                     onChange={handleInputChange}
                     rows={3}
-                    className="w-full px-3 py-2 border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200 resize-none"
+                    className="w-full px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-200 resize-none"
                     placeholder="e.g. Backend engineer in Bengaluru. I prefer code first, then the explanation."
                   />
                   <p className="text-xs text-muted-foreground mt-1">
@@ -828,7 +854,7 @@ export default function Settings() {
                 </p>
                 <button 
                   onClick={handleLogout}
-                  className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors duration-200 rounded-lg font-medium border border-border/60"
+                  className="flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors duration-200 rounded-md font-medium border border-border/60"
                 >
                   <LogOut className="w-4 h-4" />
                   Sign Out
@@ -854,42 +880,54 @@ export default function Settings() {
                     ].map(({ id, label, icon: Icon }) => (
                       <button
                         key={id}
+                        type="button"
+                        aria-pressed={theme === id}
                         onClick={() => setTheme(id)}
-                        className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors duration-200 ${
-                          theme === id 
-                            ? 'border-primary bg-primary/5 shadow-sm' 
+                        className={`flex flex-col gap-2 p-2 rounded-md border text-left transition-colors duration-200 ${
+                          theme === id
+                            ? 'border-primary bg-primary-subtle'
                             : 'border-border hover:border-primary/50'
                         }`}
                       >
-                        <Icon className="w-6 h-6" />
-                        <span className="text-sm font-medium">{label}</span>
+                        <ThemePreview mode={id} />
+                        <span className="flex items-center gap-1.5 px-1 pb-1 text-sm font-medium">
+                          <Icon className="w-4 h-4" aria-hidden />
+                          {label}
+                        </span>
                       </button>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <p className="font-medium mb-3 text-foreground/90">Accent palette</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <p className="font-medium mb-3 text-foreground/90">Accent colour</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {/* The swatches preview each palette's --primary; the
+                        palette itself is set by ThemeContext, not here. */}
                     {[
-                      { id: 'blue' as const, label: 'Communication blue', color: 'bg-primary' },
-                      { id: 'magenta' as const, label: 'Agent violet', color: 'bg-agent' },
-                    ].map(({ id, label, color }) => (
+                      { id: 'teal' as const, label: 'Teal', hint: 'Default', color: 'bg-[hsl(174_62%_32%)]' },
+                      { id: 'ink' as const, label: 'Ink', hint: 'Neutral', color: 'bg-foreground' },
+                      { id: 'blue' as const, label: 'Blue', hint: 'Communication', color: 'bg-[hsl(208_85%_40%)]' },
+                      { id: 'magenta' as const, label: 'Magenta', hint: 'Alternate', color: 'bg-[hsl(322_68%_42%)]' },
+                    ].map(({ id, label, hint, color }) => (
                       <button
                         key={id}
+                        type="button"
+                        aria-pressed={colorTheme === id}
                         onClick={() => setColorTheme(id)}
-                        className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-colors duration-300 relative overflow-hidden group/palette ${
-                          colorTheme === id 
-                            ? 'border-primary bg-primary/5 shadow-sm' 
+                        className={`flex items-center gap-3 p-3 rounded-md border text-left transition-colors duration-200 ${
+                          colorTheme === id
+                            ? 'border-primary bg-primary-subtle'
                             : 'border-border hover:border-primary/40 hover:bg-muted/30'
                         }`}
                       >
-                        <div className={cn("w-5 h-5 rounded-full ring-2 ring-primary/20", color)} />
-                        <span className="text-sm font-semibold">{label}</span>
+                        <span className={cn('h-5 w-5 shrink-0 rounded-full ring-2 ring-border', color)} aria-hidden />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold">{label}</span>
+                          <span className="block text-[11px] font-mono text-muted-foreground">{hint}</span>
+                        </span>
                         {colorTheme === id && (
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-                            <Check className="w-3 h-3 text-primary-foreground" />
-                          </div>
+                          <Check className="ml-auto h-4 w-4 shrink-0 text-primary" aria-hidden />
                         )}
                       </button>
                     ))}
@@ -906,7 +944,7 @@ export default function Settings() {
             <div>
               <h3 className="text-lg font-medium mb-4">API settings</h3>
               <div className="space-y-4">
-                <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="p-4 bg-muted/50 rounded-md">
                   <div className="flex items-center justify-between mb-2">
                     <p className="font-medium">API key</p>
                     <button 
@@ -917,7 +955,7 @@ export default function Settings() {
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 p-2 bg-background border border-input rounded-lg text-sm font-mono overflow-hidden text-ellipsis">
+                    <code className="flex-1 p-2 bg-background border border-input rounded-md text-sm font-mono overflow-hidden text-ellipsis">
                       {apiKey || '••••••••••••••••••••••••••••••••'}
                     </code>
                     {/* Only a freshly generated key is whole; a stored one is
@@ -925,7 +963,7 @@ export default function Settings() {
                     {apiKey && !apiKey.endsWith('…') && (
                       <button
                         onClick={() => copyToClipboard(apiKey)}
-                        className="px-3 py-2 border border-border/60 rounded-lg hover:bg-muted text-sm whitespace-nowrap transition-colors"
+                        className="px-3 py-2 border border-border/60 rounded-md hover:bg-muted text-sm whitespace-nowrap transition-colors"
                       >
                         {isCopied ? 'Copied!' : 'Copy'}
                       </button>
@@ -939,7 +977,7 @@ export default function Settings() {
                 {/* This showed `/api/webhook/`, a route that does not exist: the
                     account-wide receiver went with the workflow product. Each
                     agent's webhook has its own secret URL, made on Schedules. */}
-                <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="p-4 bg-muted/50 rounded-md">
                   <p className="font-medium mb-1">Webhooks</p>
                   <p className="text-sm text-muted-foreground">
                     Each agent gets its own webhook URL with a secret in it. Create one
@@ -977,9 +1015,9 @@ export default function Settings() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-6 rounded-lg border border-border bg-card">
+              <div className="p-6 rounded-md border border-border bg-card">
                 <div className="flex items-center gap-4">
-                  <div className="p-2.5 bg-success-subtle rounded-lg border border-border">
+                  <div className="p-2.5 bg-success-subtle rounded-md border border-border">
                     <CreditCard className="w-5 h-5 text-success" />
                   </div>
                   <div>
@@ -992,9 +1030,9 @@ export default function Settings() {
                 </p>
               </div>
 
-              <div className="p-6 rounded-lg border border-border bg-card">
+              <div className="p-6 rounded-md border border-border bg-card">
                 <div className="flex items-center gap-4">
-                  <div className="p-2.5 bg-agent-subtle rounded-lg border border-agent-line">
+                  <div className="p-2.5 bg-agent-subtle rounded-md border border-agent-line">
                     <Rocket className="w-5 h-5 text-agent" />
                   </div>
                   <div>
@@ -1043,7 +1081,7 @@ export default function Settings() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 md:gap-3 px-3 py-2 md:py-2.5 rounded-lg transition-colors duration-200 relative whitespace-nowrap ${
+              className={`flex items-center gap-2 md:gap-3 px-3 py-2 md:py-2.5 rounded-md transition-colors duration-200 relative whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -1079,13 +1117,13 @@ export default function Settings() {
               {/* Was a Cancel button with no handler. */}
               <button
                 onClick={() => { if (user) setFormData(formFromUser(user)); }}
-                className="px-4 py-2 border border-border rounded-lg hover:bg-secondary transition-colors">
+                className="px-4 py-2 border border-border rounded-md hover:bg-secondary transition-colors">
                 Discard changes
               </button>
               <button 
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-sm font-medium disabled:opacity-50"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
               >
                 {isSaving ? 'Saving...' : 'Save Changes'}
               </button>

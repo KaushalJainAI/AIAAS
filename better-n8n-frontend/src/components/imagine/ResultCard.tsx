@@ -59,7 +59,7 @@ export function ResultCard({ generation, onOpen, onDelete }: Props) {
   };
 
   return (
-    <div className="group relative bg-card border border-border/50 rounded-2xl overflow-hidden hover:border-border transition-colors">
+    <div className="group relative bg-card border border-border/50 rounded-md overflow-hidden hover:border-border transition-colors">
       <div
         className={cn(
           'relative bg-muted/20 overflow-hidden',
@@ -107,7 +107,7 @@ export function ResultCard({ generation, onOpen, onDelete }: Props) {
                   if (shown) onOpen(generation, shown);
                 }}
                 title="Open full size"
-                className="p-2 rounded-lg bg-background/90 backdrop-blur border border-border/50 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
+                className="p-2 rounded-md bg-background/90 backdrop-blur border border-border/50 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
               >
                 <Maximize2 size={14} />
               </button>
@@ -119,7 +119,7 @@ export function ResultCard({ generation, onOpen, onDelete }: Props) {
               }}
               disabled={isDownloading}
               title="Download"
-              className="p-2 rounded-lg bg-background/90 backdrop-blur border border-border/50 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
+              className="p-2 rounded-md bg-background/90 backdrop-blur border border-border/50 text-foreground hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
             >
               {isDownloading ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -141,7 +141,7 @@ export function ResultCard({ generation, onOpen, onDelete }: Props) {
                 onClick={() => setFrame(i)}
                 title={`Image ${i + 1} of ${urls.length}`}
                 className={cn(
-                  'h-10 w-10 rounded-lg overflow-hidden border transition-colors',
+                  'h-10 w-10 rounded-md overflow-hidden border transition-colors',
                   i === frame ? 'border-primary' : 'border-border/50 hover:border-border',
                 )}
               >

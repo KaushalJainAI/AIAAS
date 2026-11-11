@@ -139,8 +139,8 @@ export default function Profile() {
 
   const getTierColor = (tier: string) => {
     switch (tier) {
-      case 'pro': return 'text-purple-500 bg-purple-500/10 border-purple-500/20';
-      case 'enterprise': return 'text-amber-500 bg-amber-500/10 border-amber-500/20';
+      case 'pro': return 'text-agent bg-agent/10 border-agent/20';
+      case 'enterprise': return 'text-warning bg-warning/10 border-warning/20';
       default: return 'text-muted-foreground bg-muted border-border';
     }
   };
@@ -168,7 +168,7 @@ export default function Profile() {
 
           <button 
             onClick={() => navigate(-1)}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-md transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -183,7 +183,7 @@ export default function Profile() {
         {success && <Alert tone="success">{success}</Alert>}
 
         {/* Profile Card */}
-        <div className="bg-card border border-border rounded-lg p-6">
+        <div className="bg-card border border-border rounded-md p-6">
           <div className="flex items-center gap-4 mb-6">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl border border-border">
               {user?.name ? user.name.slice(0, 2).toUpperCase() : user?.email?.slice(0, 2).toUpperCase() || '??'}
@@ -191,7 +191,7 @@ export default function Profile() {
             <div>
               <h2 className="text-xl font-semibold">{user?.name || 'User'}</h2>
               <p className="text-muted-foreground">{user?.email}</p>
-              <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border mt-1 ${getTierColor(user?.tier || 'free')}`}>
+              <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border mt-1 ${getTierColor(user?.tier || 'free')}`}>
                 <Shield className="w-3 h-3" />
                 {getTierLabel(user?.tier || 'free')} Plan
               </div>
@@ -200,14 +200,14 @@ export default function Profile() {
 
           {/* Account Stats */}
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="p-4 bg-muted/50 rounded-lg">
+            <div className="p-4 bg-muted/50 rounded-md">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <CreditCard className="w-4 h-4" />
                 <span className="text-sm">Credits remaining</span>
               </div>
               <p className="text-2xl font-bold">{user?.credits ?? 0}</p>
             </div>
-            <div className="p-4 bg-muted/50 rounded-lg">
+            <div className="p-4 bg-muted/50 rounded-md">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <User className="w-4 h-4" />
                 <span className="text-sm">Member since</span>
@@ -231,7 +231,7 @@ export default function Profile() {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 pl-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 transition-colors duration-150"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 pl-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 transition-colors duration-150"
                   placeholder="Your name"
                 />
               </div>
@@ -248,7 +248,7 @@ export default function Profile() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 pl-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 transition-colors duration-150"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 pl-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 transition-colors duration-150"
                   placeholder="your@email.com"
                   disabled // Email typically can't be changed
                 />
@@ -271,7 +271,7 @@ export default function Profile() {
           </form>
         </div>
 
-        <div className="bg-card border border-border/60 rounded-lg p-6">
+        <div className="bg-card border border-border/60 rounded-md p-6">
           <h3 className="text-lg font-semibold mb-4">Change password</h3>
 
           {passwordStep === 'start' && (
@@ -283,7 +283,7 @@ export default function Profile() {
                   type="password"
                   value={passwordForm.oldPassword}
                   onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   required
                 />
               </div>
@@ -304,7 +304,7 @@ export default function Profile() {
                   maxLength={6}
                   value={passwordForm.otpCode}
                   onChange={(e) => setPasswordForm({ ...passwordForm, otpCode: e.target.value.replace(/\D/g, '') })}
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-center tracking-[0.4em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-center tracking-[0.4em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   required
                 />
               </div>
@@ -317,8 +317,8 @@ export default function Profile() {
 
           {passwordStep === 'reset' && (
             <form onSubmit={submitPasswordChange} className="space-y-4">
-              <input type="password" placeholder="New password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" required />
-              <input type="password" placeholder="Confirm new password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" required />
+              <input type="password" placeholder="New password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" required />
+              <input type="password" placeholder="Confirm new password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" required />
               <Button loading={isPasswordSaving}>
                 {!isPasswordSaving && <>Update Password</>}
                 {isPasswordSaving && <>Updating...</>}
@@ -328,17 +328,17 @@ export default function Profile() {
         </div>
 
         {/* Danger Zone */}
-        <div className="bg-card border border-border/60 rounded-lg p-6">
+        <div className="bg-card border border-border/60 rounded-md p-6">
           <h3 className="text-lg font-semibold mb-4 text-destructive">Account actions</h3>
           
-          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-md">
             <div>
               <p className="font-medium">Sign out</p>
               <p className="text-sm text-muted-foreground">Sign out of your account on this device</p>
             </div>
             <button
               onClick={() => setShowLogoutConfirm(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors font-medium"
             >
               <LogOut className="w-4 h-4" />
               Logout
@@ -350,7 +350,7 @@ export default function Profile() {
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 entrance-overlay">
-          <div className="bg-card border border-border/60 rounded-lg shadow-lg w-full max-w-sm mx-4 p-6 entrance-modal">
+          <div className="bg-card border border-border/60 rounded-md shadow-lg w-full max-w-sm mx-4 p-6 entrance-modal">
             <h3 className="text-lg font-semibold mb-2">Sign out?</h3>
             <p className="text-muted-foreground mb-4">
               Are you sure you want to sign out of your account?
@@ -358,13 +358,13 @@ export default function Profile() {
             <div className="flex justify-end gap-2">
               <button 
                 onClick={() => setShowLogoutConfirm(false)}
-                className="px-4 py-2 border border-border/60 rounded-lg hover:bg-muted transition-colors"
+                className="px-4 py-2 border border-border/60 rounded-md hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
               <button 
                 onClick={handleLogout}
-                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg hover:bg-destructive/90 transition-colors"
+                className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
               >
                 Sign Out
               </button>

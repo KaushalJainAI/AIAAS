@@ -22,6 +22,14 @@ export interface KnowledgeBaseDetail extends KnowledgeBase {
   documents: Document[];
 }
 
+/** The agent or chat that wrote a file. */
+export interface DocumentAuthor {
+  kind: 'agent' | 'chat';
+  name: string;
+  agent_id: number | null;
+  execution_id: string | null;
+}
+
 export interface Document {
   id: number;
   title: string;
@@ -40,6 +48,8 @@ export interface Document {
   error_message?: string;
   sharing_mode?: 'private' | 'shared_read' | 'shared_write';
   author_name?: string;
+  /** Who wrote the file, when it was written by someone other than the owner. `null` for files the owner made themselves and for older rows. */
+  author?: DocumentAuthor | null;
   knowledge_base_id?: number | null;
   knowledge_base_name?: string | null;
   /** Where the file sits in the user's tree. `null` is their root. */

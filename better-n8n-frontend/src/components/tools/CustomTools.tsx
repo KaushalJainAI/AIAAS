@@ -289,7 +289,7 @@ export function NewToolDialog({
       <ModalBody>
         <div className="space-y-4">
           {!editing && (
-            <div className="flex p-1 bg-muted rounded-lg border border-border">
+            <div className="flex p-1 bg-muted rounded-md border border-border">
               {(['api', 'data'] as const).map((k) => (
                 <button
                   key={k}
@@ -381,7 +381,7 @@ export function NewToolDialog({
                 Advanced (methods, header names, OpenAPI)
               </button>
               {showAdvanced && (
-                <div className="space-y-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
+                <div className="space-y-4 rounded-md border border-border/60 bg-muted/20 px-3 py-3">
                   {authType === 'header' && (
                     <Field label="Header name">
                       <input
@@ -522,7 +522,7 @@ export function NewToolDialog({
                     Advanced (port)
                   </button>
                   {showAdvanced && (
-                    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
+                    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-3">
                       <Field label="Port (optional)">
                         <input
                           value={port}
@@ -794,7 +794,7 @@ export function MyToolsSection({
           <button
             type="button"
             onClick={onNew}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             New tool
@@ -803,9 +803,9 @@ export function MyToolsSection({
       </div>
 
       {apis.isLoading || dbs.isLoading ? (
-        <div className="h-16 rounded-lg bg-card border border-border/60 animate-pulse" />
+        <div className="h-16 rounded-md bg-card border border-border/60 animate-pulse" />
       ) : rows.length === 0 ? (
-        <div className="rounded-lg bg-card border border-border/60 px-4 py-6 text-center">
+        <div className="rounded-md bg-card border border-border/60 px-4 py-6 text-center">
           <KeyRound className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-sm font-semibold">No custom tools yet</p>
           <p className="text-[12px] text-muted-foreground mt-1">
@@ -813,7 +813,7 @@ export function MyToolsSection({
           </p>
         </div>
       ) : (
-        <div className="rounded-lg bg-card border border-border/60 divide-y divide-border/60">
+        <div className="rounded-md bg-card border border-border/60 divide-y divide-border/60">
           {rows.map((row) => (
             <div key={`${row.kind}-${row.row.id}`} className="flex items-center gap-3 px-4 py-2.5">
               <span className="p-1.5 bg-primary/10 rounded-md shrink-0">
@@ -919,7 +919,7 @@ export function SharedToolsSection() {
   });
 
   if (isLoading) {
-    return <div className="h-16 rounded-lg bg-card border border-border/60 animate-pulse" />;
+    return <div className="h-16 rounded-md bg-card border border-border/60 animate-pulse" />;
   }
 
   return (
@@ -931,7 +931,7 @@ export function SharedToolsSection() {
         </p>
       </div>
       {items.length === 0 ? (
-        <div className="rounded-lg bg-card border border-border/60 px-4 py-6 text-center">
+        <div className="rounded-md bg-card border border-border/60 px-4 py-6 text-center">
           <Share2 className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-sm font-semibold">Nothing shared yet</p>
           <p className="text-[12px] text-muted-foreground mt-1">
@@ -939,7 +939,7 @@ export function SharedToolsSection() {
           </p>
         </div>
       ) : (
-        <div className="rounded-lg bg-card border border-border/60 divide-y divide-border/60">
+        <div className="rounded-md bg-card border border-border/60 divide-y divide-border/60">
           {items.map((t) => (
             <div key={t.slug} className="flex items-center gap-3 px-4 py-2.5">
               <span className="p-1.5 bg-primary/10 rounded-md shrink-0">

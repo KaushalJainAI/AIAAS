@@ -51,7 +51,7 @@ function UpcomingRow({ trigger }: { trigger: Trigger }) {
           {trigger.queued_for && ' · one firing queued'}
         </p>
         {trigger.status !== 'ok' && trigger.status_message && (
-          <p className="text-[11px] text-amber-600 dark:text-amber-400 truncate" title={trigger.status_message}>
+          <p className="text-[11px] text-warning truncate" title={trigger.status_message}>
             {trigger.status_message}
           </p>
         )}
@@ -60,7 +60,7 @@ function UpcomingRow({ trigger }: { trigger: Trigger }) {
         type="button"
         onClick={() => setConfirming(true)}
         title="Fire this schedule now, through the sweep's own gates"
-        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] rounded border border-border hover:bg-secondary shrink-0"
+        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary shrink-0"
       >
         <Play className="w-3 h-3" />
         Run now
@@ -111,10 +111,10 @@ export default function ScheduledSection() {
   if (!isLoading && upcoming.length === 0 && waiting.length === 0 && !schedulerDown) return null;
 
   return (
-    <section className="mb-4 border border-border rounded-lg bg-card overflow-hidden">
+    <section className="mb-4 border border-border rounded-md bg-card overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <CalendarClock className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Scheduled</h2>
+        <h2 className="text-[13px] font-semibold text-muted-foreground">Scheduled</h2>
         <span className="text-[12px] text-muted-foreground">
           {isLoading ? 'Loading…' : `${upcoming.length} upcoming`}
         </span>

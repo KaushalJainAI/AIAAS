@@ -201,7 +201,7 @@ export default function Select({
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          "w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-background border border-input rounded-lg hover:bg-secondary transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-background border border-input rounded-md hover:bg-secondary transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           isOpen && "border-primary/50 ring-2 ring-primary/20"
         )}
         aria-haspopup="listbox"
@@ -226,7 +226,7 @@ export default function Select({
       {/* Dropdown Menu */}
       {isOpen && (
         <div
-          className="absolute z-50 w-full mt-2 bg-card border border-border rounded-lg shadow-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top p-1"
+          className="absolute z-50 w-full mt-2 bg-card border border-border rounded-md shadow-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top p-1"
           onKeyDown={handleDropdownKeyDown}
           role="listbox"
         >
@@ -239,7 +239,7 @@ export default function Select({
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-muted/50 border-none px-3 py-1.5 rounded-lg text-xs focus:ring-1 focus:ring-primary/20 outline-none"
+                className="w-full bg-muted/50 border-none px-3 py-1.5 rounded-md text-xs focus:ring-1 focus:ring-primary/20 outline-none"
                 onClick={(e) => e.stopPropagation()}
               />
             </div>
@@ -255,11 +255,11 @@ export default function Select({
                   onClick={() => handleSelect(option.value)}
                   onMouseEnter={() => setHighlightedIndex(index)}
                   className={cn(
-                    "w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors",
-                    isSelected && !isHighlighted
-                      ? "bg-primary/10 text-primary font-medium" 
+                    "w-full flex items-center justify-between px-2.5 h-8 text-sm rounded transition-colors",
+                    isSelected
+                      ? "bg-primary-subtle text-primary font-medium"
                       : isHighlighted
-                        ? "bg-primary/15 text-primary font-medium"
+                        ? "bg-muted text-foreground"
                         : "text-foreground/80 hover:bg-muted hover:text-foreground"
                   )}
                   role="option"

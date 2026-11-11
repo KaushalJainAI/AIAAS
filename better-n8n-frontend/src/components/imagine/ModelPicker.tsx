@@ -141,7 +141,7 @@ export function ModelPicker({
           closePanel();
         }}
         className={cn(
-          'w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-start gap-3',
+          'w-full text-left px-3 py-2.5 rounded-md transition-colors flex items-start gap-3',
           isSelected ? 'bg-primary/10' : 'hover:bg-muted/60',
         )}
       >
@@ -180,7 +180,7 @@ export function ModelPicker({
         onClick={openPanel}
         title={selected?.id}
         className={cn(
-          'flex items-center gap-2 rounded-lg border border-border/60 bg-background/60',
+          'flex items-center gap-2 rounded-md border border-border/60 bg-background/60',
           'hover:bg-muted/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
           compact ? 'px-2.5 py-1.5 max-w-[190px]' : 'w-full px-3 py-2.5',
         )}
@@ -213,7 +213,7 @@ export function ModelPicker({
             aria-modal="true"
             aria-label={`Select a ${kind} model`}
             onClick={e => e.stopPropagation()}
-            className="w-full max-w-lg max-h-[70vh] flex flex-col rounded-lg border border-border bg-card shadow-lg overflow-hidden"
+            className="w-full max-w-lg max-h-[70vh] flex flex-col rounded-md border border-border bg-card shadow-lg overflow-hidden"
           >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-border/60">
               <Search size={16} className="text-muted-foreground shrink-0" />
@@ -229,14 +229,14 @@ export function ModelPicker({
                   onClick={onRefresh}
                   disabled={isRefreshing}
                   title="Refresh the model catalog"
-                  className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground disabled:opacity-50"
+                  className="p-1.5 rounded-md hover:bg-muted/60 text-muted-foreground disabled:opacity-50"
                 >
                   <RefreshCw size={14} className={cn(isRefreshing && 'animate-spin')} />
                 </button>
               )}
               <button
                 onClick={closePanel}
-                className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground"
+                className="p-1.5 rounded-md hover:bg-muted/60 text-muted-foreground"
                 aria-label="Close"
               >
                 <X size={14} />
@@ -254,7 +254,7 @@ export function ModelPicker({
 
               {pinned.length > 0 && (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  <div className="px-3 py-1.5 label-mono">
                     Recommended
                   </div>
                   {pinned.map(renderRow)}
@@ -264,7 +264,7 @@ export function ModelPicker({
               {rest.length > 0 && (
                 <>
                   {pinned.length > 0 && (
-                    <div className="px-3 py-1.5 mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                    <div className="px-3 py-1.5 mt-1 label-mono">
                       All models
                     </div>
                   )}

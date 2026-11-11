@@ -23,7 +23,7 @@ import { AlertTriangle, Info } from 'lucide-react';
 import type { WebhookDraft } from './webhookDraft';
 
 const inputCls =
-  'w-full h-9 px-3 rounded-lg border border-input bg-background text-sm ' +
+  'w-full h-9 px-3 rounded-md border border-input bg-background text-sm ' +
   'focus:outline-none focus:ring-1 focus:ring-primary';
 
 function Field({ label, hint, children }: {
@@ -64,7 +64,7 @@ export default function WebhookEditor({
   return (
     <div className="space-y-4">
       {!agentAllowsUnattended && (
-        <div className="flex gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2">
+        <div className="flex gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
           <p className="text-[12px] text-warning">
             This agent isn&rsquo;t allowed to run with nobody watching, so every
@@ -93,7 +93,7 @@ export default function WebhookEditor({
         />
       </Field>
 
-      <div className="flex gap-2 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2">
+      <div className="flex gap-2 rounded-md border border-border/60 bg-secondary/40 px-3 py-2">
         <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
         <p className="text-[12px] text-muted-foreground">
           The request body is added to this instruction as <em>context</em>, never

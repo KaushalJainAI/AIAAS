@@ -33,17 +33,18 @@ export default function HeldToolsPanel() {
 
   const groups = (data?.servers ?? []).filter((g) => g.tools.length > 0);
   if (groups.length === 0) return null;
+  const heldCount = groups.reduce((n, g) => n + g.tools.length, 0);
 
   return (
     <section
       aria-labelledby="held-tools-heading"
-      className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-4"
+      className="rounded-md border border-warning/40 bg-warning-subtle p-4 space-y-4"
     >
       <div className="flex items-start gap-3">
-        <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden />
+        <ShieldAlert className="w-5 h-5 text-warning shrink-0 mt-0.5" aria-hidden />
         <div>
           <h2 id="held-tools-heading" className="text-sm font-semibold text-foreground">
-            Some connector tools need your review
+            {heldCount === 1 ? '1 tool held for review' : `${heldCount} tools held for review`}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             The assistant cannot see or use these until you allow them. Read what each one says
@@ -53,7 +54,7 @@ export default function HeldToolsPanel() {
       </div>
       {groups.map((group) => (
         <div key={group.server_id} className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="label-mono">
             {group.server_name}
           </h3>
           {group.tools.map((tool) => (
@@ -64,14 +65,14 @@ export default function HeldToolsPanel() {
                   type="button"
                   disabled={approve.isPending}
                   onClick={() => approve.mutate({ serverId: group.server_id, tool: tool.tool_name })}
-                  className="min-h-9 px-3 text-xs font-semibold rounded-md border border-border hover:bg-muted disabled:opacity-50"
+                  className="min-h-9 px-3 text-xs font-medium rounded-md border border-border bg-card hover:bg-muted disabled:opacity-50"
                 >
                   Allow this tool
                 </button>
               </div>
-              <p className="text-xs text-amber-700 dark:text-amber-300">{tool.reason}</p>
+              <p className="text-xs text-warning">{tool.reason}</p>
               {tool.description && (
-                <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-words bg-muted/40 rounded p-2 max-h-40 overflow-auto">
+                <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-words bg-card rounded p-2 max-h-40 overflow-auto">
                   {tool.description}
                 </pre>
               )}

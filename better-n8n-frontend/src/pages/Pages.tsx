@@ -91,7 +91,7 @@ function PageRow({ page, onCopy, onWithdraw }: {
   const vis = VISIBILITY[page.visibility ?? 'platform'];
   const Icon = vis.icon;
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
+    <li className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-card px-4 py-3">
       <FileText className="h-4 w-4 shrink-0 text-primary/80" />
       <div className="min-w-0 flex-1">
         <Link to={`/p/${page.slug}`} className="block truncate text-sm font-medium text-foreground hover:text-primary">

@@ -103,17 +103,17 @@ export default function RunControls({ executionId, agentId, status }: {
   const paused = status === 'paused';
 
   return (
-    <div className="mb-3 p-3 rounded border border-border bg-card space-y-3">
+    <div className="mb-3 p-3 rounded-md border border-border bg-card space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {paused && (
           <Link to="/runs"
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded bg-primary text-primary-foreground text-[13px] font-semibold">
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-primary-foreground text-[13px] font-semibold">
             <Inbox className="w-3.5 h-3.5" />
             Answer it
           </Link>
         )}
         <button type="button" onClick={stop} disabled={stopping}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded border border-border text-[13px] text-destructive hover:bg-destructive-subtle disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border text-[13px] text-destructive hover:bg-destructive-subtle disabled:opacity-50">
           <Square className="w-3.5 h-3.5" />
           {stopping ? 'Stopping…' : 'Stop run'}
         </button>
@@ -123,7 +123,7 @@ export default function RunControls({ executionId, agentId, status }: {
             {LEVELS.map((l) => (
               <button key={l.id} type="button" title={l.hint}
                 onClick={() => setLevel(l.id)}
-                className={cn('h-7 px-2 rounded border text-[12px]',
+                className={cn('h-7 px-2 rounded-md border text-[12px]',
                   'border-input text-muted-foreground hover:text-foreground')}>
                 {l.label}
               </button>
@@ -138,10 +138,10 @@ export default function RunControls({ executionId, agentId, status }: {
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void steer(); }}
             placeholder="Tell it something mid-run, e.g. “also check the pricing page”"
-            className="flex-1 h-8 px-3 rounded border border-input bg-background text-[13px]"
+            className="flex-1 h-8 px-3 rounded-md border border-input bg-background text-[13px]"
           />
           <button type="button" onClick={steer} disabled={sending || !message.trim()}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded border border-border text-[13px] hover:bg-secondary disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border text-[13px] hover:bg-secondary disabled:opacity-50">
             <Send className="w-3.5 h-3.5" />
             Send
           </button>

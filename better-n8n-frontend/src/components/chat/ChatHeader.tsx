@@ -1,20 +1,29 @@
 /**
- * The conversation's own toolbar: history, the conversation's title, the
- * memory-off warning, the running cost, and chat settings.
+ * The conversation's own toolbar, one 44px row: history, the conversation's
+ * title, the organisation picker for a new chat, the approval rule, the
+ * run settings (model and effort), the memory and sharing badges, the running
+ * cost, and chat settings.
  *
  * It sits under the global Topbar, so it is deliberately a *toolbar*, not a
- * second app bar: 48px (the history drawer's header is the same height, so
- * their borders meet in one line), the canvas colour rather than the Topbar's
- * card colour, and the Topbar's flat 36px icon buttons. It names the
- * conversation rather than the section — the Topbar already says "Ask".
+ * second app bar. It names the conversation rather than the section.
  */
+import type { ReactNode } from 'react';
 import { BrainCircuit, Coins, History, Lock, Settings2, Shield, Users } from 'lucide-react';
 
 import type { ChatSession } from '../../api';
 import type { Org } from '../../api/orgs';
 import { costQualifier, describeConversationCost, formatCost } from '../../lib/cost';
 import { cn } from '../../lib/utils';
+import type { ChatMode } from '../../lib/chatMode';
 import SidebarMenuButton from '../layout/SidebarMenuButton';
+
+/** The approval rule's labels. The values are the API's and never change. */
+const APPROVAL_RULE_LABELS: Record<ChatMode, string> = {
+  plan: 'Plan only',
+  ask: 'Ask before changes',
+  auto: 'Ask before irreversible',
+  full: 'Never ask',
+};
 
 interface ChatHeaderProps {
   isGuest: boolean;
@@ -38,6 +47,12 @@ interface ChatHeaderProps {
   newChatOrgId?: number | null;
   /** The person picked an org (or Personal) for the conversation they are starting. */
   onNewChatOrgChange?: (orgId: number | null) => void;
+  /** The approval rule in force for this conversation. */
+  mode?: ChatMode;
+  /** The person picked an approval rule. Guests run one pinned rule, so no picker. */
+  onModeChange?: (mode: ChatMode) => void;
+  /** The run settings control (model and effort), supplied by the page that owns them. */
+  runSettings?: ReactNode;
 }
 
 export default function ChatHeader({
@@ -51,14 +66,16 @@ export default function ChatHeader({
   orgs = [],
   newChatOrgId = null,
   onNewChatOrgChange,
+  mode = 'ask',
+  onModeChange,
+  runSettings,
 }: ChatHeaderProps) {
   // The picker is for choosing where a conversation starts, so it is shown
   // only before the conversation exists — after that the org is fixed and the
   // badge below says where it is.
   const showOrgPicker = !isGuest && !session && orgs.length > 0 && !!onNewChatOrgChange;
-  // A saved conversation shows its title; a new one says so plainly. The
-  // "Assistant online" pill this replaces was always green — it checked
-  // nothing, so it said nothing.
+  const showModePicker = !isGuest && !!onModeChange;
+  // A saved conversation shows its title; a new one says so plainly.
   // While the last conversation is still being fetched this is not a new
   // one, and saying so invited a message that then landed in the old thread.
   const title = session?.title?.trim()
@@ -66,7 +83,7 @@ export default function ChatHeader({
 
   return (
     <header className={cn(
-      "h-12 shrink-0 flex items-center gap-3 px-3 md:px-6 justify-between border-b border-border bg-background",
+      "h-11 shrink-0 flex items-center gap-3 px-3 md:px-5 justify-between border-b border-border bg-background",
       // Guest: the banner band overlays the top — push the header below
       // it instead of stretching it.
       isGuest && "mt-14 md:mt-10"
@@ -80,7 +97,7 @@ export default function ChatHeader({
             aria-label="Conversation history"
             title="Conversation history"
           >
-            <History className="h-[18px] w-[18px]" />
+            <History className="h-[16px] w-[16px]" />
           </button>
         )}
         <h2
@@ -95,112 +112,130 @@ export default function ChatHeader({
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2 min-w-0 shrink-0">
-         {showOrgPicker && (
-           <label className="flex items-center gap-1.5 min-w-0 text-[11px] font-semibold text-muted-foreground shrink-0">
-             <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-             <span className="hidden sm:inline">Chat in</span>
-             <select
-               value={newChatOrgId ?? ''}
-               onChange={(e) => onNewChatOrgChange?.(e.target.value === '' ? null : Number(e.target.value))}
-               aria-label="Organisation for this conversation"
-               className="max-w-[9rem] sm:max-w-[12rem] truncate rounded-md border border-border bg-background px-2 py-1 text-[11px] font-semibold text-foreground"
-             >
-               <option value="">Personal</option>
-               {orgs.map((org) => (
-                 <option key={org.id} value={org.id}>{org.name}</option>
-               ))}
-             </select>
-           </label>
-         )}
-         {/* Memory state is shown in the header, not buried in the panel:
-             with it off the assistant behaves very differently, and a user
-             who forgot they switched it off reads that as the model being
-             broken. */}
-         {!isGuest && session && !session.memory_enabled && (
-           <button
-             onClick={onShowSettings}
-             title="Memory is off for this chat — click to change"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/40
-                         bg-warning-subtle text-[11px] font-semibold text-amber-500
-                         transition-colors duration-200 hover:bg-amber-500/20
-                         animate-in fade-in slide-in-from-right-2 shrink-0"
-           >
-             <BrainCircuit className="w-3.5 h-3.5" />
-             Memory off
-           </button>
-         )}
-         {/* Which organisation this chat belongs to, and whether its fixes
-             reach it. Visible because it is a sharing decision, and a hidden
-             one is how someone shares what they meant to keep. On phones
-             there is no room for the words, so it is the icon alone, and the
-             organisation's name is in its title and aria-label on every width. */}
-         {!isGuest && session?.org && (() => {
-           const orgName = session.org_name ?? 'your organisation';
-           const label = session.share_solutions
-             ? `Solutions from this chat are shared with ${orgName}`
-             : `Solutions from this chat stay private, in ${orgName}`;
-           return (
-             <button
-               onClick={onShowSettings}
-               title={`${label} — click to change`}
-               aria-label={label}
-               className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full border border-border
-                          text-[11px] font-semibold text-muted-foreground hover:bg-secondary shrink-0"
-             >
-               {session.share_solutions ? <Users className="w-3.5 h-3.5" aria-hidden="true" /> : <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
-               <span className="hidden sm:inline">
-                 {session.share_solutions ? `Sharing with ${orgName}` : 'Private'}
-               </span>
-             </button>
-           );
-         })()}
-         {/* What this conversation has cost so far. In the header, not the
-             settings panel, so it is noticed while the conversation is still
-             growing. Hidden until there is a figure: "—" on every new chat
-             would be noise. */}
-         {session && session.cost_source
-           && session.cost_source !== 'unpriced' && (
-            <div
-              className="flex items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground tabular-nums shrink-0"
-              title={describeConversationCost(
-                session.total_cost_usd, session.cost_source,
-                session.total_tokens_used ?? 0,
-                session.paid_by ?? '',
-              )}
+        {showOrgPicker && (
+          <label className="flex items-center gap-1.5 min-w-0 font-mono text-[11px] text-muted-foreground shrink-0">
+            <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="hidden sm:inline">Chat in</span>
+            <select
+              value={newChatOrgId ?? ''}
+              onChange={(e) => onNewChatOrgChange?.(e.target.value === '' ? null : Number(e.target.value))}
+              aria-label="Organisation for this conversation"
+              className="max-w-[9rem] sm:max-w-[12rem] truncate rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
             >
-              <Coins className="w-3.5 h-3.5" />
-              {formatCost(session.total_cost_usd, session.cost_source)}
-              {/* Never a bare figure: whether it was charged or estimated
-                  is half of what the number means. The qualifier hides on
-                  phones where the header is crowded. */}
-              <span className="hidden sm:inline font-normal opacity-80">
-                {costQualifier(session.cost_source)}
+              <option value="">Personal</option>
+              {orgs.map((org) => (
+                <option key={org.id} value={org.id}>{org.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {showModePicker && (
+          <select
+            value={mode}
+            onChange={(e) => onModeChange?.(e.target.value as ChatMode)}
+            aria-label="Approval rule"
+            title="How much this chat asks before acting"
+            className={cn(
+              "max-w-[10rem] sm:max-w-none truncate rounded-md border px-2 py-1 font-mono text-[11px] shrink-0",
+              mode === 'full'
+                ? "border-destructive/40 bg-destructive-subtle text-destructive"
+                : mode === 'auto'
+                  ? "border-warning/40 bg-warning-subtle text-warning"
+                  : "border-border bg-background text-foreground",
+            )}
+          >
+            {(Object.keys(APPROVAL_RULE_LABELS) as ChatMode[]).map((key) => (
+              <option key={key} value={key}>{APPROVAL_RULE_LABELS[key]}</option>
+            ))}
+          </select>
+        )}
+        {runSettings}
+        {/* Memory state is shown in the header, not buried in the panel:
+            with it off the assistant behaves very differently, and a user
+            who forgot they switched it off reads that as the model being
+            broken. */}
+        {!isGuest && session && !session.memory_enabled && (
+          <button
+            onClick={onShowSettings}
+            title="Memory is off for this chat — click to change"
+            className="flex items-center gap-1.5 px-2 py-1 rounded border border-warning/40
+                       bg-warning-subtle font-mono text-[11px] text-warning
+                       transition-colors duration-200 hover:bg-warning/20
+                       animate-in fade-in slide-in-from-right-2 shrink-0"
+          >
+            <BrainCircuit className="w-3.5 h-3.5" />
+            Memory off
+          </button>
+        )}
+        {/* Which organisation this chat belongs to, and whether its fixes
+            reach it. Visible because it is a sharing decision, and a hidden
+            one is how someone shares what they meant to keep. On phones
+            there is no room for the words, so it is the icon alone, and the
+            organisation's name is in its title and aria-label on every width. */}
+        {!isGuest && session?.org && (() => {
+          const orgName = session.org_name ?? 'your organisation';
+          const label = session.share_solutions
+            ? `Solutions from this chat are shared with ${orgName}`
+            : `Solutions from this chat stay private, in ${orgName}`;
+          return (
+            <button
+              onClick={onShowSettings}
+              title={`${label} — click to change`}
+              aria-label={label}
+              className="flex items-center gap-1.5 px-2 sm:px-2 py-1 rounded border border-border
+                         font-mono text-[11px] text-muted-foreground hover:bg-secondary shrink-0"
+            >
+              {session.share_solutions ? <Users className="w-3.5 h-3.5" aria-hidden="true" /> : <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
+              <span className="hidden sm:inline">
+                {session.share_solutions ? `Sharing with ${orgName}` : 'Private'}
               </span>
-            </div>
-         )}
-         <div
-           className="hidden lg:flex items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground"
-           title="Sent over an encrypted connection; your API keys are encrypted at rest"
-         >
-            <Shield className="w-3.5 h-3.5" />
-            Encrypted
-         </div>
-         {session && (
-           <button
-             onClick={onEditSettings}
-             title="Chat settings"
-             aria-label="Chat settings"
-             className={toolbarButton}
-           >
-             <Settings2 className="h-[18px] w-[18px]" />
-           </button>
-         )}
+            </button>
+          );
+        })()}
+        {/* What this conversation has cost so far. Hidden until there is a
+            figure: "—" on every new chat would be noise. */}
+        {session && session.cost_source
+          && session.cost_source !== 'unpriced' && (
+          <div
+            className="hidden md:flex items-center gap-1.5 px-2 font-mono text-[11px] text-muted-foreground tabular-nums shrink-0"
+            title={describeConversationCost(
+              session.total_cost_usd, session.cost_source,
+              session.total_tokens_used ?? 0,
+              session.paid_by ?? '',
+            )}
+          >
+            <Coins className="w-3.5 h-3.5" />
+            {formatCost(session.total_cost_usd, session.cost_source)}
+            {/* Never a bare figure: whether it was charged or estimated
+                is half of what the number means. */}
+            <span className="hidden lg:inline opacity-80">
+              {costQualifier(session.cost_source)}
+            </span>
+          </div>
+        )}
+        <div
+          className="hidden xl:flex items-center gap-1.5 px-2 font-mono text-[11px] text-muted-foreground"
+          title="Sent over an encrypted connection; your API keys are encrypted at rest"
+        >
+          <Shield className="w-3.5 h-3.5" />
+          Encrypted
+        </div>
+        {session && (
+          <button
+            onClick={onEditSettings}
+            title="Chat settings"
+            aria-label="Chat settings"
+            className={toolbarButton}
+          >
+            <Settings2 className="h-[16px] w-[16px]" />
+          </button>
+        )}
       </div>
     </header>
   );
 }
 
-/** The Topbar's icon-button shape (bell, avatar), so the two bars read as one set. */
+/** A flat 32px icon button, the same shape as the Topbar's, so the bars read as one set. */
 const toolbarButton =
-  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground ' +
+  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground ' +
   'transition-colors hover:bg-secondary hover:text-foreground active:scale-95';

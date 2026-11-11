@@ -6,16 +6,17 @@
    classes keep working and land on the right colour.
 
    The semantic pairing:
-     blue / indigo / sky / cyan   → communication blue  = a human acted
+     blue / indigo / sky / cyan   → deep teal           = a human acted
      violet / purple / fuchsia    → agent violet        = the agent acted alone
      green / emerald / teal       → Fluent success
      amber / orange / yellow      → Fluent warning
      red / rose / pink            → Fluent danger
      slate / gray / zinc / neutral→ Fluent true neutrals
 */
-const blue = {
-  50: '#f3f9fd', 100: '#ebf3fc', 200: '#b4d6fa', 300: '#83bdf0', 400: '#3b8fdd',
-  500: '#0f6cbd', 600: '#115ea3', 700: '#0e4f88', 800: '#0b3b64', 900: '#082944', 950: '#05192a',
+/* Deep teal: the human ramp (primary #0E6170 is 500). */
+const human = {
+  50: '#f2f8f8', 100: '#e7f2f3', 200: '#b9dce1', 300: '#86c3cb', 400: '#3b8e9c',
+  500: '#0e6170', 600: '#0c5664', 700: '#0a4a56', 800: '#083c46', 900: '#062e37', 950: '#041d23',
 };
 const violet = {
   50: '#f8f6fd', 100: '#f3f0fb', 200: '#d6cdf2', 300: '#b9abe6', 400: '#8f79d3',
@@ -54,9 +55,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Segoe UI Variable Text', 'Segoe UI', 'Open Sans', 'system-ui', '-apple-system', 'sans-serif'],
-        display: ['Segoe UI Variable Display', 'Segoe UI', 'Open Sans', 'system-ui', 'sans-serif'],
-        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ["'IBM Plex Sans'", 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        display: ["'IBM Plex Sans'", 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ["'IBM Plex Mono'", 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       transitionTimingFunction: {
         standard: STANDARD,
@@ -205,7 +206,7 @@ export default {
         },
 
         /* palette remap — see note at top of file */
-        blue, indigo: blue, sky: blue, cyan: blue,
+        blue: human, indigo: human, sky: human, cyan: human,
         violet, purple: violet, fuchsia: violet,
         green, emerald: green, teal: green, lime: green,
         amber, orange: amber, yellow: amber,
@@ -217,12 +218,12 @@ export default {
       borderRadius: {
         none: '0',
         sm: '2px',
-        DEFAULT: '4px',
-        md: '4px',
+        DEFAULT: '4px',           /* tags, badges, chips */
+        md: '6px',                /* buttons, inputs, cards, panels */
         lg: 'var(--radius)',      /* 6px */
-        xl: '8px',
-        '2xl': '8px',
-        '3xl': '12px',
+        xl: 'var(--radius)',      /* 6px: stray large radii flatten */
+        '2xl': 'var(--radius)',
+        '3xl': 'var(--radius)',
         full: '9999px',
       },
       /* Fluent depth tokens — neutral, tight, no coloured glow */

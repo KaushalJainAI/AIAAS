@@ -103,14 +103,14 @@ export default function NeedsYou() {
   if (pending.length === 0) return null;
 
   return (
-    <section className="mb-4 border border-primary-line bg-card rounded-lg overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-primary-subtle">
-        <Hand className="w-4 h-4 text-primary" />
-        <h2 className="text-sm font-semibold text-primary">
+    <section className="mb-4 border border-warning bg-card rounded-md overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-warning-subtle">
+        <Hand className="w-4 h-4 text-warning" />
+        <h2 className="text-[13px] font-semibold text-warning">
           {pending.length} {pending.length === 1 ? 'request needs' : 'requests need'} your attention
         </h2>
         {oldestWait && (
-          <span className="text-[12px] text-primary/80">· longest {waitedFor(oldestWait.created_at)}</span>
+          <span className="text-[12px] text-warning">· longest {waitedFor(oldestWait.created_at)}</span>
         )}
       </div>
       <div className={cn(
@@ -138,13 +138,13 @@ export default function NeedsYou() {
                 onClick={() => setSelectedId(req.request_id)}
                 className={cn(
                   'w-full text-left px-4 py-3 border-b border-border transition-colors relative',
-                  active ? 'bg-primary-subtle' : 'hover:bg-secondary'
+                  active ? 'bg-warning-subtle' : 'hover:bg-secondary'
                 )}
               >
-                <span className={cn('absolute left-0 top-0 bottom-0 w-[3px]', isError ? 'bg-destructive' : 'bg-primary')} />
+                <span className={cn('absolute left-0 top-0 bottom-0 w-[3px]', isError ? 'bg-destructive' : 'bg-warning')} />
                 <div className="flex items-center gap-2 mb-1">
-                  <Icon className={cn('w-4 h-4', isError ? 'text-destructive' : 'text-primary')} />
-                  <span className={cn('text-[13px] font-semibold', isError ? 'text-destructive' : 'text-primary')}>
+                  <Icon className={cn('w-4 h-4', isError ? 'text-destructive' : 'text-warning')} />
+                  <span className={cn('text-[13px] font-semibold', isError ? 'text-destructive' : 'text-warning')}>
                     {cfg.label}
                   </span>
                   <span className="ml-auto text-[11px] text-muted-foreground">{timeAgo(req.created_at)}</span>
@@ -179,7 +179,7 @@ export default function NeedsYou() {
                   step {selected.node_id}
                 </p>
               )}
-              <div className="bg-card border border-border rounded p-4 mb-4">
+              <div className="bg-card border border-border rounded-md p-4 mb-4">
                 <div className="text-[14px] leading-relaxed text-foreground">
                   <MarkdownMessage content={selected.message} variant="compact" />
                 </div>
@@ -217,7 +217,7 @@ export default function NeedsYou() {
                       })
                     }
                     className={cn(
-                      'px-4 py-2 text-sm rounded border transition-colors disabled:opacity-50',
+                      'px-4 py-2 text-sm rounded-md border transition-colors disabled:opacity-50',
                       i === 0
                         ? 'bg-primary text-primary-foreground border-primary hover:bg-primary/90 font-semibold'
                         : 'bg-card border-border hover:bg-secondary'
@@ -229,7 +229,7 @@ export default function NeedsYou() {
                 <button
                   disabled={respond.isPending}
                   onClick={() => respond.mutate({ id: selected.request_id, action: 'reject' })}
-                  className="px-4 py-2 text-sm rounded border border-border hover:bg-secondary text-muted-foreground flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-4 py-2 text-sm rounded-md border border-border hover:bg-secondary text-muted-foreground flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <X className="w-4 h-4" />
                   Stop this run
@@ -259,7 +259,7 @@ export default function NeedsYou() {
               <span className="shrink-0">step {selected.node_id}</span>
             </p>
           )}
-          <div className="text-[14px] leading-relaxed bg-card border border-border rounded p-3 mb-3">
+          <div className="text-[14px] leading-relaxed bg-card border border-border rounded-md p-3 mb-3">
             <MarkdownMessage content={selected.message} variant="compact" />
           </div>
           {selectedQuestion ? (
@@ -291,7 +291,7 @@ export default function NeedsYou() {
                   })
                 }
                 className={cn(
-                  'px-3 py-1.5 text-sm rounded border disabled:opacity-50',
+                  'px-3 py-1.5 text-sm rounded-md border disabled:opacity-50',
                   i === 0 ? 'bg-primary text-primary-foreground border-primary font-semibold' : 'bg-card border-border'
                 )}
               >
@@ -301,7 +301,7 @@ export default function NeedsYou() {
             <button
               disabled={respond.isPending}
               onClick={() => respond.mutate({ id: selected.request_id, action: 'reject' })}
-              className="px-3 py-1.5 text-sm rounded border border-border text-muted-foreground flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm rounded-md border border-border text-muted-foreground flex items-center gap-1.5"
             >
               <X className="w-3 h-3" /> Stop
             </button>

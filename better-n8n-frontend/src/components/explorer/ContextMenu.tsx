@@ -65,7 +65,7 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
       ref={ref}
       role="menu"
       style={{ left: pos.x, top: pos.y }}
-      className="fixed z-[120] min-w-52 rounded-lg border border-border/70 bg-popover p-1 text-[13px] shadow-xl"
+      className="fixed z-[120] min-w-52 rounded-md border border-border/70 bg-popover p-1 text-[13px] shadow-xl"
       onContextMenu={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -92,7 +92,7 @@ function MenuList({ items, onClose }: { items: MenuEntry[]; onClose: () => void 
           <div key={item.label} className="relative" onMouseEnter={() => setOpen(i)} onMouseLeave={() => setOpen(null)}>
             <Row item={item} onClick={() => setOpen(open === i ? null : i)} trailing={<ChevronRight className="h-3.5 w-3.5" />} />
             {open === i && item.submenu.length > 0 && (
-              <div className="absolute left-full top-0 z-[121] -ml-1 min-w-48 rounded-lg border border-border/70 bg-popover p-1 shadow-xl sm:ml-0">
+              <div className="absolute left-full top-0 z-[121] -ml-1 min-w-48 rounded-md border border-border/70 bg-popover p-1 shadow-xl sm:ml-0">
                 <MenuList items={item.submenu} onClose={onClose} />
               </div>
             )}

@@ -15,15 +15,15 @@ export function Badges({ s }: { s: Solution }) {
         <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">Draft: only you can see it</span>
       )}
       {s.status === 'pending_review' && (
-        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">Waiting for a curator</span>
+        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning dark:text-warning">Waiting for a curator</span>
       )}
       {s.doubtful && (
-        <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+        <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-warning dark:text-warning">
           <AlertTriangle className="h-3 w-3" /> Doubtful
         </span>
       )}
       {s.status === 'needs_check' && (
-        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">Needs check</span>
+        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning dark:text-warning">Needs check</span>
       )}
       {s.status === 'superseded' && (
         <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">Replaced</span>
@@ -55,36 +55,36 @@ export function SolutionText({ s }: { s: Solution }) {
         <div className="mt-2"><Badges s={s} /></div>
       </div>
       {s.doubtful && (
-        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[13px]">
+        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-[13px]">
           <strong>Flagged as possibly wrong:</strong> {s.doubtful}
         </p>
       )}
       {s.symptoms && (
         <section>
-          <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">Symptoms</h4>
+          <h4 className="label-mono">Symptoms</h4>
           <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px]">{s.symptoms}</pre>
         </section>
       )}
       {s.root_cause && (
         <section>
-          <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">Cause</h4>
+          <h4 className="label-mono">Cause</h4>
           <p className="mt-1 whitespace-pre-wrap">{s.root_cause}</p>
         </section>
       )}
       <section>
-        <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">Fix</h4>
+        <h4 className="label-mono">Fix</h4>
         <p className="mt-1 whitespace-pre-wrap">{s.resolution}</p>
       </section>
       {s.claims.length > 0 && (
         <section>
-          <h4 className="text-[12px] font-semibold uppercase text-muted-foreground">What could change</h4>
+          <h4 className="label-mono">What could change</h4>
           <ul className="mt-1 space-y-1">
             {s.claims.map((c, i) => (
               <li key={i} className="flex flex-wrap items-baseline gap-2">
                 <span className={cn('rounded px-1.5 py-0.5 text-[11px]',
                   c.state === 'check'
-                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
+                    ? 'bg-warning/15 text-warning dark:text-warning'
+                    : 'bg-success/15 text-success dark:text-success')}>
                   {c.state === 'check' ? 'Check' : 'Current'}
                 </span>
                 <span className="text-[11px] text-muted-foreground">{claimKindInfo(c.kind).label}</span>

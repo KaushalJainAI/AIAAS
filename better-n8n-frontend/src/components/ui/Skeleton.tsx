@@ -2,23 +2,19 @@
  * Placeholders for content whose shape is already known: a list of rows, a
  * row of tiles, a block of text.
  *
- * The shimmer is the app's `animate-shimmer` (a highlight sweeping over a muted
- * base). It moves `background-position`, which repaints but does not change
- * layout, so the rest of the page is undisturbed. Callers size each placeholder
- * to match the row or tile it stands in for, so nothing jumps when data lands.
- * Under reduced motion the global rule in `index.css` ends the sweep at once.
+ * A flat muted block that pulses. It changes opacity only, so the rest of the
+ * page is undisturbed. Callers size each placeholder to match the row or tile
+ * it stands in for, so nothing jumps when data lands. Under reduced motion the
+ * global rule in `index.css` stops the pulse.
  */
 import { cn } from '../../lib/utils';
 
-/** A single shimmering block. Give it the size of what it stands in for. */
+/** A single pulsing block. Give it the size of what it stands in for. */
 export function Skeleton({ className }: { className?: string }) {
   return (
     <div
       aria-hidden
-      className={cn(
-        'rounded-lg bg-muted bg-[linear-gradient(90deg,transparent_0%,hsl(var(--card)/0.6)_50%,transparent_100%)] bg-[size:200%_100%] animate-shimmer',
-        className,
-      )}
+      className={cn('rounded-md bg-muted animate-pulse', className)}
     />
   );
 }
