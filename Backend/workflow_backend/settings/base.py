@@ -669,6 +669,10 @@ HITL_REMINDER_SWEEP_SECONDS = int(os.environ.get('HITL_REMINDER_SWEEP_SECONDS', 
 SCHEDULED_SWEEP_SECONDS = int(os.environ.get('SCHEDULED_SWEEP_SECONDS', '60'))
 TRIGGER_SWEEP_SECONDS = int(os.environ.get('TRIGGER_SWEEP_SECONDS', '60'))
 RECYCLE_SWEEP_SECONDS = int(os.environ.get('RECYCLE_SWEEP_SECONDS', '3600'))
+# Weekly digest of team solutions that may be out of date (`solutions/stale.py`).
+# Defined here, not with the other SOLUTION_* settings, because the beat entry
+# below reads it and that dict is built first.
+SOLUTION_STALE_SWEEP_SECONDS = int(os.environ.get('SOLUTION_STALE_SWEEP_SECONDS', '604800'))
 CELERY_BEAT_SCHEDULE = {
     'sweep-hitl-reminders': {
         'task': 'notifications.sweep_hitl_reminders',
@@ -727,6 +731,12 @@ CELERY_BEAT_SCHEDULE = {
     'redact-old-run-detail': {
         'task': 'logs.redact_old_run_detail',
         'schedule': RUN_DETAIL_RETENTION_SWEEP_SECONDS,
+    },
+    # Weekly: nudges about team solutions that may be out of date. Also
+    # runnable as `manage.py solutions_stale_sweep` — see solutions/stale.py.
+    'sweep-stale-solutions': {
+        'task': 'solutions.sweep_stale',
+        'schedule': SOLUTION_STALE_SWEEP_SECONDS,
     },
 }
 
@@ -959,6 +969,11 @@ CONTEXT_SUMMARY_MODEL = os.environ.get(
 SOLUTION_CAPTURE_PROVIDER = os.environ.get('SOLUTION_CAPTURE_PROVIDER', '')
 SOLUTION_CAPTURE_MODEL = os.environ.get('SOLUTION_CAPTURE_MODEL', '')
 SOLUTION_CAPTURE_ENABLED = os.environ.get('SOLUTION_CAPTURE_ENABLED', 'True').lower() in ('1', 'true', 'yes')
+# Captures one user may start per UTC day (each is a paid model call). 0 = no cap.
+SOLUTION_CAPTURE_DAILY_CAP = int(os.environ.get('SOLUTION_CAPTURE_DAILY_CAP', '30'))
+# Document imports one user may start per UTC day (`solutions/importer.py`; each
+# is several paid model calls). 0 = no cap. SOLUTION_STALE_SWEEP_SECONDS is above.
+SOLUTION_IMPORT_DAILY_CAP = int(os.environ.get('SOLUTION_IMPORT_DAILY_CAP', '5'))
 
 # Which model writes an agent's configuration from the builder's chat pane
 # (`agents/views/builder.py`). Blank falls through to the context-summary pair

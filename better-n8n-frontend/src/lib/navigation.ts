@@ -67,7 +67,7 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Improve',
     items: [
-      { icon: Building2, label: 'Organisation & Solutions', path: '/solutions' },
+      { icon: Building2, label: 'Team knowledge', path: '/team', match: ['/team', '/solutions'] },
       { icon: GraduationCap, label: 'Skills', path: '/skills' },
       { icon: FlaskConical, label: 'Evals', path: '/evals' },
     ],

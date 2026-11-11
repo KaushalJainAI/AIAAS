@@ -52,11 +52,15 @@ import PlanDock from '../plan/PlanDock';
 import { actionsFrom, historyFrom } from '../../lib/planView';
 import PlanPanel from '../orchestration/PlanPanel';
 import FileCards from '../files/FileCards';
+import solutionsService from '../../api/solutions';
+import type { DraftAction, DraftResolved } from '../solutions/SolutionDraftCard';
+import TeamSolutionsChip, { type SolutionVerdict } from './TeamSolutionsChip';
 import FilePreviewProvider from '../files/FilePreviewProvider';
 import MarkdownMessage from './MarkdownMessage';
 import TranscriptSkeleton from './TranscriptSkeleton';
 import { forgetTranscript, readTranscript, writeTranscript } from '../../lib/transcriptCache';
 import type { ChatSessionSummary } from '../../api/chat';
+import orgsService from '../../api/orgs';
 
 import { useAIModels } from '../../hooks/useAIModels';
 import { useChatStream, type StreamEvent } from '../../hooks/useChatStream';
@@ -176,6 +180,16 @@ export default function StandaloneChat() {
   // switching threads and coming back restores each box where it was left.
   const [input, setInput] = useChatDraft(conversationId, isGuest);
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
+  // The org the next new conversation starts in, as the person picked it in
+  // the header. `undefined` = not picked, so the server's default (the active
+  // org) applies and `org` is left off the create request.
+  const [newChatOrg, setNewChatOrg] = useState<number | null | undefined>(undefined);
+  const { data: orgData } = useQuery({
+    queryKey: ['orgs'],
+    queryFn: orgsService.list,
+    enabled: isAuthenticated,
+  });
+  const orgCreateFields = newChatOrg !== undefined ? { org: newChatOrg } : {};
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Dictation lands in the composer, not in a turn: the person reads what was
@@ -623,7 +637,8 @@ export default function StandaloneChat() {
           title: `File Upload: ${file.name}`,
           llm_provider: llmProvider,
           llm_model: llmModel,
-          system_prompt: ""
+          system_prompt: "",
+          ...orgCreateFields,
         });
         setConversationId(newSession.id);
         setCurrentSession(newSession);
@@ -707,6 +722,9 @@ export default function StandaloneChat() {
     setIsLoading(false);
     setIsRestoring(false);
     setSettledId(null);
+    // Each new conversation starts in the default org again, not in the one
+    // picked for the last one.
+    setNewChatOrg(undefined);
     resetStream();
     resetPlan();
     // `setConversationId` comes from `usePersistedState`, which returns a plain
@@ -1367,6 +1385,57 @@ export default function StandaloneChat() {
    * publish. Pressing the primary button is the approval — the typed command
    * covered nothing after the sheet.
    */
+  /**
+   * A person's verdict on a team solution the answer read. The org is the
+   * chat's own, so the review lands on the same library the answer searched.
+   * The chip disables its buttons after one click; the server also keeps one
+   * confirmation or failure per person per solution.
+   */
+  const handleReviewSolution = async (solutionId: number, kind: SolutionVerdict) => {
+    try {
+      await solutionsService.review(currentSession?.org ?? null, solutionId, kind, '');
+      toast.success('Thanks — recorded');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not record that'));
+      // Rethrown so the chip can unlock the row it showed as answered.
+      throw err;
+    }
+  };
+
+  /**
+   * The draft card's three choices (K2.7). The draft was captured in this
+   * chat's org, so that is the org the choice is sent for. On success the
+   * outcome is written onto the message, so the card shows it without a
+   * reload; the server has written the same `resolved` onto the chat row.
+   */
+  const [draftBusyId, setDraftBusyId] = useState<number | null>(null);
+  const handleDraftAction = async (solutionId: number, action: DraftAction) => {
+    const org = currentSession?.org ?? null;
+    setDraftBusyId(solutionId);
+    try {
+      let outcome: DraftResolved;
+      if (action === 'discard') {
+        await solutionsService.discard(org, solutionId);
+        outcome = 'discarded';
+      } else {
+        const saved = await solutionsService.publish(org, solutionId, action === 'share');
+        if (action === 'private') outcome = 'kept_private';
+        else if (saved.status === 'pending_review') outcome = 'waiting_review';
+        else outcome = saved.shared_with_org ? 'shared' : 'kept_private';
+      }
+      setMessages(prev => prev.map(m => {
+        const meta = (m.metadata ?? {}) as { solution_draft?: { id?: number } & Record<string, unknown> };
+        const card = meta.solution_draft;
+        if (!card || card.id !== solutionId) return m;
+        return { ...m, metadata: { ...meta, solution_draft: { ...card, resolved: outcome } } };
+      }));
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not save that choice'));
+    } finally {
+      setDraftBusyId(null);
+    }
+  };
+
   const runCommandConfirm = async (
     name: string,
     baseArgs: Record<string, unknown>,
@@ -1521,7 +1590,8 @@ export default function StandaloneChat() {
             title: textToSend.slice(0, 30) + '...',
             llm_provider: llmProvider,
             llm_model: llmModel,
-            system_prompt: ""
+            system_prompt: "",
+            ...orgCreateFields,
           });
           meta.createdSession = true;
           currentSessionId = newSession.id;
@@ -1674,6 +1744,9 @@ export default function StandaloneChat() {
           onOpenHistory={() => setShowHistory(true)}
           session={currentSession}
           restoring={isRestoring && !currentSession}
+          orgs={orgData?.orgs ?? []}
+          newChatOrgId={newChatOrg !== undefined ? newChatOrg : (orgData?.active_org_id ?? null)}
+          onNewChatOrgChange={setNewChatOrg}
           onShowSettings={() => setShowSessionSettings(true)}
           onEditSettings={() => {
             setSystemPromptDraft(currentSession?.system_prompt || '');
@@ -1810,6 +1883,10 @@ export default function StandaloneChat() {
                     onCommandConfirm={(name: string, args: Record<string, unknown>, confirm: Record<string, unknown>) => {
                       void runCommandConfirm(name, args, confirm);
                     }}
+                    onReviewSolution={(id, kind) => handleReviewSolution(id, kind)}
+                    onDraftAction={(id, action) => { void handleDraftAction(id, action); }}
+                    draftBusy={draftBusyId != null
+                      && (message.metadata as { solution_draft?: { id?: number } } | undefined)?.solution_draft?.id === draftBusyId}
                   />
                 ))}
 
@@ -1941,6 +2018,16 @@ export default function StandaloneChat() {
                         })()}
 
                         <FileCards files={live.files} />
+
+                        {/* Team solutions read so far this turn: the same chip
+                            the saved answer will show after a reload. */}
+                        {live.solutionsUsed.length > 0 && (
+                          <TeamSolutionsChip
+                            items={live.solutionsUsed}
+                            orgName={currentSession?.org_name ?? undefined}
+                            onReview={(id, kind) => handleReviewSolution(id, kind)}
+                          />
+                        )}
 
                         {/* Artifacts as they arrive, before the turn is persisted. */}
                         {live.artifacts.map((art, i) => (

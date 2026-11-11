@@ -1,5 +1,5 @@
 """
-The public surface of `solutions/`: save, review, supersede, share, retract.
+The public surface of `solutions/`: save, review, publish, share, retract.
 
 Other apps (the chat tools, the capture job, the views) import this module,
 not the models, so every write passes the same guards:
@@ -11,18 +11,21 @@ not the models, so every write passes the same guards:
 * **no momentary facts** — `ephemeral` claims ("the outage is ongoing") are
   dropped, and a record made only of them is not saved;
 * **the org is fixed** — taken from where the problem was solved and never
-  changed; `shared` can be turned off by the author or a manager, and on only
-  for a solution that already has an org.
+  changed;
+* **nothing reaches the team unchosen** — where a new row starts is decided in
+  one place, `starting_state`, from who saved it and the org's settings.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
+from core.models import Organization
+from core.orgs import CURATORS, is_curator
 from core.safety.provenance import instruction_shaped
 from core.safety.security import LogSanitizer
 
@@ -45,6 +48,13 @@ _EXTRA_SECRETS = [
     (re.compile(r'(?<!\d)(?:\+?\d{1,3}[-.\s]?)?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)'), 'PHONE'),
 ]
 _SANITIZER = LogSanitizer(mask='redacted')
+
+#: The `solution_draft.resolved` values the chat card can show (K2.7).
+RESOLVED_SHARED = 'shared'
+RESOLVED_WAITING = 'waiting_review'
+RESOLVED_PRIVATE = 'kept_private'
+RESOLVED_DISCARDED = 'discarded'
+RESOLVED_RETURNED = 'returned'
 
 
 class SolutionError(Exception):
@@ -146,59 +156,131 @@ def validate(draft: Draft) -> dict:
     return fields
 
 
+# ── Where a new solution starts ─────────────────────────────────────────────
+
+def starting_state(org, *, captured_by: str, share: bool) -> tuple[str, bool]:
+    """(status, shared) for a new solution.
+
+    | who saved it            | org.capture_mode | share | review_policy | → status        | shared |
+    |-------------------------|------------------|-------|---------------|-----------------|--------|
+    | import (any)            | —                | —     | —             | draft           | False  |
+    | personal chat (no org)  | —                | —     | —             | active          | False  |
+    | auto / tool             | suggest          | any   | any           | draft           | False  |
+    | auto / tool             | auto             | False | any           | active          | False  |
+    | auto / tool             | auto             | True  | open          | active          | True   |
+    | auto / tool             | auto             | True  | curated       | pending_review  | True   |
+    | user (a person clicked) | any              | False | any           | active          | False  |
+    | user                    | any              | True  | open          | active          | True   |
+    | user                    | any              | True  | curated       | pending_review  | True   |
+
+    `org` is the org the problem was solved in, or None for a personal chat.
+    A draft is never shared; `share_requested` on the row records the switch.
+    `import` is a draft whatever the org is, because a document is never
+    treated as a finished fix until its author has looked at it.
+    """
+    if captured_by == 'import':
+        return 'draft', False
+    if org is None:
+        return 'active', False
+    if captured_by in ('auto', 'tool') and org.capture_mode == 'suggest':
+        return 'draft', False
+    if not share:
+        return 'active', False
+    if org.review_policy == 'curated':
+        return 'pending_review', True
+    return 'active', True
+
+
+# ── Writes ──────────────────────────────────────────────────────────────────
+
 def save(user, *, org_id, share: bool, draft: Draft, captured_by: str = 'tool',
          source_session: str = '', source_message_id=None,
          supersedes_id=None) -> Solution:
     """Store one solution in the org it was solved in. Sync; index separately.
 
-    `share` only means something with an org: a personal chat has no one to
-    share with. `supersedes_id` must be a solution the author can see from the
-    same org; the old one is marked superseded, not deleted.
+    The starting state comes from `starting_state`. `share` only means
+    something with an org: a personal chat has no one to share with.
+    `supersedes_id` must be a solution the author can see from the same org.
+    The old one is retired when the new one goes live, not before (see
+    `_apply_replacement`), so a correction saved as a draft changes nothing
+    for the team until it is shared.
     """
     fields = validate(draft)
+    org = None
     if org_id:
         from core.orgs import is_member
 
         if not is_member(user.id, org_id):
             raise SolutionError('You are not a member of that organisation.', 403)
-    now = timezone.now()
-    with transaction.atomic():
-        solution = Solution.objects.create(
-            org_id=org_id or None,
-            shared=bool(share and org_id),
-            author=user,
-            author_name=_author_name(user),
-            valid_as_of=now,
-            captured_by=captured_by,
-            source_session=str(source_session or '')[:64],
-            source_message_id=source_message_id,
-            **fields,
-        )
-        if supersedes_id:
-            old = get_visible(user.id, org_id, supersedes_id)
-            if old is None:
-                raise SolutionError('No solution with that id to replace.', 404)
-            if can_manage(user.id, old):
-                Solution.objects.filter(id=old.id).update(status='superseded',
-                                                          superseded_by=solution)
-            else:
-                # Anyone may *offer* a correction; only the author or an admin
-                # may retire the original. Otherwise one member could hide a
-                # colleague's fix behind their own. The old one stays findable,
-                # flagged, pointing at the new one.
-                Solution.objects.filter(id=old.id).update(status='needs_check',
-                                                          superseded_by=solution)
-                SolutionReview.objects.create(
-                    solution=old, kind='contradicted', user=user,
-                    reason=f'A colleague saved a corrected fix (solution {solution.id}).',
-                )
+        org = Organization.objects.filter(id=org_id).first()
+        if org is None:
+            raise SolutionError('You are not a member of that organisation.', 403)
+    status, shared = starting_state(org, captured_by=captured_by, share=share)
+    replaced = None
+    if supersedes_id:
+        replaced = get_visible(user.id, org_id, supersedes_id)
+        if replaced is None:
+            raise SolutionError('No solution with that id to replace.', 404)
+    try:
+        with transaction.atomic():
+            solution = Solution.objects.create(
+                org_id=org_id or None,
+                shared=shared,
+                status=status,
+                share_requested=bool(share) and status == 'draft',
+                replaces_id=replaced.id if replaced else None,
+                author=user,
+                author_name=_author_name(user),
+                valid_as_of=timezone.now(),
+                captured_by=captured_by,
+                source_session=str(source_session or '')[:64],
+                source_message_id=source_message_id,
+                **fields,
+            )
+            if status == 'active':
+                _apply_replacement(solution, user.id)
+    except IntegrityError:
+        # The unique constraint on source_message_id: a second worker (or a
+        # retry) saved this same answer first. Any other integrity failure is
+        # a bug and is re-raised.
+        if source_message_id is None:
+            raise
+        raise SolutionError('Already saved from this answer.', 409) from None
+    if status == 'pending_review':
+        _ask_curators(solution)
+    solution.refresh_from_db()
     return solution
+
+
+def _apply_replacement(solution: Solution, actor_id) -> None:
+    """The row is live now: retire the fix it replaces, if it names one.
+
+    The author of an old fix keeps the right to retire it; anyone else's
+    correction only flags it (`needs_check`), so one member cannot hide a
+    colleague's fix behind their own. The old row stays findable either way.
+    Clears `replaces`, so the replacement is applied once.
+    """
+    if not solution.replaces_id:
+        return
+    target_id = solution.replaces_id
+    Solution.objects.filter(id=solution.id).update(replaces=None)
+    old = Solution.objects.filter(id=target_id).first()
+    if old is None or old.status == 'retracted':
+        return
+    if actor_id and can_manage(actor_id, old):
+        Solution.objects.filter(id=old.id).update(status='superseded', superseded_by=solution)
+    else:
+        Solution.objects.filter(id=old.id).update(status='needs_check', superseded_by=solution)
+        SolutionReview.objects.create(
+            solution=old, kind='contradicted', user_id=actor_id,
+            reason=f'A colleague saved a corrected fix (solution {solution.id}).',
+        )
 
 
 #: Kinds of review and whether a person can repeat them. `confirmed` and
 #: `failed` count once per person per solution — a track record that one
 #: enthusiastic user can inflate is not a track record.
-REVIEW_KINDS = ('confirmed', 'failed', 'doubt', 'cleared', 'verified', 'contradicted')
+REVIEW_KINDS = ('confirmed', 'failed', 'doubt', 'cleared', 'verified', 'contradicted', 'edited')
 
 
 def review(user, org_id, solution_id, kind: str, *, reason: str = '',
@@ -245,27 +327,74 @@ def review(user, org_id, solution_id, kind: str, *, reason: str = '',
 
 
 def set_shared(user, solution_id, org_id, shared: bool) -> Solution:
-    solution = get_visible(user.id, org_id, solution_id)
-    if solution is None:
+    """Share or stop sharing a saved solution.
+
+    Sharing in a curated org sends it to `pending_review` instead of the team.
+    Withdrawing a share that is waiting for review returns it to the author's
+    own library. A draft is not shared this way: it is published (`publish`).
+    """
+    solution = get_visible(user.id, org_id, solution_id, include_inactive=True)
+    if solution is None or solution.status in ('retracted', 'superseded'):
         raise SolutionError('No such solution.', 404)
+    if solution.status == 'draft':
+        raise SolutionError('Publish the draft first: it is not shared until you choose.', 400)
     if not can_manage(user.id, solution):
-        raise SolutionError('Only the author or an org admin can change sharing.', 403)
+        raise SolutionError('Only the author or an org curator can change sharing.', 403)
     if shared and not solution.org_id:
         raise SolutionError('This solution was not solved in an organisation, '
                             'so there is no one to share it with.')
-    Solution.objects.filter(id=solution.id).update(shared=bool(shared))
+    if shared:
+        if solution.shared:
+            return solution
+        state, _ = starting_state(solution.org, captured_by='user', share=True)
+        if state == 'pending_review' and solution.status in ('active', 'needs_check'):
+            Solution.objects.filter(id=solution.id).update(shared=True, status='pending_review')
+            solution.refresh_from_db()
+            _ask_curators(solution)
+            return solution
+        Solution.objects.filter(id=solution.id).update(shared=True)
+    elif solution.status == 'pending_review':
+        Solution.objects.filter(id=solution.id).update(shared=False, status='active')
+        solution.refresh_from_db()
+        _apply_replacement(solution, user.id)
+    else:
+        Solution.objects.filter(id=solution.id).update(shared=False)
     solution.refresh_from_db()
     return solution
 
 
-def edit(user, solution_id, org_id, draft: Draft) -> Solution:
-    solution = get_visible(user.id, org_id, solution_id)
-    if solution is None:
+def edit(user, solution_id, org_id, draft: Draft, *, verified: bool = False) -> Solution:
+    """Change a solution's text. Freshness is kept unless the editor says they
+    checked it (`verified`): fixing a typo must not make a two-year-old claim
+    look freshly confirmed. Every change leaves an `edited` review row.
+
+    Drafts and rows waiting for review can be edited by their author (and a
+    curator, for a row waiting for review) before they are published."""
+    solution = get_visible(user.id, org_id, solution_id, include_inactive=True)
+    if solution is None or solution.status in ('retracted', 'superseded'):
         raise SolutionError('No such solution.', 404)
     if not can_manage(user.id, solution):
-        raise SolutionError('Only the author or an org admin can edit this.', 403)
+        raise SolutionError('Only the author or an org curator can edit this.', 403)
     fields = validate(draft)
-    Solution.objects.filter(id=solution.id).update(valid_as_of=timezone.now(), **fields)
+    changed = sorted(k for k, v in fields.items() if getattr(solution, k) != v)
+    if not changed and not verified:
+        return solution
+    with transaction.atomic():
+        if verified:
+            fields['valid_as_of'] = timezone.now()
+            if solution.status == 'needs_check':
+                fields['status'] = 'active'
+        Solution.objects.filter(id=solution.id).update(**fields)
+        if changed:
+            reason = 'Changed: ' + ', '.join(changed)
+            if verified:
+                reason += '; checked as still true'
+            SolutionReview.objects.create(solution=solution, kind='edited', user=user,
+                                          reason=reason[:500])
+        else:
+            # The text is the same, so the only news is the re-check itself.
+            SolutionReview.objects.create(solution=solution, kind='verified', user=user,
+                                          reason='Checked as still true (text unchanged).')
     solution.refresh_from_db()
     return solution
 
@@ -275,10 +404,182 @@ def retract(user, solution_id, org_id, reason: str = '') -> None:
     if solution is None:
         raise SolutionError('No such solution.', 404)
     if not can_manage(user.id, solution):
-        raise SolutionError('Only the author or an org admin can retract this.', 403)
+        raise SolutionError('Only the author or an org curator can retract this.', 403)
+    was_draft = solution.status == 'draft'
     Solution.objects.filter(id=solution.id).update(status='retracted')
     SolutionReview.objects.create(solution=solution, kind='contradicted', user=user,
                                   reason=scrub(reason or 'Retracted.')[:500])
+    if was_draft:
+        _resolve_card(solution, RESOLVED_DISCARDED)
+
+
+# ── Drafts and review (K2.4) ────────────────────────────────────────────────
+
+def publish(user, solution_id, org_id, *, share: bool) -> Solution:
+    """The author turns a draft into a real entry: private, shared, or — in a
+    curated org — waiting for a curator. Only the author sees a draft, so
+    anyone else gets the same 404 as for an unknown id."""
+    solution = get_visible(user.id, org_id, solution_id, include_inactive=True)
+    if solution is None or solution.author_id != user.id:
+        raise SolutionError('No such solution.', 404)
+    if solution.status != 'draft':
+        raise SolutionError('Only a draft can be published.', 400)
+    status, shared = starting_state(solution.org, captured_by='user', share=bool(share))
+    with transaction.atomic():
+        Solution.objects.filter(id=solution.id).update(status=status, shared=shared)
+        SolutionReview.objects.create(solution=solution, kind='edited', user=user,
+                                      reason='Published from a draft')
+        if status == 'active':
+            solution.refresh_from_db()
+            _apply_replacement(solution, user.id)
+    solution.refresh_from_db()
+    if status == 'pending_review':
+        _ask_curators(solution)
+        outcome = RESOLVED_WAITING
+    else:
+        outcome = RESOLVED_SHARED if shared else RESOLVED_PRIVATE
+    _resolve_card(solution, outcome)
+    return solution
+
+
+def discard(user, solution_id, org_id) -> Solution:
+    """The author drops a draft. The row is kept (retracted), so the chat answer
+    it came from stays captured and is not offered again."""
+    solution = get_visible(user.id, org_id, solution_id, include_inactive=True)
+    if solution is None or solution.author_id != user.id:
+        raise SolutionError('No such solution.', 404)
+    if solution.status != 'draft':
+        raise SolutionError('Only a draft can be discarded.', 400)
+    Solution.objects.filter(id=solution.id).update(status='retracted')
+    solution.refresh_from_db()
+    _resolve_card(solution, RESOLVED_DISCARDED)
+    return solution
+
+
+def approve(user, solution_id, org_id) -> Solution:
+    """A curator lets a waiting solution into the library."""
+    solution = get_visible(user.id, org_id, solution_id, include_inactive=True)
+    if solution is None:
+        raise SolutionError('No such solution.', 404)
+    if not is_curator(user.id, solution.org_id):
+        raise SolutionError('Only a curator can approve a solution.', 403)
+    if solution.status != 'pending_review':
+        raise SolutionError('Only a solution waiting for review can be approved.', 400)
+    with transaction.atomic():
+        Solution.objects.filter(id=solution.id).update(status='active')
+        SolutionReview.objects.create(solution=solution, kind='cleared', user=user,
+                                      reason='Approved for the team')
+        solution.refresh_from_db()
+        _apply_replacement(solution, user.id)
+    solution.refresh_from_db()
+    _notify_author(solution, 'Approved for the team',
+                   f'A curator approved "{solution.problem[:120]}". Your team can see it now.')
+    _resolve_card(solution, RESOLVED_SHARED)
+    return solution
+
+
+def send_back(user, solution_id, org_id, reason: str) -> Solution:
+    """A curator returns a waiting solution to its author. It becomes the
+    author's private fix again; the reason is required and goes to the author."""
+    solution = get_visible(user.id, org_id, solution_id, include_inactive=True)
+    if solution is None:
+        raise SolutionError('No such solution.', 404)
+    if not is_curator(user.id, solution.org_id):
+        raise SolutionError('Only a curator can send a solution back.', 403)
+    if solution.status != 'pending_review':
+        raise SolutionError('Only a solution waiting for review can be sent back.', 400)
+    reason = scrub(reason or '').strip()[:500]
+    if not reason:
+        raise SolutionError('Say why it is sent back; the author needs the reason.')
+    if instruction_shaped(reason):
+        raise SolutionError('Not recorded: the reason reads as an instruction to an AI.')
+    with transaction.atomic():
+        Solution.objects.filter(id=solution.id).update(
+            status='active', shared=False, doubtful=True, doubt_reason=reason,
+        )
+        SolutionReview.objects.create(solution=solution, kind='doubt', user=user, reason=reason)
+    solution.refresh_from_db()
+    _notify_author(solution, 'Sent back to you',
+                   f'A curator sent "{solution.problem[:120]}" back: {reason} It is still your '
+                   'private fix. Change it and share it again when it is ready.')
+    _resolve_card(solution, RESOLVED_RETURNED)
+    return solution
+
+
+# ── Notifications and the chat card ─────────────────────────────────────────
+
+def _ask_curators(solution: Solution) -> None:
+    """One queue notification per curator. A curator who already has an unread
+    one for this org is not sent another: the queue is one place, not a stack."""
+    from notifications.models import Notification
+    from notifications.utils import create_notification
+
+    if not solution.org_id:
+        return
+    from core.models import Membership
+
+    org_id = solution.org_id
+    memberships = (Membership.objects.filter(org_id=org_id, role__in=CURATORS)
+                   .select_related('user'))
+    for membership in memberships:
+        pending = Notification.objects.filter(
+            user_id=membership.user_id, is_read=False,
+            data__kind='solution_review_queue', data__org_id=org_id,
+        ).exists()
+        if pending:
+            continue
+        create_notification(
+            membership.user, 'system', 'Solutions waiting for review',
+            f'"{solution.problem[:120]}" is waiting for a curator before your team can see '
+            'it. Open the review queue to approve it or send it back.',
+            data={'kind': 'solution_review_queue', 'org_id': org_id,
+                  'action_url': page_link(org_id, tab='queue')},
+            send_email=False,
+        )
+
+
+def page_link(org_id, **params) -> str:
+    """A link into the Team knowledge page, scoped to the org the row lives in.
+
+    The page otherwise opens in the reader's *selected* org, so a notification
+    about org B read while A is selected would show "not available".
+    """
+    from urllib.parse import urlencode
+
+    params['org'] = org_id or 'personal'
+    return '/solutions?' + urlencode(params)
+
+
+def _notify_author(solution: Solution, title: str, message: str) -> None:
+    from notifications.utils import create_notification
+
+    if solution.author_id is None:
+        return
+    create_notification(solution.author, 'system', title, message,
+                        data={'action_url': page_link(solution.org_id, id=solution.id)},
+                        send_email=False)
+
+
+def _resolve_card(solution: Solution, outcome: str) -> None:
+    """Record on the chat answer the draft came from what became of it, so the
+    card in the transcript shows the outcome and does not offer the buttons
+    again. Only the author's own chat is touched; a row with no source message
+    (saved by a tool or a document) has no card."""
+    if not solution.source_message_id or not solution.author_id:
+        return
+    from chat.models import ChatMessage
+
+    message = (ChatMessage.objects
+               .filter(id=solution.source_message_id, session__user_id=solution.author_id)
+               .first())
+    if message is None:
+        return
+    metadata = dict(message.metadata or {})
+    card = metadata.get('solution_draft')
+    if not isinstance(card, dict) or card.get('id') != solution.id:
+        return
+    metadata['solution_draft'] = {**card, 'resolved': outcome}
+    ChatMessage.objects.filter(id=message.id).update(metadata=metadata)
 
 
 async def aindex(solution_id: int) -> None:

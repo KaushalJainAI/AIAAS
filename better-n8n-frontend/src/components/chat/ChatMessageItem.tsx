@@ -35,6 +35,7 @@ import {
 
 import type { StandaloneChatMessage as ChatMessage } from '../../api';
 import type { ChartSpec, HtmlArtifact as HtmlArtifactData } from '../../api/chat';
+import type { SolutionUsed } from '../../api/solutions';
 import type { MessagePanel } from '../../hooks/useMessagePanels';
 import { prettyModel } from '../../lib/modelNames';
 import { cn } from '../../lib/utils';
@@ -47,6 +48,8 @@ import { formatWordCount, stripXmlTags } from './format';
 import HtmlArtifact from './HtmlArtifact';
 import MarkdownMessage from './MarkdownMessage';
 import { MediaPreview } from './MediaPreview';
+import TeamSolutionsChip, { type SolutionVerdict } from './TeamSolutionsChip';
+import SolutionDraftCard, { type DraftAction, type SolutionDraftInfo } from '../solutions/SolutionDraftCard';
 import PlanSummary from '../plan/PlanSummary';
 import { actionsFrom, historyFrom } from '../../lib/planView';
 
@@ -80,6 +83,12 @@ interface ChatMessageItemProps {
   onCommandConfirm: (
     name: string, baseArgs: Record<string, unknown>, confirm: Record<string, unknown>,
   ) => void;
+  /** A person's verdict on a team solution this answer read ("Worked" / "Didn't work"). */
+  onReviewSolution?: (solutionId: number, kind: SolutionVerdict) => void;
+  /** A choice on the draft card: share with the team, keep private, or discard. */
+  onDraftAction?: (solutionId: number, action: DraftAction) => void;
+  /** The draft card's choice is being sent to the server. */
+  draftBusy?: boolean;
 }
 
 export default function ChatMessageItem({
@@ -100,7 +109,18 @@ export default function ChatMessageItem({
   onRewind,
   onEdit,
   onCommandConfirm,
+  onReviewSolution,
+  onDraftAction,
+  draftBusy = false,
 }: ChatMessageItemProps) {
+  // Read as the frame delivers it: the metadata type is open, so the array is
+  // checked here before any element is trusted.
+  const solutionsUsed = Array.isArray(message.metadata?.solutions_used)
+    ? (message.metadata.solutions_used as SolutionUsed[])
+    : [];
+  // The draft card exists only while the capture left a draft on this answer.
+  const draft = (message.metadata as { solution_draft?: SolutionDraftInfo | null })?.solution_draft;
+  const draftInfo = draft && typeof draft.id === 'number' ? draft : null;
   return (
     <div
       data-message-id={message.id}
@@ -524,6 +544,25 @@ export default function ChatMessageItem({
           </CollapsiblePanel>
         )}
 
+
+        {/* Team solutions the answer read from the organisation's library.
+            "Checked", not "based on": this is what was read. */}
+        {message.role === 'assistant' && solutionsUsed.length > 0 && (
+          <TeamSolutionsChip
+            items={solutionsUsed}
+            onReview={(id, kind) => onReviewSolution?.(id, kind)}
+          />
+        )}
+
+        {/* A fix this answer's chat drafted for the team. Offered until the
+            author chooses; afterwards it shows what became of it. */}
+        {message.role === 'assistant' && draftInfo && (
+          <SolutionDraftCard
+            draft={draftInfo}
+            busy={draftBusy}
+            onAction={(action) => onDraftAction?.(draftInfo.id, action)}
+          />
+        )}
 
         {/* The plan the turn worked to, kept as a record of what
             it set out to do and what it could not finish. */}

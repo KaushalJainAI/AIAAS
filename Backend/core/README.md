@@ -12,6 +12,9 @@ through.
 | `APIKey` | Keys for calling the API without a browser login |
 | `UsageTracking` | Usage counters |
 | `PasswordOTP` | One-time codes for password reset |
+| `Organization` | A team. Holds its name, whether new chats share with it by default, `capture_mode` (`suggest` or `auto`) and `review_policy` (`open` or `curated`) |
+| `Membership` | One person in one team, with a role: `owner`, `admin`, `curator` or `member` |
+| `OrgInvite` | An offer to join a team. Nobody is a member until they accept it |
 
 ## Files
 
@@ -22,6 +25,8 @@ through.
 | `preferences.py` | Your settings, read once per turn and written into the prompt |
 | `auth/` | How a request is identified: a JWT in the header, or an API key. There is no `?token=` login in URLs any more, because a token in a URL ends up in logs. Also the permission classes |
 | `auth/revocation.py` | Logging out everywhere. Changing your password or email sets `UserProfile.tokens_valid_after`, and any token issued before that is refused (REST, token refresh and WebSockets alike) |
+| `orgs.py` | Teams: who is in them and in what role, and the invitation rules (invite, accept, decline, withdraw). Membership is read live on every check, never cached |
+| `org_views.py` | `/api/orgs/`: teams, members, invitations |
 | `http/middleware.py` | Custom middleware (runs in both sync and async mode) |
 | `http/throttling.py` | Rate limits by account tier |
 | `http/pagination.py` | Page sizes for list endpoints |
@@ -36,7 +41,40 @@ through.
 
 Google / social login uses `django-allauth`.
 
+## Teams, roles and invitations
+
+A team (`Organization`) is the group a person shares solved problems and team
+knowledge bases with. Nothing else about a team is configured here.
+
+| Role | What it can do |
+|---|---|
+| `owner` | Everything an admin can, plus make or remove owners, and delete the team. The last owner cannot leave |
+| `admin` | Invite and remove people, change roles and team settings |
+| `curator` | Approve, edit and withdraw the team's solutions. Cannot manage people |
+| `member` | Read the team's solutions, add their own, and share their own knowledge bases with the team |
+
+Two team settings sit on the `Organization` row. `capture_mode` decides what a
+fix found in chat becomes: `suggest` saves a draft for its author, `auto` saves
+it straight away. `review_policy` decides a share: `open` shares at once,
+`curated` waits for a curator.
+
+**Invitations.** An owner or admin invites an email address. The invite adds
+nobody. The invitee accepts or declines from their own account. The rules:
+
+- **Consent.** Only an accepted invitation makes someone a member.
+- **Verified email.** Accepting needs a verified email, held in
+  `UserProfile.email_verified_at`. Google sign-in, a password reset and an
+  email change set it. Signing up alone does not. Declining needs no
+  verification.
+- **No account lookup.** The answer to an invite is the same for a registered
+  and an unregistered address. Only a manager is told that a person is already
+  a member.
+- **Expiry.** An invitation is open for 14 days. A withdrawn one is recorded
+  as declined, so there is one "closed" state.
+- **Notice.** A registered address also gets a notification, with a link to
+  the team's page.
+
 ## Tests
 
 `core/tests/`: `test_memory.py`, `test_net.py`, `test_hybrid_middleware.py`,
-`test_sanitizer.py`, `test_provenance.py`.
+`test_sanitizer.py`, `test_provenance.py`, `test_orgs.py` (teams, roles, invitations).

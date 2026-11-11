@@ -13,10 +13,8 @@
 
 import { cn } from '../../lib/utils';
 
-/** A single pulsing placeholder block. Give it the size of what it stands in for. */
-export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('skeleton', className)} aria-hidden />;
-}
+// The placeholder lives in its own file now; re-exported so existing imports keep working.
+export { Skeleton, SkeletonList } from './Skeleton';
 
 /** One spinner, three sizes. Colour inherits — primary on primary buttons,
  *  muted everywhere else. No per-call-site size/color improvisation. */

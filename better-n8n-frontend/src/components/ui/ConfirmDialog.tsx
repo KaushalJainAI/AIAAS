@@ -11,6 +11,8 @@ interface ConfirmDialogProps {
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional, as on `Modal`: pass it to animate the dialog out when it closes. */
+  open?: boolean;
 }
 
 /**
@@ -27,9 +29,10 @@ export function ConfirmDialog({
   busy = false,
   onConfirm,
   onCancel,
+  open,
 }: ConfirmDialogProps) {
   return (
-    <Modal size="sm" label={title} onClose={onCancel}>
+    <Modal size="sm" label={title} onClose={onCancel} open={open}>
       <div className="p-6">
         <h3 className="text-lg font-semibold mb-2">{title}</h3>
         <p className="text-sm text-muted-foreground">{body}</p>

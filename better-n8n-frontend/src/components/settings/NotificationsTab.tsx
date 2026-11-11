@@ -39,10 +39,11 @@ function actionLink(notification: Notification): { to: string; label: string } |
   // like /agents/12 or /runs?cursor=… that writers legitimately produce.
   if (ACTION_PATHS[url]) return { to: url, label: ACTION_PATHS[url] };
   if (url.startsWith('/') && !url.startsWith('//')) {
-    const base = `/${url.slice(1).split('/')[0]}`;
+    // Up to the first `/`, `?` or `#`: `/solutions?id=3` has base `/solutions`.
+    const base = `/${url.slice(1).split(/[/?#]/)[0]}`;
     // `?request=` / `?run=` / `?session=` deep links arrive here from the
     // writers; the query is what makes them land on the thing, not the page.
-    if (['/agents', '/runs', '/overview', '/documents', '/templates', '/ai-chat', '/solutions'].includes(base)) {
+    if (['/agents', '/runs', '/overview', '/documents', '/templates', '/ai-chat', '/solutions', '/team'].includes(base)) {
       return { to: url, label: 'Open' };
     }
   }

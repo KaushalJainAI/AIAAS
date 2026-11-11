@@ -177,25 +177,27 @@
      below are the only hand-rolled exceptions: page-enter for routes,
      fade/slide/scale for auth + empty states that predate the plugin.
      Kept short (≤200ms) so navigation never reads as latency. */
+  /* Timings match the tokens in tailwind.config.js (enter = decelerate). */
   .animate-fade-in {
-    animation: fade-in 0.2s linear both;
+    animation: fade-in 150ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
 
   .animate-slide-up {
-    animation: slide-up 0.2s cubic-bezier(0.33, 0, 0.67, 1) both;
+    animation: slide-up 220ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
 
   .animate-scale-in {
-    animation: scale-in 0.15s cubic-bezier(0.33, 0, 0.67, 1) both;
+    animation: scale-in 150ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
 
-  /* Canonical entrances — use these for anything new. */
+  /* Canonical entrances — use these for anything new. Dialogs get the slow
+     (220ms) panel entrance; the backdrop is the normal fade. */
   .entrance-overlay {
-    animation: fade-in 0.2s linear both;
+    animation: fade-in 150ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
 
   .entrance-modal {
-    animation: scale-in 0.15s cubic-bezier(0.33, 0, 0.67, 1) both;
+    animation: scale-in 220ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
 
   /* ── Route transition ──
@@ -204,7 +206,7 @@
      page switch should feel continuous, not staged, and anything longer than
      ~200ms reads as latency on a fast route. */
   .page-enter {
-    animation: page-enter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: page-enter 220ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
 
   /* Skeleton block for content that has not arrived yet. */
@@ -267,8 +269,10 @@
   /* ── Stagger (first paint only) ──
      Apply `.stagger-once` on static grids only. Filterable grids re-render
      on every keystroke — replaying entrance there costs reading time. */
+  /* 12ms per item, for the first eight only. Item nine onward appears with no
+     delay: a long list must never make its tail wait. */
   .stagger-children > * {
-    animation: slide-up 0.18s cubic-bezier(0.33, 0, 0.67, 1) both;
+    animation: slide-up 220ms cubic-bezier(0.1, 0.9, 0.2, 1) both;
   }
   .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
   .stagger-children > *:nth-child(2) { animation-delay: 12ms; }
@@ -278,7 +282,7 @@
   .stagger-children > *:nth-child(6) { animation-delay: 60ms; }
   .stagger-children > *:nth-child(7) { animation-delay: 72ms; }
   .stagger-children > *:nth-child(8) { animation-delay: 84ms; }
-  .stagger-children > *:nth-child(n+9) { animation-delay: 96ms; }
+  .stagger-children > *:nth-child(n+9) { animation-delay: 0ms; }
 }
 
 /* ── Keyframes ──
@@ -560,7 +564,10 @@ html {
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    /* Stagger delays would otherwise hold content invisible for their length. */
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 }

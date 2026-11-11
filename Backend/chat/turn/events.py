@@ -44,6 +44,10 @@ class Event(StrEnum):
     #: list every time, for the reason TODOS_UPDATE does: a second write to the
     #: same file updates its entry rather than adding one.
     FILES_UPDATE = "files_update"
+    #: Team solutions the turn read (`search_solutions` / `get_solution`).
+    #: Whole list every time, like FILES_UPDATE. What the model *read*, not what
+    #: it cited: the chip says "Checked", never "Based on".
+    SOLUTIONS_UPDATE = "solutions_update"
     ASK_PERMISSION = "ask_permission"
     #: The run paused on `ask_user`: a structured question (choice, number,
     #: text) the chat draws as a card. Answered by a resumed turn carrying

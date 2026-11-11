@@ -49,6 +49,21 @@ def _refuse_if_tainted(context: Dict) -> str | None:
     return None
 
 
+def _refuse_if_unattended(context: Dict) -> str | None:
+    """A run nobody is watching reads the team's library but writes nothing to
+    it — no new fixes and no verdicts on existing ones: a schedule or trigger
+    has no one to check what it is about to tell the whole org. Keyed on the
+    caller, not on whether the run has an org."""
+    from agents.grants import UNATTENDED_CALLERS
+
+    if context.get("caller") in UNATTENDED_CALLERS:
+        return json.dumps({
+            "error": "Unattended runs can read team solutions but not add to them "
+                     "or review them.",
+        })
+    return None
+
+
 async def _user(context: Dict):
     from django.contrib.auth import get_user_model
 
@@ -97,7 +112,7 @@ async def search_solutions(args: Dict, context: Dict) -> str:
         return json.dumps({"error": "Give the problem to search for."})
     env = args.get("environment") if isinstance(args.get("environment"), dict) else None
     found = await search(context.get("user_id"), context.get("org_id"), query,
-                         environment=env, limit=3)
+                         environment=env, limit=3, log_source="chat")
     out = {
         "results": found["results"],
         "scope": "organisation" if context.get("org_id") else "your own solutions",
@@ -202,6 +217,9 @@ async def save_solution(args: Dict, context: Dict) -> str:
     refused = _refuse_if_tainted(context)
     if refused:
         return refused
+    refused = _refuse_if_unattended(context)
+    if refused:
+        return refused
     user = await _user(context)
     if user is None:
         return json.dumps({"error": "No user in context; nothing was saved."})
@@ -243,16 +261,34 @@ async def save_solution(args: Dict, context: Dict) -> str:
     except api.SolutionError as exc:
         return json.dumps({"saved": False, "error": str(exc)})
     await api.aindex(solution.id)
-    return json.dumps({
-        "saved": True,
-        "id": solution.id,
-        "visible_to": "the organisation" if solution.shared else "only this user",
-        "claims": solution.claims,
-        "tell_the_user": (
+    # Where it landed is decided by the org's settings (api.starting_state), so
+    # the sentence to the user follows the stored status, not the request.
+    if solution.status == "draft":
+        visible_to = "only this user, as a draft"
+        tell = (
+            "Mention in one short line that the fix was drafted, not shared, and "
+            "that the user can share or discard it on the Solutions page."
+        )
+    elif solution.status == "pending_review":
+        visible_to = "waiting for a curator before the organisation sees it"
+        tell = (
+            "Mention in one short line that the fix was sent to the team's review "
+            "queue and is not shared until a curator approves it."
+        )
+    else:
+        visible_to = "the organisation" if solution.shared else "only this user"
+        tell = (
             "Mention in one short line that the fix was saved"
             + (" for the team" if solution.shared else " privately")
             + ", and that they can edit or remove it on the Solutions page."
-        ),
+        )
+    return json.dumps({
+        "saved": True,
+        "id": solution.id,
+        "status": solution.status,
+        "visible_to": visible_to,
+        "claims": solution.claims,
+        "tell_the_user": tell,
     })
 
 
@@ -309,7 +345,7 @@ _VERDICTS = {
 async def review_solution(args: Dict, context: Dict) -> str:
     from solutions import api
 
-    refused = _refuse_if_tainted(context)
+    refused = _refuse_if_tainted(context) or _refuse_if_unattended(context)
     if refused:
         return refused
     user = await _user(context)

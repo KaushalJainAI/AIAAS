@@ -218,6 +218,21 @@ class KnowledgeBase(models.Model):
         default=False,
         help_text='User\'s default KB — auto-created on first document upload'
     )
+    # Read-only sharing with an organisation (K6). The owner sets both; a
+    # curator of `org` may only switch `shared_with_org` off. Readers go
+    # through `inference/kb_access.py`, never through these columns directly.
+    org = models.ForeignKey(
+        'core.Organization',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='knowledge_bases',
+        help_text='Organisation this KB is shared with, when shared',
+    )
+    shared_with_org = models.BooleanField(
+        default=False,
+        help_text='Members of `org` may search and read this KB from a chat',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -233,6 +248,7 @@ class KnowledgeBase(models.Model):
         ]
         indexes = [
             models.Index(fields=['user', 'is_default']),
+            models.Index(fields=['org', 'shared_with_org']),
         ]
 
     def __str__(self):

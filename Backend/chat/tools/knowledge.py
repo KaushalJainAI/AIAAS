@@ -61,7 +61,7 @@ def _kb_backend_label(backend: str) -> str:
     }, parallel=True, effect="read")
 async def list_knowledge_bases(args: Dict, context: Dict) -> str:
     from asgiref.sync import sync_to_async
-    from inference.models import KnowledgeBase
+    from inference.kb_access import readable_kbs
     user_id = context.get("user_id")
     if not user_id:
         return json.dumps({"error": "No user context."})
@@ -69,27 +69,26 @@ async def list_knowledge_bases(args: Dict, context: Dict) -> str:
         scope = kb_scope(context)
 
         def _list():
-            rows = KnowledgeBase.objects.filter(user_id=user_id)
+            # The one door: the user's own KBs, plus the org's shared ones in a
+            # chat that belongs to an org. Hidden eval corpora are excluded by
+            # the door itself, so an agent cannot discover what is being tested.
+            rows = readable_kbs(user_id, chat_org_id(context))
             if scope:
                 # Listing every KB the *user* owns would hand a scoped agent the
                 # names and ids of corpora it may not search, which it will then
                 # try, and report the refusals to whoever reads the run.
                 rows = rows.filter(id__in=scope)
-            # Hidden eval corpora (`.eval/…`) never list: they are working
-            # data for the eval harness, and an agent that discovers one by
-            # browsing learns what is being tested. Eval runs reach theirs
-            # through `kb_scope`, never through here.
-            from inference.models import HIDDEN_KB_PREFIX
-
-            rows = rows.exclude(name__startswith=HIDDEN_KB_PREFIX)
             kbs = rows.values(
                 'id', 'name', 'description', 'backend', 'doc_count', 'vector_count',
-                'index_size_bytes', 'is_default', 'embedding_model',
+                'index_size_bytes', 'is_default', 'embedding_model', 'user_id',
             )
             return list(kbs)
 
         kbs = await sync_to_async(_list)()
         for kb in kbs:
+            # Owner id is read to tell "yours" from "shared with your team"; it
+            # is never shown. The model learns only that the KB is team-shared.
+            kb['shared_by_team'] = kb.pop('user_id') != user_id
             kb['retrieval'] = _kb_backend_label(kb.pop('backend', 'vector'))
             b = kb['index_size_bytes']
             for unit in ('B', 'KB', 'MB', 'GB'):
@@ -118,6 +117,21 @@ def kb_scope(context: Dict) -> tuple[int, ...] | None:
     return tuple(int(kb_id) for kb_id in scope)
 
 
+def chat_org_id(context: Dict) -> int | None:
+    """The organisation whose shared KBs this caller may read, or None.
+
+    Only a chat turn reads team KBs. An agent run carries its chat's `org_id`
+    too (so its solutions can reach the team), but its knowledge-base reads stay
+    with its owner: an agent is configured once and runs unattended, and a team
+    KB shared with the owner must not appear in it without anyone choosing that.
+    Runs are told apart by `execution_id`, which is set for every agent run and
+    empty in chat (`chat/turn/agent.py::TurnContext.execution_id`).
+    """
+    if context.get("execution_id"):
+        return None
+    return context.get("org_id") or None
+
+
 async def _resolve_kb(user_id: int, kb_id, context: Dict | None = None):
     """(kb_model, error_json) — exactly one is non-None. Scoped to owner, and to
     the caller's configured knowledge bases when it has any.
@@ -132,11 +146,16 @@ async def _resolve_kb(user_id: int, kb_id, context: Dict | None = None):
     than merely wide. Omitting `kb_id` fell through to the user's *default* KB,
     which need not be any of the ones this agent was given — and an answer from
     the wrong corpus looks exactly like an answer from the right one.
+
+    K6: in a chat that belongs to an organisation, a team member may name a KB
+    the team shared (`readable_kbs`). Unknown, foreign-unshared, hidden and
+    non-member all return the same error below.
     """
     from asgiref.sync import sync_to_async
-    from inference.models import KnowledgeBase
+    from inference.kb_access import get_readable_kb, owned_in_scope, readable_kbs
 
-    scope = kb_scope(context or {})
+    context = context or {}
+    scope = kb_scope(context)
 
     if not kb_id:
         if scope and len(scope) == 1:
@@ -150,10 +169,10 @@ async def _resolve_kb(user_id: int, kb_id, context: Dict | None = None):
                 )
             })
         else:
+            # The default is the caller's own, never a team KB: "default" means
+            # what the person set up, and a team KB is not theirs to default to.
             kb_model = await sync_to_async(
-                lambda: KnowledgeBase.objects.filter(
-                    user_id=user_id, is_default=True
-                ).first()
+                lambda: readable_kbs(user_id, None).filter(is_default=True).first()
             )()
             if kb_model is None:
                 return None, json.dumps(
@@ -169,11 +188,17 @@ async def _resolve_kb(user_id: int, kb_id, context: Dict | None = None):
             )
         })
 
-    kb_model = await sync_to_async(
-        lambda: KnowledgeBase.objects.filter(id=kb_id, user_id=user_id).first()
-    )()
+    if scope:
+        # An agent with a selection: its owner's KB, inside the selection. Not
+        # the reader's door, so a team KB can never reach an agent through here.
+        kb_model = await sync_to_async(
+            lambda: owned_in_scope(user_id, scope).filter(id=int(kb_id)).first()
+        )()
+    else:
+        kb_model = await sync_to_async(get_readable_kb)(
+            user_id, chat_org_id(context), kb_id)
     if kb_model is None:
-        return None, json.dumps({"error": f"KB {kb_id} not found or not owned by user."})
+        return None, json.dumps({"error": f"KB {kb_id} not found among your knowledge bases."})
     return kb_model, None
 
 
@@ -452,33 +477,59 @@ async def read_document(args: Dict, context: Dict) -> str:
         return "Error: Missing document_id"
 
     try:
-        from django.db.models import Q
+        from inference.kb_access import get_readable_kb
 
-        # Owner, or explicitly shared — same visibility rule as the API.
-        doc = await sync_to_async(
-            lambda: Document.objects.filter(
-                Q(id=document_id),
-                Q(user_id=user_id) | Q(sharing_mode__in=['shared_read', 'shared_write']),
-            ).select_related('knowledge_base').first()
-        )()
-        if doc is None:
+        scope = kb_scope(context)
+        org_id = chat_org_id(context)
+
+        def _lookup():
+            from inference.models import HIDDEN_KB_PREFIX
+
+            doc = Document.objects.filter(id=document_id).select_related(
+                'knowledge_base').first()
+            if doc is None:
+                return None, False
+            mine = doc.user_id == user_id
+            # "Shared" here is the platform's public library (`sharing_mode`),
+            # which predates knowledge-base sharing and keeps its own rule.
+            shared = doc.sharing_mode in ('shared_read', 'shared_write')
+
+            # A document addressed by id here, not through its KB, so the scope
+            # the other four tools enforce would be one `read_document` call away
+            # from irrelevant — an agent given one knowledge base could walk the
+            # user's whole library by id. A document in no KB at all is out of
+            # scope for an agent too: files it may touch directly are the
+            # `fileOps` axis, with its own scope.
+            if scope is not None:
+                return doc, (mine or shared) and doc.knowledge_base_id in scope
+
+            # K6: a chat reads a document through its knowledge base. Own KBs
+            # and the org's shared ones pass the door; a document in no KB keeps
+            # the rule it always had (owner or public library).
+            if doc.knowledge_base_id is None:
+                return doc, mine or shared
+            if get_readable_kb(user_id, org_id, doc.knowledge_base_id) is not None:
+                return doc, True
+            # The public library stays readable as before, except inside an eval
+            # corpus, which never passes this door.
+            return doc, shared and not doc.knowledge_base.name.startswith(
+                HIDDEN_KB_PREFIX)
+
+        doc, allowed = await sync_to_async(_lookup)()
+        if doc is None or not allowed:
+            # One answer for unknown, foreign, unshared, hidden and out-of-KB
+            # documents. The one exception is the owner's own document outside
+            # an agent's scope: the owner already knows it exists, and "this
+            # agent may not read it" is the useful thing to tell them.
+            if doc is not None and scope is not None and doc.user_id == user_id:
+                return json.dumps({
+                    "error": (
+                        f"Document {document_id} is not in a knowledge base this "
+                        f"agent may read."
+                    )
+                })
             return json.dumps({
                 "error": f"Document {document_id} not found among your readable documents."
-            })
-
-        # A document is addressed by id here, not through its KB, so the scope
-        # the other four tools enforce would be one `read_document` call away
-        # from irrelevant — an agent given one knowledge base could walk the
-        # user's whole library by id. A document in no KB at all is out of scope
-        # too: files an agent may touch directly are the `fileOps` axis, with
-        # its own scope, not this one.
-        scope = kb_scope(context)
-        if scope and doc.knowledge_base_id not in scope:
-            return json.dumps({
-                "error": (
-                    f"Document {document_id} is not in a knowledge base this "
-                    f"agent may read."
-                )
             })
 
         text = doc.content_text or ''

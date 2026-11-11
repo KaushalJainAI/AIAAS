@@ -1019,7 +1019,7 @@ export default function Settings() {
       // deep-linked 'organization' tab still lands there rather than on the
       // "coming soon" default.
       case 'organization':
-        return <Navigate to="/solutions?tab=organisation" replace />;
+        return <Navigate to="/team?tab=team" replace />;
 
       default:
         return (
