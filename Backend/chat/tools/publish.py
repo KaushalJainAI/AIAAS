@@ -77,7 +77,7 @@ UNATTENDED_CALLERS = frozenset({'trigger', 'orchestrator'})
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible")
+}, sensitive=True, effect="irreversible", external=True, action_label="Publish page")
 async def publish_page(args: Dict, context: Dict) -> str:
     """Freeze a snapshot and hand back its link."""
     from asgiref.sync import sync_to_async

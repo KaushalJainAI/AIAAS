@@ -168,13 +168,14 @@ class DocumentSerializer(serializers.ModelSerializer):
     knowledge_base_name = serializers.CharField(source='knowledge_base.name', read_only=True, allow_null=True)
     folder_id = serializers.IntegerField(read_only=True, allow_null=True)
     folder_path = serializers.SerializerMethodField()
+    author = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
         fields = [
             'id', 'title', 'filename', 'file_type', 'file_size',
             'chunk_count', 'is_shared', 'shared_at', 'created_at',
-            'updated_at', 'sharing_mode', 'status', 'author_name',
+            'updated_at', 'sharing_mode', 'status', 'author_name', 'author',
             'content', 'metadata', 'knowledge_base_id', 'knowledge_base_name',
             'error_message', 'folder_id', 'folder_path',
         ]
@@ -182,6 +183,26 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     def get_author_name(self, obj):
         return obj.user.get_full_name() or obj.user.username
+
+    def get_author(self, obj):
+        """Which agent or chat wrote this file, or None (uploads, edits by a person, older files).
+
+        Read from `metadata['author']`, which only the file tools write. The
+        shape is rebuilt here rather than echoed, so a malformed stored value
+        reads as "no author" instead of leaking unexpected keys to the client.
+        """
+        meta = obj.metadata if isinstance(obj.metadata, dict) else {}
+        stored = meta.get('author')
+        if not isinstance(stored, dict) or stored.get('kind') not in ('agent', 'chat'):
+            return None
+        agent_id = stored.get('agent_id')
+        execution_id = stored.get('execution_id')
+        return {
+            'kind': stored['kind'],
+            'name': str(stored.get('name') or ''),
+            'agent_id': agent_id if isinstance(agent_id, int) else None,
+            'execution_id': str(execution_id) if execution_id else None,
+        }
 
     def get_folder_path(self, obj):
         """Human-readable location, derived on read.
@@ -203,7 +224,7 @@ class DocumentListSerializer(DocumentSerializer):
         fields = [
             'id', 'title', 'filename', 'file_type', 'file_size',
             'chunk_count', 'is_shared', 'shared_at', 'created_at',
-            'updated_at', 'sharing_mode', 'status', 'author_name',
+            'updated_at', 'sharing_mode', 'status', 'author_name', 'author',
             'metadata', 'knowledge_base_id', 'knowledge_base_name',
             'error_message', 'folder_id', 'folder_path',
         ]

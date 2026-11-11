@@ -98,6 +98,16 @@ class Tool:
     #: as one that had produced nothing.
     timeout: float | None = None
 
+    #: Does a successful call put something in front of someone outside this
+    #: workspace — mail, a chat message, a published page, a submitted form?
+    #: Declared rather than matched by name, so a renamed tool keeps its
+    #: label. The approval card says "Leaves the workspace" from this.
+    external: bool = False
+
+    #: The short verb on the approve button ("Send email"). Empty means the
+    #: default, "Approve", which is what every undeclared tool gets.
+    action_label: str = ""
+
 
 _REGISTRY: Dict[str, Tool] = {}
 
@@ -111,6 +121,8 @@ def tool(
     effect: Effect = "irreversible",
     connector: str | None = None,
     timeout: float | None = None,
+    external: bool = False,
+    action_label: str = "",
 ) -> Callable[[ToolFunc], ToolFunc]:
     """
     Register a tool from its own schema and return the function unchanged.
@@ -128,7 +140,7 @@ def tool(
             )
         _REGISTRY[name] = Tool(
             name, schema, func, requires, sensitive, parallel, effect,
-            connector, timeout,
+            connector, timeout, external=external, action_label=action_label,
         )
         return func
 
@@ -186,6 +198,27 @@ def timeout_of(name: str, default: float) -> float:
     """
     entry = _REGISTRY.get(name)
     return entry.timeout if entry is not None and entry.timeout else default
+
+
+def external_names() -> frozenset[str]:
+    """Every registered tool whose calls leave the workspace (mail, messages...)."""
+    return frozenset(t.name for t in _REGISTRY.values() if t.external)
+
+
+def external_of(name: str) -> bool:
+    """Whether a call to `name` leaves the workspace. Unregistered (MCP) is True.
+
+    An MCP tool carries the user's credentials into a third party's service,
+    so "stays inside the workspace" cannot be assumed for a name we never saw.
+    """
+    entry = _REGISTRY.get(name)
+    return entry.external if entry is not None else True
+
+
+def action_label_of(name: str) -> str:
+    """The approve-button verb for `name`, or "Approve" when undeclared."""
+    entry = _REGISTRY.get(name)
+    return (entry.action_label if entry is not None and entry.action_label else "Approve")
 
 
 def connector_of(name: str) -> str | None:

@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import serializers
 from .models import Credential, CredentialType, CredentialAuditLog
 
@@ -47,6 +50,35 @@ class CredentialTypeRelatedField(serializers.PrimaryKeyRelatedField):
         return super().to_internal_value(data)
 
 
+#: A token that runs out inside this window is reported as `expiring`.
+EXPIRING_WINDOW = timedelta(days=7)
+
+
+def credential_health(credential, now=None) -> str:
+    """One word for what the user needs to do about a credential.
+
+    `failed` when the last attempt to use it recorded an error; `expiring` when
+    its token runs out inside `EXPIRING_WINDOW` and nothing can renew it; else
+    `unverified` if it has never been verified; else `ok`.
+
+    The expiry rule is narrower than "token_expires_at is near". An OAuth access
+    token lives about an hour and is renewed on use from the refresh token, so a
+    literal window would flag nearly every connected account as expiring. Only a
+    credential with no refresh token needs the user to reconnect when its token
+    lapses.
+    """
+    if credential.last_error:
+        return 'failed'
+    now = now or timezone.now()
+    expires = credential.token_expires_at
+    refresh = bytes(credential.refresh_token) if credential.refresh_token else b''
+    if expires and not refresh and expires <= now + EXPIRING_WINDOW:
+        return 'expiring'
+    if not credential.is_verified:
+        return 'unverified'
+    return 'ok'
+
+
 class CredentialSerializer(serializers.ModelSerializer):
     credential_type = CredentialTypeRelatedField(
         queryset=CredentialType.objects.filter(is_active=True),
@@ -65,15 +97,22 @@ class CredentialSerializer(serializers.ModelSerializer):
     # We need to combine the Type schema with the stored Values to produce the full 'fields' list for frontend.
     # Alias is_active as is_valid to match frontend expectations
     is_valid = serializers.BooleanField(source='is_active', read_only=True)
+    # Derived from last_error, token_expires_at, refresh_token and is_verified;
+    # see credential_health for the rule.
+    health = serializers.SerializerMethodField()
 
     class Meta:
         model = Credential
         fields = [
-            'id', 'name', 'credential_type', 'credential_type_display', 
-            'is_valid', 'is_verified', 'last_used_at', 'last_error', 
+            'id', 'name', 'credential_type', 'credential_type_display',
+            'is_valid', 'is_verified', 'last_used_at', 'last_error',
+            'token_expires_at', 'health',
             'created_at', 'updated_at', 'data'
         ]
-        read_only_fields = ['created_at', 'updated_at', 'last_used_at', 'last_error', 'is_verified', 'is_valid']
+        read_only_fields = ['created_at', 'updated_at', 'last_used_at', 'last_error', 'is_verified', 'is_valid', 'token_expires_at', 'health']
+
+    def get_health(self, obj) -> str:
+        return credential_health(obj)
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)

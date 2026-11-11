@@ -192,7 +192,7 @@ async def agent_approve(request, agent_id: int):
     Ownership of the agent is re-checked here even though the pause carries a
     thread id: a thread id is a guess-resistant string, not an authorisation.
     """
-    from chat.turn.agent import approve_tool_call
+    from chat.turn.agent import ApprovalRefused, approve_tool_call
 
     from agents.agent.hitl import resolve_request
     from agents.agent.runtime import resume_agent_run
@@ -207,16 +207,23 @@ async def agent_approve(request, agent_id: int):
     serializer.is_valid(raise_exception=True)
     thread_id = serializer.validated_data['thread_id']
 
-    await approve_tool_call(
-        thread_id, serializer.validated_data['call_id'],
-        remember=serializer.validated_data.get('remember', False),
-        scope=serializer.validated_data.get('scope', 'once'),
-        # An agent run's thread id *is* its session id, so a session-scoped
-        # allowance keys correctly on either. Passed explicitly anyway, because
-        # relying on them coinciding is what breaks the chat path.
-        session_key=thread_id,
-        user_id=request.user.id,
-    )
+    try:
+        await approve_tool_call(
+            thread_id, serializer.validated_data['call_id'],
+            remember=serializer.validated_data.get('remember', False),
+            scope=serializer.validated_data.get('scope', 'once'),
+            # An agent run's thread id *is* its session id, so a session-scoped
+            # allowance keys correctly on either. Passed explicitly anyway,
+            # because relying on them coinciding is what breaks the chat path.
+            session_key=thread_id,
+            user_id=request.user.id,
+            # "Applies to this vendor": only with scope 'session', and only a
+            # subset of the paused call's own arguments. Refused before the
+            # call is approved, so a bad narrowing leaves the run paused.
+            match=request.data.get('match') or None,
+        )
+    except ApprovalRefused as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     # Close the queue entry before resuming. The reminder ladder stops on any
     # status but `pending`, so a row left open would go on nudging the user
     # about a question they have just answered — and `resume_agent_run` reopens

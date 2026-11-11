@@ -82,6 +82,32 @@ def insights_overview(request):
     return Response(payload)
 
 
+@extend_schema(responses={200: OpenApiTypes.OBJECT})
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def spend_summary(request):
+    """Month-to-date spend in rupees, total and by caller (`/api/logs/spend/summary/`).
+
+    Cached per user for 60s, like `insights_overview`: the sidebar asks on every
+    page load, and the answer only moves when a run finishes.
+    """
+    from django.core.cache import cache
+
+    key = f'spend:summary:{request.user.id}'
+    try:
+        cached = cache.get(key)
+    except Exception:  # noqa: BLE001
+        cached = None
+    if cached is not None:
+        return Response(cached)
+    payload = queries.spend_this_month(request.user)
+    try:
+        cache.set(key, payload, 60)
+    except Exception:  # noqa: BLE001 — a cache failure computes live rather than failing
+        pass
+    return Response(payload)
+
+
 # ======================== Execution history ========================
 
 @extend_schema(responses={200: OpenApiTypes.OBJECT})

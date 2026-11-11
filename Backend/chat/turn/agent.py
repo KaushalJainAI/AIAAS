@@ -2732,9 +2732,105 @@ def _pending_tool_name(snapshot, call_id: str) -> str | None:
     return None
 
 
+class ApprovalRefused(ValueError):
+    """An approval the caller asked for that cannot be honoured as asked.
+
+    Raised before anything is written, so a refused request leaves the paused
+    call exactly as it was. The HTTP doors answer 400 with the message.
+    """
+
+
+#: How far an approval may be narrowed. A few keys is "this vendor, this
+#: channel"; a long list is a second way to write a permission rule.
+MAX_MATCH_KEYS = 4
+MAX_MATCH_TEXT = 500
+
+
+def _pending_call(snapshot, call_id: str) -> dict | None:
+    """The raw tool call the graph is paused on, arguments included."""
+    for message in reversed(snapshot.values.get("messages", [])):
+        if not isinstance(message, AIMessage):
+            continue
+        for raw in message.tool_calls or []:
+            if raw.get("id") == call_id:
+                return raw
+    return None
+
+
+def _checked_match(
+    match: Any, *, scope: str, user_id: int | None, snapshot, call_id: str,
+) -> dict[str, Any] | None:
+    """`match` as a rule for this call, or ApprovalRefused.
+
+    A narrowed approval becomes a standing rule over later calls, so every
+    check errs toward refusing. It must be a non-empty subset of this call's
+    own arguments, equal by value *and* type, and it only means anything as a
+    session allowance for a signed-in user. Returns None when no narrowing was
+    asked for.
+    """
+    if match is None:
+        return None
+    if not isinstance(match, dict):
+        raise ApprovalRefused("'match' must be an object of argument names and values.")
+    if not match:
+        return None
+    if scope != "session":
+        raise ApprovalRefused("An approval can only be narrowed with scope 'session'.")
+    if user_id is None:
+        raise ApprovalRefused("A narrowed approval needs a signed-in user to remember it for.")
+    if len(match) > MAX_MATCH_KEYS:
+        raise ApprovalRefused(
+            f"An approval can be narrowed by at most {MAX_MATCH_KEYS} arguments.")
+    pending = _pending_call(snapshot, call_id)
+    if pending is None:
+        raise ApprovalRefused("That call is no longer waiting for an approval.")
+    args = pending.get("args") or {}
+    clean: dict[str, Any] = {}
+    for key, value in match.items():
+        if not isinstance(key, str) or key not in args:
+            raise ApprovalRefused(
+                f"{key} is not an argument of this call, so the approval cannot be narrowed to it.")
+        if not isinstance(value, (str, int, float, bool)) or (
+                isinstance(value, str) and len(value) > MAX_MATCH_TEXT):
+            raise ApprovalRefused(
+                f"The value for {key} must be a short string, a number or yes/no.")
+        # Type as well as value: `True == 1` in Python, and a rule that treats
+        # a yes/no as a count is wider than the person who approved it meant.
+        if type(value) is not type(args[key]) or value != args[key]:
+            raise ApprovalRefused(
+                f"{key} is not the value this call uses, so the approval cannot be narrowed to it.")
+        clean[key] = value
+    return clean
+
+
+async def _remember_narrowed(
+    *, user_id: int, tool_name: str, session_key: str, match: dict[str, Any],
+) -> None:
+    """File a narrowed session allowance.
+
+    The table allows one session rule per tool, so a second narrowed approval
+    for the same tool replaces the first. That is the cautious direction: the
+    earlier call asks again. An existing broad rule (empty `match`) already
+    covers every call of the tool in this session, so it is left alone.
+    """
+    from chat.models import ToolPermission
+
+    row = await ToolPermission.objects.filter(
+        user_id=user_id, tool_name=tool_name, session_key=session_key,
+    ).afirst()
+    if row is None:
+        await ToolPermission.objects.acreate(
+            user_id=user_id, tool_name=tool_name, session_key=session_key, match=match,
+        )
+    elif row.match and row.match != match:
+        row.match = match
+        await row.asave(update_fields=["match"])
+
+
 async def approve_tool_call(
     thread_id: str, call_id: str, *, remember: bool = False,
     scope: str = "", session_key: str = "", user_id: int | None = None,
+    match: dict[str, Any] | None = None,
 ) -> None:
     """
     Record a user's approval so the paused run can resume past it.
@@ -2774,6 +2870,12 @@ async def approve_tool_call(
     session id — and `permissions.is_remembered` matches against the latter. Key
     it on the thread there and the row is written, matches nothing, and the user
     is asked again having been told they would not be.
+
+    `match` narrows a `session` approval to this call's own argument values,
+    e.g. `{"to": "vendor@example.com"}` ("applies to this vendor, this run").
+    It is checked against the paused call before anything is written, and
+    refused with ApprovalRefused when it is not a subset of that call's
+    arguments, or when the scope is not `session`.
     """
     scope = scope or ("always" if remember else "once")
     if scope not in ("once", "session", "always"):
@@ -2781,6 +2883,11 @@ async def approve_tool_call(
         scope = "once"
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     snapshot = await get_graph().aget_state(config)
+    # Checked before anything is approved: a refused narrowing must leave the
+    # call paused, not approved with its narrowing silently dropped.
+    narrowed = _checked_match(
+        match, scope=scope, user_id=user_id, snapshot=snapshot, call_id=call_id,
+    )
     if not snapshot.values:
         logger.warning("[HITL] No state for thread %s; approval ignored", thread_id)
         return
@@ -2808,9 +2915,15 @@ async def approve_tool_call(
     stored_key = (session_key or thread_id)[:64] if scope == "session" else ""
 
     try:
-        await ToolPermission.objects.aget_or_create(
-            user_id=user_id, tool_name=tool_name[:160], session_key=stored_key,
-        )
+        if narrowed is not None:
+            await _remember_narrowed(
+                user_id=user_id, tool_name=tool_name[:160],
+                session_key=stored_key, match=narrowed,
+            )
+        else:
+            await ToolPermission.objects.aget_or_create(
+                user_id=user_id, tool_name=tool_name[:160], session_key=stored_key,
+            )
     except Exception:  # noqa: BLE001
         # The approval itself already landed. Failing to file it must not undo
         # the resume the user actually asked for.

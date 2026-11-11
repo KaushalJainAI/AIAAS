@@ -136,6 +136,53 @@ def _recipients(args: dict) -> list[str]:
     return found
 
 
+def recipients_in(args: dict) -> list[str]:
+    """The recipients a call names, by the same keys `static_check` judges.
+
+    Public face of `_recipients` for the approval card (`describe_call_async`);
+    it adds no rule of its own.
+    """
+    return _recipients(args or {})
+
+
+async def first_contact(user_id: int | None, args: dict, *, window: int = 500) -> bool:
+    """True when a recipient in `args` appears in none of this user's earlier sends.
+
+    "Earlier sends" are completed calls to tools declared `external=True`, read
+    from the run record (`AgentStep.args`) — the same rows the outbound cap
+    counts. The last `window` sends are enough: a recipient nobody has written
+    to in that many messages reads as new, which is the cautious direction.
+
+    Chat's own sends are not run records, so for a chat call every named
+    recipient reads as new. That is a stronger warning than the case warrants,
+    never a weaker one.
+
+    Never raises. If the history cannot be read the answer is True: an unknown
+    recipient is treated as a new one, never as a familiar one.
+    """
+    recipients = {r.lower() for r in _recipients(args or {})}
+    if not recipients:
+        return False
+    if user_id is None:
+        return True
+    from chat.tools.registry import external_names
+    from logs.models import AgentStep
+
+    try:
+        rows = (AgentStep.objects
+                .filter(execution__user_id=user_id, tool__in=external_names(),
+                        status='completed')
+                .order_by('-id')
+                .values_list('args', flat=True)[:window])
+        seen: set[str] = set()
+        async for past in rows:
+            seen.update(r.lower() for r in _recipients(past or {}))
+    except Exception:  # noqa: BLE001 - an unreadable history reads as new
+        logger.exception('[Reviewer] Could not read earlier sends for first contact')
+        return True
+    return bool(recipients - seen)
+
+
 def static_check(
     *,
     tool_name: str,

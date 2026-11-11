@@ -315,7 +315,7 @@ class CommandConsentTests(TestCase):
             CommandCall(name="agent", args={"agent": agent.id}, text="do it"),
             _ctx(self.user, autonomy="plan"))
         self.assertEqual(result.status, "error")
-        self.assertIn("Plan mode", result.message)
+        self.assertIn("Plan only", result.message)
 
     def test_goal_returns_confirm_not_a_start(self):
         from chat.commands.missions import goal_command
@@ -536,3 +536,57 @@ class NewCapabilityCommandsTests(TestCase):
                          "transcribe", "chart", "diagram", "pdf", "kb",
                          "extract", "api", "message", "sign", "run"):
             self.assertIn(expected, names)
+
+
+class ModeWordingTests(TestCase):
+    """B11: people read the labels, the API and the model keep plan|ask|auto|full."""
+
+    def _mode(self, text=None, user=None):
+        from chat.commands.registry import CommandCall
+        from chat.commands.session import mode_command
+
+        return async_to_sync(mode_command)(
+            CommandCall(name="mode", args={"text": text} if text is not None else {},
+                        text=text or ""),
+            _ctx(user or _user("modes")),
+        )
+
+    def test_labels_are_the_user_words(self):
+        from chat.commands.session import MODE_LABELS
+
+        self.assertEqual(MODE_LABELS, {
+            "plan": "Plan only",
+            "ask": "Ask before changes",
+            "auto": "Ask before irreversible",
+            "full": "Never ask",
+        })
+
+    def test_typing_an_api_value_still_sets_the_mode(self):
+        result = self._mode("auto")
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.args, {"mode": "auto"})
+        self.assertEqual(result.card["mode"], "auto")
+        self.assertEqual(result.card["label"], "Ask before irreversible")
+
+    def test_typing_a_label_sets_the_same_mode(self):
+        result = self._mode("Never ask")
+        self.assertEqual(result.args, {"mode": "full"})
+
+    def test_a_bare_mode_command_still_cycles(self):
+        result = self._mode(None)
+        self.assertEqual(result.card, {"type": "mode_cycle"})
+        self.assertEqual(result.args, {})
+
+    def test_refusal_names_the_labels_not_the_api_values(self):
+        result = self._mode("turbo")
+        self.assertEqual(result.status, "error")
+        self.assertIn("Plan only", result.message)
+        self.assertIn("Never ask", result.message)
+        self.assertNotIn("auto, full", result.message)
+
+    def test_the_summary_shows_the_labels(self):
+        from chat.commands.registry import all_commands
+
+        summary = next(c.summary for c in all_commands() if c.name == "mode")
+        self.assertIn("Plan only", summary)
+        self.assertIn("Never ask", summary)

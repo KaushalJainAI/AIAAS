@@ -59,8 +59,9 @@ async def agent_command(call: CommandCall, ctx: CommandContext) -> CommandResult
     if autonomy == "plan":
         return CommandResult(
             status="error",
-            message="Chat is in Plan mode, which withholds mutating tools — "
-                    "starting an agent run is not a read. Switch to Ask or Auto first.",
+            message="Chat is set to Plan only, which withholds changes — "
+                    "starting an agent run is not a read. Switch to Ask before changes "
+                    "or Ask before irreversible first.",
         )
 
     agent_id = call.args.get("agent", call.args.get("agent_id"))

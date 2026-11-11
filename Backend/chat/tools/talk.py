@@ -348,7 +348,7 @@ async def message_draft(args: Dict, context: Dict) -> str:
             'additionalProperties': False,
         },
     },
-}, sensitive=True, effect='irreversible')
+}, sensitive=True, effect='irreversible', external=True, action_label='Send message')
 async def message_send(args: Dict, context: Dict) -> str:
     from .messaging.common import Unsupported, adapter_for
 

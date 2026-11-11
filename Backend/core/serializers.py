@@ -71,6 +71,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
             )
         return level
 
+    def validate_accent_color(self, value):
+        """teal | ink | blue | magenta. Anything else is refused, not stored."""
+        allowed = {key for key, _ in UserProfile.ACCENT_CHOICES}
+        if value not in allowed:
+            raise serializers.ValidationError(
+                'Accent colour must be teal, ink, blue or magenta.'
+            )
+        return value
+
     def validate_timezone(self, value):
         """An IANA zone, or the save is refused.
 

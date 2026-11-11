@@ -93,17 +93,23 @@ async def respond_to_hitl(request, request_id: str):
 
     resumable = bool(thread_id and call_id and agent is not None)
     if resumable:
-        from chat.turn.agent import approve_tool_call, reject_tool_call
+        from chat.turn.agent import ApprovalRefused, approve_tool_call, reject_tool_call
 
         if resolution == 'approved':
-            await approve_tool_call(
-                thread_id, call_id,
-                scope=str(request.data.get('scope') or 'once'),
-                # An agent run's thread id *is* its session id. Passed
-                # explicitly rather than relied on, as in `agent_approve`.
-                session_key=thread_id,
-                user_id=request.user.id,
-            )
+            try:
+                await approve_tool_call(
+                    thread_id, call_id,
+                    scope=str(request.data.get('scope') or 'once'),
+                    # An agent run's thread id *is* its session id. Passed
+                    # explicitly rather than relied on, as in `agent_approve`.
+                    session_key=thread_id,
+                    user_id=request.user.id,
+                    # Narrowed approvals ("applies to this vendor"). Refused
+                    # before anything is approved, so the row stays pending.
+                    match=request.data.get('match') or None,
+                )
+            except ApprovalRefused as exc:
+                return Response({'error': str(exc)}, status=400)
         elif resolution == 'rejected':
             resumable = await reject_tool_call(
                 thread_id, call_id,

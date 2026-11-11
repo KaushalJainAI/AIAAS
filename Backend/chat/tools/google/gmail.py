@@ -374,7 +374,8 @@ async def gmail_create_draft(args: Dict, context: Dict) -> str:
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", connector=CONNECTOR)
+}, sensitive=True, effect="irreversible", connector=CONNECTOR, external=True,
+   action_label="Send email")
 @handles_google_errors
 async def gmail_send_message(args: Dict, context: Dict) -> str:
     # The same floor every channel meets (`core/safety/outbound.py`): content

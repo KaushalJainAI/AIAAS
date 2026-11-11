@@ -47,9 +47,11 @@ from .models import ChatAttachment, ChatMessage, ChatSession
 from .turn.pipeline import (
     TurnError,
     TurnRequest,
+    _thread_id,
     persist_interrupted_answer,
     run_chat_turn,
 )
+from .turn.agent import ApprovalRefused, approve_tool_call
 from .serializers import (
     ChatAttachmentSerializer,
     ChatSessionListSerializer,
@@ -176,6 +178,39 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
 
 # ── Sending messages ─────────────────────────────────────────────────────────
 
+async def _apply_narrowed_approval(session, user, payload) -> str | None:
+    """Record a narrowed approval before the turn starts; return the refusal.
+
+    `run_chat_turn` approves through `approve_tool_call` but has no notion of
+    `match`, so a narrowed approval is written here first, by the same
+    function. The turn's own approve then finds the call already approved and
+    the session rule already in place: both writes are idempotent. Refused
+    here, the turn never starts and the card stays paused.
+
+    Memory-off sessions get a throwaway checkpoint id per request (see
+    `pipeline._thread_id`), so no paused call can be found under it and the
+    narrowing is refused. That is the safe answer.
+    """
+    if not isinstance(payload, dict):
+        return None
+    match = payload.get("match")
+    approval = (payload.get("approve_tool_call") or "").strip()
+    if not match or not approval:
+        return None
+    try:
+        await approve_tool_call(
+            _thread_id(session), approval,
+            remember=bool(payload.get("remember_approval")),
+            scope=str(payload.get("approval_scope") or "").strip().lower(),
+            session_key=str(session.id),
+            user_id=user.id,
+            match=match,
+        )
+    except ApprovalRefused as exc:
+        return str(exc)
+    return None
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 async def send_message(request, session_id: str):
@@ -188,6 +223,9 @@ async def send_message(request, session_id: str):
     """
     try:
         session = await get_session(session_id, request.user)
+        refusal = await _apply_narrowed_approval(session, request.user, request.data)
+        if refusal is not None:
+            return Response({"error": refusal}, status=status.HTTP_400_BAD_REQUEST)
         turn = TurnRequest.parse(request.data)
         outcome = await run_chat_turn(session=session, user=request.user, request=turn)
     except TurnError as exc:
@@ -223,6 +261,14 @@ async def send_message_stream(request, session_id: str):
         return stream_response(live)
 
     payload = json_body(request)
+
+    # A narrowed approval is refused before the stream starts, so the client
+    # gets a plain 400 it can show on the card instead of a dead turn.
+    if isinstance(payload, dict) and payload.get("match"):
+        session = await get_session(session_id, user)
+        refusal = await _apply_narrowed_approval(session, user, payload)
+        if refusal is not None:
+            return JsonResponse({"error": refusal}, status=400)
 
     async def work(sink) -> None:
         try:

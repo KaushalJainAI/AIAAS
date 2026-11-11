@@ -41,22 +41,46 @@ async def new_command(call: CommandCall, ctx: CommandContext) -> CommandResult:
     return CommandResult(status="ok", card={"type": "new"})
 
 
+#: What the user sees for each approval mode. The API and the model still say
+#: plan | ask | auto | full (`AUTONOMY_NOTES` is model-facing and keeps those
+#: words); only text a person reads uses these labels.
+MODE_LABELS = {
+    "plan": "Plan only",
+    "ask": "Ask before changes",
+    "auto": "Ask before irreversible",
+    "full": "Never ask",
+}
+_MODE_LIST = ", ".join(MODE_LABELS.values())
+
+
+def _mode_from_text(text: str) -> str | None:
+    """The API value for what the user typed: `ask`, or its label `Ask before changes`."""
+    typed = text.strip().lower()
+    for value, label in MODE_LABELS.items():
+        if typed in (value, label.lower()):
+            return value
+    return None
+
+
 @command(
     name="mode",
-    summary="Switch chat autonomy: ask, auto, full or plan",
-    args=[Arg("text", kind="text", required=False, hint="ask, auto, full or plan")],
+    summary=f"Switch approvals: {_MODE_LIST}",
+    args=[Arg("text", kind="text", required=False, hint=_MODE_LIST)],
     kind="client", group="general",
 )
 async def mode_command(call: CommandCall, ctx: CommandContext) -> CommandResult:
-    level = str(call.args.get("text") or call.text or "").strip().lower()
-    if level and level not in ("ask", "auto", "full", "plan"):
+    typed = str(call.args.get("text") or call.text or "").strip()
+    if not typed:
+        return CommandResult(status="ok", args={}, card={"type": "mode_cycle"})
+    level = _mode_from_text(typed)
+    if level is None:
         return CommandResult(
             status="error",
-            message=f"'{level}' is not a chat mode. Use ask, auto, full or plan.",
+            message=f"'{typed}' is not an approval mode. Choose one of: {_MODE_LIST}.",
         )
     return CommandResult(
-        status="ok", args={"mode": level} if level else {},
-        card={"type": "mode", "mode": level} if level else {"type": "mode_cycle"},
+        status="ok", args={"mode": level},
+        card={"type": "mode", "mode": level, "label": MODE_LABELS[level]},
     )
 
 

@@ -188,7 +188,8 @@ async def browse_page(args: Dict, context: Dict) -> str:
             'additionalProperties': False,
         },
     },
-}, requires='browser', sensitive=True, effect='irreversible')
+}, requires='browser', sensitive=True, effect='irreversible', external=True,
+   action_label='Run browser steps')
 async def browser_act(args: Dict, context: Dict) -> str:
     from browsing.engine import (
         BrowserError, check_steps, host_of, looks_submitting, run,

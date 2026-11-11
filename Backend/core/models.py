@@ -214,10 +214,19 @@ class UserProfile(models.Model):
         choices=THEME_CHOICES,
         default='system'
     )
+    # Closed set: the UI draws only these four. Existing rows keep whatever they
+    # hold; only new profiles start on teal.
+    ACCENT_CHOICES = [
+        ('teal', 'Teal'),
+        ('ink', 'Ink'),
+        ('blue', 'Blue'),
+        ('magenta', 'Magenta'),
+    ]
     accent_color = models.CharField(
         max_length=20,
-        default='blue',
-        help_text='Preferred accent color (e.g. blue, magenta)'
+        choices=ACCENT_CHOICES,
+        default='teal',
+        help_text='Accent colour: teal, ink, blue or magenta'
     )
 
     # Timestamps

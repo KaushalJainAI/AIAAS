@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from .models import Skill
-from .serializers import SkillSerializer
+from .serializers import SkillSerializer, used_by_counts
 from .services import SkillService
 from inference.engine import submit_kb_async
 import logging
@@ -17,6 +17,17 @@ class SkillViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         return (Skill.objects.filter(user=user) | Skill.objects.filter(is_shared=True)).distinct()
+
+    def list(self, request, *args, **kwargs):
+        """Paged skill list. `used_by` is tallied once for the whole page."""
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        items = page if page is not None else queryset
+        context = {**self.get_serializer_context(), 'used_by': used_by_counts(request.user)}
+        serializer = SkillSerializer(items, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     def _ensure_can_edit(self, skill):
         """Only the owner or an admin may modify a skill; everyone else reads and forks."""
@@ -81,7 +92,10 @@ class SkillViewSet(viewsets.ModelViewSet):
             tab=params['tab']
         )
         
-        item_serializer = self.get_serializer(results['items'], many=True)
+        item_serializer = SkillSerializer(
+            results['items'], many=True,
+            context={**self.get_serializer_context(), 'used_by': used_by_counts(request.user)},
+        )
         return Response({
             'results': item_serializer.data,
             'total': results['total'],

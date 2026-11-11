@@ -490,7 +490,7 @@ class AgentToolbox:
         return await execute_tool(name, args, context)
 
 
-async def build_file_scope(agent, user, *, workspace=()):
+async def build_file_scope(agent, user, *, workspace=(), author=None):
     """The virtual-filesystem scope for this run, or None.
 
     Two settings have to agree before an agent touches files: a grant that
@@ -515,6 +515,8 @@ async def build_file_scope(agent, user, *, workspace=()):
 
         scope = await sync_to_async(build_scope)(
             user, file_access, agent_name=agent.name or '',
+            # Files this run writes say which agent and run wrote them.
+            author=author,
         )
         # A delegated worker also gets write access to the folder of whoever
         # asked, so it can hand back a path instead of pouring its whole answer
@@ -2105,7 +2107,12 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             # run whose whole point is that the owner is not in the room.
             file_scope = environment.attempt_scope()
         else:
-            file_scope = await build_file_scope(agent, user, workspace=workspace)
+            from inference.vfs import agent_author
+
+            file_scope = await build_file_scope(
+                agent, user, workspace=workspace,
+                author=agent_author(agent, log.execution_id),
+            )
         # `plan` is the one level that changes which tools exist rather than
         # which ones pause, so it has to be known before the toolbox is built.
         toolbox = AgentToolbox.for_agent(

@@ -89,6 +89,13 @@ class ChatSession(models.Model):
     #: solution saved here stays private to its author. Meaningless without an
     #: org.
     share_solutions = models.BooleanField(default=False)
+    #: True while the last turn stopped at an approval or a question, so the
+    #: history list can show the conversation as waiting on the person. Set by
+    #: `pipeline.run_chat_turn` and cleared at the start of every turn.
+    awaiting_approval = models.BooleanField(default=False)
+    #: Display name of the worker the last turn delegated to, for the history
+    #: list ("Researcher" under a conversation). Blank until a turn names one.
+    last_agent = models.CharField(max_length=120, blank=True, default="")
     # Token usage tracking
     total_tokens_used = models.IntegerField(default=0)
 

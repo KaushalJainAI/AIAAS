@@ -215,7 +215,10 @@ async def is_remembered(
         rule = rule or {}
         if not rule:
             return True
-        if all(args.get(k) == v for k, v in rule.items()):
+        # Same type as well as value: `True == 1`, and a rule narrowed to a
+        # count must not allow a yes/no that happens to compare equal to it.
+        if all(k in args and type(args[k]) is type(v) and args[k] == v
+               for k, v in rule.items()):
             return True
     return False
 

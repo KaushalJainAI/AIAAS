@@ -147,8 +147,47 @@ class ChatSessionListSerializer(ChatSessionSerializer):
     the list too.
     """
 
+    #: `waiting` (paused for an approval or a question), `running` (a turn is
+    #: in flight in this process), `idle`. Derived, never stored, so a turn that
+    #: died with the process cannot leave a row claiming it is still running.
+    run_state = serializers.SerializerMethodField()
+    #: Display name of the worker the conversation last delegated to, or null.
+    last_agent = serializers.SerializerMethodField()
+
     class Meta(ChatSessionSerializer.Meta):
-        fields = [f for f in ChatSessionSerializer.Meta.fields if f != 'messages']
+        fields = [f for f in ChatSessionSerializer.Meta.fields if f != 'messages'] + [
+            'run_state', 'last_agent',
+        ]
         read_only_fields = [
             f for f in ChatSessionSerializer.Meta.read_only_fields if f != 'messages'
         ]
+
+    def _running_keys(self) -> frozenset[str]:
+        """Session ids with a turn in flight for the caller, read once per list.
+
+        `self.context` is the dict the list was built with, shared by every row,
+        so the first row fills it and the rest reuse it. Reading the run table
+        per row would scan it once per session.
+        """
+        context = self.context
+        if 'running_session_keys' not in context:
+            request = context.get('request')
+            user = getattr(request, 'user', None)
+            if user is None or getattr(user, 'is_anonymous', True):
+                context['running_session_keys'] = frozenset()
+            else:
+                from chat.turn import runs
+
+                context['running_session_keys'] = frozenset(
+                    runs.active_keys(user.id))
+        return context['running_session_keys']
+
+    def get_run_state(self, obj) -> str:
+        if obj.awaiting_approval:
+            return 'waiting'
+        if str(obj.id) in self._running_keys():
+            return 'running'
+        return 'idle'
+
+    def get_last_agent(self, obj) -> str | None:
+        return obj.last_agent or None

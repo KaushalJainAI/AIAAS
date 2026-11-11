@@ -56,7 +56,7 @@ import hashlib
 import logging
 import re
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
 from workflow_backend.thresholds import (
@@ -200,6 +200,13 @@ class FileScope:
     shared_prefix: tuple[str, ...] | None = None
     shared_label: str = ''
 
+    #: Who the files this scope writes are attributed to: the value stamped as
+    #: `Document.metadata['author']` (see `agent_author` / `chat_author`). None
+    #: for a caller that writes on nobody's behalf, such as an eval attempt, in
+    #: which case writes are not stamped. Not part of equality or hashing — it
+    #: is a label on the writes, not a different place to write.
+    author: dict | None = field(default=None, compare=False, hash=False)
+
     @property
     def writable(self) -> bool:
         """Whether anything at all may be written in this scope."""
@@ -224,8 +231,52 @@ class FileScope:
         return False
 
 
-def build_scope(user, file_access: str, *, agent_name: str = '') -> FileScope | None:
+CHAT_AUTHOR_NAME = 'Lead'
+
+
+def chat_author() -> dict:
+    """Who a chat turn's file writes are attributed to: the lead, not a worker."""
+    return {'kind': 'chat', 'name': CHAT_AUTHOR_NAME, 'agent_id': None, 'execution_id': None}
+
+
+def agent_author(agent, execution_id=None) -> dict:
+    """Who an agent run's file writes are attributed to.
+
+    `execution_id` is the run's, so a file can be traced to the run that wrote
+    it, not just to the agent. Stamped as a string because it is a uuid.
+    """
+    name = (getattr(agent, 'name', '') or '').strip() or 'Agent'
+    return {
+        'kind': 'agent',
+        'name': name,
+        'agent_id': getattr(agent, 'id', None),
+        'execution_id': str(execution_id) if execution_id else None,
+    }
+
+
+def _author_meta(scope: FileScope) -> dict:
+    """The `metadata` entry a write by `scope` adds — empty when unattributed."""
+    return {'author': dict(scope.author)} if scope.author else {}
+
+
+def _stamp_author(doc: Document, scope: FileScope) -> None:
+    """Record `scope`'s author on a row that already exists, leaving its version alone.
+
+    A queryset `update`, not `save`, so `updated_at` — every editor's etag — is
+    not moved by a bookkeeping field. Used where the write did not go through a
+    path that takes the author itself (a version restore, a copy).
+    """
+    if not scope.author:
+        return
+    metadata = {**(doc.metadata or {}), **_author_meta(scope)}
+    Document.objects.filter(pk=doc.pk).update(metadata=metadata)
+    doc.metadata = metadata
+
+
+def build_scope(user, file_access: str, *, agent_name: str = '',
+                author: dict | None = None) -> FileScope | None:
     """The scope implied by an agent's `fileAccess` setting, or None for `none`.
+    `author` is stamped on every file this scope writes (see `FileScope.author`).
 
     None means the caller offers no file tools at all, which is the same rule
     `ask_vision` follows: an advertised tool that cannot run is worse than one
@@ -254,11 +305,11 @@ def build_scope(user, file_access: str, *, agent_name: str = '') -> FileScope | 
 
     if mode == READONLY:
         return FileScope(user=user, root=None, mode=mode, label='/',
-                         write_prefix=None, write_label='')
+                         write_prefix=None, write_label='', author=author)
 
     if mode == FULL:
         return FileScope(user=user, root=None, mode=mode, label='/',
-                         write_prefix=(), write_label='/')
+                         write_prefix=(), write_label='/', author=author)
 
     home = agent_home(user, agent_name)
     home_label = f'/{AGENT_HOME_ROOT}/{home.name}'
@@ -267,7 +318,7 @@ def build_scope(user, file_access: str, *, agent_name: str = '') -> FileScope | 
         # Root *at* the home, so the walk itself is the confinement and the
         # agent cannot even see the rest of the tree.
         return FileScope(user=user, root=home, mode=mode, label=home_label,
-                         write_prefix=(), write_label=home_label)
+                         write_prefix=(), write_label=home_label, author=author)
 
     # read_all_write_own: root at the whole tree for reading, and a prefix that
     # pins writes back to the home. The prefix is expressed in the same exact,
@@ -276,6 +327,7 @@ def build_scope(user, file_access: str, *, agent_name: str = '') -> FileScope | 
     return FileScope(
         user=user, root=None, mode=mode, label='/',
         write_prefix=(AGENT_HOME_ROOT, home.name), write_label=home_label,
+        author=author,
     )
 
 
@@ -362,6 +414,7 @@ def chat_scope(user) -> FileScope:
     return FileScope(
         user=user, root=None, mode=READ_ALL_WRITE_OWN, label='/',
         write_prefix=(CHAT_HOME_ROOT,), write_label=f'/{CHAT_HOME_ROOT}',
+        author=chat_author(),
     )
 
 
@@ -923,7 +976,7 @@ def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: 
             # browsable, never indexed. An agent writing a file must not
             # silently start an embedding job.
             status='stored',
-            metadata={'created_by': 'agent'},
+            metadata={'created_by': 'agent', **_author_meta(scope)},
         )
         created = True
     else:
@@ -938,7 +991,7 @@ def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: 
         # `content_text` left an uploaded file downloading its old contents.
         from .office_edit import save_text
 
-        doc = save_text(doc, text, version_source='agent')
+        doc = save_text(doc, text, version_source='agent', author=scope.author)
         created = False
 
     return {
@@ -1039,7 +1092,8 @@ def _create_binary(scope: FileScope, parent_parts, folder, name: str, requested:
         # Terminal and never indexed, exactly as `write_file`: producing a
         # file must not silently start an embedding job.
         status='stored',
-        metadata={'created_by': 'agent', **({'spec': spec} if spec else {})},
+        metadata={'created_by': 'agent', **({'spec': spec} if spec else {}),
+                  **_author_meta(scope)},
     )
     # Bytes first, row second, and the bytes removed if the row fails: the
     # other order leaves a row pointing at nothing, which downloads as a 500.
@@ -1074,7 +1128,8 @@ def _replace_in_place(scope: FileScope, parent_parts: Sequence[str], doc: Docume
     # A pending office draft renders first, so the version this overwrite
     # keeps holds the file as the app left it rather than a stale render.
     doc = drafts.ensure_rendered(doc)
-    doc = replace_bytes(doc, data, text=text or '', spec=spec, version_source='agent')
+    doc = replace_bytes(doc, data, text=text or '', spec=spec, version_source='agent',
+                        author=scope.author)
     if spec is None and (doc.metadata or {}).get('spec') is not None:
         # The old spec described the old bytes; the preview would draw them.
         doc.metadata = {k: v for k, v in doc.metadata.items() if k != 'spec'}
@@ -1189,7 +1244,7 @@ def _edit_locked(scope: FileScope, parent_parts, name: str, doc: Document,
 
     from .office_edit import save_text
 
-    doc = save_text(doc, updated, version_source='agent')
+    doc = save_text(doc, updated, version_source='agent', author=scope.author)
 
     return {
         'path': render(scope, parent_parts + [name]),
@@ -1253,6 +1308,7 @@ def restore_file_version(scope: FileScope, path: str, version_id: int) -> dict:
         doc = versions.restore(doc, version)
     except EditError as exc:
         raise VfsError(str(exc)) from exc
+    _stamp_author(doc, scope)
     return {
         'path': render(scope, parent_parts + [doc.name]),
         'document_id': doc.id,
@@ -1360,7 +1416,7 @@ def edit_document(scope: FileScope, path: str, ops: list) -> dict:
     try:
         doc = office_edit.edit_spec(doc, {'title': spec.get('title'), 'subtitle': spec.get('subtitle'),
                                           'theme': spec.get('theme'), 'blocks': blocks},
-                                    version_source='agent')
+                                    version_source='agent', author=scope.author)
     except (SpecError, EditError) as exc:
         raise VfsError(str(exc)) from exc
     out = {'path': render(scope, parent_parts + [doc.name]), 'document_id': doc.id,
@@ -1479,7 +1535,7 @@ def edit_deck(scope: FileScope, path: str, ops: list) -> dict:
     try:
         doc = office_edit.edit_spec(doc, {'title': spec.get('title'), 'theme': spec.get('theme'),
                                           'slides': slides},
-                                    version_source='agent')
+                                    version_source='agent', author=scope.author)
     except (SpecError, EditError) as exc:
         raise VfsError(str(exc)) from exc
     out = {'path': render(scope, parent_parts + [doc.name]), 'document_id': doc.id,
@@ -1845,7 +1901,8 @@ def copy(scope: FileScope, src: str, dst: str) -> dict:
                 raise VfsError(str(e)) from e
             Document.objects.filter(pk=clone.pk).update(
                 name=name, file_type=file_type,
-                metadata={**(clone.metadata or {}), 'created_by': 'agent'})
+                metadata={**(clone.metadata or {}), 'created_by': 'agent',
+                          **_author_meta(scope)})
     return {'from': render(scope, src_parent + [src_name]), 'to': shown,
             'document_id': clone.pk}
 

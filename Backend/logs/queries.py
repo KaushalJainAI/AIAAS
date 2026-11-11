@@ -343,6 +343,34 @@ def cost_breakdown(user, *, days: int) -> dict[str, Any]:
     }
 
 
+def spend_this_month(user) -> dict[str, Any]:
+    """What the user's runs have cost this calendar month, in rupees.
+
+    Uses `agents/spend.py::aggregate_rupees`, the same conversion and the same
+    filter the spend cap is enforced with (`agents/agent/runtime.py::
+    _spend_this_month`): priced runs in USD, unpriced runs at the blended token
+    rate, ledger rows added on top, and eval traffic excluded. The month starts
+    at UTC midnight on the 1st, as the cap's does, so the two cannot disagree
+    about which runs are "this month".
+
+    `by_caller` splits the same runs by who started them (`chat`, `api`,
+    `trigger`, `orchestrator`, `mission`). Each share is converted on its own,
+    so the parts can differ from the total by a rupee of rounding; the total is
+    the figure the cap would compute.
+    """
+    from agents.spend import aggregate_rupees
+
+    start = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month = ExecutionLog.objects.filter(user=user, created_at__gte=start).exclude(caller='eval')
+    callers = sorted(
+        month.order_by().values_list('caller', flat=True).distinct()
+    )
+    return {
+        "month_rupees": aggregate_rupees(month),
+        "by_caller": {c: aggregate_rupees(month.filter(caller=c)) for c in callers},
+    }
+
+
 # ======================== Execution history ========================
 
 def execution_page(

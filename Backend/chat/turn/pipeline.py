@@ -898,6 +898,12 @@ async def run_chat_turn(
             user_id=user.id,
         )
 
+    # The pause (if any) was answered above, so the session is no longer waiting.
+    # Written only through the queryset: `save()` would bump `updated_at` and
+    # reorder the history list on every turn.
+    await ChatSession.objects.filter(pk=session.pk).aupdate(awaiting_approval=False)
+    session.awaiting_approval = False
+
     await sink(Event.STATUS, {"phase": "planning", "message": "Starting up..."})
 
     # An approval or a refusal carries no new text, so it resumes against the
@@ -1237,6 +1243,25 @@ def _price_turn(model_id: str, usage):
         logger.exception("[Turn] Pricing failed for %s", model_id)
         return Decimal("0"), "unpriced"
 
+
+def _worker_name(metadata: Mapping[str, Any]) -> str:
+    """The display name of the worker this turn last delegated to, or "".
+
+    `worker_plans` is keyed by run id in insertion order, so its last entry is
+    the most recent delegate. A `/agent` command's run card (`agent_run`) names
+    a worker too, and is the fallback when no delegation happened.
+    """
+    plans = metadata.get("worker_plans") or {}
+    if isinstance(plans, Mapping) and plans:
+        latest = list(plans.values())[-1]
+        if isinstance(latest, Mapping) and latest.get("agent_name"):
+            return str(latest["agent_name"]).strip()
+    run = metadata.get("agent_run")
+    if isinstance(run, Mapping) and run.get("agent_name"):
+        return str(run["agent_name"]).strip()
+    return ""
+
+
 async def _persist_answer(
     *,
     session: ChatSession,
@@ -1273,6 +1298,11 @@ async def _persist_answer(
     )
     if result.awaiting_approval:
         metadata["awaiting_approval"] = True
+    # How long the turn took and how much it did, for the reply's header
+    # ("4 steps · 8.2s"). Both are derivable from what is saved only in part:
+    # the duration was logged and never stored.
+    metadata["elapsed_ms"] = int(elapsed_s * 1000)
+    metadata["steps"] = len(result.tool_trace)
     # The slash command rides here (not through the graph): regenerate replays
     # the same call, and the transcript chip reads it. The graph deliberately
     # never sees it — working metadata is graph state, and every node returns
@@ -1370,8 +1400,15 @@ async def _persist_answer(
     # nobody can put back.
     session.cost_source = combine_sources([session.cost_source, cost_source])
     session.paid_by = _combine_payers(session.paid_by, paid_by)
+    # The history list reads these two. A turn that named no worker leaves
+    # `last_agent` as it was: the conversation's last delegate is still the
+    # right label for a chat that did not delegate this time.
+    session.awaiting_approval = bool(result.awaiting_approval)
+    if worker := _worker_name(metadata):
+        session.last_agent = worker[:120]
     await session.asave(update_fields=[
         "total_tokens_used", "total_cost_usd", "cost_source", "paid_by",
+        "awaiting_approval", "last_agent",
     ])
 
     try:

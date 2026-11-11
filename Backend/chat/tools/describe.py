@@ -49,6 +49,8 @@ import logging
 import re
 from typing import Any, Mapping
 
+from .registry import action_label_of, effect_of, external_of
+
 logger = logging.getLogger(__name__)
 
 #: How many argument rows a person will actually read before clicking. The cap
@@ -294,6 +296,14 @@ def describe_call(
         'server': server,
         'tool': tool,
         'fields': _fields(args),
+        # What the call does, from the registry. An MCP name is never
+        # registered, so it reads as irreversible and leaving the workspace.
+        # `first_contact` needs this user's history, so the sync renderer says
+        # False and `describe_call_async` fills it in.
+        'effect': effect_of(raw_name),
+        'leaves_workspace': external_of(raw_name),
+        'first_contact': False,
+        'action_label': action_label_of(raw_name),
     }
 
 
@@ -330,6 +340,13 @@ async def _describe_worker_request(args: Mapping[str, Any]) -> dict[str, Any] | 
         'server': worker.get('server', ''),
         'tool': str(ctx.get('tool') or 'answer_subagent'),
         'fields': list(worker.get('fields') or []),
+        # The worker's own call is what is being decided, so its declared
+        # properties are the ones the card needs. A pause from before these
+        # keys existed reads as the cautious default.
+        'effect': worker.get('effect', 'irreversible'),
+        'leaves_workspace': bool(worker.get('leaves_workspace', True)),
+        'first_contact': bool(worker.get('first_contact', False)),
+        'action_label': worker.get('action_label') or 'Approve',
     }
 
 
@@ -395,6 +412,28 @@ async def _describe_delegation(
     return described
 
 
+async def _with_first_contact(
+    described: dict[str, Any], name: str, args: Mapping[str, Any] | None,
+    user_id: int | None,
+) -> dict[str, Any]:
+    """Set `first_contact` from this user's sends, for a call that leaves.
+
+    Only a call that leaves the workspace can be a first contact, so every
+    other card keeps the False the sync renderer gave it. The check reuses the
+    reviewer's recipient rule (`chat.turn.reviewer.first_contact`) and never
+    raises; the card still renders without it.
+    """
+    if not external_of(name) or not isinstance(args, Mapping):
+        return described
+    try:
+        from chat.turn.reviewer import first_contact
+
+        described['first_contact'] = await first_contact(user_id, dict(args))
+    except Exception:  # noqa: BLE001 - the card works without the badge
+        logger.warning('[Describe] Could not check first contact for %s', name)
+    return described
+
+
 async def describe_call_async(
     name: str, args: Mapping[str, Any] | None = None, *, label: str = '',
     user_id: int | None = None,
@@ -414,7 +453,8 @@ async def describe_call_async(
 
     if name in _DELEGATION_TOOLS and not label and isinstance(args, Mapping):
         try:
-            return await _describe_delegation(name, args, user_id)
+            described = await _describe_delegation(name, args, user_id)
+            return await _with_first_contact(described, name, args, user_id)
         except Exception:  # noqa: BLE001 — fall back to the generic card
             logger.warning('[Describe] Could not describe the delegation %s', name)
 
@@ -428,4 +468,5 @@ async def describe_call_async(
     except Exception:  # noqa: BLE001
         logger.warning('[Describe] Could not name the connection behind %s', name)
 
-    return describe_call(name, args, server=server, label=label)
+    described = describe_call(name, args, server=server, label=label)
+    return await _with_first_contact(described, name, args, user_id)

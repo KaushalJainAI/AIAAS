@@ -16,6 +16,9 @@ urlpatterns = [
     path('insights/costs/', views.cost_breakdown, name='cost_breakdown'),
     path('insights/overview/', views.insights_overview, name='insights_overview'),
 
+    # Month-to-date spend, in the unit the spend cap is enforced in.
+    path('spend/summary/', views.spend_summary, name='spend_summary'),
+
     # Execution history
     path('executions/', views.execution_list, name='execution_list'),
     # Before `<str:execution_id>/`: the converter would swallow this segment.

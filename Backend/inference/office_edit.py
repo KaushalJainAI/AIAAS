@@ -175,7 +175,7 @@ class DraftSuperseded(Exception):
 
 def replace_bytes(doc: Document, data: bytes, *, text: str | None = None,
                   spec: dict | None = None, version_source: str | None = 'app',
-                  render_of: str | None = None) -> Document:
+                  render_of: str | None = None, author: dict | None = None) -> Document:
     """Swap the stored file for `data`; drop the old bytes once the row commits.
 
     What the file held is kept as a version first (`inference/versions.py`);
@@ -222,6 +222,10 @@ def replace_bytes(doc: Document, data: bytes, *, text: str | None = None,
                 metadata.pop(key, None)
             if spec is not None:
                 metadata['spec'] = spec
+            if author:
+                # An agent's overwrite names the agent. A person's edit passes
+                # no author and leaves whoever wrote the file last in place.
+                metadata['author'] = dict(author)
             if metadata != (doc.metadata or {}):
                 doc.metadata = metadata
                 fields.append('metadata')
@@ -250,7 +254,8 @@ def replace_bytes(doc: Document, data: bytes, *, text: str | None = None,
     return doc
 
 
-def save_text(doc: Document, content: str, *, version_source: str = 'app') -> Document:
+def save_text(doc: Document, content: str, *, version_source: str = 'app',
+              author: dict | None = None) -> Document:
     """A text file's new contents, written to *both* places a reader looks.
 
     An uploaded `.md` keeps its bytes in `file`, and `document_download` serves
@@ -259,7 +264,7 @@ def save_text(doc: Document, content: str, *, version_source: str = 'app') -> Do
     """
     if doc.file:
         return replace_bytes(doc, content.encode('utf-8'), text=content,
-                             version_source=version_source)
+                             version_source=version_source, author=author)
     from . import versions
 
     versions.snapshot(doc, version_source)
@@ -269,6 +274,8 @@ def save_text(doc: Document, content: str, *, version_source: str = 'app') -> Do
     metadata = dict(doc.metadata or {})
     for key in ('draft', 'draft_error', 'last_render'):
         metadata.pop(key, None)
+    if author:
+        metadata['author'] = dict(author)
     if metadata != (doc.metadata or {}):
         doc.metadata = metadata
         fields.append('metadata')
@@ -395,7 +402,7 @@ def _images_for(doc: Document, paths: list[str]) -> dict[str, bytes]:
 
 
 def edit_spec(doc: Document, raw: Any, *, version_source: str = 'app',
-              render_of: str | None = None) -> Document:
+              render_of: str | None = None, author: dict | None = None) -> Document:
     from office import deck, document
     from office.spec import SpecError
 
@@ -418,7 +425,8 @@ def edit_spec(doc: Document, raw: Any, *, version_source: str = 'app',
                                   'theme': theme, 'slides': raw.get('slides')})
             data = deck.render(spec, _images_for(doc, deck.image_paths(spec)))
             return replace_bytes(doc, data, text=deck.extract_text(spec), spec=deck.preview(spec),
-                                 version_source=version_source, render_of=render_of)
+                                 version_source=version_source, render_of=render_of,
+                                 author=author)
 
         spec = document.validate({
             'title': raw.get('title', stored.get('title')),
@@ -429,7 +437,7 @@ def edit_spec(doc: Document, raw: Any, *, version_source: str = 'app',
         data = document.render(spec, _images_for(doc, document.image_paths(spec)))
         return replace_bytes(doc, data, text=document.extract_text(spec),
                              spec=document.preview(spec), version_source=version_source,
-                             render_of=render_of)
+                             render_of=render_of, author=author)
     except SpecError as exc:
         raise EditError(str(exc)) from exc
 
@@ -522,7 +530,9 @@ def copy(doc: Document, folder) -> Document:
     clone = Document(
         user=doc.user, folder=folder, name=name, file_type=doc.file_type,
         file_size=doc.file_size, content_text=doc.content_text, status='stored',
-        metadata={**(doc.metadata or {}), 'copied_from': doc.id},
+        # The copier is the author of the copy, not whoever wrote the original.
+        metadata={**{k: v for k, v in (doc.metadata or {}).items() if k != 'author'},
+                  'copied_from': doc.id},
     )
     if doc.file:
         clone.file.save(name, ContentFile(_read_bytes(doc)), save=False)
