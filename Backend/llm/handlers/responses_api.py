@@ -39,6 +39,7 @@ import httpx
 from asgiref.sync import sync_to_async
 
 from llm import chatgpt_plan
+from llm.citations import normalize_citations
 from workflow_backend.httpclient import shared_client
 
 from .base import NodeExecutionResult
@@ -224,6 +225,17 @@ class ResponsesStreamParser:
         if kind == 'response.output_text.delta':
             if delta := event.get('delta'):
                 yield {'type': 'content', 'content': delta}
+
+        elif kind in ('response.output_text.annotation.added',
+                      'response.output_text.annotation.done'):
+            # The web-search citation. Each event carries one annotation with
+            # `url`/`title` flat on it, sometimes nested under `url_citation`;
+            # `llm.citations` reads both. Emitted as it arrives rather than
+            # held to the end, so a source panel fills while the answer is
+            # still streaming.
+            annotation = event.get('annotation')
+            if citations := normalize_citations(annotation):
+                yield {'type': 'citations', 'citations': citations}
 
         elif kind in ('response.reasoning_summary_text.delta',
                       'response.reasoning_text.delta'):

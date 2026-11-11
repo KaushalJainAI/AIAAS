@@ -15,8 +15,9 @@
  * use this component instead, or raw `**bold**` and `# titles` leak through.
  */
 
-import { memo, useMemo, type ReactNode } from 'react';
+import { memo, useId, useMemo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { PluggableList } from 'unified';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { Copy, ExternalLink, FileText, Globe2, Image as ImageIcon } from 'lucide-react';
@@ -24,12 +25,29 @@ import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { documentsHrefFor, linkablePath } from '../../lib/vfsPath';
 import { languageFor } from '../../lib/codeLanguage';
+import { isSafeExternalUrl } from '../../lib/safeUrl';
+import { citationUrlTransform, remarkCitations } from '../../lib/remarkCitations';
+import { remarkCodeFence } from '../../lib/remarkCodeFence';
+import { rehypeUniqueIds } from '../../lib/rehypeUniqueIds';
+import { looksLikeMath, normalizeMathDelimiters } from '../../lib/markdownMath';
+import { healStreamingTail } from '../../lib/streamHeal';
+import { insertSourceMarkers } from '../../lib/sourceSpans';
+import { copyText } from '../../lib/clipboard';
+import { stripAnsi } from '../../lib/ansi';
+import { useMarkdownMath } from '../../hooks/useMarkdownMath';
 import CodeView from '../files/CodeView';
 import { useFilePreview } from '../files/filePreviewState';
 
 export interface MarkdownSource {
   url: string;
   title?: string;
+  /**
+   * Character offsets into the answer for the sentence this source supports.
+   * Set only by providers that report spans (OpenAI annotations, Gemini
+   * grounding) — the model wrote no marker of its own in those answers.
+   */
+  start?: number;
+  end?: number;
 }
 
 /** `compact` is the docked side panel; `full` is the main chat column. */
@@ -37,13 +55,17 @@ export type MarkdownVariant = 'compact' | 'full';
 
 interface MarkdownMessageProps {
   content: string;
+  /** Web results this answer cites; a `[n]` marker resolves against this list. */
   sources?: MarkdownSource[];
   variant?: MarkdownVariant;
   className?: string;
+  /**
+   * The answer is still arriving. Maths is not rendered until it settles:
+   * re-typesetting KaTeX on every delta is the most expensive thing this
+   * renderer can do, and half a `$$` block is noise.
+   */
+  streaming?: boolean;
 }
-
-/** Bare `[1]` references become links the citation renderer can pick up. */
-const CITATION_PATTERN = /\[(\d+)\]/g;
 
 function hostnameOf(url: string): string {
   try {
@@ -70,6 +92,12 @@ const CARD_STYLES: Record<MarkdownVariant, string> = {
  *
  * Built from spans, not divs: this renders inside a markdown paragraph, where
  * block-level children are invalid HTML and get reparented by the browser.
+ *
+ * The source URL is checked before it reaches the `href`. react-markdown's
+ * URL sanitizer does not run over links this component draws itself — it only
+ * rewrites `href` on the elements it renders — so a `javascript:` URL from a
+ * search result would otherwise be one click away. `lib/safeUrl.ts` refuses
+ * anything that is not http(s).
  */
 function Citation({
   index,
@@ -80,14 +108,16 @@ function Citation({
   source?: MarkdownSource;
   variant: MarkdownVariant;
 }) {
+  const url = isSafeExternalUrl(source?.url) ? source!.url : '';
+
   return (
     <span className="relative inline-block group/cit z-20 mx-0.5 align-text-top">
       <a
-        href={source?.url || '#'}
+        href={url || '#'}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => {
-          if (!source?.url) e.preventDefault();
+          if (!url) e.preventDefault();
         }}
         className={cn(
           'inline-flex items-center justify-center px-1 font-semibold rounded border border-primary/30 no-underline cursor-pointer transition-all bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground shadow-sm',
@@ -125,7 +155,10 @@ function Citation({
  * forty-line one they are how a person says "line 23 is wrong".
  */
 function CodeBlock({ tag, children }: { tag: string; children: ReactNode }) {
-  const text = String(children).replace(/\n$/, '');
+  // Shell and test output arrives with ANSI colour codes. They are invisible in
+  // a terminal but print as `[31m` here, break the highlighter's tokenizing,
+  // and get pasted into the reader's editor.
+  const text = stripAnsi(String(children)).replace(/\n$/, '');
   const lines = text.split('\n').length;
 
   return (
@@ -137,9 +170,11 @@ function CodeBlock({ tag, children }: { tag: string; children: ReactNode }) {
           </span>
         </div>
         <button
-          onClick={() => {
-            navigator.clipboard.writeText(text);
-            toast.success('Code copied to clipboard');
+          onClick={async () => {
+            // `navigator.clipboard` is absent on a plain-http origin; the
+            // helper falls back instead of throwing, and reports what happened.
+            if (await copyText(text)) toast.success('Code copied to clipboard');
+            else toast.error('Could not copy to the clipboard');
           }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
           title="Copy code"
@@ -244,13 +279,68 @@ function MarkdownMessage({
   sources,
   variant = 'full',
   className,
+  streaming = false,
 }: MarkdownMessageProps) {
+  // Maths after the answer settles: KaTeX is the most expensive thing this
+  // renderer does, and a half-received `$$` block is noise while streaming.
+  const wantsMath = !streaming && looksLikeMath(content);
+  const math = useMarkdownMath(wantsMath);
+  // Provider-reported spans become markers before parsing, by position rather
+  // than by scanning, so nothing inside code can be rewritten.
+  const source = useMemo(() => {
+    const marked = insertSourceMarkers(content, sources);
+    // While the answer arrives, the last block is not valid markdown yet:
+    // `**bold` with no closer renders its asterisks. Display-only repair, on
+    // the tail alone — the settled blocks are exactly what the model sent.
+    return streaming ? healStreamingTail(marked) : marked;
+  }, [content, sources, streaming]);
+  const markdown = useMemo(
+    () => (wantsMath ? normalizeMathDelimiters(source) : source),
+    [source, wantsMath],
+  );
+
+  // Footnote ids must be unique per message: `remark-gfm` numbers them per
+  // document, and a transcript is many documents on one page. React's `useId`
+  // is stable across renders and unique per instance; the colons it emits are
+  // legal in an id but awkward in a selector, so they are stripped.
+  const scope = `fn${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+
+  // Memoised because react-markdown v10 keys its parse effect on the *identity*
+  // of these arrays. A fresh literal per render re-parsed every message in the
+  // transcript on any parent re-render — including every keystroke elsewhere on
+  // the page. It also keeps the scope above from changing under the parse.
+  const remarkPlugins: PluggableList = useMemo(
+    () => [
+      remarkGfm,
+      [remarkCitations, { sources: sources?.length ?? 0 }],
+      // Before anything reads `className`: a fence with no info string would
+      // otherwise render as an inline code span.
+      remarkCodeFence,
+      ...math.remark,
+    ],
+    [sources?.length, math.remark],
+  );
+
+  const rehypePlugins: PluggableList = useMemo(
+    () => [[rehypeUniqueIds, { prefix: scope }], ...math.rehype],
+    [scope, math.rehype],
+  );
+
   const components = useMemo(
     () => ({
       a: ({ node: _node, href, children, ...props }: AnchorProps) => {
         if (href?.startsWith('citation:')) {
           const index = parseInt(href.split(':')[1], 10);
           return <Citation index={index} source={sources?.[index - 1]} variant={variant} />;
+        }
+        // Footnotes and in-page anchors point inside this page. Giving them the
+        // external-link treatment promised a new tab that never opens.
+        if (href?.startsWith('#')) {
+          return (
+            <a href={href} className="text-primary no-underline hover:underline" {...props}>
+              {children}
+            </a>
+          );
         }
         if (variant === 'compact') {
           return (
@@ -387,15 +477,31 @@ function MarkdownMessage({
     [sources, variant],
   );
 
-  const withCitations = useMemo(
-    () => content.replace(CITATION_PATTERN, '[$1](citation:$1)'),
-    [content],
-  );
-
   return (
-    <div className={className}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {withCitations}
+    // `dir="auto"` lets each message pick its own direction from its first
+    // strong character, so an Arabic or Hebrew answer is not laid out
+    // right-to-left only by accident of the page's locale.
+    <div className={className} dir="auto">
+      {/*
+        `remarkCitations` turns a reference in prose into a link the anchor
+        override below draws as a pill. It runs on the parsed tree, so the
+        bracketed numbers inside code blocks are left alone — a rewrite over
+        the raw string turned `grid[0]` into `grid[0](citation:0)`.
+        `citationUrlTransform` keeps the `citation:` scheme out of
+        react-markdown's URL sanitizer, which would otherwise blank the href
+        and leave the pill with nowhere to point.
+
+        `sources?.length` bounds the markers: `[3]` in an answer with two
+        sources stays a literal `[3]` rather than becoming a pill that opens
+        nothing.
+      */}
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        urlTransform={citationUrlTransform}
+        components={components}
+      >
+        {markdown}
       </ReactMarkdown>
     </div>
   );

@@ -43,6 +43,7 @@ import remarkGfm from 'remark-gfm';
 import { chatService, type StandaloneChatMessage as ChatMessage, type ChatSession } from '../../api';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
+import { copyText } from '../../lib/clipboard';
 import { dismissNudges } from '../../lib/nudgeToasts';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { MediaPreview } from './MediaPreview';
@@ -1871,9 +1872,18 @@ export default function StandaloneChat() {
                     togglePanel={togglePanel}
                     confirmBusy={confirmBusy}
                     onCopy={() => {
-                      navigator.clipboard.writeText(message.content);
-                      setCopiedId(`msg-${index}`);
-                      setTimeout(() => setCopiedId(null), 2000);
+                      // `message.content` is the markdown source, not the
+                      // rendered text: pasting a table or a fence into an editor
+                      // should keep its structure. `copyText` handles the origin
+                      // that has no `navigator.clipboard`.
+                      void copyText(message.content).then((copied) => {
+                        if (!copied) {
+                          toast.error('Could not copy to the clipboard');
+                          return;
+                        }
+                        setCopiedId(`msg-${index}`);
+                        setTimeout(() => setCopiedId(null), 2000);
+                      });
                     }}
                     onSpeak={(messageId, text) => speech.toggle(messageId, text)}
                     onDelete={handleDeleteMessage}
@@ -1989,7 +1999,7 @@ export default function StandaloneChat() {
                             across the handoff, it does not arrive at it. */}
                         {live.content && (
                           <div className="prose prose-base dark:prose-invert max-w-none ai-chat-prose break-words min-w-0 text-[16px] leading-[1.75] text-foreground">
-                            <MarkdownMessage content={streamedContent} sources={live.sources} />
+                            <MarkdownMessage content={streamedContent} sources={live.sources} streaming={isLoading} />
                           </div>
                         )}
 

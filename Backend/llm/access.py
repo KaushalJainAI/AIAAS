@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Iterable
 
 from . import budget, chatgpt_plan, credits, effort as effort_levels
+from .citations import merge_sources
 from .providers import PROVIDER_LABELS, SUPPORTED_PROVIDERS
 from .usage import DEFAULT_CONVENTION, EMPTY_USAGE, TokenUsage
 from .usage import normalize as normalize_usage
@@ -524,6 +525,11 @@ class Completion:
     #: that failure. Chat shows the sentence; an agent run must record a failed
     #: run instead of a completed one whose answer is the error.
     error: str = ""
+    #: Sources the provider itself cited — Perplexity's `citations` array,
+    #: OpenAI/Gemini annotations, Anthropic's citation blocks. Normalised by
+    #: `llm.citations` to `{url, title, …}`. Empty for providers that cite
+    #: nothing, which is most of them.
+    citations: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(slots=True)
@@ -826,6 +832,7 @@ async def complete(
         executed_tools=tuple(executed),
         usage=usage,
         tokens=usage.total,
+        citations=tuple(merge_sources((), data.get("citations") or ())),
         media_url=data.get("media_url"),
     )
 
@@ -896,6 +903,10 @@ class StreamAccumulator:
     error: str | None = None
     #: HTTP status behind `error`, when the provider gave one.
     error_status: int | None = None
+    #: Sources the provider cited, deduped across frames. Providers send these
+    #: once at the end (Perplexity) or one annotation at a time (Responses), so
+    #: folding is `merge_sources` rather than an append per frame.
+    citations: list[dict[str, Any]] = field(default_factory=list)
     _partial_calls: dict[int, dict[str, Any]] = field(default_factory=dict)
 
     def add(self, chunk: dict[str, Any]) -> str:
@@ -922,6 +933,10 @@ class StreamAccumulator:
             case "error":
                 self.error = chunk.get("message") or "Unknown provider error"
                 self.error_status = chunk.get("status")
+            case "citations":
+                self.citations = merge_sources(
+                    self.citations, chunk.get("citations") or ()
+                )
 
         return kind
 
@@ -974,4 +989,5 @@ class StreamAccumulator:
             tool_calls=to_tool_calls(ordered),
             usage=self.usage,
             tokens=self.usage.total,
+            citations=tuple(self.citations),
         )

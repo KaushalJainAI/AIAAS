@@ -148,6 +148,12 @@ export interface ChatSource {
   /** Two spellings arrive from different search backends; the UI reads both. */
   publisher?: string;
   source?: string;
+  /**
+   * Character offsets into the answer for the cited sentence, when the provider
+   * reported a span instead of writing a marker (`llm/citations.py`).
+   */
+  start?: number;
+  end?: number;
 }
 
 export interface ToolTraceEntry {

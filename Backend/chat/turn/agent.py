@@ -47,6 +47,7 @@ from asgiref.sync import sync_to_async
 from decimal import Decimal
 
 from llm import access as llm
+from llm.citations import merge_sources, resolve_citation_spans
 from llm.usage import EMPTY_USAGE, TokenUsage
 from . import checkpoints, pace, prompts, todos
 from .events import Event, EventSink, null_sink
@@ -1016,9 +1017,29 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
                 usage=completion.usage + again.usage,
                 tokens=completion.tokens + again.tokens,
                 error=again.error,
+                # Both calls' sources: the retry usually cites the same pages,
+                # and `merge_sources` collapses those rather than repeating them.
+                citations=tuple(merge_sources(completion.citations, again.citations)),
             )
         if content.strip():
             empty_reason = ""
+
+    # Sources the provider cited itself — Perplexity's `citations` array, OpenAI
+    # and Gemini annotations. They ride on the model call rather than on a tool
+    # result, so nothing before this put them in `meta["sources"]` and a `[1]`
+    # in such an answer resolved to no source at all. Appending (never
+    # interleaving) keeps the numbering the prompt gave the model intact when a
+    # web_search result is already in the list.
+    meta = dict(state.get("metadata", {}))
+    if completion.citations:
+        # Spans are resolved against the text that is actually being saved:
+        # OpenAI's are character offsets, Gemini's are UTF-8 byte offsets, and
+        # both are only checkable once the answer is whole.
+        cites = resolve_citation_spans(completion.citations, content)
+        merged = merge_sources(meta.get("sources") or (), cites)
+        if merged != (meta.get("sources") or []):
+            meta["sources"] = merged
+            await turn.sink(Event.SOURCES_UPDATE, {"sources": merged})
 
     message = AIMessage(
         content=content,
@@ -1062,6 +1083,9 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         "usage": state.get("usage", EMPTY_USAGE) + completion.usage,
         "provider_error": completion.error,
         "empty_reason": empty_reason,
+        # Carried explicitly: `meta` is a copy, so an update that omitted it
+        # would leave the old dict in state and silently drop the merge.
+        "metadata": meta,
     }
 
 

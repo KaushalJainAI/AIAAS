@@ -213,11 +213,36 @@ class ChatChunkParserTests(SimpleTestCase):
         [frame] = self._events(parser, {"choices": [], "usage": {"total_tokens": 1}})
         self.assertEqual(frame["usage_convention"], "exclusive")
 
-    def test_citations_are_forwarded(self):
-        self.assertEqual(
-            self._events(ChatChunkParser(), {"choices": [], "citations": ["u"]}),
-            [{"type": "citations", "citations": ["u"]}],
+    def test_citations_are_forwarded_as_source_records(self):
+        """Perplexity's array is bare URLs; the UI needs `{url, title, …}`.
+
+        Forwarding the raw list was the old behaviour, and it put a list of
+        strings in a frame the renderer reads as objects.
+        """
+        [frame] = self._events(
+            ChatChunkParser(),
+            {"choices": [], "citations": ["https://example.com/a"]},
         )
+        self.assertEqual(frame["type"], "citations")
+        self.assertEqual(frame["citations"][0]["url"], "https://example.com/a")
+        self.assertEqual(frame["citations"][0]["title"], "example.com")
+
+    def test_an_unusable_citation_emits_no_frame(self):
+        """A `javascript:` URL must not reach the renderer at all."""
+        self.assertEqual(
+            self._events(ChatChunkParser(), {"choices": [], "citations": ["javascript:alert(1)"]}),
+            [],
+        )
+
+    def test_gemini_grounding_becomes_sources(self):
+        chunk = {
+            "candidates": [{"groundingMetadata": {"groundingChunks": [
+                {"web": {"uri": "https://b.example/x", "title": "B"}},
+            ]}}],
+        }
+        [frame] = self._events(ChatChunkParser(), chunk)
+        self.assertEqual(frame["citations"][0]["url"], "https://b.example/x")
+        self.assertEqual(frame["citations"][0]["title"], "B")
 
     def test_non_streaming_message_shape(self):
         """Some proxies deliver a whole message instead of a delta."""

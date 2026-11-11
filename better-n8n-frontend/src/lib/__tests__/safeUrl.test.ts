@@ -25,4 +25,11 @@ describe('isSafeExternalUrl', () => {
     expect(isSafeExternalUrl(null)).toBe(false);
     expect(isSafeExternalUrl('example.com')).toBe(false);
   });
+
+  it('refuses a URL carrying a bidirectional override', () => {
+    // `https://example.com/\u202Emoc.elpmaxe//:sptth` reads as `https://…`
+    // while the browser navigates to example.com — Trojan Source on a link.
+    expect(isSafeExternalUrl('https://example.com/\u202Emoc.liamg')).toBe(false);
+    expect(isSafeExternalUrl('https://exa\u200Bmple.com')).toBe(false);
+  });
 });

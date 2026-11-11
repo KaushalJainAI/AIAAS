@@ -39,6 +39,7 @@ from typing import Any, AsyncIterator, Iterator, Sequence
 import httpx
 
 from ..usage import DEFAULT_CONVENTION
+from ..citations import normalize_citations
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +276,27 @@ def _stream_error_status(error: Any) -> int | None:
     return None
 
 
+def _grounding_metadata(chunk: dict[str, Any]) -> Any:
+    """Gemini's grounding payload, wherever this frame put it.
+
+    Google's own endpoint hangs it off `candidates[]`; proxies that speak the
+    OpenAI shape sometimes pass it through on `choices[]` instead. Both are
+    looked at because which one arrives depends on the base URL, not on us.
+    """
+    for container in (
+        chunk,
+        *(chunk.get("choices") or ()),
+        *(chunk.get("candidates") or ()),
+    ):
+        if not isinstance(container, dict):
+            continue
+        for key in ("groundingMetadata", "grounding_metadata"):
+            meta = container.get(key)
+            if meta:
+                return meta
+    return None
+
+
 class ChatChunkParser:
     """
     Turns OpenAI-compatible stream chunks into the node event dicts the
@@ -360,8 +382,19 @@ class ChatChunkParser:
                 "usage_convention": self.usage_convention,
             }
 
-        if chunk.get("citations"):
-            yield {"type": "citations", "citations": chunk["citations"]}
+        # Normalised here rather than at the consumer: a `citations` frame is
+        # one provider's array of URLs for Perplexity and xAI, a list of
+        # annotation objects for others, and a Gemini grounding payload is
+        # neither. `llm.citations` is the one place that knows all three, so
+        # every handler's citation frame arrives with the same shape.
+        if (citations := normalize_citations(chunk.get("citations"))):
+            yield {"type": "citations", "citations": citations}
+
+        # Gemini reports grounding out of band, on the candidate rather than in
+        # the delta, so it never appears under the `citations` key above.
+        if (grounding := _grounding_metadata(chunk)):
+            if (citations := normalize_citations(grounding)):
+                yield {"type": "citations", "citations": citations}
 
     def flush(self) -> Iterator[dict[str, Any]]:
         """

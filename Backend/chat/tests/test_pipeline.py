@@ -207,6 +207,32 @@ class ChatTurnTests(TestCase):
         self.assertEqual(outcome.assistant_message.metadata["sources"][0]["url"],
                          "http://a")
 
+    def test_provider_citations_become_the_turn_s_sources(self):
+        """A Perplexity-style `citations` frame is the source list.
+
+        This frame used to reach `StreamAccumulator` and stop there: nothing
+        read it, so a `[1]` in a Perplexity answer pointed at no source and the
+        sources panel stayed empty on a turn that plainly cited things.
+        """
+        recorder = Recorder()
+
+        async def cited(**_kwargs):
+            yield {"type": "content", "content": "Team A won [1]."}
+            yield {"type": "citations", "citations": [
+                {"url": "https://a.example/1", "title": "A"},
+            ]}
+
+        with patch("llm.access.stream", cited):
+            outcome = self._run("who won", recorder)
+
+        self.assertEqual(
+            recorder.of(Event.SOURCES_UPDATE)[-1]["sources"][0]["url"],
+            "https://a.example/1",
+        )
+        self.assertEqual(
+            outcome.assistant_message.metadata["sources"][0]["title"], "A"
+        )
+
     def test_tool_preamble_is_retracted_from_the_live_buffer(self):
         # A model that says "let me look that up" before calling a tool must not
         # leave that text sitting in the UI as though it were the answer.

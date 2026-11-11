@@ -213,6 +213,35 @@ class StreamTests(SimpleTestCase):
         self.assertEqual([c.id for c in calls], ['call_a', 'call_b'])
         self.assertEqual(calls[0].arguments, {'query': 'report'})
 
+    def test_a_web_search_annotation_becomes_a_source(self):
+        """Responses reports citations as annotation events, not `citations`.
+
+        They were dropped entirely: the parser had no branch for them, so a
+        web-search answer arrived with no sources at all.
+        """
+        folded, _ = _run([
+            {'type': 'response.output_text.delta', 'delta': 'See [1].'},
+            {'type': 'response.output_text.annotation.added', 'annotation': {
+                'type': 'url_citation',
+                'url': 'https://example.com/report',
+                'title': 'The report',
+                'start_index': 4,
+                'end_index': 7,
+            }},
+            {'type': 'response.completed', 'response': {'usage': {'input_tokens': 5, 'output_tokens': 5}}},
+        ])
+        [source] = folded.finish().citations
+        self.assertEqual(source['url'], 'https://example.com/report')
+        self.assertEqual(source['title'], 'The report')
+
+    def test_an_annotation_with_an_unsafe_url_is_ignored(self):
+        folded, _ = _run([
+            {'type': 'response.output_text.annotation.added', 'annotation': {
+                'type': 'url_citation', 'url': 'javascript:alert(1)'}},
+            {'type': 'response.completed', 'response': {'usage': {'input_tokens': 5, 'output_tokens': 5}}},
+        ])
+        self.assertEqual(folded.finish().citations, ())
+
     def test_reasoning_is_only_emitted_when_thinking_was_asked_for(self):
         events = [{'type': 'response.reasoning_summary_text.delta', 'delta': 'hmm'}, *TEXT]
         self.assertEqual(_run(events)[0].thinking, '')

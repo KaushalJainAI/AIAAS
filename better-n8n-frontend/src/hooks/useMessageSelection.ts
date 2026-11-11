@@ -10,6 +10,8 @@
 
 import { useCallback, useMemo, useState } from 'react';
 
+import { copyText } from '../lib/clipboard';
+
 export interface SelectionAnchor {
   x: number;
   y: number;
@@ -64,7 +66,10 @@ export function useMessageSelection() {
   }, []);
 
   const copySelection = useCallback(() => {
-    navigator.clipboard.writeText(selectedText);
+    // Same fallback as the code-block button: `navigator.clipboard` does not
+    // exist on a plain-http origin, where this call used to throw silently and
+    // leave the menu looking like it had worked.
+    void copyText(selectedText);
     setAnchor(null);
     window.getSelection()?.removeAllRanges();
   }, [selectedText]);
