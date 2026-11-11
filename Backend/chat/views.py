@@ -19,6 +19,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.decorators import (
     api_view as sync_api_view,
     parser_classes,
@@ -69,25 +70,60 @@ logger = logging.getLogger(__name__)
 
 # ── Sessions ─────────────────────────────────────────────────────────────────
 
+class NotInOrganisation(APIException):
+    """A chat asked to start in an org the caller is not in.
+
+    Unknown and foreign ids produce this same answer, so the response cannot
+    be used to find out which org ids exist.
+    """
+    status_code = 400
+    default_detail = 'You are not in that organisation.'
+    default_code = 'not_in_organisation'
+
+
+def _requested_org_id(value):
+    """An org id from the request, or None when it is not one."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
 def _org_fields(user, data) -> dict:
     """The org a new chat belongs to, and its starting share setting.
 
-    Taken from the owner's *active* org at creation and never again, so the
-    chat's solutions have one fixed home (`solutions/`). An explicit
-    `share_solutions` on the request wins over the org's default. A failed
-    read means a personal chat — never an org the user may not be in.
+    Three cases. An `org` key naming an org the user is in starts the chat in
+    that org; `null` makes a personal chat; no `org` key takes the owner's
+    *active* org, as before. Membership is read live (`core.orgs.is_member`),
+    and an org the user is not in is refused rather than quietly replaced by
+    the active one. The chat's org is fixed here at creation and never again,
+    so its solutions have one home (`solutions/`). An explicit
+    `share_solutions` wins over the org's default. A failed read of the
+    active org means a personal chat — never an org the user may not be in.
     """
-    try:
-        from core import orgs
-        from core.models import Organization
+    from core import orgs
+    from core.models import Organization
 
-        org_id = orgs.active_org_id(user)
-        if not org_id:
-            return {'org': None, 'share_solutions': False}
-        org = Organization.objects.get(id=org_id)
-    except Exception:  # noqa: BLE001
-        return {'org': None, 'share_solutions': False}
     share = data.get('share_solutions')
+    if 'org' in data:
+        raw = data.get('org')
+        if raw is None:
+            return {'org': None, 'share_solutions': False}
+        org_id = _requested_org_id(raw)
+        if org_id is None or not orgs.is_member(user.id, org_id):
+            raise NotInOrganisation()
+        org = Organization.objects.get(id=org_id)
+    else:
+        try:
+            org_id = orgs.active_org_id(user)
+            if not org_id:
+                return {'org': None, 'share_solutions': False}
+            org = Organization.objects.get(id=org_id)
+        except Exception:  # noqa: BLE001
+            return {'org': None, 'share_solutions': False}
     return {'org': org,
             'share_solutions': org.share_by_default if share is None else bool(share)}
 

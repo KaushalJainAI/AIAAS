@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import nodeService from '../api/nodeService';
 import skillsService from '../api/skills';
+import orgsService from '../api/orgs';
 import toolsService from '../api/tools';
 import { mcpService } from '../api/mcp';
 import agentsService, { type Agent } from '../api/agents';
@@ -415,7 +416,7 @@ const FIELD_TAB: Partial<Record<string, TabId>> = {
   summaryModel: 'behavior', summaryProvider: 'behavior', indexing: 'behavior',
   tools: 'tools', connectors: 'tools', toolScope: 'tools', toolPermissions: 'tools',
   browserDomains: 'tools', delegatesTo: 'tools', skills: 'tools',
-  useEnvironment: 'tools',
+  useEnvironment: 'tools', orgId: 'tools',
   allowUnattended: 'automation', autonomy: 'automation',
   notifyOnHitl: 'automation', spendCapRupees: 'automation',
 };
@@ -541,6 +542,15 @@ export default function AgentBuilder() {
      `effective_enabled` rather than `enabled`: a connection the user has
      switched off on Connections is not one to offer here, because the runtime
      drops it when it resolves the toolbox. */
+  // The user's organisations, for "Team knowledge from". Shares the chat's
+  // `['orgs']` cache entry (same shape), so it is not fetched twice. The server
+  // checks membership again on save and on every run.
+  const { data: orgData } = useQuery({
+    queryKey: ['orgs'],
+    queryFn: orgsService.list,
+  });
+  const myOrgs = orgData?.orgs ?? [];
+
   const { data: connectorOptions = [] } = useQuery({
     queryKey: ['agent-builder', 'connections'],
     queryFn: async () =>
@@ -1313,6 +1323,23 @@ export default function AgentBuilder() {
                   searchPlaceholder="Search skills…"
                   emptyText="None yet — write one in Skills first."
                 />
+              </Knob>
+              <Knob path="orgId" label="Team knowledge from">
+                <Select
+                  value={cfg.orgId == null ? '' : String(cfg.orgId)}
+                  onChange={(v) => set('orgId', v === '' ? null : Number(v))}
+                  placeholder="Personal"
+                  icon={<Layers className="w-4 h-4" />}
+                  options={[
+                    { value: '', label: 'Personal (no team)' },
+                    ...myOrgs.map((o) => ({ value: String(o.id), label: o.name })),
+                  ]}
+                />
+                <p className="mt-1.5 px-2 text-[11px] text-muted-foreground">
+                  Lets scheduled runs find your team’s solutions. It does not
+                  open team knowledge bases to them.
+                  {myOrgs.length === 0 && ' You are not in an organisation yet; join one in Settings first.'}
+                </p>
               </Knob>
               <Knob path="useEnvironment" label="">
                 <Toggle on={cfg.useEnvironment} onChange={(v) => set('useEnvironment', v)}

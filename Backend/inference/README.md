@@ -30,7 +30,7 @@ may be in a KB, independently. Moving a file between folders never re-indexes it
 | `Folder` | A folder. `folder=NULL` on a document means "at the root" (there is no root row) |
 | `Document` | A file: its bytes, extracted text (`content_text`), folder, KB, `deleted_at` if in the bin. `metadata.spec` is the editable structure for office files; `metadata.draft` a parked autosave |
 | `DocumentVersion` | What a file held before an overwrite (bytes/text plus spec), per source coalesced, capped at 25 |
-| `KnowledgeBase` | A searchable set of documents. `backend` says how it is searched |
+| `KnowledgeBase` | A searchable set of documents. `backend` says how it is searched. `org` and `shared_with_org` say whether a team can search it (read-only, from chat) |
 | `DocumentChunk`, `IndexedTerm` | Pieces of documents for vector search, and words for keyword search |
 | `ExtractionSchema`, `ExtractedRow` | "Pull these fields out of these files", and the rows that came out |
 | `PublishedPage` | A snapshot shared by link (`/p/<slug>`) |
@@ -46,6 +46,8 @@ filters them out, so ordinary queries never see the bin.
 |---|---|
 | `views.py`, `urls.py` | Documents, KBs and search over HTTP |
 | `folder_views.py` | The folder tree and the recycle bin over HTTP |
+| `kb_access.py` | The one door for reading a knowledge base on someone else's behalf: your own, or one your team shares with you. Team membership is checked on every call |
+| `kb_views.py` | `/api/inference/knowledge-bases/`: the knowledge bases you may search, and the switch that shares one with a team |
 | `filesystem.py` | Folder lookups and moves. Unknown and not-yours ids both give 404 |
 | `vfs.py` | The AI's file system: list, read, write, edit, find, delete, inside a scope |
 | `recycle.py` | Trash, restore, and the sweep that deletes for good |
@@ -68,6 +70,28 @@ filters them out, so ordinary queries never see the bin.
 | `dashboards.py` | The dashboard spec validator, shared with the `save_dashboard` tool |
 | `importers.py` | Uploaded Word/PowerPoint files converted to editable specs |
 | `previews.py` | Image conversion (TIFF/BMP/HEIC→PNG) and zip listings |
+
+## Sharing a knowledge base with a team
+
+An owner can share one of their knowledge bases, read-only, with an
+organisation they belong to. The rules:
+
+- **Only chat reads it.** A person searching from a chat in that organisation
+  can search and read the shared knowledge base. An agent run cannot: agents
+  read only their owner's own knowledge bases, even when a run was started from
+  a chat in that organisation.
+- **Membership is checked on every read.** Leave the organisation and you lose
+  the knowledge base on your next search.
+- **The owner must still be a member.** If the owner leaves, the share stops
+  for everyone, until the owner is back.
+- **Only the owner changes sharing.** A curator of that organisation may switch
+  sharing off, and nothing else.
+- **Nothing else changes hands.** A member cannot upload into, rename, delete
+  from, or re-index the shared knowledge base.
+- **Hidden eval corpora are never shared, and never listed.**
+
+Who can read is decided in `kb_access.py` each time, never from a stored flag.
+The search engine looks knowledge bases up by id only, so it needed no change.
 
 ## Safety rules
 
@@ -94,4 +118,5 @@ Search design: [`docs/RAG_STRATEGY.md`](../docs/RAG_STRATEGY.md).
 `test_drafts.py`, `test_sheets.py`, `test_formulas.py` (these two test the
 [`office/`](../office/README.md) library the apps save through), `test_import.py`,
 `test_previews.py`, `test_recents.py`, `test_quota.py` (the storage limit, the
-indexing queue, and that deleting a row frees its file).
+indexing queue, and that deleting a row frees its file), `test_kb_sharing.py`
+(who can read a team's knowledge base, and who can change its sharing).

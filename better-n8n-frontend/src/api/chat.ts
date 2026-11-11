@@ -321,6 +321,11 @@ export const chatService = {
     return response.data;
   },
 
+  /**
+   * `org` on `data` picks where the chat starts: an org id the caller is in,
+   * `null` for a personal chat, or left out for the active org. The server
+   * refuses an org the caller is not in with a 400.
+   */
   async createSession(data: Partial<ChatSession>): Promise<ChatSession> {
     const response = await apiClient.post<ChatSession>('/chat/sessions/', data);
     return response.data;

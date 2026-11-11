@@ -39,6 +39,12 @@ const neutral = {
   500: '#808080', 600: '#616161', 700: '#424242', 800: '#303030', 900: '#242424', 950: '#141414',
 };
 
+/* Motion tokens (Fluent): enter decelerates, exit accelerates. Durations are
+   fast 100ms (press/hover), normal 150ms (small UI), slow 220ms (panels). */
+const DECELERATE = 'cubic-bezier(0.1, 0.9, 0.2, 1)';
+const ACCELERATE = 'cubic-bezier(0.9, 0.1, 1, 0.2)';
+const STANDARD = 'cubic-bezier(0.33, 0, 0.67, 1)';
+
 export default {
   darkMode: 'class',
   content: [
@@ -51,6 +57,16 @@ export default {
         sans: ['Segoe UI Variable Text', 'Segoe UI', 'Open Sans', 'system-ui', '-apple-system', 'sans-serif'],
         display: ['Segoe UI Variable Display', 'Segoe UI', 'Open Sans', 'system-ui', 'sans-serif'],
         mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+      transitionTimingFunction: {
+        standard: STANDARD,
+        decelerate: DECELERATE,
+        accelerate: ACCELERATE,
+      },
+      transitionDuration: {
+        fast: '100ms',
+        normal: '150ms',
+        slow: '220ms',
       },
       keyframes: {
         'fade-in': {
@@ -65,6 +81,42 @@ export default {
           from: { opacity: '0', transform: 'scale(0.98)' },
           to: { opacity: '1', transform: 'scale(1)' },
         },
+        'fade-out': {
+          from: { opacity: '1' },
+          to: { opacity: '0' },
+        },
+        'scale-out': {
+          from: { opacity: '1', transform: 'scale(1)' },
+          to: { opacity: '0', transform: 'scale(0.98)' },
+        },
+        'slide-down-out': {
+          from: { opacity: '1', transform: 'translateY(0)' },
+          to: { opacity: '0', transform: 'translateY(6px)' },
+        },
+        /* Side panes and drawers: a short offset with a fade, not a full-width fly-in. */
+        'slide-in-right': {
+          from: { opacity: '0', transform: 'translateX(16px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
+        'slide-out-right': {
+          from: { opacity: '1', transform: 'translateX(0)' },
+          to: { opacity: '0', transform: 'translateX(16px)' },
+        },
+        /* Phone sheets rise from the bottom edge. */
+        'slide-in-bottom': {
+          from: { opacity: '0', transform: 'translateY(24px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'slide-out-bottom': {
+          from: { opacity: '1', transform: 'translateY(0)' },
+          to: { opacity: '0', transform: 'translateY(24px)' },
+        },
+        /* A row that just changed: a brief primary-subtle wash. Paint-only, and
+           deliberately without fill-mode so the row's own background returns after. */
+        flash: {
+          from: { backgroundColor: 'hsl(var(--primary-subtle))' },
+          to: { backgroundColor: 'transparent' },
+        },
         shimmer: {
           '0%': { backgroundPosition: '-200% 0' },
           '100%': { backgroundPosition: '200% 0' },
@@ -76,10 +128,19 @@ export default {
         },
       },
       animation: {
-        /* Fluent motion is short and near-linear; the old 500ms eases read as sluggish. */
-        'fade-in': 'fade-in 0.15s linear',
-        'slide-up': 'slide-up 0.2s cubic-bezier(0.33, 0, 0.67, 1)',
-        'scale-in': 'scale-in 0.15s cubic-bezier(0.33, 0, 0.67, 1)',
+        /* Fluent motion is short and near-linear. Enter decelerates, exit accelerates
+           and runs ~30% shorter. Only opacity and transform move, except `flash`. */
+        'fade-in': `fade-in 150ms ${DECELERATE}`,
+        'slide-up': `slide-up 220ms ${DECELERATE}`,
+        'scale-in': `scale-in 150ms ${DECELERATE}`,
+        'fade-out': `fade-out 100ms ${ACCELERATE} both`,
+        'scale-out': `scale-out 100ms ${ACCELERATE} both`,
+        'slide-down-out': `slide-down-out 100ms ${ACCELERATE} both`,
+        'slide-in-right': `slide-in-right 220ms ${DECELERATE} both`,
+        'slide-out-right': `slide-out-right 150ms ${ACCELERATE} both`,
+        'slide-in-bottom': `slide-in-bottom 220ms ${DECELERATE} both`,
+        'slide-out-bottom': `slide-out-bottom 150ms ${ACCELERATE} both`,
+        flash: `flash 220ms ${STANDARD}`,
         shimmer: 'shimmer 2.5s linear infinite',
         'agent-pulse': 'agent-pulse 1.4s ease-in-out infinite',
       },

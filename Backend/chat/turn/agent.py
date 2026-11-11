@@ -1426,6 +1426,48 @@ async def _on_file(
     await sink(Event.FILES_UPDATE, {"files": files})
 
 
+#: Team solutions kept per turn. The chip lists what was read; three is the
+#: most `search_solutions` returns, so a turn that searches twice still fits.
+SOLUTIONS_KEPT = 5
+
+
+async def _on_solutions(
+    parsed: dict, args: dict, meta: dict, sink: EventSink
+) -> None:
+    """Team solutions the model read this turn, so the answer can show them.
+
+    `search_solutions` returns `{"results": [...]}`; `get_solution` returns one
+    record directly (its `id` at the top). Both shapes are read here. This
+    records what the model *read*, not what it cited, so the UI must not call
+    it "based on". Saved on the message as `metadata.solutions_used`, which is
+    what lets the chip survive a reload and what the thumbs-up credits.
+    """
+    if parsed.get("error"):
+        return
+    rows = parsed.get("results")
+    if rows is None and parsed.get("id"):
+        rows = [parsed]
+
+    used: list = meta.setdefault("solutions_used", [])
+    seen = {u.get("id") for u in used}
+    for row in rows or []:
+        if len(used) >= SOLUTIONS_KEPT:
+            break
+        if not isinstance(row, dict) or row.get("id") is None or row.get("id") in seen:
+            continue
+        used.append({
+            "id": row.get("id"),
+            "problem": str(row.get("problem") or "")[:200],
+            "solved_by": str(row.get("solved_by") or ""),
+            "last_known_true": row.get("last_known_true"),
+            "checks_needed": len(row.get("checks_needed") or []),
+            "doubtful": bool(row.get("doubtful")),
+        })
+        seen.add(row.get("id"))
+
+    await sink(Event.SOLUTIONS_UPDATE, {"solutions": used})
+
+
 async def _on_generated(
     parsed: dict, args: dict, meta: dict, sink: EventSink
 ) -> None:
@@ -1487,6 +1529,8 @@ _SIDE_EFFECTS = {
     "render_document": _on_file,
     "generate_image": _on_generated,
     "ws_read": _on_ws_read,
+    "search_solutions": _on_solutions,
+    "get_solution": _on_solutions,
 }
 
 

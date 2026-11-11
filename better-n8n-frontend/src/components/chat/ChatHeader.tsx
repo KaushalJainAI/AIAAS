@@ -11,6 +11,7 @@
 import { BrainCircuit, Coins, History, Lock, Settings2, Shield, Users } from 'lucide-react';
 
 import type { ChatSession } from '../../api';
+import type { Org } from '../../api/orgs';
 import { costQualifier, describeConversationCost, formatCost } from '../../lib/cost';
 import { cn } from '../../lib/utils';
 import SidebarMenuButton from '../layout/SidebarMenuButton';
@@ -27,6 +28,16 @@ interface ChatHeaderProps {
   onShowSettings: () => void;
   /** The gear button: resets the prompt draft to the saved one, then opens the dialog. */
   onEditSettings: () => void;
+  /**
+   * The orgs the user belongs to. The org picker for a new conversation shows
+   * only when there is at least one; absent or empty, a new chat is simply
+   * started in the active org, as before.
+   */
+  orgs?: Org[];
+  /** The org the next conversation starts in: an org id, or null for personal. */
+  newChatOrgId?: number | null;
+  /** The person picked an org (or Personal) for the conversation they are starting. */
+  onNewChatOrgChange?: (orgId: number | null) => void;
 }
 
 export default function ChatHeader({
@@ -37,7 +48,14 @@ export default function ChatHeader({
   restoring = false,
   onShowSettings,
   onEditSettings,
+  orgs = [],
+  newChatOrgId = null,
+  onNewChatOrgChange,
 }: ChatHeaderProps) {
+  // The picker is for choosing where a conversation starts, so it is shown
+  // only before the conversation exists — after that the org is fixed and the
+  // badge below says where it is.
+  const showOrgPicker = !isGuest && !session && orgs.length > 0 && !!onNewChatOrgChange;
   // A saved conversation shows its title; a new one says so plainly. The
   // "Assistant online" pill this replaces was always green — it checked
   // nothing, so it said nothing.
@@ -77,6 +95,23 @@ export default function ChatHeader({
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2 min-w-0 shrink-0">
+         {showOrgPicker && (
+           <label className="flex items-center gap-1.5 min-w-0 text-[11px] font-semibold text-muted-foreground shrink-0">
+             <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+             <span className="hidden sm:inline">Chat in</span>
+             <select
+               value={newChatOrgId ?? ''}
+               onChange={(e) => onNewChatOrgChange?.(e.target.value === '' ? null : Number(e.target.value))}
+               aria-label="Organisation for this conversation"
+               className="max-w-[9rem] sm:max-w-[12rem] truncate rounded-md border border-border bg-background px-2 py-1 text-[11px] font-semibold text-foreground"
+             >
+               <option value="">Personal</option>
+               {orgs.map((org) => (
+                 <option key={org.id} value={org.id}>{org.name}</option>
+               ))}
+             </select>
+           </label>
+         )}
          {/* Memory state is shown in the header, not buried in the panel:
              with it off the assistant behaves very differently, and a user
              who forgot they switched it off reads that as the model being
@@ -94,22 +129,31 @@ export default function ChatHeader({
              Memory off
            </button>
          )}
-         {/* Whether fixes from this chat reach the organisation. Visible
-             because it is a sharing decision, and a hidden one is how
-             someone shares what they meant to keep. Wider screens only. */}
-         {!isGuest && session?.org && (
-           <button
-             onClick={onShowSettings}
-             title={session.share_solutions
-               ? `Solutions from this chat are shared with ${session.org_name ?? 'your organisation'} — click to change`
-               : 'Solutions from this chat stay private — click to change'}
-             className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border
-                        text-[11px] font-semibold text-muted-foreground hover:bg-secondary shrink-0"
-           >
-             {session.share_solutions ? <Users className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-             {session.share_solutions ? `Sharing with ${session.org_name ?? 'org'}` : 'Private'}
-           </button>
-         )}
+         {/* Which organisation this chat belongs to, and whether its fixes
+             reach it. Visible because it is a sharing decision, and a hidden
+             one is how someone shares what they meant to keep. On phones
+             there is no room for the words, so it is the icon alone, and the
+             organisation's name is in its title and aria-label on every width. */}
+         {!isGuest && session?.org && (() => {
+           const orgName = session.org_name ?? 'your organisation';
+           const label = session.share_solutions
+             ? `Solutions from this chat are shared with ${orgName}`
+             : `Solutions from this chat stay private, in ${orgName}`;
+           return (
+             <button
+               onClick={onShowSettings}
+               title={`${label} — click to change`}
+               aria-label={label}
+               className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full border border-border
+                          text-[11px] font-semibold text-muted-foreground hover:bg-secondary shrink-0"
+             >
+               {session.share_solutions ? <Users className="w-3.5 h-3.5" aria-hidden="true" /> : <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
+               <span className="hidden sm:inline">
+                 {session.share_solutions ? `Sharing with ${orgName}` : 'Private'}
+               </span>
+             </button>
+           );
+         })()}
          {/* What this conversation has cost so far. In the header, not the
              settings panel, so it is noticed while the conversation is still
              growing. Hidden until there is a figure: "—" on every new chat

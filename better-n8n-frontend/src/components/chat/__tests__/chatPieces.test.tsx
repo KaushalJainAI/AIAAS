@@ -10,11 +10,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import type { ChatSession } from '../../../api';
 import type { ChatSessionSummary } from '../../../api/chat';
+import type { SolutionUsed } from '../../../api/solutions';
 import type { PendingToolCall } from '../../../hooks/useChatStream';
 import ChatHistorySidebar from '../ChatHistorySidebar';
 import ChatHeader from '../ChatHeader';
 import ChatMessageItem from '../ChatMessageItem';
 import ChatSettingsDialog from '../ChatSettingsDialog';
+import TeamSolutionsChip from '../TeamSolutionsChip';
 import ToolApprovalCard from '../ToolApprovalCard';
 
 afterEach(cleanup);
@@ -285,5 +287,194 @@ describe('ToolApprovalCard', () => {
     );
     expect(screen.getByText('Permission required')).toBeTruthy();
     expect(screen.getByText(/wants to run send_email/)).toBeTruthy();
+  });
+});
+
+describe('TeamSolutionsChip', () => {
+  const item = (over: Partial<SolutionUsed> = {}): SolutionUsed => ({
+    id: 4,
+    problem: 'Celery tasks stay pending after deploy',
+    solved_by: 'Asha',
+    last_known_true: '2026-10-02',
+    checks_needed: 0,
+    doubtful: false,
+    ...over,
+  });
+
+  it('says what was read, not what was cited, and counts it in the plural', () => {
+    render(<TeamSolutionsChip items={[item(), item({ id: 9 })]} onReview={vi.fn()} />);
+    expect(screen.getByText('Checked 2 team solutions')).toBeTruthy();
+    expect(screen.queryByText(/based on/i)).toBeNull();
+  });
+
+  it('uses the singular for one solution', () => {
+    render(<TeamSolutionsChip items={[item()]} onReview={vi.fn()} />);
+    expect(screen.getByText('Checked 1 team solution')).toBeTruthy();
+  });
+
+  it('renders nothing when no solution was read', () => {
+    const { container } = render(<TeamSolutionsChip items={[]} onReview={vi.fn()} />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('shows who solved it, when it was last checked, and the warning tags once opened', () => {
+    render(<TeamSolutionsChip
+      items={[item({ checks_needed: 2, doubtful: true })]}
+      onReview={vi.fn()}
+    />);
+    fireEvent.click(screen.getByText('Checked 1 team solution'));
+    expect(screen.getByText('Celery tasks stay pending after deploy')).toBeTruthy();
+    expect(screen.getByText(/by Asha, last checked/)).toBeTruthy();
+    expect(screen.getByText('may be out of date')).toBeTruthy();
+    expect(screen.getByText('flagged')).toBeTruthy();
+    expect(screen.getByText('Open').closest('a')?.getAttribute('href')).toBe('/solutions?id=4');
+  });
+
+  it('"Worked" reports (id, confirmed) and then locks that row', () => {
+    const onReview = vi.fn();
+    render(<TeamSolutionsChip items={[item({ id: 4 }), item({ id: 9 })]} onReview={onReview} />);
+    fireEvent.click(screen.getByText('Checked 2 team solutions'));
+    const [first] = screen.getAllByText('Worked');
+    fireEvent.click(first);
+    expect(onReview.mock.calls).toEqual([[4, 'confirmed']]);
+    expect((first as HTMLButtonElement).disabled).toBe(true);
+    // The other row is still answerable.
+    const [, second] = screen.getAllByText('Worked');
+    expect((second as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('"Didn\'t work" reports (id, failed), and a second click sends nothing', () => {
+    const onReview = vi.fn();
+    render(<TeamSolutionsChip items={[item({ id: 4 })]} onReview={onReview} />);
+    fireEvent.click(screen.getByText('Checked 1 team solution'));
+    const failed = screen.getByText("Didn't work");
+    fireEvent.click(failed);
+    fireEvent.click(failed);
+    expect(onReview.mock.calls).toEqual([[4, 'failed']]);
+  });
+});
+
+describe('ChatMessageItem team solutions', () => {
+  const answer = (metadata: Record<string, unknown>) => ({
+    message: {
+      id: 21, role: 'assistant', content: 'Start the worker with -Q new_queue.', metadata,
+      created_at: new Date().toISOString(),
+    } as unknown as import('../../../api').StandaloneChatMessage,
+    index: 1,
+    animate: false,
+    deleting: false,
+    copied: false,
+    isSpeaking: false,
+    speakLoading: false,
+    isPanelOpen: () => false,
+    togglePanel: vi.fn(),
+    confirmBusy: false,
+    onCopy: vi.fn(),
+    onSpeak: vi.fn(),
+    onDelete: vi.fn(),
+    onRewrite: vi.fn(),
+    onRewind: vi.fn(),
+    onEdit: vi.fn(),
+    onCommandConfirm: vi.fn(),
+  });
+
+  // FeedbackControl reads the query client, so a bare render would throw.
+  const withQueryClient = (ui: Parameters<typeof render>[0]) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  };
+
+  it('shows the chip for a saved answer that read solutions, and passes the verdict up', () => {
+    const onReviewSolution = vi.fn();
+    withQueryClient(<ChatMessageItem
+      {...answer({ solutions_used: [{
+        id: 4, problem: 'Celery tasks stay pending', solved_by: 'Asha',
+        last_known_true: '2026-10-02', checks_needed: 0, doubtful: false,
+      }] })}
+      onReviewSolution={onReviewSolution}
+    />);
+    fireEvent.click(screen.getByText('Checked 1 team solution'));
+    fireEvent.click(screen.getByText('Worked'));
+    expect(onReviewSolution).toHaveBeenCalledWith(4, 'confirmed');
+  });
+
+  it('shows no chip when the answer read no solutions', () => {
+    withQueryClient(<ChatMessageItem {...answer({})} />);
+    expect(screen.queryByText(/team solution/)).toBeNull();
+  });
+});
+
+describe('ChatMessageItem solution draft card', () => {
+  const draftAnswer = (solution_draft: Record<string, unknown> | null) => ({
+    message: {
+      id: 31, role: 'assistant', content: 'Clear the cache and restart.',
+      metadata: solution_draft ? { solution_draft } : {},
+      created_at: new Date().toISOString(),
+    } as unknown as import('../../../api').StandaloneChatMessage,
+    index: 1,
+    animate: false,
+    deleting: false,
+    copied: false,
+    isSpeaking: false,
+    speakLoading: false,
+    isPanelOpen: () => false,
+    togglePanel: vi.fn(),
+    confirmBusy: false,
+    onCopy: vi.fn(),
+    onSpeak: vi.fn(),
+    onDelete: vi.fn(),
+    onRewrite: vi.fn(),
+    onRewind: vi.fn(),
+    onEdit: vi.fn(),
+    onCommandConfirm: vi.fn(),
+  });
+
+  const withQueryClient = (ui: Parameters<typeof render>[0]) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  };
+
+  const draft = {
+    id: 42, problem: 'Build fails on Windows', share_requested: true,
+    org_name: 'Acme', resolved: null,
+  };
+
+  it('offers share, keep private and discard, and reports each with the draft id', () => {
+    const onDraftAction = vi.fn();
+    withQueryClient(<ChatMessageItem {...draftAnswer(draft)} onDraftAction={onDraftAction} />);
+    expect(screen.getByText('Save this fix for your team?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Share with Acme' }));
+    expect(onDraftAction).toHaveBeenLastCalledWith(42, 'share');
+    fireEvent.click(screen.getByRole('button', { name: 'Keep private' }));
+    expect(onDraftAction).toHaveBeenLastCalledWith(42, 'private');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(onDraftAction).toHaveBeenLastCalledWith(42, 'discard');
+    expect(onDraftAction).toHaveBeenCalledTimes(3);
+  });
+
+  it('leaves out the share button when the chat has no organisation name', () => {
+    withQueryClient(<ChatMessageItem {...draftAnswer({ ...draft, org_name: null })} onDraftAction={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /Share with/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Keep private' })).toBeTruthy();
+  });
+
+  it('shows no card when the answer was not drafted', () => {
+    withQueryClient(<ChatMessageItem {...draftAnswer(null)} onDraftAction={vi.fn()} />);
+    expect(screen.queryByText('Save this fix for your team?')).toBeNull();
+  });
+
+  it('shows the outcome instead of the buttons once the draft is resolved', () => {
+    withQueryClient(<ChatMessageItem
+      {...draftAnswer({ ...draft, resolved: 'waiting_review' })}
+      onDraftAction={vi.fn()}
+    />);
+    expect(screen.getByText('Waiting for a curator')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Keep private' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+  });
+
+  it('disables the choices while one is being sent', () => {
+    withQueryClient(<ChatMessageItem {...draftAnswer(draft)} onDraftAction={vi.fn()} draftBusy />);
+    expect((screen.getByRole('button', { name: 'Keep private' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

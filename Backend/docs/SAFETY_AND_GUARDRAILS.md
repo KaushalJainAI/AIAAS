@@ -47,6 +47,9 @@ subagents, which the user configures tool by tool.
 | Grants | A subagent unlocks tool groups one by one (`webSearch`, `fileOps`, `mcp`, `subAgents`, …). | `agents/grants.py::GRANT_TOOLS` |
 | Scopes | Within a grant, *which* things: knowledge bases, file folders (`fileAccess`), connections and per-connection mode (`all` / `read` / `selected`), agents it may delegate to, browser domains, API/DB hosts, file paths and command classes for coding agents. Empty means "unrestricted" only for scopes older than the agents that use them; the browser scope is the reverse (empty = read-only). | `agents/connector_scope.py`, `agents/agent/runtime.py` scope helpers |
 | Tool scope and per-tool permissions | Narrow to named tools; set each tool to allow / ask / deny. Flows from parent to worker, most-restrictive-wins. | `agent_context['toolScope']`, `['toolPermissions']` |
+| Team knowledge bases | An owner may share a knowledge base read-only with one of their organisations. Only a chat reads it (an agent run never does, even one started from a chat in that org). Membership and the owner's own membership are checked on every read, and hidden eval corpora never pass. Only the owner changes sharing; a curator may only switch it off. | `inference/kb_access.py`, `chat/tools/knowledge.py::chat_org_id` |
+| Team solutions in unattended runs | Schedules, triggers, missions and delegated workers can search and read team solutions, but cannot save or review one. | `chat/tools/solutions.py::_refuse_if_unattended`, `agents/grants.py::UNATTENDED_CALLERS` |
+| Invitations need consent | An invitation adds nobody. The invitee accepts from their own account, and accepting needs a verified email. An invite gives the same answer for a registered and an unregistered address. Only a manager is told that a person is already a member. | `core/orgs.py::invite`, `core/orgs.py::respond` |
 | Egress guard | Every outbound request passes the SSRF guard (no private IPs, metadata endpoints, redirects re-checked), then the per-scope host allowlist. | `core/safety/net.py` |
 
 ### Layer 2 — Who approves
@@ -95,6 +98,7 @@ subagents, which the user configures tool by tool.
 | Iteration cap, wall-clock limit, graceful last answer | `TurnContext.max_iterations`, `agents/budget.py` |
 | Delegation depth, budget split up front, result-size caps | `agents/agent/orchestrator.py` |
 | Tool output bounded; the rest archived, not silently cut | `chat/tools/tool_output.py` |
+| Team solutions: automatic saves and imports are capped per person per day, because each one is paid model calls (`SOLUTION_CAPTURE_DAILY_CAP`, `SOLUTION_IMPORT_DAILY_CAP`). A cache failure refuses the save rather than allowing it | `solutions/capture.py`, `solutions/importer.py` |
 | Outbound messages: per run, per recipient, **and a daily cap per account across all channels** | `chat/tools/talk.py`, `core/safety/outbound.py` |
 | API throttling by tier | `core/http/throttling.py` |
 | **Storage quota per account** (bytes by tier, and a file count), checked at every door bytes come in by: uploads, chat attachments, agent file writes, new files, copies, published snapshots. Trash counts until purged. A full account gets a refusal that tells a model to stop, not retry | `inference/quota.py` |
@@ -111,6 +115,7 @@ subagents, which the user configures tool by tool.
 | Model moderation | A second opinion after the patterns pass, on image prompts and published pages only: `openai/gpt-oss-safeguard-20b` classifies against our own three-category policy (not the model's taxonomy). Can only refuse more; fails open; verdicts cached 10 min; platform key; `CONTENT_MODERATION_MODEL` blank = off. | `core/safety/moderation.py` |
 | AI labels on images | Every generated image gets a visible "AI-generated" tag and metadata (PNG text / EXIF). | `core/safety/labels.py` |
 | AI notices | Published pages say they may be AI-generated. Messages no person reviewed end with "Sent by an AI assistant on behalf of the account owner." | `PublishedPageView.tsx`, `outbound.disclose` |
+| Team search log | Searches made from chat or the library inside a team are logged for the team's insights page. The query is scrubbed of secrets and contact details and cut to 300 characters. Insights show counts only, to curators only, and never say who searched. Rows are deleted after 90 days by the weekly sweep. Personal searches are not logged. | `solutions/search.py::_record_search`, `solutions/insights.py`, `solutions/stale.py` |
 | No CAPTCHA bypass | Browser steps may not touch a CAPTCHA; a person solves it through an `ask_user` step. | `chat/tools/browser.py` |
 | Retention | After 180 days, a finished run's reasoning and tool payloads are cleared; the run record (status, answer, cost, tool names, approvals) stays. Runs daily in the in-process scheduler. | `logs/retention.py`, `agents/scheduler.py`, `manage.py purge_run_detail` |
 | Audit trail | Every run records its turns (with reasoning), every tool call, every approval and who decided, and the exact agent configuration it ran under. | `logs/models.py`, `logs/revisions.py` |
@@ -175,7 +180,7 @@ Stated plainly, so nobody reads this document as "solved":
    is offered to colleagues until someone says it failed or flags it. The
    defences are ranking, not removal: failures demote it (two outnumbering
    confirmations mark it "needs check"), a doubt is shown on every result,
-   and admins can retract it.
+   and owners, admins and curators can retract it.
 
 ---
 
@@ -193,6 +198,9 @@ Stated plainly, so nobody reads this document as "solved":
 | `MCP_ALLOW_STDIO` | False in production | Local-process MCP servers |
 | `CHATGPT_PLAN_ENABLED` | False in production | Continue with ChatGPT. Off, its routes 404 (including the unauthenticated `/auth/callback`) and the provider is not offered. The callback is tied to a user only by a single-use `state` this server issued, answers only on a loopback host, and says the same thing for every failure |
 | `SANDBOX_ENGINE` | `service` in production | The hardened container, never the dev fallback |
+| `SOLUTION_CAPTURE_DAILY_CAP` | 30 | Automatic team-solution saves per person per day. 0 turns the limit off |
+| `SOLUTION_IMPORT_DAILY_CAP` | 5 | Document imports of team solutions per person per day. 0 turns the limit off |
+| `SOLUTION_STALE_SWEEP_SECONDS` | 604800 (one week) | How often the weekly "may be out of date" digest and the 90-day search-log cleanup run |
 
 ---
 

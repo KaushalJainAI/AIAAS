@@ -16,6 +16,7 @@ from rest_framework.test import APITestCase
 from core import orgs
 from solutions import api
 from solutions.access import can_manage, get_visible, visible
+from solutions.models import Solution
 
 from .helpers import SolutionsTestMixin
 
@@ -61,7 +62,7 @@ class OrgBoundaryTests(SolutionsTestMixin, TestCase):
     def test_a_two_org_person_cannot_carry_a_fix_across(self):
         """Carol joins org A too. Her private fix from an org-A chat is not
         offered in her org-B chats, and vice versa."""
-        orgs.add_member(self.alice, self.org_a.id, self.carol.email)
+        self.join(self.org_a, self.carol)
         in_a = self.save(self.carol, self.org_a.id, share=False,
                          problem='Redis connection refused in staging')
         found_in_b = self.find(self.carol.id, self.org_b.id, 'redis connection refused staging')
@@ -104,7 +105,7 @@ class AdversarialBoundaryTests(SolutionsTestMixin, TestCase):
         self.assertNotIn(private.id, [r['id'] for r in found['results']])
 
     def test_a_warm_cache_for_one_org_never_answers_for_another(self):
-        orgs.add_member(self.alice, self.org_a.id, self.carol.email)
+        self.join(self.org_a, self.carol)
         in_b = self.save(self.carol, self.org_b.id, share=True,
                          problem='Postgres deadlock on the nightly batch job')
         self.find(self.carol.id, self.org_b.id, 'postgres deadlock')   # warm B
@@ -184,6 +185,50 @@ class ApiBoundaryTests(SolutionsTestMixin, APITestCase):
                                 {'org': self.org_a.id, 'kind': 'doubt', 'reason': 'x'},
                                 format='json')
         self.assertEqual(resp.status_code, 404)
+
+
+class QueueBoundaryTests(SolutionsTestMixin, APITestCase):
+    """The review queue is an org's, and a curator sees only their own org's."""
+
+    def setUp(self):
+        super().setUp()
+        self.alice = self.make_user('alice')    # owner of org A, curator there
+        self.bob = self.make_user('bob')        # member of A, the one who submits
+        self.carol = self.make_user('carol')    # curator of org B
+        self.org_a = self.make_org(self.alice, 'A', self.bob, capture_mode='suggest',
+                                   review_policy='curated')
+        self.org_b = self.make_org(self.carol, 'B', capture_mode='suggest',
+                                   review_policy='curated')
+        self.queued = api.save(self.bob, org_id=self.org_a.id, share=True,
+                               draft=api.Draft(problem='Queue lag after the export job',
+                                               resolution='Raise the batch size.'),
+                               captured_by='user')
+        self.assertEqual(self.queued.status, 'pending_review')
+
+    def test_a_curator_of_another_org_cannot_see_or_act_on_the_queue(self):
+        self.assertIsNone(get_visible(self.carol.id, self.org_a.id, self.queued.id,
+                                      include_inactive=True))
+        self.assertFalse(visible(self.carol.id, self.org_a.id,
+                                 include_inactive=True).filter(id=self.queued.id).exists())
+        with self.assertRaises(api.SolutionError) as caught:
+            api.approve(self.carol, self.queued.id, self.org_a.id)
+        self.assertEqual(caught.exception.status, 404)
+        with self.assertRaises(api.SolutionError):
+            api.send_back(self.carol, self.queued.id, self.org_a.id, 'no')
+        self.assertEqual(Solution.objects.get(id=self.queued.id).status, 'pending_review')
+
+    def test_a_curator_of_another_org_gets_nothing_from_the_queue_endpoint(self):
+        self.client.force_authenticate(self.carol)
+        body = self.client.get(f'/api/solutions/?org={self.org_a.id}&status=pending_review').json()
+        self.assertEqual(body['solutions'], [])
+        resp = self.client.post(f'/api/solutions/{self.queued.id}/approve/',
+                                {'org': self.org_a.id}, format='json')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_the_curator_of_the_org_sees_its_queue(self):
+        self.client.force_authenticate(self.alice)
+        body = self.client.get(f'/api/solutions/?org={self.org_a.id}&status=pending_review').json()
+        self.assertEqual([s['id'] for s in body['solutions']], [self.queued.id])
 
 
 class ChokePointTests(TestCase):

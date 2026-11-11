@@ -26,6 +26,14 @@ clearly solved (`chat/tools/solutions.py`).
 
 The org and the sharing choice come from the **chat**, read at capture time:
 a chat with sharing off saves privately, and the org is the chat's own.
+
+Where the row lands is `api.starting_state`'s decision, not this module's. In
+an org whose `capture_mode` is `suggest` (the default for new orgs) capture
+saves a **draft** for its author and writes it onto the answer as the chat
+card; in `auto` it saves as before. Outcomes: `saved`, `drafted` (a draft),
+`queued` (waiting for a curator), `confirmed`, `skip`, `already_captured`,
+`exposed`, `not_member`, `capped`, `refused`, `no_extraction`, `busy`,
+`no_answer`, `error`.
 """
 from __future__ import annotations
 
@@ -36,6 +44,7 @@ import re
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db.models import F
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +75,26 @@ def _model_choice() -> tuple[str, str]:
     model = (getattr(settings, 'SOLUTION_CAPTURE_MODEL', '')
              or getattr(settings, 'CONTEXT_SUMMARY_MODEL', ''))
     return provider, model
+
+
+def _take_capture_slot(user_id: int) -> bool:
+    """True if this user may run one more capture today (UTC day).
+
+    Every thumbs-up is one paid platform-key call, so without a ceiling a
+    single account can spend without limit. A cache failure refuses rather
+    than opens the tap. Cap 0 (or less) turns the limit off.
+    """
+    from django.core.cache import cache
+
+    cap = int(getattr(settings, 'SOLUTION_CAPTURE_DAILY_CAP', 30) or 0)
+    if cap <= 0:
+        return True
+    key = f'solutions:capture:{user_id}:{timezone.now().date().isoformat()}'
+    try:
+        cache.add(key, 0, timeout=60 * 60 * 26)
+        return cache.incr(key) <= cap
+    except Exception:  # noqa: BLE001 — a cache failure must not open the tap
+        return False
 
 
 # ── Reading the exchange ────────────────────────────────────────────────────
@@ -217,8 +246,29 @@ async def capture_answer(answer_id: int, *, trigger: str) -> dict:
 
             if not await sync_to_async(is_member)(user.id, org_id):
                 return {'outcome': 'not_member'}
+
+        # A thumbs-up on an answer that read team solutions is evidence that
+        # those solutions worked. Credit them first: capture may still save a
+        # new fix below, and the credit does not depend on that. It sits before
+        # the daily cap on purpose — crediting costs no model call, and the cap
+        # exists to bound model spend, not feedback.
+        used_ids = [u.get('id') for u in (answer.metadata or {}).get('solutions_used') or []
+                    if isinstance(u, dict) and u.get('id')]
+        for sid in used_ids[:5]:
+            try:
+                await sync_to_async(api.review)(
+                    user, org_id, sid, 'confirmed',
+                    reason=f'Used in an answer that worked ({trigger}).',
+                )
+            except api.SolutionError:
+                pass  # no longer visible, retracted, etc.
+
+        if not await sync_to_async(_take_capture_slot)(user.id):
+            return {'outcome': 'capped'}
+
         question = next((m.content for m in window if m.role == 'user'), '')
-        found = await search(user.id, org_id, question[:2000], limit=3)
+        # A duplicate check is not an answer that used the fix: no reuse count.
+        found = await search(user.id, org_id, question[:2000], limit=3, record_use=False)
         transcript = await sync_to_async(_transcript)(window)
 
         data, tokens, model_label = await _extract(user.id, transcript, found['results'])
@@ -263,11 +313,19 @@ async def capture_answer(answer_id: int, *, trigger: str) -> dict:
                 supersedes_id=existing if decision == 'replaces' else None,
             )
         except api.SolutionError as exc:
+            if exc.status == 409:
+                # Another worker saved this answer between our check and our save.
+                return {'outcome': 'already_captured'}
             logger.info('[Solutions] capture refused: %s', exc)
             return {'outcome': 'refused', 'reason': str(exc)}
         await api.aindex(solution.id)
+        if solution.status == 'draft':
+            # The chat card is how the author decides; it is written onto the
+            # answer, because this job runs after the reply has streamed.
+            await sync_to_async(_mark_draft)(answer.id, solution)
         await sync_to_async(_tell)(user, solution)
-        return {'outcome': 'saved', 'solution_id': solution.id,
+        outcome = {'draft': 'drafted', 'pending_review': 'queued'}.get(solution.status, 'saved')
+        return {'outcome': outcome, 'solution_id': solution.id,
                 'replaced': existing if decision == 'replaces' else None}
     except Exception:  # noqa: BLE001 — capture is best-effort, never a turn failure
         logger.exception('[Solutions] capture failed for message %s', answer_id)
@@ -276,16 +334,51 @@ async def capture_answer(answer_id: int, *, trigger: str) -> dict:
         _IN_FLIGHT.discard(answer_id)
 
 
+def _mark_draft(answer_id: int, solution) -> None:
+    """Write the draft card onto the answer it came from (K2.7 step 1).
+
+    `resolved` is None until the author acts on the card; `publish`, `discard`
+    and the curator actions then set it (`api._resolve_card`)."""
+    from chat.models import ChatMessage
+
+    message = ChatMessage.objects.filter(id=answer_id).first()
+    if message is None:
+        return
+    metadata = dict(message.metadata or {})
+    metadata['solution_draft'] = {
+        'id': solution.id,
+        'problem': solution.problem,
+        'share_requested': bool(solution.share_requested),
+        'org_name': solution.org.name if solution.org_id else None,
+        'resolved': None,
+    }
+    ChatMessage.objects.filter(id=answer_id).update(metadata=metadata)
+
+
 def _tell(user, solution) -> None:
-    """One quiet notice, linking to where it can be edited or undone."""
+    """One quiet notice, linking to where it can be edited or undone. The
+    wording follows where the solution went: a draft, a queue, or saved."""
     from notifications.utils import create_notification
 
-    where = 'your organisation' if solution.shared else 'your private solutions'
+    from .api import page_link
+
+    problem = solution.problem[:120]
+    if solution.status == 'draft':
+        title = 'Solution drafted'
+        message = (f'We drafted a team solution from your chat: "{problem}". '
+                   'Review it to share or discard.')
+    elif solution.status == 'pending_review':
+        title = 'Waiting for a curator'
+        message = (f'"{problem}" is waiting for a curator before your team can see it. '
+                   'Open it to edit or withdraw it.')
+    else:
+        where = 'your organisation' if solution.shared else 'your private solutions'
+        title = 'Saved a solution'
+        message = (f'"{problem}" was saved to {where}. Open it to edit, '
+                   'change who can see it, or remove it.')
     create_notification(
-        user, 'system', 'Saved a solution',
-        f'"{solution.problem[:120]}" was saved to {where}. Open it to edit, '
-        'change who can see it, or remove it.',
-        data={'action_url': f'/solutions?id={solution.id}'},
+        user, 'system', title, message,
+        data={'action_url': page_link(solution.org_id, id=solution.id)},
         send_email=False,
     )
 

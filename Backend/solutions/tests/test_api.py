@@ -3,12 +3,61 @@ Saving and reviewing: what may be stored, and what a review does.
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.test import TestCase
+from django.utils import timezone
 
 from solutions import api
 from solutions.models import Solution, SolutionReview
 
 from .helpers import SolutionsTestMixin
+
+
+class EditTests(SolutionsTestMixin, TestCase):
+    """Editing changes text. It must not change how fresh the fix looks, and it
+    must leave a record of what changed (G9, G10)."""
+
+    PROBLEM = 'Celery worker does not pick up tasks after deploy'
+
+    def setUp(self):
+        super().setUp()
+        self.author = self.make_user('editor')
+        self.solution = self.save(self.author, None, resolution='Restart the worker.')
+        Solution.objects.filter(id=self.solution.id).update(
+            valid_as_of=timezone.now() - timedelta(days=400))
+        self.old_valid_as_of = Solution.objects.get(id=self.solution.id).valid_as_of
+
+    def edit(self, resolution, **kw):
+        return api.edit(self.author, self.solution.id, None,
+                        api.Draft(problem=self.PROBLEM, resolution=resolution), **kw)
+
+    def test_edit_keeps_valid_as_of_unless_verified(self):
+        edited = self.edit('Restart the worker with the new queue name.')
+        self.assertEqual(edited.valid_as_of, self.old_valid_as_of)
+        edited = self.edit('Restart the worker, then check the queue name.', verified=True)
+        self.assertGreater(edited.valid_as_of, timezone.now() - timedelta(minutes=5))
+
+    def test_edit_records_what_changed(self):
+        self.edit('Restart the worker with the new queue name.')
+        row = SolutionReview.objects.get(solution=self.solution, kind='edited')
+        self.assertIn('resolution', row.reason)
+        self.assertEqual(row.user_id, self.author.id)
+
+    def test_edit_with_no_change_writes_nothing(self):
+        before = SolutionReview.objects.count()
+        self.edit('Restart the worker.')
+        self.assertEqual(SolutionReview.objects.count(), before)
+        self.assertEqual(Solution.objects.get(id=self.solution.id).valid_as_of,
+                         self.old_valid_as_of)
+
+    def test_checking_an_unchanged_fix_refreshes_it_and_says_so(self):
+        """The 'still true' tick is most often sent with the text untouched."""
+        self.edit('Restart the worker.', verified=True)
+        self.assertTrue(SolutionReview.objects.filter(
+            solution=self.solution, kind='verified', user=self.author).exists())
+        self.assertGreater(Solution.objects.get(id=self.solution.id).valid_as_of,
+                           timezone.now() - timedelta(minutes=5))
 
 
 class SaveGuardTests(SolutionsTestMixin, TestCase):

@@ -19,17 +19,23 @@ from __future__ import annotations
 
 from django.db.models import Q, QuerySet
 
-from core.orgs import is_manager, is_member
+from core.orgs import is_curator, is_member
 
 from .models import Solution
 
 #: Statuses a search may return. Superseded rows are reached through their
 #: replacement, and retracted ones are gone for everyone but an admin audit.
+#: Drafts and rows waiting for review are never searched, by anyone.
 SEARCHABLE = ('active', 'needs_check')
 
 
 def visible(user_id, org_id, *, include_inactive: bool = False) -> QuerySet:
-    """Solutions this user may read from a context in `org_id` (None = personal)."""
+    """Solutions this user may read from a context in `org_id` (None = personal).
+
+    With `include_inactive`, a row waiting for review is hidden from everyone
+    except its author and the org's curators; a draft is private to its author
+    already, because it is `shared=False`.
+    """
     if not user_id:
         return Solution.objects.none()
     if org_id:
@@ -44,7 +50,9 @@ def visible(user_id, org_id, *, include_inactive: bool = False) -> QuerySet:
         rule = Q(author_id=user_id, shared=False, org__isnull=True)
     rows = Solution.objects.filter(rule)
     if not include_inactive:
-        rows = rows.filter(status__in=SEARCHABLE)
+        return rows.filter(status__in=SEARCHABLE)
+    if not (org_id and is_curator(user_id, org_id)):
+        rows = rows.exclude(Q(status='pending_review') & ~Q(author_id=user_id))
     return rows
 
 
@@ -59,8 +67,23 @@ def get_visible(user_id, org_id, solution_id, *, include_inactive: bool = False)
     ).first()
 
 
+def sweep_rows() -> QuerySet:
+    """Every live solution the weekly stale sweep may nudge about: shared rows
+    in an org, and personal rows. This is a **system** read, not a reader: it
+    never returns a row to a caller, it only addresses each one to its author
+    or the org's curators (`stale.py`). Kept here so `Solution.objects` is
+    still read in one module.
+    """
+    return Solution.objects.filter(
+        Q(shared=True, org__isnull=False) | Q(shared=False, org__isnull=True),
+        status__in=SEARCHABLE,
+    )
+
+
 def can_manage(user_id, solution: Solution) -> bool:
-    """May edit, retract or re-share: the author, or an org owner/admin.
+    """May edit, retract or re-share: the author, or a curator of the org
+    (owner, admin or curator). Curators do not manage people; that stays with
+    `core.orgs.is_manager`.
 
     An author who has left the org loses this for its shared rows — those now
     belong to the org — but keeps it for their own private ones.
@@ -68,5 +91,5 @@ def can_manage(user_id, solution: Solution) -> bool:
     if solution.shared and solution.org_id:
         if not is_member(user_id, solution.org_id):
             return False
-        return solution.author_id == user_id or is_manager(user_id, solution.org_id)
+        return solution.author_id == user_id or is_curator(user_id, solution.org_id)
     return solution.author_id == user_id

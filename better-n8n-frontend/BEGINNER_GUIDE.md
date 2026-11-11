@@ -28,6 +28,7 @@ You sign in and land on **Ask** (the chat). From the menu you can reach:
 | Credentials | `/credentials` | `pages/Credentials.tsx` | Saved API keys |
 | Apps | `/apps`, `/apps/:appId` | `pages/Apps.tsx`, `components/apps/AppFrame.tsx` | The launcher, and the full-screen Docs, Sheets, Slides, code and PDF apps. An app opens without the normal menus, with its own bar, tabs and file panel |
 | Documents | `/documents` | `pages/Documents.tsx` | Your files, folders and knowledge bases |
+| Team knowledge | `/team` (`/solutions` opens the same page) | `pages/Solutions.tsx`, `components/solutions/` | What your team has already solved, its shared documents, your team's people, and (for curators) the queue and insights. See below |
 | Dashboards | `/dashboards` | `pages/Dashboards.tsx` | Live tiles an agent saved |
 | Pages | `/pages` | `pages/Pages.tsx` | Pages you published by link |
 | Settings / Profile | `/settings`, `/profile` | `pages/Settings.tsx`, `pages/Profile.tsx` | Your preferences, including Memory (what the assistant remembers about you) |
@@ -156,6 +157,41 @@ The screen is drawn by smaller pieces it passes data and callbacks to:
 | `components/files/PreviewFrame.tsx` | The one file preview used everywhere: chat's side drawer, the Documents page, and the preview dialog |
 | `components/chat/CommandPalette.tsx`, `CommandCard.tsx` | The `/` command menu and its results |
 | `components/chat/ThinkingTimer.tsx` | The ticking timer (kept separate so it doesn't redraw everything) |
+
+## The Team knowledge page (`/team`)
+
+Team knowledge is where a team keeps what it has already solved, so the next
+person does not start from zero. The assistant searches it first when someone
+asks a troubleshooting question. A fix belongs to the team it was solved in,
+and no other team sees it.
+
+The page has tabs. The address can name one with `?tab=`.
+
+| Tab (`?tab=`) | Who sees it | What is on it |
+|---|---|---|
+| Library (`library`) | Everyone in the team | The team's solved problems. Search them, add one by hand, import one from a document, or filter to those that need attention, to your own, or by tag. The team's shared documents are listed under them |
+| Drafts (`drafts`) | Everyone | Fixes the assistant found in your chats. Share each one with the team, or discard it. Nothing is shared until you do |
+| Queue (`queue`) | Curators only | Shared fixes waiting for a curator to approve |
+| Insights (`insights`) | Curators only | What the team searched for in the last 30 days, and what it found. Counts only; it never says who searched |
+| Team (`team`) | Everyone. Changing people and settings is for owners and admins | The people in the team, invitations waiting for you to accept or decline, the team's settings, and which of your knowledge bases you share with the team |
+
+Plain words for the words on the page:
+
+- **Draft**: a fix that is not live yet. Only its author sees it.
+- **Pending review**: a fix the author asked to share, in a team where a
+  curator must approve each share. Only the author and curators see it until then.
+- **Needs check**: a fix that people have said did not work. It stays
+  visible, but is marked so nobody relies on it blindly.
+- **Curator**: a person who approves, edits and withdraws the team's fixes.
+  Owners and admins are curators too. A curator does not manage people.
+- **Shared knowledge base**: a knowledge base you share with your team, read
+  only. The assistant can search it when someone asks from a chat in that team.
+  Agents never use it. Nobody can add to it or delete from it except you.
+
+An invitation to join a team arrives as a notification, and the link opens the
+Team tab. You accept or decline it there. You can accept only with a verified
+email address. Signing up alone does not verify it. Declining needs no
+verification.
 
 ## Common jobs
 

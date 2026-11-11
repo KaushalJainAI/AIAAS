@@ -17,6 +17,7 @@ import type { ChartSpec, FileCardData, TodoItem, HtmlArtifact as HtmlArtifactDat
 import type { ChatMediaItem, CodeExecutionEntry } from '../api/chat';
 import { toQuestionSpec, type QuestionSpec } from '../lib/question';
 import { appendRevision } from '../lib/planView';
+import type { SolutionUsed } from '../api/solutions';
 
 /**
  * One frame off the SSE wire. The payload shape varies per `type` and is not
@@ -78,6 +79,9 @@ export interface StreamSource {
   snippet?: string;
   thumbnail?: string;
   favicon?: string;
+  /** Offsets into the answer, for providers that cite by span instead of `[n]`. */
+  start?: number;
+  end?: number;
 }
 
 export interface PendingToolCall {
@@ -144,6 +148,8 @@ export interface ChatStreamState {
   /** One entry per agent working for this turn, in the order they started. */
   workerPlans: WorkerPlan[];
   files: FileCardData[];
+  /** Team solutions the turn has read so far: "checked", not "cited". */
+  solutionsUsed: SolutionUsed[];
   blockedAttachments: { message: string; items: BlockedAttachment[] } | null;
   pendingToolCall: PendingToolCall | null;
   /** An `ask_user` question the run paused on, drawn as a question card. */
@@ -169,6 +175,7 @@ const EMPTY: ChatStreamState = {
   todoHistory: [],
   workerPlans: [],
   files: [],
+  solutionsUsed: [],
   blockedAttachments: null,
   pendingToolCall: null,
   pendingQuestion: null,
@@ -266,6 +273,10 @@ function reduceEvent(state: ChatStreamState, event: StreamEvent): ChatStreamStat
       // Whole list, like todos: a second write to one file updates its entry
       // on the server, so appending here would show it twice.
       return { ...state, files: arr<FileCardData>(event.files) };
+    case 'solutions_update':
+      // Whole list, like files: the backend keeps one entry per solution, so
+      // replacing is the only way a repeat read stays one row.
+      return { ...state, solutionsUsed: arr<SolutionUsed>(event.solutions) };
     case 'chart':
       // The whole spec is appended as sent. Charts are not merged or deduped:
       // a turn that draws two charts meant two charts, and the backend has
