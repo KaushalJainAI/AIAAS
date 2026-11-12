@@ -56,7 +56,8 @@ import {
   connectorVisual,
 } from '../lib/connectorIcons';
 import { googleScopesFor } from '../lib/googleScopes';
-import { markMcpOAuthFlow, openOAuthPopup } from '../lib/oauthPopup';
+import { startOAuth } from '../lib/oauthFlow';
+import { oauthCallbackUrl } from '../lib/origins';
 import { cn } from '../lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -163,14 +164,13 @@ function ConnectModal({
    */
   const handleOAuth = async () => {
     setError(null);
-    const redirectUri = `${window.location.origin}/oauth/callback`;
     let url: string;
     try {
       setSaving(true);
       // Ask only for what this connection needs, so the consent screen is
       // honest and the resulting token can actually do the job.
       ({ url } = await credentialsService.initGoogleOAuth(
-        redirectUri,
+        oauthCallbackUrl(),
         googleScopesFor(server.icon_slug)
       ));
     } catch {
@@ -179,45 +179,18 @@ function ConnectModal({
       return;
     }
 
-    const width = 600;
-    const height = 700;
-    const popup = window.open(
-      url,
-      'Connect account',
-      `width=${width},height=${height},` +
-        `top=${window.screen.height / 2 - height / 2},` +
-        `left=${window.screen.width / 2 - width / 2}`
-    );
-
-    if (!popup) {
-      setSaving(false);
-      setError('Your browser blocked the sign-in window. Allow pop-ups and try again.');
-      return;
+    const result = await startOAuth(url, { kind: 'google' }, server.label);
+    // Redirecting: the page is leaving, and the callback reports the outcome.
+    if (result.status === 'redirecting') return;
+    setSaving(false);
+    if (result.status === 'success') {
+      toast.success(`${server.label} connected`);
+      onConnected();
+      onClose();
+    } else if (result.status === 'error') {
+      setError(result.message);
     }
-
-    // Resolve on either outcome, and also if the user simply closes the window —
-    // otherwise the modal sits on a spinner forever with no way back.
-    const cleanup = () => {
-      window.removeEventListener('message', onMessage);
-      window.clearInterval(closedTimer);
-      setSaving(false);
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'OAUTH_SUCCESS') {
-        cleanup();
-        toast.success(`${server.label} connected`);
-        onConnected();
-        onClose();
-      } else if (event.data?.type === 'OAUTH_ERROR') {
-        cleanup();
-        setError(event.data.message || 'Sign-in did not complete.');
-      }
-    };
-    const closedTimer = window.setInterval(() => {
-      if (popup.closed) cleanup();
-    }, 500);
-    window.addEventListener('message', onMessage);
+    // 'dismissed': the user closed the window; the modal is usable again.
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -672,12 +645,11 @@ function OAuthConnectButton({ server }: { server: MCPServer }) {
   const connect = async () => {
     setBusy(true);
     try {
-      const redirectUri = `${window.location.origin}/oauth/callback`;
-      const { url } = await mcpService.oauthInit(server.id, redirectUri);
-      // Recorded before the popup opens: /oauth/callback has no other way to
-      // know which flow it is finishing, since the provider owns the URL.
-      markMcpOAuthFlow(server.id);
-      const result = await openOAuthPopup(url, `Connect ${server.label}`);
+      const { url } = await mcpService.oauthInit(server.id, oauthCallbackUrl());
+      // startOAuth records which flow this is: /oauth/callback has no other
+      // way to know, since the provider owns the URL.
+      const result = await startOAuth(url, { kind: 'mcp', serverId: server.id }, server.label);
+      if (result.status === 'redirecting') return;
       if (result.status === 'success') {
         toast.success(`${server.label} connected`);
         refresh();

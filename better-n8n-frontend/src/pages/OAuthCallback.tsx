@@ -1,5 +1,10 @@
 /**
- * Landing page for the credential OAuth popup.
+ * Landing page for connecting an account (Google, or a remote MCP server).
+ *
+ * It runs in one of two places, as `lib/oauthFlow.ts` decided: a popup, which
+ * reports to its opener and closes, or the user's own tab after a full-page
+ * redirect (an installed app, or a phone that blocked the popup), which shows
+ * the outcome as a toast and goes back to the page the flow started on.
  *
  * `/oauth/callback` was already being sent to Google as the redirect_uri (from
  * CredentialModal, and now from Connections), but no route rendered it: the popup
@@ -12,44 +17,19 @@
  * endpoint, producing a Credential rather than a session.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { credentialsService } from '../api/credentials';
 import { mcpService } from '../api/mcp';
+import { oauthCallbackUrl } from '../lib/origins';
+import { takePendingOAuth } from '../lib/oauthFlow';
 
 type Phase = 'working' | 'done' | 'failed';
 
-/**
- * Which flow this popup is finishing.
- *
- * The provider owns the redirect URL, so the opener cannot add a marker to it —
- * it records one here before opening the popup instead. `localStorage` rather
- * than `sessionStorage`: a popup inherits only a *copy* of session storage, and
- * only in some browsers, so a value written by the opener after `window.open`
- * would not be visible here.
- *
- * Consumed exactly once, and cleared even when the exchange fails: a stale key
- * would send the next Google connection to the MCP endpoint.
- */
-const MCP_FLOW_KEY = 'oauth.mcp_server_id';
-
-function takePendingMcpServerId(): number | null {
-  try {
-    const raw = window.localStorage.getItem(MCP_FLOW_KEY);
-    window.localStorage.removeItem(MCP_FLOW_KEY);
-    const id = Number(raw);
-    return raw && Number.isFinite(id) ? id : null;
-  } catch {
-    // Storage can be unavailable (private mode, blocked site data). Falling
-    // back to the credential flow is the safer default: it is the one that
-    // existed before, and an MCP connect simply reports a failure the user
-    // can retry.
-    return null;
-  }
-}
-
 export default function OAuthCallback() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>('working');
   const [message, setMessage] = useState('');
   // Popups can re-render before they close; exchanging a code twice fails the
@@ -63,16 +43,24 @@ export default function OAuthCallback() {
     const code = searchParams.get('code');
     const state = searchParams.get('state') ?? undefined;
     const oauthError = searchParams.get('error');
-    // Consumed before any early return: a key left behind by a declined or
+    // Consumed before any early return: a record left behind by a declined or
     // malformed authorization would send the *next* Google connection to the
     // MCP endpoint.
-    const mcpServerId = takePendingMcpServerId();
+    const pending = takePendingOAuth();
+    const mcpServerId = pending?.kind === 'mcp' ? pending.serverId : null;
+
+    // Redirect mode: this is the user's own tab, not a popup, so the outcome is
+    // shown here and the page goes back to where the flow started. A popup
+    // whose opener is gone is treated the same way rather than stranded.
+    const inPage = pending?.mode === 'redirect' || !window.opener;
+    const label = pending?.label ?? 'Account';
 
     /**
-     * The opener owns the UI; this window only reports back. Targeting our own
-     * origin keeps the message off any other page that might be listening.
+     * Popup mode: the opener owns the UI; this window only reports back.
+     * Targeting our own origin keeps the message off any other page listening.
      */
     const report = (payload: { type: string; message?: string }) => {
+      if (inPage) return;
       try {
         window.opener?.postMessage(payload, window.location.origin);
       } catch {
@@ -81,10 +69,16 @@ export default function OAuthCallback() {
       }
     };
 
+    const goBack = () => navigate(pending?.returnTo ?? '/connections', { replace: true });
+
     const fail = (text: string) => {
       setPhase('failed');
       setMessage(text);
       report({ type: 'OAUTH_ERROR', message: text });
+      if (inPage && pending) {
+        toast.error(`Could not connect ${label}`, { description: text });
+        goBack();
+      }
     };
 
     if (oauthError) {
@@ -114,12 +108,17 @@ export default function OAuthCallback() {
         } else {
           await credentialsService.completeGoogleOAuth({
             code,
-            redirect_uri: `${window.location.origin}/oauth/callback`,
+            redirect_uri: oauthCallbackUrl(),
             state,
             name: 'Google Account',
           });
         }
         setPhase('done');
+        if (inPage) {
+          toast.success(`${label} connected`);
+          goBack();
+          return;
+        }
         report({ type: 'OAUTH_SUCCESS' });
         // Leave the confirmation up briefly so a popup that fails to close is
         // not mistaken for a hang.
@@ -130,7 +129,7 @@ export default function OAuthCallback() {
         fail(detail ?? 'Could not finish connecting your account.');
       }
     })();
-  }, [searchParams]);
+  }, [searchParams, navigate]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 text-center">
@@ -145,7 +144,7 @@ export default function OAuthCallback() {
           <CheckCircle2 className="w-10 h-10 text-emerald-500 mb-4" />
           <p className="font-semibold text-foreground">Account connected</p>
           <p className="text-sm text-muted-foreground mt-1">
-            You can close this window.
+            {window.opener ? 'You can close this window.' : 'Taking you back…'}
           </p>
         </>
       )}
@@ -155,7 +154,7 @@ export default function OAuthCallback() {
           <p className="font-semibold text-foreground">Could not connect</p>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">{message}</p>
           <button
-            onClick={() => window.close()}
+            onClick={() => (window.opener ? window.close() : navigate('/connections', { replace: true }))}
             className="mt-6 px-5 py-2 rounded-lg border border-border/60 text-sm font-semibold hover:bg-muted transition-colors"
           >
             Close

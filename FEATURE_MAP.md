@@ -1526,7 +1526,7 @@ flowchart TD
 
 **What it is.** The user connects a Google account once. The assistant can then search mail, read and create files, read and write sheets, and manage calendar events. These tools run inside the backend and call Google's REST APIs directly.
 
-**Screen.** Connection cards on `/connections`. Google sign-in for the credential uses [lib/oauthPopup.ts](better-n8n-frontend/src/lib/oauthPopup.ts) and [lib/googleScopes.ts](better-n8n-frontend/src/lib/googleScopes.ts).
+**Screen.** Connection cards on `/connections`. Google sign-in for the credential uses [lib/oauthFlow.ts](better-n8n-frontend/src/lib/oauthFlow.ts) (a popup where one opens, a full-page redirect where it cannot) and [lib/googleScopes.ts](better-n8n-frontend/src/lib/googleScopes.ts).
 
 | What happens | Function or class | File |
 |---|---|---|

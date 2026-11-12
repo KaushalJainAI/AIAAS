@@ -64,6 +64,7 @@ Useful for the "why". The code is the source of truth where they differ.
 | [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | Built 2026-10-11, **not yet tried with a real ChatGPT account**: OpenCode Zen removed; "Continue with ChatGPT" added so a user's ChatGPT plan pays for their turns. Works only on an install you run yourself; off on the hosted site until OpenAI approves it. Run `scripts/chatgpt_plan_spike.py` first |
 | [ORG_KNOWLEDGE_PLAN.md](ORG_KNOWLEDGE_PLAN.md) | Built 2026-11-11 (undeployed): team knowledge as a product — invites, drafts and curators, citations in chat, import, stale nudges, insights, shared knowledge bases. Phases K0–K7 |
 | [SOLUTION_MEMORY_PLAN.md](SOLUTION_MEMORY_PLAN.md) | Mostly built 2026-09-28: organisations, the solution library, auto-capture, freshness labels, "doubtful" flags, `/solutions`. Benchmark suite (S5) not built |
+| [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) | Proposed 2026-11-12, Phase 0 done: Android/iOS app as the same web frontend inside Capacitor — installable web app, sign-in that returns to the app, native push through the existing notification door, stores |
 | [CUSTOM_TOOLS_PLAN.md](CUSTOM_TOOLS_PLAN.md) | Approved, being built: user-made tools |
 | [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Approved, being built |
 | [EVAL_EXPANSION_PLAN.md](EVAL_EXPANSION_PLAN.md) | Eval datasets for every agent |

@@ -15,6 +15,7 @@ import pagesService, { type PageVisibility, type PublishedPage } from '../api/pa
 import PageHeader from '../components/layout/PageHeader';
 import { toast } from '../lib/toastStore';
 import { cn } from '../lib/utils';
+import { siteUrl } from '../lib/origins';
 
 const VISIBILITY: Record<PageVisibility, { label: string; icon: typeof Globe }> = {
   link: { label: 'Anyone with the link', icon: Link2 },
@@ -40,7 +41,7 @@ export default function Pages() {
 
   const copy = async (slug: string) => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/p/${slug}`);
+      await navigator.clipboard.writeText(siteUrl(`/p/${slug}`));
       toast.success('Link copied');
     } catch {
       toast.error('Could not copy the link.');

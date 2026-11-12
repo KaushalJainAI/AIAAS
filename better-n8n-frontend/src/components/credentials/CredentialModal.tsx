@@ -20,6 +20,8 @@ import { handleApiError } from '../../api/client';
 import Select from '../ui/Select';
 
 import { toast } from 'sonner';
+import { startOAuth } from '../../lib/oauthFlow';
+import { oauthCallbackUrl } from '../../lib/origins';
 import { apiErrorMessage } from '../../lib/apiError';
 
 // Icon mapper
@@ -128,40 +130,26 @@ export default function CredentialModal({
   const handleOAuthConnect = async () => {
     if (!selectedType) return;
 
-    const width = 600;
-    const height = 700;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-
     // The backend does not expose an /authorize/ redirect; it hands back the
     // provider URL from /oauth/google/init/ (authenticated, so it has to go
     // through apiClient rather than a bare window.open on the API host).
     let url: string;
     try {
-      const res = await credentialsService.initGoogleOAuth(
-        `${window.location.origin}/oauth/callback`
-      );
+      const res = await credentialsService.initGoogleOAuth(oauthCallbackUrl());
       url = res.url;
     } catch (err: unknown) {
       toast.error(handleApiError(err).message || 'Could not start the OAuth flow');
       return;
     }
 
-    window.open(
-      url, 
-      'OAuth Authorization', 
-      `width=${width},height=${height},top=${top},left=${left}`
-    );
-    
-    // Listen for success message
-    const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'OAUTH_SUCCESS') {
-            toast.success('Account connected successfully!');
-            // Here we might update the form data with returned tokens or status
-            window.removeEventListener('message', handleMessage);
-        }
-    };
-    window.addEventListener('message', handleMessage);
+    // The same flow as Connections: a popup where one opens, the whole page
+    // where it cannot. This listener used to accept a message from any origin.
+    const result = await startOAuth(url, { kind: 'google' }, 'Google account');
+    if (result.status === 'success') {
+      toast.success('Account connected successfully!');
+    } else if (result.status === 'error') {
+      toast.error(result.message);
+    }
   };
 
   const handleSubmit = async () => {
@@ -357,7 +345,7 @@ export default function CredentialModal({
                     and refreshed automatically.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Callback URL: <code className="bg-muted p-1 rounded">{window.location.origin}/oauth/callback</code>
+                    Callback URL: <code className="bg-muted p-1 rounded">{oauthCallbackUrl()}</code>
                   </p>
                   <button
                     type="button"

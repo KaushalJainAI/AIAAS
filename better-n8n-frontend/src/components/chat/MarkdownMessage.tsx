@@ -34,6 +34,7 @@ import { healStreamingTail } from '../../lib/streamHeal';
 import { insertSourceMarkers } from '../../lib/sourceSpans';
 import { copyText } from '../../lib/clipboard';
 import { stripAnsi } from '../../lib/ansi';
+import { API_ORIGIN } from '../../lib/origins';
 import { useMarkdownMath } from '../../hooks/useMarkdownMath';
 import CodeView from '../files/CodeView';
 import { useFilePreview } from '../files/filePreviewState';
@@ -226,11 +227,12 @@ type MarkdownNode = { node?: unknown };
 type AnchorProps = React.ComponentPropsWithoutRef<'a'> & MarkdownNode;
 type ImageProps = React.ComponentPropsWithoutRef<'img'> & MarkdownNode;
 
-/** Served by this app, so loading it tells no third party anything. */
+/** Served by this app or its own API, so loading it tells no third party anything. */
 function isOwnOrigin(src: string): boolean {
   if (src.startsWith('/') && !src.startsWith('//')) return true;
   try {
-    return new URL(src, window.location.href).origin === window.location.origin;
+    const origin = new URL(src, window.location.href).origin;
+    return origin === window.location.origin || (API_ORIGIN !== '' && origin === API_ORIGIN);
   } catch {
     return false;
   }

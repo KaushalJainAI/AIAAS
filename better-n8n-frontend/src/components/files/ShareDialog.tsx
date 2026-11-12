@@ -27,6 +27,7 @@ import {
 } from '../../lib/share';
 import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
+import { SITE_ORIGIN } from '../../lib/origins';
 
 const AUDIENCE_ICON: Record<PageVisibility, typeof Lock> = { link: Lock, platform: Users, public: Globe };
 
@@ -66,7 +67,7 @@ export default function ShareDialog({ doc, onClose, beforeShare }: Props) {
     (p) => p.kind === 'file' && p.is_listed !== false && p.file_name === doc.filename && p.slug !== created?.slug,
   );
 
-  const urlOf = (page: PublishedPage) => pageUrl(page.slug, window.location.origin);
+  const urlOf = (page: PublishedPage) => pageUrl(page.slug, SITE_ORIGIN);
   const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   const copy = async (page: PublishedPage) => {

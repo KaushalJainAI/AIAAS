@@ -307,6 +307,16 @@ are what will keep that honest once it lands.
 - `components/mcp/` — the custom MCP server modal, used by the Connections Advanced section
 - `api/client.ts` — Axios instance with the JWT refresh interceptor; `api/sse.ts` — the single
   reader for `data:` streams (chat endpoints POST SSE, so `EventSource` can't be used)
+- `lib/origins.ts` (2026-11-12) — where the app and its server live. `SITE_ORIGIN`/`siteUrl()`
+  for anything that leaves the tab (share links, OAuth redirect URIs, webhooks); `API_ORIGIN`
+  for REST, SSE and sockets. Both are same-origin unless a build sets `VITE_PUBLIC_SITE_URL` /
+  `VITE_API_ORIGIN` (the mobile wrapper will); the web image sets neither, and a malformed value
+  means same-origin, never a guess. Never build a link from `window.location.origin` directly
+- `lib/oauthFlow.ts` (2026-11-12) — the one way to connect an account: `startOAuth` tries a
+  popup and falls back to a full-page redirect when it is blocked (phones block popups opened
+  after an `await`) or when running as an installed app; `/oauth/callback` reads the pending
+  flow (validated, 15-minute TTL, `returnTo` through `safeNext`) and either reports to the
+  opener or toasts and navigates back
 - `lib/websocket.ts` — `useSocket`, the one WebSocket primitive. Every real-time feature goes
   through it; it owns URL resolution, exponential backoff, and the remount race guard
 - `hooks/useChatStream.ts` — reducer for one streamed assistant turn; sibling hooks
@@ -3072,6 +3082,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `CONCURRENCY_LAG_FIX_PLAN.md` — The plan (proposed 2026-09-24; Phases 0–5 built 2026-09-24, Phase 5 as the t3.small option — needs the instance resize to take effect; Phase 6 conditional on measurements) for the "lags with several runs, even one user" problem: DB connections held across model calls (pool of 10), the SQLite checkpointer's global lock + full-state serialise on the event loop, per-run/global single-thread `sync_to_async`, memory overcommit on the 913 MB box; Phase 0 measures first
 - `GAP_CLOSURE_PLAN.md` — The plan (proposed 2026-09-24, implemented 2026-09-24) from a codebase-wide gap sweep: digest-only email default, pack availability in Explore, the order-dependent test failures, lint back to zero, Memory and Missions UI, and CLAUDE.md drift
 - `SECURITY_REVIEW_FIX_PLAN.md` — The whole-project security review of 2026-09-25 and its fixes (implemented, undeployed): Google sign-in no longer links into an unverified password account (pre-account takeover), `UserProfile.tokens_valid_after` revokes every JWT on password/email change (`core/auth/revocation.py`, checked by REST, refresh and WebSocket), `token_blacklist` actually installed, no `?token=` HTTP auth, API keys stored as SHA-256, the workspace job hook scoped to its owner and detached, `CSP: sandbox` on file responses. Learning: `learning/15_whole_project_security_review.md`
+- `MOBILE_APP_PLAN.md` — The plan (proposed 2026-11-12; Phase 0 — `lib/origins.ts` and `lib/oauthFlow.ts` — done) for an Android/iOS app that is the same `better-n8n-frontend/` inside Capacitor, never a second UI: installable web app, a mobile build with its own two public URLs, decoupling `ALLOWED_REDIRECT_ORIGINS` from CORS before adding the app's origins, App/Universal Links so sign-in returns to the app, native push (FCM) behind the existing `send_web_push` door, then stores
 - `ORG_KNOWLEDGE_PLAN.md` — The plan (K0–K7 built 2026-11-11, undeployed, not yet checked in a browser) that made solution memory a team product: invitations, drafts and curators, citations in chat, import, stale nudges, insights, KBs shared read-only with an org, org choice per chat and per scheduled agent
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix

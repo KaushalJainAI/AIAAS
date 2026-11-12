@@ -69,6 +69,7 @@ import Select from '../components/ui/Select';
 import { Switch } from '../components/ui/Switch';
 import TriggerModal from '../components/schedules/TriggerModal';
 import { absoluteHookUrl, curlFor } from '../lib/webhooks';
+import { API_ORIGIN, SITE_ORIGIN } from '../lib/origins';
 
 /**
  * What each sweep outcome means in words the user can act on. `fired` is the
@@ -262,7 +263,8 @@ function TriggerCard({ trigger, onEdit }: {
   const ModeIcon = mode.icon;
   const isSchedule = trigger.mode === 'schedule';
   const isWebhook = trigger.mode === 'webhook';
-  const hookUrl = absoluteHookUrl(trigger.webhook_url, window.location.origin);
+  // The hook is a backend route, so it lives wherever the API does.
+  const hookUrl = absoluteHookUrl(trigger.webhook_url, API_ORIGIN || SITE_ORIGIN);
 
   const lastCopy = lastRunCopy(trigger.last_outcome, trigger.last_run_status)
     ?? (trigger.last_outcome ? OUTCOME_COPY[trigger.last_outcome] : null);

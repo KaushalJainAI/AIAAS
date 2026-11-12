@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { Check, Copy, Globe, Link2, Loader2, Users, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { siteUrl } from '../../lib/origins';
 import templatesService, {
   type ShareVisibility,
   type SharePreview,
@@ -121,7 +122,7 @@ function ShareForm({
      in-app URL instead would bounce them to a login screen — which is exactly
      the thing choosing "public" was meant to avoid. */
   const shareUrl = preview.slug
-    ? `${window.location.origin}${visibility === 'public' ? '/a/' : '/templates/'}${preview.slug}`
+    ? siteUrl(`${visibility === 'public' ? '/a/' : '/templates/'}${preview.slug}`)
     : '';
 
   const capabilityCount = Object.values(preview.config.tools ?? {}).filter(Boolean).length;

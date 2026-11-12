@@ -1,4 +1,4 @@
-import apiClient from './client';
+import apiClient, { API_URL } from './client';
 
 export type KnowledgeBaseBackend = 'vector' | 'fulltext' | 'raw' | 'hybrid';
 
@@ -527,7 +527,7 @@ export const documentsService = {
    *  for browser-initiated GETs that cannot set headers, but the UI should use
    *  header-based fetch. */
   previewUrl(id: number): string {
-    return `/api/inference/documents/${id}/download/`;
+    return `${API_URL}/inference/documents/${id}/download/`;
   },
 
   async search(

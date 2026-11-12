@@ -1,3 +1,5 @@
+import { SITE_ORIGIN, siteUrl } from './origins';
+
 /**
  * Google OAuth is only usable on an origin registered with Google.
  *
@@ -28,13 +30,17 @@ const GOOGLE_OAUTH_ORIGINS = [
 export const GOOGLE_CLIENT_ID =
   '860732387709-kurtttd0m4nc40mjfvngqh0cklat7odv.apps.googleusercontent.com';
 
-/** The redirect_uri for the current origin. Must match `/auth/google/callback` in App.tsx. */
+/**
+ * The redirect_uri for the public site. Must match `/auth/google/callback` in
+ * App.tsx. The public site rather than this page's origin, so a build served
+ * from somewhere Google does not know (the mobile app) still names one it does.
+ */
 export function googleRedirectUri(): string {
-  return `${window.location.origin}/auth/google/callback`;
+  return siteUrl('/auth/google/callback');
 }
 
 export function googleAuthAvailable(): boolean {
-  return GOOGLE_OAUTH_ORIGINS.includes(window.location.origin);
+  return GOOGLE_OAUTH_ORIGINS.includes(SITE_ORIGIN);
 }
 
 /** The full Google authorize URL to send the browser to. */

@@ -17,17 +17,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tokenManager } from '../api/client';
+import { API_ORIGIN, socketBaseFor } from './origins';
 
 /**
  * Base URL for all socket paths, e.g. `wss://host/ws`.
  *
- * Always same-origin: nginx proxies /ws/ in the image and vite.config.ts proxies
- * it in dev, so there is no environment in which this needs overriding. It was
- * VITE_WS_URL, which the production env file already set to empty precisely to
- * force this branch.
+ * Same-origin in the web build: nginx proxies /ws/ in the image and
+ * vite.config.ts proxies it in dev. (It was VITE_WS_URL, which the production
+ * env file set to empty precisely to force that branch.) A build served from
+ * elsewhere follows `VITE_API_ORIGIN`, the one setting for where the server
+ * is — see `lib/origins.ts`.
  */
-export const WS_BASE: string =
-  `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+export const WS_BASE: string = API_ORIGIN
+  ? socketBaseFor(API_ORIGIN)
+  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 
 /** Builds a fully-qualified socket URL, appending the auth token as a query param. */
 export function buildSocketUrl(path: string, token: string | null): string {

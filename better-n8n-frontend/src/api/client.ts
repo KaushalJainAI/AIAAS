@@ -7,12 +7,15 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 
+import { API_ORIGIN } from '../lib/origins';
+
 /**
- * Same-origin API base. Both environments already proxy this path — nginx.conf
- * in the image, and the `/api` rule in vite.config.ts during `npm run dev` — so
- * a relative URL is correct everywhere and needs no build-time configuration.
+ * API base. Same-origin (`/api`) in the web build — nginx.conf proxies it in
+ * the image and vite.config.ts in `npm run dev`, so it needs no configuration.
+ * A build served from elsewhere (the mobile app) sets `VITE_API_ORIGIN`; see
+ * `lib/origins.ts`.
  */
-export const API_URL = '/api';
+export const API_URL = `${API_ORIGIN}/api`;
 
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'access_token';
