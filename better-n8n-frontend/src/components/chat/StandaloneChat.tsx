@@ -119,7 +119,7 @@ export type ChatIntent = 'normal' | 'search' | 'image' | 'video' | 'research';
 const argText = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 export default function StandaloneChat() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user: authUser } = useAuth();
   const isGuest = !isAuthenticated;
   const location = useLocation();
   const navigate = useNavigate();
@@ -2061,6 +2061,7 @@ export default function StandaloneChat() {
                        the `status` frame hands them their database id. */
                     key={String(message.id ?? `pending-${index}`)}
                     message={message}
+                    userName={authUser?.display_name || authUser?.name || undefined}
                     index={index}
                     animate={message.id !== settledId}
                     deleting={deletingMsgId === message.id}
@@ -2114,7 +2115,12 @@ export default function StandaloneChat() {
                     <>
                       <div className="flex items-center justify-between gap-2.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-[15px] font-semibold text-foreground/80 animate-pulse">{statusMessage}</span>
+                          {/* Keyed on the text: a new phase fades in rather than the words
+                              swapping in place. The pulse lives on the wrapper so the
+                              fade and the pulse do not fight over one animation. */}
+                          <span className="animate-pulse">
+                            <span key={statusMessage} className="inline-block text-[15px] font-semibold text-foreground/80 animate-fade-in">{statusMessage}</span>
+                          </span>
                           <ThinkingTimer active={isLoading} />
                         </div>
                         {live.thinking && (
@@ -2177,7 +2183,7 @@ export default function StandaloneChat() {
                       className="animate-in fade-in slide-in-from-bottom-2 duration-300"
                       header={liveHeader}
                     >
-                      <div className="w-full space-y-3">
+                      <div className="enter-each w-full space-y-3">
                         {/* Progress belongs above the answer only while there is
                             no answer yet. Once text is streaming it moves below,
                             so the first line of the reply sits directly under the
@@ -2516,7 +2522,7 @@ export default function StandaloneChat() {
             )}
 
             {isUploading && (
-              <div className="flex gap-3 md:gap-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="flex gap-3 md:gap-6 animate-slide-up">
                 <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 border border-border/40 shadow-md bg-muted text-muted-foreground">
                   <Settings2 className="w-5 h-5"/>
                 </div>
@@ -2538,15 +2544,18 @@ export default function StandaloneChat() {
 
             {/* Approval: the assistant wants to run a tool that needs your OK */}
             {pendingToolCall && (
+              <div className="animate-slide-up">
               <ToolApprovalCard
                 call={pendingToolCall}
                 onApprove={handleApproveTool}
                 onDeny={handleDenyTool}
               />
+              </div>
             )}
 
             {/* A question the assistant (or one of its agents) asked */}
             {pendingQuestion && !pendingToolCall && (
+              <div className="animate-slide-up">
               <QuestionCard
                 key={pendingQuestion.call_id}
                 spec={pendingQuestion}
@@ -2554,6 +2563,7 @@ export default function StandaloneChat() {
                 onSkip={handleSkipQuestion}
                 busy={isLoading}
               />
+              </div>
             )}
 
             <div ref={messagesEndRef} />
@@ -2579,7 +2589,7 @@ export default function StandaloneChat() {
         <footer className={cn(
           // pb uses the safe-area inset so the composer toolbar clears the
           // phone gesture bar (needs viewport-fit=cover in index.html).
-          "shrink-0 transition-colors duration-1000 ease-in-out px-4",
+          "shrink-0 transition-[padding] duration-slow ease-standard px-4",
           isInitialState
             ? "pb-[max(1.5rem,env(safe-area-inset-bottom))] md:pb-16"
             : "pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6 pt-2"
@@ -2590,6 +2600,7 @@ export default function StandaloneChat() {
 
               {/* The plan, pinned above the composer so it never scrolls
                   away. A team run shows it in the side panel instead. */}
+              <div className="enter-each">
               {plan.tasks.length === 0 && dockPlan.history.length > 0 && (
                 <PlanDock history={dockPlan.history} actions={dockPlan.actions}
                   live={dockPlan.live} />
@@ -2599,6 +2610,7 @@ export default function StandaloneChat() {
                 <PlanDock key={wp.execution_id} history={[wp.todos]} live
                   label={wp.agent_name} />
               ))}
+              </div>
 
               {/* Continue Exploring — above the chatbox */}
               {!isInitialState && !isLoading && (() => {
@@ -2622,7 +2634,7 @@ export default function StandaloneChat() {
                     </button>
                     
                     <div className={cn(
-                      "grid transition-colors duration-300 ease-in-out",
+                      "grid transition-[grid-template-rows,opacity] duration-slow ease-standard",
                       isFollowUpsExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                     )}>
                       <div className="overflow-hidden">
@@ -2913,7 +2925,7 @@ export default function StandaloneChat() {
                                 : 'Attach a file to this chat'}
                               className={cn(
                                 "flex items-center justify-center h-8 w-8 rounded-md shrink-0 border",
-                                "transition-colors duration-200 ease-out active:scale-95",
+                                "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                                 "disabled:opacity-40",
                                 attachedFiles.length > 0
                                   ? 'bg-primary/10 border-primary/30 text-primary'
@@ -2945,7 +2957,7 @@ export default function StandaloneChat() {
                             title="Slash commands ( / )"
                             className={cn(
                               "flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
-                              "transition-colors duration-200 ease-out active:scale-95",
+                              "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                               "disabled:opacity-40",
                               paletteOpen
                                 ? 'bg-primary/10 border-primary/30 text-primary'
@@ -2974,7 +2986,7 @@ export default function StandaloneChat() {
                             onClick={() => toggleIntent(tool.key)}
                             className={cn(
                               "flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
-                              "transition-colors duration-200 ease-out active:scale-95",
+                              "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                               activeIntent === tool.key
                                 ? tool.color === 'blue' ? 'bg-blue-500/15 border-blue-500/40 text-blue-500'
                                 : 'bg-purple-500/15 border-purple-500/40 text-purple-500'

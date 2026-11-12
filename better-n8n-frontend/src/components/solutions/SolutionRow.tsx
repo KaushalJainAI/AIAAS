@@ -70,8 +70,12 @@ export default function SolutionRow({
         <div
           key={changed ? String(s.updated_at) : 'steady'}
           className={cn(
-            'min-w-0 rounded-md border p-3 transition-[opacity] duration-normal ease-accelerate',
-            selected ? 'border-primary/50 bg-primary/5' : 'border-border/60 bg-card/60',
+            'relative min-w-0 px-4 py-3 transition-[opacity,background-color] duration-normal ease-standard',
+            // A row in the page's one bordered list; the open one is tinted and
+            // marked with a bar on its leading edge.
+            selected
+              ? 'bg-primary/5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary'
+              : 'hover:bg-secondary/60',
             exiting && 'opacity-0',
             changed && !exiting && 'animate-flash',
           )}
@@ -82,7 +86,7 @@ export default function SolutionRow({
             aria-current={selected ? 'true' : undefined}
             className="block w-full min-w-0 text-left"
           >
-            <p className="break-words text-sm font-medium">{s.problem}</p>
+            <p className="break-words text-[13px] font-semibold text-foreground">{s.problem}</p>
             <p className="mt-0.5 text-[12px] text-muted-foreground">
               {s.solved_by} · {s.solved_on} · worked for {s.track_record.worked}
             </p>

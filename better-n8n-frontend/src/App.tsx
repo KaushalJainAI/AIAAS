@@ -22,7 +22,7 @@ import { Toaster } from 'sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AssistantProvider } from './contexts/AssistantContext';
 import RouteTransition from './components/layout/RouteTransition';
-import { AppLoader } from './components/ui/Loading';
+import { AppLoader, PaneLoader } from './components/ui/Loading';
 
 // Route-level code splitting.
 //
@@ -111,7 +111,12 @@ const Layout = () => {
           <main className="flex-1 min-h-0 overflow-hidden relative pb-[calc(61px+env(safe-area-inset-bottom))] md:pb-0">
             <ErrorBoundary>
               <RouteTransition>
-                <Outlet />
+                {/* Its own boundary, so a page whose code is still loading
+                    waits inside the pane instead of replacing the whole
+                    shell (sidebar included) with the boot loader. */}
+                <Suspense fallback={<PaneLoader />}>
+                  <Outlet />
+                </Suspense>
               </RouteTransition>
             </ErrorBoundary>
           </main>

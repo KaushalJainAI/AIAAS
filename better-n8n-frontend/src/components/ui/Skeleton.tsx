@@ -20,15 +20,22 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 /**
- * A list of solution-row placeholders. 88px is the height of a `SolutionRow`
- * with its problem, byline and badges; the `space-y-2` gap is the list's own.
+ * A list of solution-row placeholders, drawn as the same bordered, divided
+ * list the rows land in. Each row is the height of a `SolutionRow` with its
+ * problem, byline and badges (~76px), so nothing moves when data arrives.
  */
 export function SkeletonList({ rows = 4, label = 'Loading' }: { rows?: number; label?: string }) {
   return (
-    <ul aria-label={label} aria-busy="true" className="space-y-2">
+    <ul
+      aria-label={label}
+      aria-busy="true"
+      className="overflow-hidden rounded-md border border-border bg-card divide-y divide-border/60"
+    >
       {Array.from({ length: rows }, (_, i) => (
-        <li key={i}>
-          <Skeleton className="h-[88px] w-full" />
+        <li key={i} className="h-[76px] space-y-2 px-4 py-3">
+          <Skeleton className="h-3.5 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+          <Skeleton className="h-4 w-14" />
         </li>
       ))}
     </ul>

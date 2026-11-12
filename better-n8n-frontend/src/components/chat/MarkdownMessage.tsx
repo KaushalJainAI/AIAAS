@@ -129,7 +129,7 @@ function Citation({
       {source && (
         <span
           className={cn(
-            'absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max bg-card border border-border shadow-lg opacity-0 invisible group-hover/cit:opacity-100 group-hover/cit:visible transition-colors duration-150 z-50 flex flex-col pointer-events-none',
+            'absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max bg-card border border-border shadow-lg opacity-0 invisible group-hover/cit:opacity-100 group-hover/cit:visible transition-[opacity,visibility] duration-150 z-50 flex flex-col pointer-events-none',
             CARD_STYLES[variant],
           )}
         >

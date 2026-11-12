@@ -11,6 +11,7 @@
  * global rule in `index.css` — no component here needs to check it.
  */
 
+import type { CSSProperties } from 'react';
 import { cn } from '../../lib/utils';
 
 // The placeholder lives in its own file now; re-exported so existing imports keep working.
@@ -47,14 +48,36 @@ export function Spinner({
 export function AppLoader({ label = 'Loading' }: { label?: string }) {
   return (
     <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background">
-      <div className="relative h-12 w-12 text-primary">
-        <div className="absolute inset-0 rounded-full border-2 border-current opacity-15" />
-        <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-current" />
-        <div className="absolute inset-2 rounded-full bg-current opacity-10 animate-pulse" />
+      <div className="flex flex-col items-center gap-4" style={DELAYED_ENTRANCE}>
+        <div className="relative h-12 w-12 text-primary">
+          <div className="absolute inset-0 rounded-full border-2 border-current opacity-15" />
+          <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-current" />
+          <div className="absolute inset-2 rounded-full bg-current opacity-10 animate-pulse" />
+        </div>
+        <p className="micro-label">{label}</p>
       </div>
-      <p className="micro-label animate-fade-in">
-        {label}
-      </p>
+    </div>
+  );
+}
+
+/** Hidden for 300ms, then a 200ms fade. A wait shorter than the delay shows
+ *  nothing at all, which is the common case and the point: a loader that
+ *  blinks on and off for 80ms reads as the screen glitching. */
+const DELAYED_ENTRANCE: CSSProperties = {
+  animation: 'fade-in 200ms cubic-bezier(0.1, 0.9, 0.2, 1) 300ms both',
+};
+
+/**
+ * The wait while a page's code loads, drawn inside the content pane. The
+ * sidebar and title bar stay where they are; only the pane waits, and only
+ * shows that it is waiting after a beat.
+ */
+export function PaneLoader() {
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <span style={DELAYED_ENTRANCE} className="text-muted-foreground">
+        <Spinner size="lg" />
+      </span>
     </div>
   );
 }

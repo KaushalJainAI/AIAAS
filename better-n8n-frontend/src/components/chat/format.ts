@@ -54,3 +54,19 @@ export function badgeInitials(name: string | null | undefined): string {
 export function formatSteps(count: number): string {
   return count === 1 ? '1 step' : `${count} steps`;
 }
+
+/**
+ * How a person's own messages are signed: their display name (an email is
+ * shortened to the part before the @) and initials for the avatar. With no
+ * name — a guest — it is "You".
+ */
+export function personLabel(name: string | null | undefined): { name: string; initials: string } {
+  const raw = (name ?? '').trim();
+  if (!raw) return { name: 'You', initials: 'You' };
+  const shown = raw.includes('@') ? raw.split('@')[0] : raw;
+  const words = shown.split(/[\s._-]+/).filter(Boolean);
+  const initials = words.length >= 2
+    ? words[0][0] + words[words.length - 1][0]
+    : (words[0] ?? shown).slice(0, 2);
+  return { name: shown, initials: initials.toUpperCase() };
+}

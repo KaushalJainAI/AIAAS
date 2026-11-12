@@ -129,7 +129,7 @@ export default function ChatHistorySidebar({
       <button
         onClick={(e) => onDeleteConversation(e, conv.id)}
         aria-label="Delete conversation"
-        className="p-1 hover:bg-destructive-subtle hover:text-destructive rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-colors shrink-0 text-muted-foreground"
+        className="p-1 hover:bg-destructive-subtle hover:text-destructive rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-[opacity,color,background-color] duration-normal shrink-0 text-muted-foreground"
         title="Delete conversation"
       >
         <Trash2 className="w-3.5 h-3.5" />

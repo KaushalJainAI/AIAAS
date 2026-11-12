@@ -281,7 +281,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
                   </div>
                   <button
                     onClick={(e) => handleDeleteConversation(e, c.id)}
-                    className="rounded-md p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-white"
+                    className="rounded-md p-1 opacity-0 transition-[opacity,background-color] duration-normal group-hover:opacity-100 hover:bg-destructive hover:text-white"
                     title="Delete"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

@@ -238,4 +238,4 @@ export default function ChatHeader({
 /** A flat 32px icon button, the same shape as the Topbar's, so the bars read as one set. */
 const toolbarButton =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground ' +
-  'transition-colors hover:bg-secondary hover:text-foreground active:scale-95';
+  'transition-[color,background-color,transform] duration-fast hover:bg-secondary hover:text-foreground active:scale-95';

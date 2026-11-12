@@ -47,7 +47,7 @@ import FeedbackControl from '../runs/FeedbackControl';
 import ChartArtifact from './ChartArtifact';
 import { CollapsiblePanel } from './CollapsiblePanel';
 import CommandCard from './CommandCard';
-import { badgeInitials, formatClock, formatElapsed, formatSteps, formatWordCount, stripXmlTags } from './format';
+import { badgeInitials, personLabel, formatClock, formatElapsed, formatSteps, formatWordCount, stripXmlTags } from './format';
 import HtmlArtifact from './HtmlArtifact';
 import MarkdownMessage from './MarkdownMessage';
 import { MediaPreview } from './MediaPreview';
@@ -75,13 +75,13 @@ export function AgentBadge({ name }: { name: string }) {
 }
 
 /** A person's round avatar, for the user's own messages. */
-function PersonAvatar() {
+function PersonAvatar({ initials }: { initials: string }) {
   return (
     <span
       aria-hidden="true"
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-subtle font-mono text-[10px] font-semibold text-primary"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-primary-line bg-primary-subtle font-mono text-[10px] font-semibold leading-none tracking-tight text-primary"
     >
-      You
+      {initials}
     </span>
   );
 }
@@ -218,9 +218,12 @@ interface ChatMessageItemProps {
   onDraftAction?: (solutionId: number, action: DraftAction) => void;
   /** The draft card's choice is being sent to the server. */
   draftBusy?: boolean;
+  /** The signed-in person's name, to sign their own messages. Absent: "You". */
+  userName?: string;
 }
 
 export default function ChatMessageItem({
+  userName,
   message,
   index,
   animate,
@@ -835,6 +838,8 @@ export default function ChatMessageItem({
     </>
   ) : undefined;
 
+  const person = personLabel(userName);
+
   return (
     <div
       data-message-id={message.id}
@@ -847,8 +852,8 @@ export default function ChatMessageItem({
     >
       {isUser && (
         <div className="mb-2 flex items-center gap-2 text-[13px] text-muted-foreground">
-          <PersonAvatar />
-          <span className="font-medium text-foreground">You</span>
+          <PersonAvatar initials={person.initials} />
+          <span className="font-medium text-foreground truncate">{person.name}</span>
           {time && <span>· {time}</span>}
         </div>
       )}

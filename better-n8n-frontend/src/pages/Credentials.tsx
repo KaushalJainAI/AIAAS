@@ -176,7 +176,7 @@ export default function Credentials() {
         </div>
         <div className="relative">
           <button 
-            className="p-1.5 hover:bg-muted rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="p-1.5 hover:bg-muted rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-[opacity,background-color] duration-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Credential actions"
             aria-expanded={openDropdown === credential.id}
             onClick={(e) => {

@@ -54,6 +54,7 @@ import SolutionRow from '../components/solutions/SolutionRow';
 import TeamDocuments from '../components/solutions/TeamDocuments';
 import { markLeaving, restoreRows, type ListRow } from '../components/solutions/rowExit';
 import { Button } from '../components/ui/Button';
+import Select from '../components/ui/Select';
 import { SkeletonList } from '../components/ui/Skeleton';
 import { detailOf, emptyValues } from '../lib/solutionForm';
 import {
@@ -164,8 +165,8 @@ export default function TeamKnowledge() {
         subtitle="The problems your team has already solved, and the documents it shares"
         icon={Building2}
       />
-      <div className="px-4 pt-6 md:px-8">
-        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Section">
+      <div className="border-b border-border px-4 md:px-8">
+        <div className="mx-auto -mb-px flex max-w-6xl gap-5 overflow-x-auto" role="tablist" aria-label="Section">
           {tabs.map(({ id, label, icon: Icon, count }) => (
             <button
               key={id}
@@ -176,16 +177,17 @@ export default function TeamKnowledge() {
               aria-controls="solutions-panel"
               onClick={() => pick(id)}
               className={cn(
-                'relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 py-1.5 text-[13px] transition-colors duration-normal ease-standard',
+                'relative inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap text-[13px] transition-colors duration-normal ease-standard',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40',
                 tab === id
-                  ? 'border-primary/40 bg-primary/10 font-medium'
-                  : 'border-border/60 text-muted-foreground hover:text-foreground',
+                  ? 'font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Icon className="h-3.5 w-3.5" aria-hidden="true" />
               {label}
               {count != null && count > 0 && (
-                <span className="rounded bg-primary/15 px-1.5 text-[11px] font-semibold text-primary tabular-nums">
+                <span className="rounded bg-secondary px-1.5 font-mono text-[11px] text-foreground tabular-nums">
                   {count}
                 </span>
               )}
@@ -193,7 +195,7 @@ export default function TeamKnowledge() {
               <span
                 aria-hidden="true"
                 className={cn(
-                  'pointer-events-none absolute inset-x-2 -bottom-1 h-0.5 rounded-full bg-primary transition-transform duration-normal ease-decelerate',
+                  'pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-primary transition-transform duration-normal ease-decelerate',
                   tab === id ? 'scale-x-100' : 'scale-x-0',
                 )}
               />
@@ -203,7 +205,7 @@ export default function TeamKnowledge() {
       </div>
 
       {notMember && (
-        <p role="status" className="px-4 pt-4 text-[13px] text-muted-foreground md:px-8">
+        <p role="status" className="mx-auto max-w-6xl px-4 pt-4 text-[13px] text-muted-foreground md:px-8">
           That organisation is not one you belong to, so this shows your active organisation.
         </p>
       )}
@@ -216,7 +218,7 @@ export default function TeamKnowledge() {
               : 'Only the curators of this organisation see the review queue.'}
           </p>
         ) : tab === 'team' ? (
-          <div key={tab} className="animate-fade-in space-y-10 px-4 py-6 md:px-8">
+          <div key={tab} className="mx-auto max-w-6xl animate-fade-in space-y-10 px-4 py-6 md:px-8">
             <OrganizationTab />
             <section aria-labelledby="team-documents-heading" className="space-y-3">
               <h2 id="team-documents-heading" className="text-base font-medium">Team documents</h2>
@@ -228,7 +230,7 @@ export default function TeamKnowledge() {
             </section>
           </div>
         ) : tab === 'insights' ? (
-          <div key={tab} className="animate-fade-in px-4 py-6 md:px-8">
+          <div key={tab} className="mx-auto max-w-6xl animate-fade-in px-4 py-6 md:px-8">
             {scopeOrg ? (
               <SolutionInsights org={scopeOrg.id} orgName={scopeOrg.name} hrefFor={hrefFor} />
             ) : null}
@@ -388,17 +390,18 @@ function SolutionsWorkspace({
   const emptyCards = showCards && ready && !pages.isLoading && !pages.isError && items.length === 0;
 
   return (
-    <div className="px-4 py-6 md:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select
-          value={scope ?? ''}
-          onChange={(e) => onScope(e.target.value ? Number(e.target.value) : null)}
-          className="rounded border border-border bg-background px-2 py-1.5 text-sm"
-          aria-label="Whose solutions"
-        >
-          <option value="">Just mine (no organisation)</option>
-          {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select>
+        <div className="w-full sm:w-52" title="Whose solutions">
+          <Select
+            value={scope == null ? '' : String(scope)}
+            onChange={(v) => onScope(v ? Number(v) : null)}
+            options={[
+              { value: '', label: 'Just mine' },
+              ...orgs.map((o) => ({ value: String(o.id), label: o.name })),
+            ]}
+          />
+        </div>
 
         {isLibrary && !attention && (
           <form
@@ -407,26 +410,26 @@ function SolutionsWorkspace({
             onSubmit={(e) => { e.preventDefault(); setSubmitted(query); }}
           >
             <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-2 top-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Describe the problem or paste the error"
                 aria-label="Search solutions"
-                className="w-full rounded border border-border bg-background py-1.5 pl-8 pr-2 text-sm"
+                className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground transition-colors focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
-            <Button type="submit" size="sm">Search</Button>
+            <Button type="submit" size="sm" variant="secondary" className="h-9">Search</Button>
           </form>
         )}
 
         {isLibrary && (
           <>
-            <Button size="sm" variant="secondary" onClick={() => { setCreating((v) => !v); setCreateError(null); }} aria-expanded={creating}>
+            <Button size="sm" className="h-9" onClick={() => { setCreating((v) => !v); setCreateError(null); }} aria-expanded={creating}>
               <Plus className="h-3.5 w-3.5" /> New solution
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>
-              <Upload className="h-3.5 w-3.5" /> Import from a document
+            <Button size="sm" variant="ghost" className="h-9" onClick={() => setImporting(true)} title="Import from a document">
+              <Upload className="h-3.5 w-3.5" /> Import
             </Button>
           </>
         )}
@@ -439,10 +442,10 @@ function SolutionsWorkspace({
             aria-pressed={attention}
             onClick={() => setParam({ attention: attention ? null : '1' })}
             className={cn(
-              'rounded border px-2.5 py-1 transition-colors',
+              'h-7 rounded-md border px-2.5 transition-colors',
               attention
-                ? 'border-warning/50 bg-warning/15 font-medium text-warning dark:text-warning'
-                : 'border-border/60 text-muted-foreground hover:text-foreground',
+                ? 'border-warning/50 bg-warning/15 font-medium text-warning'
+                : 'border-border text-muted-foreground hover:bg-secondary hover:text-foreground',
             )}
           >
             Needs attention{attentionCount.data?.total != null ? ` (${attentionCount.data.total})` : ''}
@@ -452,8 +455,8 @@ function SolutionsWorkspace({
             aria-pressed={mine}
             onClick={() => setParam({ mine: mine ? null : '1' })}
             className={cn(
-              'rounded border px-2.5 py-1 transition-colors',
-              mine ? 'border-primary/40 bg-primary/10 font-medium' : 'border-border/60 text-muted-foreground hover:text-foreground',
+              'h-7 rounded-md border px-2.5 transition-colors',
+              mine ? 'border-primary/40 bg-primary/10 font-medium text-foreground' : 'border-border text-muted-foreground hover:bg-secondary hover:text-foreground',
             )}
           >
             Only mine
@@ -463,7 +466,7 @@ function SolutionsWorkspace({
               type="button"
               onClick={() => setParam({ tag: null })}
               aria-label={`Clear the tag filter ${tag}`}
-              className="rounded border border-primary/40 bg-primary/10 px-2.5 py-1 font-medium"
+              className="h-7 rounded-md border border-primary/40 bg-primary/10 px-2.5 font-medium transition-colors hover:bg-primary/15"
             >
               Tagged {tag} ×
             </button>
@@ -472,7 +475,7 @@ function SolutionsWorkspace({
       )}
 
       {isLibrary && creating && (
-        <section aria-label="New solution" className="mb-6 rounded-md border border-border/60 bg-card/40 p-4">
+        <section aria-label="New solution" className="mb-6 animate-fade-in rounded-md border border-border bg-card p-4">
           <h3 className="mb-3 text-base font-medium">New solution</h3>
           <SolutionForm
             mode="new"
@@ -527,7 +530,10 @@ function SolutionsWorkspace({
             </p>
           )}
 
-          <ul className="stagger-children space-y-2">
+          <ul className={cn(
+            'stagger-children overflow-hidden rounded-md border border-border bg-card divide-y divide-border/60',
+            items.length === 0 && 'hidden',
+          )}>
             {items.map((s) => (
               <SolutionRow
                 key={s.id}
@@ -561,7 +567,7 @@ function SolutionsWorkspace({
 
         <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
           {openId != null ? (
-            <div className="rounded-md border border-border/60 bg-card/40 p-4">
+            <div className="animate-fade-in rounded-md border border-border bg-card p-4">
               <SolutionDetail
                 key={`${openId}:${editRequest === openId ? 'edit' : 'view'}`}
                 org={scope}
@@ -573,7 +579,12 @@ function SolutionsWorkspace({
               />
             </div>
           ) : emptyCards ? null : (
-            <p className="hidden py-12 text-center text-sm text-muted-foreground lg:block">Pick a solution to read it.</p>
+            items.length > 0 && (
+              <div className="hidden h-40 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-center lg:flex">
+                <Lightbulb className="h-5 w-5 text-muted-foreground/60" aria-hidden="true" />
+                <p className="text-[13px] text-muted-foreground">Pick a solution to read it here.</p>
+              </div>
+            )
           )}
         </div>
       </div>

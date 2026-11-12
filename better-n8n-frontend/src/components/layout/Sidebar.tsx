@@ -188,7 +188,7 @@ const Sidebar = () => {
             aria-modal={isMobile && !collapsed ? true : undefined}
             aria-hidden={isMobile && collapsed ? true : undefined}
             className={cn(
-                "border-r flex flex-col transition-colors duration-150 overflow-hidden",
+                "border-r flex flex-col transition-[width,transform,background-color,border-color] duration-slow ease-standard overflow-hidden",
                 // Mobile: fixed drawer, slides in from left, fully hidden when collapsed
                 isMobile
                     ? cn(
@@ -266,7 +266,7 @@ const Sidebar = () => {
                 <button
                     onClick={newChat}
                     className={cn(
-                        "flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors duration-150 font-semibold overflow-hidden whitespace-nowrap mx-auto",
+                        "flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-[width,height,padding,background-color] duration-slow ease-standard font-semibold overflow-hidden whitespace-nowrap mx-auto",
                         collapsed ? "w-10 h-10 p-0" : "w-full py-2.5 px-4 gap-2"
                     )}
                     title={collapsed ? "New chat" : undefined}
@@ -304,7 +304,7 @@ const Sidebar = () => {
                                         aria-current={active ? 'page' : undefined}
                                         onClick={item.guestOk ? undefined : guardGuest(item.label)}
                                         className={cn(
-                                            "flex h-8 items-center rounded-md transition-colors group relative",
+                                            "flex h-8 items-center rounded-md transition-[padding,gap,background-color,color] duration-slow ease-standard group relative",
                                             active
                                                 ? "bg-muted font-semibold text-foreground"
                                                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",

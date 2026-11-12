@@ -272,7 +272,7 @@ export default function Imagine() {
                       setRenamingId(c.id);
                     }}
                     aria-label="Rename conversation"
-                    className="rounded-md p-1 opacity-0 group-hover:opacity-100 hover:bg-muted"
+                    className="rounded-md p-1 opacity-0 transition-[opacity,background-color] duration-normal group-hover:opacity-100 hover:bg-muted"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -283,7 +283,7 @@ export default function Imagine() {
                       void agent.deleteConversation(c.id);
                     }}
                     aria-label="Delete conversation"
-                    className="rounded-md p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-white"
+                    className="rounded-md p-1 opacity-0 transition-[opacity,background-color] duration-normal group-hover:opacity-100 hover:bg-destructive hover:text-white"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

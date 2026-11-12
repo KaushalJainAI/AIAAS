@@ -154,14 +154,15 @@ const STATUS_DOT: Record<string, string> = {
   archived: 'bg-muted-foreground',
 };
 
-/** One figure in the card's stat row. Numbers are mono, labels small and muted. */
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[12px] text-muted-foreground truncate">{label}</div>
-      <div className="font-mono text-[14px] font-semibold tabular-nums truncate">{value}</div>
-    </div>
-  );
+/** The card's track record in one line. Before the first run there is nothing
+ *  honest to show, so it says so rather than drawing three dashes. */
+function trackRecord(agent: Agent): string {
+  const runs = agent.runs ?? 0;
+  if (!runs) return 'Not run yet';
+  const parts = [`${runs} run${runs === 1 ? '' : 's'}`];
+  parts.push(`${Math.round((agent.unattended / runs) * 100)}% on its own`);
+  if (agent.spend) parts.push(`₹${agent.spend}`);
+  return parts.join(' · ');
 }
 
 function AgentCard({
@@ -179,8 +180,6 @@ function AgentCard({
   onRestore: (id: number) => void;
   restorePending: boolean;
 }) {
-  // Before the first run there is no honest percentage to show.
-  const pct = agent.runs ? Math.round((agent.unattended / agent.runs) * 100) : null;
   const chips = grants(agent, connectorNames);
   const scheduled = Boolean(agent.schedule || (agent.extraSchedules ?? 0) > 0);
   const statusLabel = STATUS_COPY[agent.status as AgentStatus]?.label ?? agent.status;
@@ -216,10 +215,12 @@ function AgentCard({
 
         {/* Approval rule first, then what it may reach. Tags are small and
             square: they name things, they do not decorate. */}
-        <div className="flex flex-wrap gap-1.5">
+        {/* One line, never wrapping: chips shrink and truncate, and whatever
+            does not fit is counted in "+N" (the full list is in its title). */}
+        <div className="flex items-center gap-1.5 min-w-0">
           <span
             className={cn(
-              'inline-flex items-center gap-1 h-[22px] px-2 rounded border text-[12px] font-medium max-w-full',
+              'inline-flex items-center gap-1 h-[22px] px-2 rounded border text-[12px] font-medium min-w-0 shrink-0 max-w-[60%]',
               autonomyStyle[agent.autonomy]
             )}
             title={AUTONOMY_COPY[agent.autonomy].hint}
@@ -230,45 +231,52 @@ function AgentCard({
           {chips.slice(0, MAX_CHIPS).map((t) => (
             <span
               key={t}
-              className="inline-flex items-center h-[22px] px-2 rounded bg-secondary text-[12px] text-muted-foreground max-w-full truncate"
+              title={t}
+              className="inline-flex items-center h-[22px] px-2 rounded bg-secondary text-[12px] text-muted-foreground min-w-0 shrink"
             >
-              {t}
+              <span className="truncate">{t}</span>
             </span>
           ))}
           {chips.length > MAX_CHIPS && (
             <span
-              className="inline-flex items-center h-[22px] px-2 rounded border border-dashed border-border text-[12px] text-muted-foreground"
+              className="inline-flex items-center h-[22px] px-1.5 rounded text-[12px] text-muted-foreground shrink-0"
               title={chips.slice(MAX_CHIPS).join(', ')}
             >
-              +{chips.length - MAX_CHIPS} more
+              +{chips.length - MAX_CHIPS}
             </span>
           )}
         </div>
-
-        {/* Runs, how much needed nobody, and what it spent: the three numbers
-            that say whether delegating to this agent pays off. */}
-        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">
-          <Stat label="Runs" value={String(agent.runs ?? 0)} />
-          <Stat label="On its own" value={pct === null ? '—' : `${pct}%`} />
-          <Stat label="Spend" value={agent.spend ? `₹${agent.spend}` : '—'} />
-        </div>
-
-        {/* Any schedule counts, not only the builder's own field: one made on
-            the Schedules page left the card reading "On request". */}
-        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground min-w-0">
-          <Clock className="w-3 h-3 shrink-0" />
-          <span className="truncate">{TRIGGER_COPY[scheduled ? 'maintenance' : 'goal'].label}</span>
-        </div>
       </Link>
 
-      {/* One surface: the builder. A run is read on the Activity page. */}
-      <div className="flex gap-2 px-4 pb-4">
-        <Link
-          to={`/agents/${agent.id}`}
-          className="flex-1 min-h-[40px] inline-flex items-center justify-center rounded-md border border-border text-[13px] font-medium hover:bg-secondary transition-colors"
+      {/* Footer: when it runs and how it has done on the left, the two actions
+          on the right. The whole card opens the builder, so there is no
+          separate Edit button; a run is read on the Activity page. */}
+      <div className="flex items-center gap-2 border-t border-border px-4 py-2.5">
+        {/* Any schedule counts, not only the builder's own field: one made on
+            the Schedules page left the card reading "On request". */}
+        <div className="flex min-w-0 flex-1 flex-col text-[12px] leading-tight">
+          <span className="flex items-center gap-1.5 text-foreground min-w-0">
+            <Clock className="w-3 h-3 shrink-0 text-muted-foreground" />
+            <span className="truncate">{TRIGGER_COPY[scheduled ? 'maintenance' : 'goal'].label}</span>
+          </span>
+          <span
+            className="mt-0.5 truncate font-mono text-[11.5px] tabular-nums text-muted-foreground"
+            title="Runs, the share that needed nobody, and what it spent"
+          >
+            {trackRecord(agent)}
+          </span>
+        </div>
+        {/* Sharing sits on the agent rather than on Explore: what you publish
+            is something you own, and the dialog shows the payload first. */}
+        <button
+          type="button"
+          onClick={() => onShare(agent)}
+          aria-label={`Share ${agent.name}`}
+          title="Share"
+          className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
         >
-          Edit
-        </Link>
+          <Share2 className="w-4 h-4" />
+        </button>
         {/* Run by hand. The execute endpoint had no caller in the app, so an
             agent could only be run by asking chat to. */}
         {agent.status === 'archived' ? (
@@ -276,7 +284,7 @@ function AgentCard({
             type="button"
             onClick={() => onRestore(agent.id)}
             disabled={restorePending}
-            className="flex-1 min-h-[40px] inline-flex items-center justify-center gap-1.5 rounded-md border border-border text-[13px] font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+            className="h-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-md border border-border text-[13px] font-medium hover:bg-secondary transition-colors disabled:opacity-50"
           >
             <ArchiveRestore className="w-3.5 h-3.5" />
             Restore
@@ -285,22 +293,12 @@ function AgentCard({
           <button
             type="button"
             onClick={() => onRun(agent)}
-            className="flex-1 min-h-[40px] inline-flex items-center justify-center gap-1.5 rounded-md bg-agent text-agent-foreground text-[13px] font-medium hover:bg-agent/90 transition-colors"
+            className="h-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-md bg-agent text-agent-foreground text-[13px] font-medium hover:bg-agent/90 transition-colors"
           >
             <Play className="w-3.5 h-3.5" />
             Run
           </button>
         )}
-        {/* Sharing sits on the agent rather than on Explore: what you publish
-            is something you own, and the dialog shows the payload first. */}
-        <button
-          type="button"
-          onClick={() => onShare(agent)}
-          className="min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3 rounded-md text-[13px] text-muted-foreground hover:bg-secondary transition-colors"
-        >
-          <Share2 className="w-3.5 h-3.5" />
-          Share
-        </button>
       </div>
     </article>
   );

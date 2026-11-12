@@ -699,7 +699,7 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
                     active ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-border-strong hover:bg-secondary/40'
                   )}
                 >
-                  <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                  <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 transition-opacity duration-normal group-hover:opacity-100">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setEditingSchema(s); }}

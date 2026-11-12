@@ -161,7 +161,7 @@ function WorkerLane({ task, readOnly }: { task: PlanTask; readOnly: boolean }) {
   };
 
   return (
-    <div className={`relative overflow-hidden rounded-md border bg-card p-2.5 ${state.border}`}>
+    <div className={`relative overflow-hidden rounded-md border bg-card p-2.5 transition-colors duration-slow ease-standard ${state.border}`}>
       {task.status === 'running' && (
         <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-agent" />
       )}
@@ -178,7 +178,7 @@ function WorkerLane({ task, readOnly }: { task: PlanTask; readOnly: boolean }) {
         {task.tokens > 0 && (
           <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{task.tokens} tok</span>
         )}
-        <span className={`h-5 shrink-0 rounded px-1.5 font-mono text-[11px] leading-5 ${state.tag}`}>
+        <span className={`h-5 shrink-0 rounded px-1.5 font-mono text-[11px] leading-5 transition-colors duration-slow ease-standard ${state.tag}`}>
           {state.label}
         </span>
       </div>
@@ -188,7 +188,7 @@ function WorkerLane({ task, readOnly }: { task: PlanTask; readOnly: boolean }) {
       </div>
 
       <div className="mt-2 h-[3px] overflow-hidden rounded bg-muted" aria-hidden>
-        <div className={`h-full rounded ${state.bar} ${state.barWidth}`} />
+        <div className={`h-full rounded transition-[width,background-color] duration-slow ease-standard ${state.bar} ${state.barWidth}`} />
       </div>
 
       {!readOnly && live && (
@@ -376,7 +376,7 @@ function PlanPanel(props: Props) {
   return (
     <>
       {/* Desktop: a sticky right rail beside the transcript. */}
-      <aside className="hidden w-[300px] shrink-0 md:block">
+      <aside className="hidden w-[300px] shrink-0 animate-slide-in-right md:block">
         <div className="sticky top-0 flex max-h-[100dvh] flex-col overflow-hidden border-l border-border bg-muted/30">
           <PanelHeader tasks={tasks} />
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -402,7 +402,7 @@ function PlanPanel(props: Props) {
             </span>
           </button>
           {sheetOpen && (
-            <div className="fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-40 max-h-[60dvh] overflow-y-auto rounded-t-[10px] border-t border-border bg-background shadow-lg">
+            <div className="fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-40 max-h-[60dvh] animate-slide-in-bottom overflow-y-auto rounded-t-[10px] border-t border-border bg-background shadow-lg">
               <div className="sticky top-0 z-10 bg-background">
                 <div className="flex justify-center pb-0.5 pt-2" aria-hidden>
                   <span className="h-1 w-10 rounded bg-border-strong" />

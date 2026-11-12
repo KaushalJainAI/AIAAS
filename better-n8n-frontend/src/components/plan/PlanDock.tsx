@@ -48,7 +48,7 @@ function PlanDock({ history, actions, live = false, label }: Props) {
       {open && (
         <div
           id={panelId}
-          className="absolute bottom-full left-0 right-0 z-20 max-h-[50vh] overflow-y-auto rounded-t-md border border-border bg-card"
+          className="absolute bottom-full left-0 right-0 z-20 max-h-[50vh] animate-fade-in overflow-y-auto rounded-t-md border border-border bg-card"
         >
           <PlanView history={history} actions={actions} bare live={live} />
         </div>
@@ -66,7 +66,7 @@ function PlanDock({ history, actions, live = false, label }: Props) {
         {label && <span className="shrink-0 font-medium text-foreground">{label}&apos;s plan</span>}
         <span className="flex h-1 w-20 shrink-0 gap-px overflow-hidden rounded bg-muted sm:w-28" aria-hidden>
           {steps.map((s, i) => (
-            <span key={`${s.key}-${i}`} className={`h-full flex-1 ${segmentClass(s.status, !!view.current && s.text === view.current)}`} />
+            <span key={`${s.key}-${i}`} className={`h-full flex-1 transition-colors duration-slow ease-standard ${segmentClass(s.status, !!view.current && s.text === view.current)}`} />
           ))}
         </span>
         <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
