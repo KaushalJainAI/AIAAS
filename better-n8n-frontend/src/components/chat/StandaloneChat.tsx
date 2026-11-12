@@ -1974,12 +1974,12 @@ export default function StandaloneChat() {
         <div
           className={cn(
             "flex-1 min-w-0 overflow-y-auto px-4 md:px-6 transition-colors duration-1000 ease-in-out relative",
-            // Initial state: truly center the hero (no asymmetric padding that
-            // shoves it upward and leaves a dead zone above the composer).
+            // Initial state: centre the hero with auto margins, not
+            // justify-center, which clips its top when the window is short.
             // Transcript: only enough head room to clear the sticky header —
             // the previous pt-8 sat on top of the 3rem turn rhythm below and
             // read as an unexplained empty band above the first message.
-            isInitialState ? "flex items-center justify-center py-4" : "pt-3 pb-24"
+            isInitialState ? "flex flex-col py-4" : "pt-3 pb-24"
           )}
           onMouseUp={syncSelection}
           onKeyUp={syncSelection}
@@ -1998,7 +1998,7 @@ export default function StandaloneChat() {
 
           <div className={cn(
             "max-w-4xl mx-auto w-full relative",
-            isInitialState ? "flex flex-col items-center" : "space-y-6"
+            isInitialState ? "my-auto flex flex-col items-center" : "space-y-6"
           )}>
             {showSkeleton ? (
               <TranscriptSkeleton />
