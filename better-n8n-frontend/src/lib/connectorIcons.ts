@@ -10,7 +10,6 @@
 import {
   Blocks,
   BookOpen,
-  Brain,
   Calendar,
   FileText,
   FolderOpen,
@@ -22,6 +21,7 @@ import {
   Mail,
   Table2,
   Terminal,
+  Bookmark,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { MCPServerCategory } from '../api/mcp';
@@ -43,7 +43,7 @@ const VISUALS: Record<string, ConnectorVisual> = {
   github: { icon: Github, color: '#8b8b8b' },
   filesystem: { icon: FolderOpen, color: '#7c3aed' },
   fetch: { icon: Globe, color: '#0ea5e9' },
-  memory: { icon: Brain, color: '#ec4899' },
+  memory: { icon: Bookmark, color: '#ec4899' },
   'sequential-thinking': { icon: GitBranch, color: '#f59e0b' },
 };
 

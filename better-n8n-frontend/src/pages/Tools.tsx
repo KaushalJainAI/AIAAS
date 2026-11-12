@@ -41,7 +41,6 @@ import {
   RotateCcw,
   SlidersHorizontal,
   AlertCircle,
-  Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -584,7 +583,6 @@ function ToolDrawer({
               <EffectBadge effect={tool.effect} />
               {tool.parallel && (
                 <Chip>
-                  <Zap className="w-2.5 h-2.5" />
                   Runs in parallel
                 </Chip>
               )}

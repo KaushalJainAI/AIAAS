@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Bot, Check, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, MessageSquare, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
 import agentsService from '../api/agents';
 import evalsService from '../api/evals';
@@ -81,7 +81,7 @@ export default function AgentCreateWizard() {
       <PageHeader
         title="Create an agent"
         subtitle="Describe the job. The orchestrator asks what it needs, proposes the config, and you approve before anything exists."
-        icon={Bot}
+        icon={Workflow}
       />
 
       {step === 'describe' && (
@@ -94,7 +94,7 @@ export default function AgentCreateWizard() {
             onChange={(e) => setDescription(e.target.value)}
           />
           <Button onClick={() => ask.mutate()} disabled={!description.trim() || ask.isPending}>
-            {ask.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {ask.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
             Ask me what it needs
           </Button>
         </section>

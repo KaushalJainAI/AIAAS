@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Home, Loader2, Maximize, Minimize, PanelLeft, Share2, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Home, Loader2, Maximize, Minimize, PanelLeft, Share2, MessageSquare } from 'lucide-react';
 
 import { documentsService, type Document } from '../../api/documents';
 import { APPS, type AppMeta, type NewFileOption } from '../../lib/apps';
@@ -247,7 +247,7 @@ export default function AppBar(props: Props) {
           aria-label="Ask AI about this file"
           className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          <Sparkles className="h-4 w-4 text-primary" />
+          <MessageSquare className="h-4 w-4" />
           <span className="hidden lg:inline">Ask AI</span>
         </button>
       )}

@@ -12,13 +12,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Bot,
   ChevronDown,
   X,
   History,
   Paperclip,
   Workflow,
   Database,
+  Info,
+  UserRound,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { prettyModel } from '../../lib/modelNames';
@@ -56,7 +57,7 @@ export default function GuestBanner({ model }: { model?: string | null }) {
         className="absolute top-2 right-3 z-40 flex items-center gap-1.5 px-2.5 py-1 rounded border border-border bg-card/90 backdrop-blur text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
         title="You are in guest mode"
       >
-        <Bot className="w-3.5 h-3.5 text-primary" />
+        <UserRound className="w-3.5 h-3.5" />
         Guest
       </button>
     );
@@ -66,7 +67,7 @@ export default function GuestBanner({ model }: { model?: string | null }) {
     <div className="absolute top-0 left-0 right-0 z-40">
       <div className="bg-primary-subtle border-b border-primary-line backdrop-blur-md px-2 md:px-4 py-1.5 min-h-14 md:min-h-0 flex items-center gap-2 md:gap-3 text-sm">
         <SidebarMenuButton />
-        <Bot className="w-4 h-4 text-primary shrink-0 hidden sm:block" />
+        <Info className="w-4 h-4 text-primary shrink-0 hidden sm:block" />
 
         <div className="min-w-0 flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-foreground">Guest mode</span>

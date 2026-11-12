@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
   X,
-  Cpu,
   Terminal,
   Globe,
   Save,
@@ -13,6 +12,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  Plug,
 } from 'lucide-react';
 import {
   mcpService, isRemoteServerType,
@@ -326,7 +326,7 @@ export default function MCPServerModal({
         <div className="p-6 border-b border-border/40 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-md text-primary">
-              <Cpu className="w-5 h-5" />
+              <Plug className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-xl font-bold tracking-tight">

@@ -51,7 +51,7 @@ import {
   Plus,
   Trash2,
   Webhook,
-  Zap,
+  Radio,
 } from 'lucide-react';
 import {
   triggersService,
@@ -163,7 +163,7 @@ const OUTCOME_COPY: Record<FireOutcome, { label: string; hint: string; tone: str
 const MODE_COPY = {
   schedule: { icon: CalendarClock, label: 'Schedule' },
   webhook: { icon: Webhook, label: 'Webhook' },
-  event: { icon: Zap, label: 'Event' },
+  event: { icon: Radio, label: 'Event' },
 } as const;
 
 /** Relative time, past or future, in the coarsest unit that is still useful. */

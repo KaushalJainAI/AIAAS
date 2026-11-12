@@ -8,7 +8,7 @@
  * person has been asked" rule as the review queue, one step earlier.
  */
 import { useState } from 'react';
-import { Check, History, Sparkles, X } from 'lucide-react';
+import { Check, History, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -120,7 +120,7 @@ export default function DraftCases({ suiteId, hasAgent, drafts }: {
         <Button size="sm" variant="secondary" disabled={!hasAgent || busy}
           loading={generate.isPending} onClick={() => generate.mutate()}
           title={hasAgent ? 'The judge model drafts about 12 cases from this agent’s setup' : 'Pick an agent first'}>
-          <Sparkles className="w-3.5 h-3.5" /> Generate cases
+          <Plus className="w-3.5 h-3.5" /> Generate cases
         </Button>
         <Button size="sm" variant="secondary" disabled={!hasAgent || busy}
           loading={importRuns.isPending} onClick={() => importRuns.mutate()}

@@ -8,7 +8,7 @@
  * second app bar. It names the conversation rather than the section.
  */
 import type { ReactNode } from 'react';
-import { BrainCircuit, Coins, History, Lock, Settings2, Shield, Users } from 'lucide-react';
+import { Coins, History, Lock, Settings2, Shield, Users, Bookmark } from 'lucide-react';
 
 import type { ChatSession } from '../../api';
 import type { Org } from '../../api/orgs';
@@ -163,7 +163,7 @@ export default function ChatHeader({
                        transition-colors duration-200 hover:bg-warning/20
                        animate-in fade-in slide-in-from-right-2 shrink-0"
           >
-            <BrainCircuit className="w-3.5 h-3.5" />
+            <Bookmark className="w-3.5 h-3.5" />
             Memory off
           </button>
         )}

@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Plus, ShieldCheck, Clock, LayoutGrid, Share2, Play, Archive, ArchiveRestore, Search, X } from 'lucide-react';
+import { Plus, ShieldCheck, Clock, LayoutGrid, Share2, Play, Archive, ArchiveRestore, Search, X, Workflow } from 'lucide-react';
 import { cn } from '../lib/utils';
 import PageHeader from '../components/layout/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -307,7 +307,7 @@ function AgentCard({
 function EmptyStateView() {  return (
     <EmptyState
       align="left"
-      icon={Bot}
+      icon={Workflow}
       title="No agents yet"
       body="An agent combines instructions and tools. Describe the job in plain language and the builder handles setup — you can change anything."
       action={
@@ -414,7 +414,7 @@ export default function Agents() {
   return (
     <div className="h-full flex flex-col">
       <PageHeader
-        icon={Bot}
+        icon={Workflow}
         title="Agents"
         subtitle={subtitle}
         actions={

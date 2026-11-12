@@ -6,7 +6,7 @@
  * run was configured (revision), who asked for it (delegation banner), the
  * plan it worked to, anything it drew or wrote, and the turn-by-turn trace.
  */
-import { Brain, Coins, CornerDownRight, GitBranch, Settings2 } from 'lucide-react';
+import { Coins, CornerDownRight, GitBranch, Settings2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { describeCost, formatCost } from '../../lib/cost';
@@ -72,7 +72,7 @@ function Turn({ turn, slowest }: { turn: AgentTurn; slowest: number }) {
   return (
     <div className="border-l-2 border-border pl-3 py-1">
       <div className="flex items-center gap-2 mb-1">
-        <Brain className="w-3.5 h-3.5 text-agent shrink-0" />
+        <span className="h-1.5 w-1.5 rounded-full bg-agent shrink-0" />
         <span className="text-[12px] font-semibold">Step {turn.index}</span>
         {turn.model_id && (
           <span className="text-[11px] text-muted-foreground truncate" title={turn.model_id}>

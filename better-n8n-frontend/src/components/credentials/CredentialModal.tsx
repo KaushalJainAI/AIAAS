@@ -1,19 +1,19 @@
 import { useState } from 'react';
-import { 
-  X, 
-  Eye, 
-  EyeOff, 
-  Mail, 
-  Database, 
-  MessageSquare, 
-  Cloud, 
-  Key, 
-  Globe, 
+import {
+  X,
+  Eye,
+  EyeOff,
+  Mail,
+  Database,
+  MessageSquare,
+  Cloud,
+  Key,
+  Globe,
   Shield,
-  Brain,
   Search,
   ExternalLink,
   type LucideIcon,
+  KeyRound,
 } from 'lucide-react';
 import { credentialsService, type CredentialType, type Credential } from '../../api/credentials';
 import { handleApiError } from '../../api/client';
@@ -33,7 +33,7 @@ const IconMap: Record<string, LucideIcon> = {
   'Key': Key,
   'Globe': Globe,
   'Shield': Shield,
-  'Brain': Brain,
+  'Brain': KeyRound,
   'Search': Search
 };
 

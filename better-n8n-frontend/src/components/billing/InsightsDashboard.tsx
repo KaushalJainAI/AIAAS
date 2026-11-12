@@ -5,13 +5,13 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  Bot,
   Coins,
   Hand,
   MessagesSquare,
   Network,
   ThumbsDown,
   Wrench,
+  Workflow,
 } from 'lucide-react';
 import { logsService, type InsightsOverview } from '../../api/logs';
 import { costQualifier, describeCost, formatCost } from '../../lib/cost';
@@ -356,7 +356,7 @@ export default function InsightsDashboard() {
 
         <Card
           title="Most-used agents"
-          icon={<Bot className="w-4 h-4 text-primary" />}
+          icon={<Workflow className="w-4 h-4 text-primary" />}
           action={<Link to="/agents" className="text-xs text-primary hover:underline">Agents</Link>}
         >
           {data.agents.most_active.length === 0 ? (

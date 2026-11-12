@@ -30,9 +30,9 @@ import {
   Presentation,
   ScrollText,
   Sigma,
-  Sparkles,
   Table,
   type LucideIcon,
+  ImageIcon,
 } from 'lucide-react';
 
 import type { Document } from '../api/documents';
@@ -377,7 +377,7 @@ export const APPS: AppMeta[] = [
     id: 'imagine',
     title: 'Imagine',
     description: 'Generate images, video and audio with AI',
-    icon: Sparkles,
+    icon: ImageIcon,
     tint: 'from-indigo-400 to-violet-600',
     path: '/imagine',
     kind: 'route',

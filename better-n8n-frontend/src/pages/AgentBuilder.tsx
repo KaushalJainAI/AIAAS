@@ -14,8 +14,20 @@ import { useMemo, useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Bot, Brain, Cpu, Timer, FolderLock, Wrench, Plug,
-  ShieldCheck, Clock, Layers, Save, RotateCcw, Check, Globe, Loader2, Trash2,
+  Cpu,
+  Timer,
+  FolderLock,
+  Wrench,
+  Plug,
+  ShieldCheck,
+  Clock,
+  Layers,
+  Save,
+  RotateCcw,
+  Check,
+  Globe,
+  Loader2,
+  Trash2,
   FileOutput,
   History,
   Play,
@@ -24,6 +36,8 @@ import {
   Activity,
   FlaskConical,
   Share2,
+  Gauge,
+  Tag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import nodeService from '../api/nodeService';
@@ -776,9 +790,6 @@ export default function AgentBuilder() {
           wraps with the actions instead of floating over the corner. */}
       <header className="px-4 md:px-6 py-3 md:py-4 border-b border-border flex flex-wrap items-center gap-3">
         <SidebarMenuButton />
-        <div className="p-2 bg-agent-subtle border border-agent-line rounded-md shrink-0">
-          <Bot className="w-5 h-5 text-agent" />
-        </div>
         <div className="min-w-0 flex-1">
           <h1 className="text-lg md:text-xl font-semibold tracking-tight truncate">
             {isNew ? 'New agent' : cfg.name || 'Agent'}
@@ -889,7 +900,7 @@ export default function AgentBuilder() {
         <div className="max-w-6xl mx-auto space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
 
             {tab === 'basics' && <>
-            <Section icon={Bot} title="Identity">
+            <Section icon={Tag} title="Identity">
               <Knob path="name" label="Name">
                 <input value={cfg.name} onChange={(e) => set('name', e.target.value)}
                   placeholder="Finance agent"
@@ -925,7 +936,7 @@ export default function AgentBuilder() {
               </Knob>
             </Section>
 
-            <Section icon={Brain} title="Model">
+            <Section icon={Cpu} title="Model">
               <div className="grid sm:grid-cols-2 gap-3">
                 <Knob path="provider" label="Provider">
                   <Select
@@ -944,7 +955,7 @@ export default function AgentBuilder() {
                     value={effectiveModel}
                     onChange={(v) => set('model', v)}
                     placeholder="Choose a model"
-                    icon={<Brain className="w-4 h-4" />}
+                    icon={<Cpu className="w-4 h-4" />}
                     showSearch={(activeProvider?.models?.length ?? 0) > 8}
                     options={(activeProvider?.models ?? []).map((mo) => ({
                       value: mo.value,
@@ -974,7 +985,7 @@ export default function AgentBuilder() {
                       value={cfg.effort}
                       onChange={(v) => set('effort', v)}
                       placeholder="Model default"
-                      icon={<Brain className="w-4 h-4" />}
+                      icon={<Gauge className="w-4 h-4" />}
                       options={[
                         { value: '', label: 'Model default' },
                         ...effortLevels.map((level) => ({

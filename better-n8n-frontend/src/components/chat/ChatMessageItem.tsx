@@ -17,7 +17,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   ArrowUpFromLine,
-  BrainCircuit,
   Check,
   ChevronDown,
   Code,
@@ -33,7 +32,7 @@ import {
   Video,
   Volume2,
   VolumeX,
-  Zap,
+  ListChecks,
 } from 'lucide-react';
 
 import type { StandaloneChatMessage as ChatMessage } from '../../api';
@@ -395,7 +394,7 @@ export default function ChatMessageItem({
                     : "bg-muted/30 border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 )}
               >
-                <Zap className={cn("w-4 h-4", isPanelOpen('activity', message.id) ? "text-agent" : "text-muted-foreground/70")} />
+                <ListChecks className={cn("w-4 h-4", isPanelOpen('activity', message.id) ? "text-agent" : "text-muted-foreground/70")} />
                 <span className="text-[12px] font-medium">Steps</span>
                 <div className="flex-1" />
                 <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300", isPanelOpen('activity', message.id) && "rotate-180")} />
@@ -442,7 +441,6 @@ export default function ChatMessageItem({
         <CollapsiblePanel open={isPanelOpen('thinking', message.id)}>
         <div className="mt-2 overflow-hidden rounded-md border border-border bg-card">
           <div className="flex items-center gap-2 border-b border-border bg-muted px-4 py-2">
-            <BrainCircuit className="h-3 w-3 text-muted-foreground" />
             <span className="font-mono text-[11px] text-muted-foreground">
               How the assistant got here · {formatWordCount(message.metadata.thinking)}
             </span>

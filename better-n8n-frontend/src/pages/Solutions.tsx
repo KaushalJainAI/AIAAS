@@ -27,13 +27,13 @@ import {
   BarChart3,
   Building2,
   ClipboardCheck,
-  Lightbulb,
   Pencil,
   Plus,
   Search,
   Upload,
   Users,
   type LucideIcon,
+  BookOpen,
 } from 'lucide-react';
 
 import orgsService, { CURATOR_ROLES, type Org } from '../api/orgs';
@@ -79,7 +79,7 @@ const ROOT = 'solutions';
 
 /** The tab icons, labels and counts. Queue and insights appear for curators only. */
 const TAB_META: Record<TeamTab, { label: string; icon: LucideIcon }> = {
-  library: { label: 'Library', icon: Lightbulb },
+  library: { label: 'Library', icon: BookOpen },
   drafts: { label: 'My drafts', icon: Pencil },
   queue: { label: 'Review queue', icon: ClipboardCheck },
   insights: { label: 'Insights', icon: BarChart3 },
@@ -581,7 +581,7 @@ function SolutionsWorkspace({
           ) : emptyCards ? null : (
             items.length > 0 && (
               <div className="hidden h-40 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-center lg:flex">
-                <Lightbulb className="h-5 w-5 text-muted-foreground/60" aria-hidden="true" />
+                <BookOpen className="h-5 w-5 text-muted-foreground/60" aria-hidden="true" />
                 <p className="text-[13px] text-muted-foreground">Pick a solution to read it here.</p>
               </div>
             )

@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, Bot, Menu, MessageCircle, Plus } from 'lucide-react';
+import { Activity, Menu, MessageCircle, Plus, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { isNavActive } from '../../lib/navigation';
@@ -69,7 +69,7 @@ export default function MobileBottomNav() {
           aria-current={agentsActive ? 'page' : undefined}
           className={itemClass(agentsActive)}
         >
-          <Bot className="h-5 w-5" />
+          <Workflow className="h-5 w-5" />
           Agents
         </Link>
         {/* New chat — a plain item like its neighbours */}

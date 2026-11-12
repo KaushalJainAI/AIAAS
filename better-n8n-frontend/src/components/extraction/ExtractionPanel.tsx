@@ -17,8 +17,17 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ScanText, Plus, AlertTriangle, CheckCircle2, Loader2, Upload, Check, X, SlidersHorizontal, Wand2,
-  Pencil, Trash2,
+  ScanText,
+  Plus,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Upload,
+  Check,
+  X,
+  SlidersHorizontal,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
@@ -220,7 +229,7 @@ function ExtractModal({ schema, onClose }: { schema: ExtractionSchema; onClose: 
             disabled={checked.size === 0 || run.isPending}
             className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {run.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            {run.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanText className="w-4 h-4" />}
             Extract {checked.size > 0 ? `${checked.size} document${checked.size === 1 ? '' : 's'}` : ''}
           </button>
         </div>
@@ -287,7 +296,7 @@ function SchemaRows({ schema }: { schema: ExtractionSchema }) {
           onClick={() => setExtracting(true)}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded bg-primary text-primary-foreground font-semibold hover:bg-primary/90"
         >
-          <Wand2 className="w-3.5 h-3.5" />
+          <ScanText className="w-3.5 h-3.5" />
           Extract from documents
         </button>
         {isFetching && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}

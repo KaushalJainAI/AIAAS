@@ -13,7 +13,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppWindow, Search, Sparkles, X } from 'lucide-react';
+import { AppWindow, Search, X, MessageSquarePlus } from 'lucide-react';
 
 import { documentsService } from '../api/documents';
 import { recentsService, type RecentFile } from '../api/recents';
@@ -223,7 +223,7 @@ function AppTile({ app, meta, onAi }: { app: AppMeta; meta: string; onAi?: () =>
           aria-label={`New ${app.title} file with AI`}
           className="absolute right-2 top-2 rounded-md p-1.5 text-muted-foreground opacity-70 hover:bg-muted hover:text-primary sm:opacity-0 sm:group-hover:opacity-100"
         >
-          <Sparkles className="h-4 w-4" />
+          <MessageSquarePlus className="h-4 w-4" />
         </button>
       )}
     </li>

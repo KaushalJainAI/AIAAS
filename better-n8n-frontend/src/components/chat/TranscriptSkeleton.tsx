@@ -12,7 +12,7 @@
  * transcript replaces it in place instead of pushing it aside.
  */
 
-import { BrainCircuit } from 'lucide-react';
+import {  } from 'lucide-react';
 
 /** Body lines are ragged on purpose — equal bars read as a table, not prose. */
 const TURNS: number[][] = [
@@ -29,7 +29,7 @@ export default function TranscriptSkeleton() {
           <div className="h-6 w-2/3 rounded bg-muted" />
 
           <div className="flex items-center gap-2 pt-3">
-            <BrainCircuit className="w-4 h-4 text-agent/40" />
+            <div className="h-4 w-4 rounded bg-muted" />
             <div className="h-3 w-14 rounded bg-muted" />
           </div>
 

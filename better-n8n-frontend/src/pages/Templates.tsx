@@ -28,7 +28,6 @@ import { toast } from 'sonner';
 import {
   AlertTriangle,
   BookOpen,
-  Bot,
   CalendarClock,
   Check,
   Clock,
@@ -44,7 +43,6 @@ import {
   Radar,
   Search,
   ShieldCheck,
-  Sparkles,
   Swords,
   Table2,
   Target,
@@ -52,6 +50,9 @@ import {
   User,
   Wrench,
   X,
+  BadgeCheck,
+  Shapes,
+  Workflow,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -84,7 +85,7 @@ const TEMPLATE_ICONS: Record<string, LucideIcon> = {
   radar: Radar,
   presentation: Presentation,
   pen: PenLine,
-  sparkles: Sparkles,
+  sparkles: Shapes,
   image: ImageIcon,
   globe: Globe,
   swords: Swords,
@@ -186,7 +187,7 @@ function TemplateCard({
   onInstall: () => void;
   onUninstall: (agents: Agent[]) => void;
 }) {
-  const Icon = TEMPLATE_ICONS[template.icon] ?? Bot;
+  const Icon = TEMPLATE_ICONS[template.icon] ?? Workflow;
   const autonomy = (template.config.autonomy ?? 'ask') as Autonomy;
   const chips = granted(template);
   const isInstalled = installed.length > 0;
@@ -226,7 +227,7 @@ function TemplateCard({
                   reading before you hand either your mailbox. */}
               {template.source === 'curated' ? (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-secondary text-foreground text-[11px] font-semibold">
-                  <Sparkles className="w-3 h-3" />
+                  <BadgeCheck className="w-3 h-3" />
                   Built in
                 </span>
               ) : (

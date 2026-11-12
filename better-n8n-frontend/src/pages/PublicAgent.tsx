@@ -22,7 +22,6 @@ import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
-  Bot,
   Check,
   Clock,
   Coins,
@@ -125,8 +124,8 @@ export default function PublicAgent() {
     <div className="min-h-screen bg-background">
       <div className="max-w-2xl mx-auto px-5 py-10 md:py-16">
         <div className="flex items-start gap-4 mb-5">
-          <span className="w-12 h-12 rounded-lg bg-agent-subtle border border-agent-line text-agent flex items-center justify-center shrink-0">
-            <Bot className="w-6 h-6" />
+          <span aria-hidden className="w-12 h-12 rounded-md border border-border bg-secondary text-foreground text-lg font-semibold flex items-center justify-center shrink-0">
+            {(agent.name || '?').trim().charAt(0).toUpperCase()}
           </span>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight">{agent.name}</h1>

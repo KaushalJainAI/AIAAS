@@ -13,7 +13,7 @@ import {
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { clearChatDraft, useChatDraft } from '../../hooks/useChatDraft';
 import ThinkingTimer from './ThinkingTimer';
-import { 
+import {
   Loader2,
   X,
   Plus,
@@ -23,18 +23,12 @@ import {
   File as FileIcon,
   Shield,
   ChevronDown,
-  BrainCircuit,
   Settings2,
-  Lightbulb,
-  Zap,
   Globe2,
   Code,
-  Mail,
-  FolderSearch,
-  LifeBuoy,
-  FileText,
   Slash,
-  Bot,
+  CornerDownRight,
+  Cpu,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -57,6 +51,8 @@ import TeamSolutionsChip, { type SolutionVerdict } from './TeamSolutionsChip';
 import FilePreviewProvider from '../files/FilePreviewProvider';
 import MarkdownMessage from './MarkdownMessage';
 import TranscriptSkeleton from './TranscriptSkeleton';
+import ChatWelcome from './ChatWelcome';
+import { useHitlPending } from '../../hooks/useHitlPending';
 import { forgetTranscript, readTranscript, writeTranscript } from '../../lib/transcriptCache';
 import type { ChatSessionSummary } from '../../api/chat';
 import orgsService from '../../api/orgs';
@@ -234,6 +230,9 @@ export default function StandaloneChat() {
   void refetchCommands;
 
   const queryClient = useQueryClient();
+  // What is waiting on this person, for the empty screen. Shared query, so
+  // it costs nothing beyond what the sidebar badge already fetches.
+  const { data: pendingHitl = [] } = useHitlPending(!isGuest);
   const { data: conversations = [], refetch: loadHistory } = useQuery({
     queryKey: ['chatSessions'],
     queryFn: async () => {
@@ -1738,7 +1737,6 @@ export default function StandaloneChat() {
                           className="flex items-center gap-2 h-8 px-3 rounded-md border border-transparent text-[10px] font-bold text-muted-foreground/50"
                           title="Guest mode runs on NVIDIA NIM — log in to choose a model"
                         >
-                          <Zap size={14} className="text-muted-foreground/50 shrink-0" />
                           <span className="inline max-w-[22vw] sm:max-w-[140px] truncate">
                             {prettyModel(llmModel)}
                           </span>
@@ -1758,7 +1756,7 @@ export default function StandaloneChat() {
                             {dynamicProviders.find(p => p.slug === llmProvider)?.icon ? (
                               <span>{dynamicProviders.find(p => p.slug === llmProvider)?.icon}</span>
                             ) : (
-                              <Bot size={14} className="shrink-0" />
+                              <Cpu size={14} className="shrink-0" />
                             )}
                           </span>
                           <span className="inline max-w-[22vw] sm:max-w-[120px] truncate">
@@ -2005,47 +2003,14 @@ export default function StandaloneChat() {
             {showSkeleton ? (
               <TranscriptSkeleton />
             ) : isInitialState ? (
-              <div className="text-center space-y-6 mb-4 md:mb-12 animate-in fade-in duration-150">
-                <div className="w-12 h-12 bg-agent-subtle border border-agent-line rounded-md flex items-center justify-center mx-auto">
-                  <BrainCircuit className="w-6 h-6 text-agent" />
-                </div>
-                <div className="space-y-2">
-                  <h1 className="text-2xl md:text-3xl font-semibold text-foreground">
-                    What should I take off your plate?
-                  </h1>
-                  <p className="text-muted-foreground text-base max-w-xl mx-auto leading-relaxed px-2">
-                    Describe the job in plain words. I'll build the workflow, run it,
-                    and check with you before anything leaves your account.
-                  </p>
-                </div>
-                {/* Concrete starting points beat a blank box — each maps to a real
-                    capability (scheduling, connectors, documents, triage). A fixed
-                    grid keeps them from wrapping into a ragged pile. */}
-                <div className="grid sm:grid-cols-2 gap-2 max-w-2xl mx-auto pt-2 text-left">
-                  {[
-                    { icon: Mail, label: 'Email me a digest of overdue invoices',
-                      hint: 'Every Monday, 9am' },
-                    { icon: FolderSearch, label: 'Find files nobody has opened in 3 years',
-                      hint: 'Google Drive' },
-                    { icon: FileText, label: 'Pull the line items out of this invoice',
-                      hint: 'Upload a PDF' },
-                    { icon: LifeBuoy, label: 'Draft first replies to support tickets',
-                      hint: 'Needs your approval to send' },
-                  ].map(({ icon: Icon, label, hint }) => (
-                    <button
-                      key={label}
-                      onClick={() => setInput(label)}
-                      className="flex items-start gap-3 px-3 py-2.5 bg-card hover:bg-accent border border-border rounded transition-colors"
-                    >
-                      <Icon className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
-                      <span className="min-w-0">
-                        <span className="block text-[13px] text-foreground leading-snug">{label}</span>
-                        <span className="block text-[12px] text-muted-foreground mt-0.5">{hint}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ChatWelcome
+                isGuest={isGuest}
+                userName={authUser?.display_name || authUser?.name || undefined}
+                conversations={conversations}
+                pendingCount={pendingHitl.length}
+                onPick={(text) => { setInput(text); textareaRef.current?.focus(); }}
+                onOpenConversation={(id) => void loadConversation(id)}
+              />
             ) : (
               // Message List. One continuous thread: 24px on phones, 32px on
               // desktop. The old 48px rhythm plus the 40px separator padding
@@ -2128,7 +2093,6 @@ export default function StandaloneChat() {
                             onClick={() => setIsReasoningExpanded(!isReasoningExpanded)}
                             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors text-[10px] font-semibold  text-primary/60"
                           >
-                            <BrainCircuit className="w-3 h-3" />
                             {isReasoningExpanded ? 'Hide reasoning' : 'View reasoning'}
                             <ChevronDown className={cn("w-3 h-3 transition-transform duration-300", isReasoningExpanded && "rotate-180")} />
                           </button>
@@ -2138,8 +2102,7 @@ export default function StandaloneChat() {
                       {live.thinking && isReasoningExpanded && (
                         <div className="mt-2 p-4 rounded-md bg-muted/30 border border-border/40 animate-in fade-in slide-in-from-top-2 duration-300">
                           <div className="flex items-center gap-2 mb-3">
-                            <BrainCircuit className="w-3.5 h-3.5 text-primary/60" />
-                            <span className="text-[10px] font-semibold  text-muted-foreground/60">Internal processing</span>
+                            <span className="text-[10px] font-semibold  text-muted-foreground/60">Reasoning</span>
                           </div>
                           <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground/80 italic font-medium leading-relaxed">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -2282,8 +2245,7 @@ export default function StandaloneChat() {
                         {live.activity.length > 0 && (
                           <div className="space-y-2 animate-in fade-in duration-300">
                             <div className="flex items-center gap-3 px-1 mb-2">
-                              <BrainCircuit className="w-4 h-4 text-primary/60" />
-                              <span className="text-sm font-semibold  text-muted-foreground/90">Agent timeline</span>
+                              <span className="text-sm font-semibold  text-muted-foreground/90">Timeline</span>
                               <div className="h-px flex-1 bg-border/30" />
                             </div>
                             <div className="space-y-2">
@@ -2300,7 +2262,7 @@ export default function StandaloneChat() {
                                       <div className="flex items-start gap-3.5 -ml-[30px]">
                                         {isThought ? (
                                           <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 shadow-sm">
-                                             <BrainCircuit className="w-3.5 h-3.5 text-primary/60" />
+                                             <span className="h-1.5 w-1.5 rounded-full bg-primary/50" />
                                           </div>
                                         ) : (
                                           <span className="flex items-center justify-center w-7 h-7 rounded-md bg-amber-500/20 text-xs font-semibold text-amber-600 shrink-0 border border-border shadow-sm">
@@ -2624,7 +2586,7 @@ export default function StandaloneChat() {
                       className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
                     >
                       <div className="flex items-center gap-2">
-                        <Lightbulb className="w-3.5 h-3.5 text-muted-foreground/60" />
+                        <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground/60" />
                         <span className="label-mono">Continue exploring</span>
                       </div>
                       <ChevronDown className={cn(

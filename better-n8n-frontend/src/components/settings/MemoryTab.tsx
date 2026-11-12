@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Loader2, Trash2 } from 'lucide-react';
+import { Loader2, Trash2, Bookmark } from 'lucide-react';
 import { toast } from 'sonner';
 import memoryService from '../../api/memory';
 import { groupMemories, isHidden } from '../../lib/memory';
@@ -98,7 +98,7 @@ export default function MemoryTab() {
         </p>
       ) : memories.length === 0 ? (
         <div className="mt-4 text-center py-8 border border-dashed border-border/60 rounded-md bg-card/30">
-          <Brain className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-50" />
+          <Bookmark className="w-6 h-6 text-muted-foreground mx-auto mb-2 opacity-50" />
           <p className="text-sm text-muted-foreground font-medium">Nothing remembered yet</p>
           <p className="text-[12px] text-muted-foreground mt-1 max-w-sm mx-auto px-4">
             Things you tell the assistant about yourself — how you work, what

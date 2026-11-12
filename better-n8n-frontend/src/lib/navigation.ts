@@ -1,7 +1,6 @@
 import {
   Activity,
   AppWindow,
-  Bot,
   CalendarClock,
   Clapperboard,
   FileText,
@@ -13,6 +12,7 @@ import {
   MessageCircle,
   Plug,
   Wrench,
+  Workflow,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -56,7 +56,7 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Build',
     items: [
-      { icon: Bot, label: 'Automations', path: '/agents', match: ['/agents', '/workflow'] },
+      { icon: Workflow, label: 'Automations', path: '/agents', match: ['/agents', '/workflow'] },
       { icon: LayoutGrid, label: 'Explore', path: '/templates' },
       { icon: Wrench, label: 'Tools', path: '/tools' },
       { icon: CalendarClock, label: 'Schedules', path: '/schedules' },
@@ -87,7 +87,7 @@ export const navGroups: NavGroup[] = [
  * Ask (home), Automations (catalogue), Explore (bundles), Activity (needs you). */
 export const primaryNav: NavItem[] = [
   { icon: MessageCircle, label: 'Ask', path: '/ai-chat', guestOk: true },
-  { icon: Bot, label: 'Automations', path: '/agents', match: ['/agents', '/workflow'] },
+  { icon: Workflow, label: 'Automations', path: '/agents', match: ['/agents', '/workflow'] },
   { icon: LayoutGrid, label: 'Explore', path: '/templates' },
   { icon: Activity, label: 'Activity', path: '/runs', agent: true, pending: true },
 ];

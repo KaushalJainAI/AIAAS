@@ -16,7 +16,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ChevronDown, Loader2, Plus, Search, Sparkles, Upload, X,
+  ChevronDown,
+  Loader2,
+  Plus,
+  Search,
+  Upload,
+  X,
+  MessageSquare,
 } from 'lucide-react';
 
 import { documentsService, type Document } from '../api/documents';
@@ -632,7 +638,7 @@ function Welcome({
           onClick={onAskAi}
           className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border/60 px-3 text-[13px] hover:bg-muted"
         >
-          <Sparkles className="h-4 w-4 text-primary" /> Ask AI to make one
+          <MessageSquare className="h-4 w-4" /> Ask AI to make one
         </button>
       </div>
       {recent.length > 0 && (

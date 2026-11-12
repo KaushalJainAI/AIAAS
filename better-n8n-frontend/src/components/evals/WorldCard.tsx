@@ -8,7 +8,7 @@
  * on their version and are never swept.
  */
 import { useState } from 'react';
-import { AlertCircle, Check, FlaskConical, Loader2, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
+import { AlertCircle, Check, FlaskConical, Loader2, RotateCcw, Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -131,7 +131,7 @@ function GenerateForm({ suiteId, hasAgent, onDone, label }: {
       <Button size="sm" variant="secondary" disabled={!hasAgent || generate.isPending}
         onClick={() => setOpen(true)}
         title={hasAgent ? 'The judge invents a situation, plants facts, and writes cases with known answers' : 'Pick an agent first'}>
-        <Sparkles className="w-3.5 h-3.5" /> {label}
+        <Plus className="w-3.5 h-3.5" /> {label}
       </Button>
     );
   }

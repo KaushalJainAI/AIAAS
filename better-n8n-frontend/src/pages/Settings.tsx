@@ -6,8 +6,8 @@ import {
   Settings as SettingsIcon,
   User,
   Bell,
-  Brain,
-  // Shield,  // MVP: unused while the Security tab is hidden
+  // Shield,
+  // MVP: unused while the Security tab is hidden,
   Palette,
   Code,
   ChevronRight,
@@ -16,12 +16,11 @@ import {
   Monitor,
   BarChart3,
   CreditCard,
-  Zap,
   Check,
-  Rocket,
   LogOut,
   RefreshCw,
-  Loader2
+  Loader2,
+  Bookmark,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import InsightsDashboard from '../components/billing/InsightsDashboard';
@@ -393,7 +392,7 @@ export default function Settings() {
     { id: 'insights' as const, label: 'Insights', icon: BarChart3 },
     { id: 'billing' as const, label: 'Billing', icon: CreditCard },
     { id: 'notifications' as const, label: 'Notifications', icon: Bell },
-    { id: 'memory' as const, label: 'Memory', icon: Brain },
+    { id: 'memory' as const, label: 'Memory', icon: Bookmark },
     // MVP: Security is the only tab with no `case` in renderContent(), so it
     // fell through to the "coming soon" default. Hidden rather than built out.
     // The 'security' member stays on SettingsTab and the default branch stays
@@ -434,7 +433,6 @@ export default function Settings() {
                     <div>
                       <p className="font-medium flex items-center gap-2">
                         Default AI provider
-                        <Zap className="w-3 h-3 text-warning fill-warning" />
                       </p>
                       <p className="text-sm text-muted-foreground">Who serves your AI features</p>
                     </div>
@@ -1031,10 +1029,7 @@ export default function Settings() {
               </div>
 
               <div className="p-6 rounded-md border border-border bg-card">
-                <div className="flex items-center gap-4">
-                  <div className="p-2.5 bg-agent-subtle rounded-md border border-agent-line">
-                    <Rocket className="w-5 h-5 text-agent" />
-                  </div>
+                <div>
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Plan</p>
                     <h3 className="text-2xl font-bold capitalize">{user?.tier || 'Free'}</h3>
