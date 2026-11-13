@@ -18,6 +18,7 @@ from workflow_backend.thresholds import (
     HISTORY_WINDOW,
     LARGE_FILE_PREVIEW_LENGTH,
     MAX_CONTEXT_TOKENS,
+    RECENT_TAIL_MESSAGES,
 )
 
 from llm.access import estimate_tokens
@@ -141,8 +142,7 @@ def _enrich_with_sources(messages: Sequence[ChatMessage]) -> None:
         )
 
 
-@sync_to_async
-def load_history(
+def load_history_sync(
     session: ChatSession, *, exclude_id: int | None, supports_docs: bool = False
 ) -> list[ChatMessage]:
     """
@@ -153,23 +153,47 @@ def load_history(
     limit would let a handful of uploads push out the actual conversation, while
     excluding them outright would silently drop every attachment from context.
     Take the turns, then re-admit the system rows falling within their span.
+
+    Once the conversation has notes (`session_notes`), the turns are no longer
+    "the last N": they are the current task's messages, everything not yet
+    filed into the notes (an update may still be running), and a short tail
+    for continuity across a change of task. Every other message is a row in
+    the notes, one tool call away.
     """
-    turns = list(
+    from . import session_notes
+
+    conversational = (
         ChatMessage.objects
         .filter(session=session, role__in=["user", "assistant"])
         .exclude(id=exclude_id)
-        .order_by("-created_at")[:HISTORY_WINDOW]
     )
+    focus = session_notes.focus(getattr(session, "notes_state", None))
+    if focus is None:
+        turns = list(conversational.order_by("-created_at")[:HISTORY_WINDOW])
+    else:
+        task_ids, through = focus
+        picked = {m.id: m for m in conversational.filter(id__in=task_ids)}
+        for m in conversational.filter(id__gt=through):
+            picked.setdefault(m.id, m)
+        for m in conversational.order_by("-created_at")[:RECENT_TAIL_MESSAGES]:
+            picked.setdefault(m.id, m)
+        turns = sorted(picked.values(), key=lambda m: (m.created_at, m.id), reverse=True)
+
     system_rows = list(
         ChatMessage.objects
         .filter(session=session, role="system", created_at__gte=turns[-1].created_at)
         .exclude(id=exclude_id)
     ) if turns else []
 
-    messages = sorted(turns + system_rows, key=lambda m: m.created_at)
+    messages = sorted(turns + system_rows, key=lambda m: (m.created_at, m.id))
     _enrich_with_attachments(messages, supports_docs=supports_docs)
     _enrich_with_sources(messages)
     return messages
+
+
+#: The turn's door. The sync body is also read by `context_view`, which shows
+#: the user exactly what the next turn would replay.
+load_history = sync_to_async(load_history_sync)
 
 
 def to_wire_history(

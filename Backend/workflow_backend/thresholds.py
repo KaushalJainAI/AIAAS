@@ -22,6 +22,17 @@ MAX_CONTEXT_TOKENS = 100_000  # 100K token hard limit
 # the search_conversation_history tool, so shrinking this window loses no data —
 # it only stops us paying for context the model usually does not need.
 HISTORY_WINDOW = 20
+# ── Conversation notes (`chat/turn/session_notes.py`) ──
+# Once a conversation has notes, history is no longer "the last N messages":
+# it is the current task's messages plus a short tail, and every older task
+# is a row in the notes with a tool that fetches it back.
+CURRENT_TASK_MAX_MESSAGES = 40   # The current task's newest messages, in full
+RECENT_TAIL_MESSAGES = 6         # Always replayed, whatever task they belong to
+NOTES_PROMPT_CHARS = 10_000      # The notes as the model sees them (whole lines)
+NOTES_FILE_MAX_TASK_ROWS = 40    # Older task rows fold into one "earlier" line
+NOTES_TRANSCRIPT_CHARS = 14_000  # What the notes model reads per update
+NOTES_MESSAGE_CHARS = 3_000      # Per message within that
+OPEN_TASK_TOTAL_CHARS = 30_000   # What `open_conversation_task` returns per call
 ASSISTANT_SUMMARY_WORD_LIMIT = 300  # Summarize AI responses longer than this
 FLASH_SUMMARY_CHAR_LIMIT = 30_000  # Truncate content for summary generation to prevent context bloat
 

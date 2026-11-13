@@ -66,6 +66,9 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             'system_prompt', 'memory_enabled', 'autonomy', 'total_tokens_used',
             'total_cost_usd', 'cost_source', 'paid_by',
             'org', 'org_name', 'share_solutions',
+            # The conversation's notes file (`chat/turn/session_notes.py`), so
+            # the client can open it; null until the first reply is filed.
+            'notes_document',
             'created_at', 'updated_at', 'messages'
         ]
         # `org` is fixed at creation (from the active org) and never written
@@ -74,6 +77,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'messages', 'total_tokens_used',
             'total_cost_usd', 'cost_source', 'paid_by', 'org', 'org_name',
+            'notes_document',
         ]
 
     def to_representation(self, instance):

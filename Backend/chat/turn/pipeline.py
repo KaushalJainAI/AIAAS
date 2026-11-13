@@ -33,7 +33,7 @@ from chat import vision
 from llm import access as llm
 from llm.pricing import combine_sources
 from llm.effort import normalize as normalize_effort
-from . import agent, history, pace, prompts
+from . import agent, history, pace, prompts, session_notes
 from . import curation as _curation
 from .agent import TurnContext, TurnResult
 from .events import Event, EventSink, null_sink
@@ -956,6 +956,17 @@ async def run_chat_turn(
         history_dropped = max(0, sum(
             1 for m in past if m.role in ("user", "assistant")
         ) - len(wire_history))
+        # The conversation's notes file, read before any of it: the summary,
+        # the decisions, the task index and how to fetch what is not shown.
+        # A message of its own rather than part of the system prompt, which
+        # must stay session-stable (the notes change after every reply).
+        try:
+            notes_block = await session_notes.for_prompt(session)
+        except Exception:  # noqa: BLE001 — no notes is the old behaviour
+            logger.exception("[Turn] reading conversation notes failed")
+            notes_block = ""
+        if notes_block:
+            wire_history.insert(0, {"role": "system", "content": notes_block})
     else:
         await sink(Event.STATUS, {
             "phase": "memory_off",
@@ -1171,6 +1182,14 @@ async def run_chat_turn(
     )
     await _notify(user, session, assistant_message)
     await _after_turn_capture(session, question)
+    # File this exchange into the conversation's notes, in the background.
+    # Memory off means the turn is not part of the conversation's context, so
+    # it is not filed either (it is still in the transcript and searchable).
+    if session.memory_enabled:
+        try:
+            session_notes.schedule(session.id)
+        except Exception:  # noqa: BLE001 — notes never fail a turn
+            logger.exception("[Turn] scheduling conversation notes failed")
 
     return TurnOutcome(user_message=user_message, assistant_message=assistant_message)
 

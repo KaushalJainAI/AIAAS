@@ -1695,6 +1695,40 @@ resolve a witness must `cache.clear()` in `setUp`, the same trap
 
 **A chat's earlier turns come from one place: the database (2026-09-28).** Chat keys the checkpointer by session id, and `AgentState.messages` uses the `add_messages` reducer, so each new turn's `[HumanMessage]` was *appended* to every earlier turn's checkpointed transcript — and `agent_node` sent `turn.history + checkpoint`. Every request carried the conversation twice: once windowed and summarised from `ChatMessage`, once in full with every old tool call and result, growing without bound (chat had no curation; `prune.py` drops old checkpoint *rows*, never messages in the latest). It also made `_turn_number` count the whole session's iterations against this turn's limit, so a long chat reached the tool-call cap on a turn's first call. `run_turn(fresh_transcript=True)` (chat only) starts a new turn with `RemoveMessage(REMOVE_ALL_MESSAGES)`; a **resume** never clears, so approvals still resume from their checkpoint. Chat also passes **`resume=`** explicitly (true only for an approve/reject/answer request): Stop cancels the task mid-graph, which leaves nodes pending exactly like a pause, so inferring "resume" from `snapshot.next` made the message after a Stop continue the stopped run — the new text never entered the graph and the old transcript was re-sent (production 2026-09-28; `test_the_message_after_a_stop_starts_a_new_turn`). Agent runs don't pass it: their thread is new every run. With one turn in the checkpoint, chat now also curates (`curation.CHAT_POLICY`: compaction + indexing, no paid fold), because as the orchestrator one chat turn can run many iterations. Found by a test that asserts on what reached the provider on turn 3; every unit test passed with the bug. Tests: `chat/tests/test_chat_transcript.py`.
 
+**A conversation keeps its own notes file, read before anything else
+(2026-11-13).** Chat replayed the last `HISTORY_WINDOW` (20) messages and
+nothing more, so turn 21 had lost turn 1's goal and decisions *and was not told
+they existed*. `chat/turn/session_notes.py` gives every conversation what
+`CLAUDE.md` is to a repo: a markdown file under `/Chat/Conversations/`
+(`ChatSession.notes_document`) with a summary, decisions, open questions, a
+**task index** (id, title, status, outcome, key facts, files, message ids), free
+Notes, and **how to get more context** (which tool fetches what). The pipeline
+inserts it as the first history message (`PROMPT_HEADER`, never the system
+prompt — it changes after every reply). Once a conversation has tasks,
+`history.load_history` replays the **current task's messages** (up to
+`CURRENT_TASK_MAX_MESSAGES`), everything not yet filed, and a
+`RECENT_TAIL_MESSAGES` tail; every other task is a row, opened with
+`open_conversation_task` (read, owner-checked). Five rules carry it. **Code owns
+the structure, a model only the prose**: after each turn `schedule()` spawns one
+detached job per conversation (a second turn asks for a re-run, never a second
+job); message ids, files and the current task are filed by code, and a cheap
+model (`SESSION_NOTES_*`, else the context-summary pair, platform key,
+`SESSION_NOTES_DAILY_CAP`) picks the task and writes summary/outcome/facts — with
+no model the index is still kept. **The file is read back**: the prompt reads
+the file, and the update absorbs its Summary/Decisions/Open questions/Notes
+before writing (`absorb_file`), so a person's edit wins; the task table is
+always rebuilt from `notes_state`. **It is working memory, not instructions**: a
+turn whose tool trace is instruction-shaped gets no model prose, and
+instruction-shaped lines from the model are dropped. **The model may add notes**
+with `update_conversation_notes` (in `CHAT_ORCHESTRATOR_EXTRA`, `reversible`,
+refused in a tainted turn). **Failure costs the notes, never the turn**: no
+file (storage full) means the prompt renders from the state; a deleted file is
+written again. A conversation that predates this is backfilled on its next turn
+into one "Earlier conversation" task. Memory off neither reads nor files notes.
+Not done: a notes button in the chat header (the serializer exposes
+`notes_document`), handing the notes path to delegated workers, and a
+multi-turn benchmark to measure it. Tests: `chat/tests/test_session_notes.py`.
+
 **A long run curates its own transcript, and what it cuts stays reachable.** An agent run has no conversation, only a transcript that grows: `agent_node` resends `history + to_wire(state["messages"])` every iteration, 40 iterations are allowed, and each tool result may be 64k chars. The only thing between that and the provider was `llm.clamp_input`, which had three faults — it dropped one *message* at a time, so an assistant turn could leave while the `tool` messages answering it stayed (a `tool_call_id` referring to nothing, which providers answer with a **400**, so a long run did not degrade, it died); it summed only `content`, and a tool-calling entry keeps its payload in `tool_calls[].arguments`, so the largest entries scored zero; and it applied a flat 96k to an 8k model. All three are closed in `llm/budget.py`, whose unit is the **segment** (an assistant tool-call turn plus its results, indivisible). Above that, `chat/turn/curation.py` is the deliberate version, wired to the builder's three long-dead toggles: `compaction` replaces old tool *results* with a record naming the call (free), `recursiveContext` folds the oldest steps into **exactly one** running note via a cheap model (the agent's own `summaryModel`, else `CONTEXT_SUMMARY_MODEL` — pinned to NVIDIA because that is the provider the platform holds a key for, so the fold works for a user who has connected nothing; charged to `total_tokens` so it counts against the spend cap), and `indexing` archives everything removed to `ToolOutput` so `recall_context` / `read_tool_output` can fetch it — which is why those two are in `RETRIEVAL_TOOLS`, dispatchable always and *offered* only once the run has stored something. Three properties carry it. It **edits graph state**, not the outgoing copy: replacements carry the ids they replace so `add_messages` substitutes them, or every later turn re-archives the same text. It fires at a **watermark** (0.70 of budget, cutting to 0.45) rather than trickling, because curating every turn would rewrite the request prefix on every call and forfeit prefix caching — the clock-in-the-system-prompt trap. And **with indexing off the notices say the text is gone** rather than naming an id nobody wrote. Chat passes `curation.CHAT_POLICY` (compaction + indexing, no fold) since 2026-09-28 — see "A chat's earlier turns come from one place". Design: `Backend/docs/CONTEXT_LIFECYCLE.md`. Tests: `chat/tests/test_curation.py`, and `chat/tests/test_curation_e2e.py` — twenty real turns through the real graph against a stub provider, asserting on what actually left for the provider, because every unit test here passes with the pieces wired to each other wrongly.
 
 **A default has to be runnable, and a platform key is what makes it so.**
@@ -2929,6 +2963,10 @@ MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once
 MCP_MAX_POOLED_SESSIONS=2          # Live sessions kept (cache policy under the budget)
 MCP_SESSION_TTL=120                # How long an idle connector holds its subprocess
 MCP_ALLOW_STDIO=True               # Local-process MCP servers; deployment defaults False (no Node in image)
+SESSION_NOTES_ENABLED=True         # Per-conversation notes file, updated after every chat turn
+SESSION_NOTES_PROVIDER=            # Blank = CONTEXT_SUMMARY_PROVIDER (platform key)
+SESSION_NOTES_MODEL=               # Blank = CONTEXT_SUMMARY_MODEL
+SESSION_NOTES_DAILY_CAP=300        # Notes model calls per user per day; past it the index is kept without prose
 SOLUTION_CAPTURE_ENABLED=True      # Auto-save solved problems (thumbs-up / "that worked")
 SOLUTION_CAPTURE_PROVIDER=         # Blank = CONTEXT_SUMMARY_PROVIDER (platform key)
 SOLUTION_CAPTURE_MODEL=            # Blank = CONTEXT_SUMMARY_MODEL

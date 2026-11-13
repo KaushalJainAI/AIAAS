@@ -96,6 +96,11 @@ SCHEDULER_ENABLED = False
 # tests (`core/tests/test_moderation.py`) turn it on with a fake transport.
 CONTENT_MODERATION_MODEL = ''
 
+# Conversation notes write a file and call a model after every turn; the
+# pipeline tests assert on the turn, not on that job. Its own tests
+# (`chat/tests/test_session_notes.py`) switch it on with a fake model.
+SESSION_NOTES_ENABLED = False
+
 # No native push in tests either: `notifications/tests/test_expo_push.py` mocks
 # the Expo HTTP client, and nothing may reach exp.host from a test run.
 EXPO_PUSH_ENABLED = False

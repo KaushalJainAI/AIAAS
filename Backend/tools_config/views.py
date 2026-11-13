@@ -228,6 +228,7 @@ LIBRARY_GROUPS: dict[str, tuple[str, ...]] = {
               'ws_apply_patch', 'ws_run', 'git_status', 'git_diff',
               'git_commit', 'git_push', 'open_pull_request'),
     'chat': ('search_conversation_history', 'get_chat_message_full_text',
+             'open_conversation_task', 'update_conversation_notes',
              'read_attachment_text', 'read_tool_output', 'recall_context'),
     'vision': ('ask_vision',),
     'artifacts': ('render_html_artifact', 'render_chart'),

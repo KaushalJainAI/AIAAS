@@ -96,6 +96,23 @@ class ChatSession(models.Model):
     #: Display name of the worker the last turn delegated to, for the history
     #: list ("Researcher" under a conversation). Blank until a turn names one.
     last_agent = models.CharField(max_length=120, blank=True, default="")
+
+    # ── The conversation's own notes (`chat/turn/session_notes.py`) ──
+    #
+    # What `CLAUDE.md` is to a repository, these are to one conversation: a
+    # summary, the decisions, a task index and how to fetch more, read before
+    # anything else on every turn. `notes_state` is the structure (tasks with
+    # their message ids, what has been processed); `notes_document` is the
+    # markdown file rendered from it, in the user's tree under
+    # `/Chat/Conversations/`, which the user may open and edit. Edits to the
+    # file are read back, so the file wins over the state where they differ.
+    # SET_NULL: deleting the file loses the prose, never the conversation —
+    # the next turn writes a new one.
+    notes_document = models.ForeignKey(
+        'inference.Document', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    notes_state = models.JSONField(default=dict, blank=True)
     # Token usage tracking
     total_tokens_used = models.IntegerField(default=0)
 

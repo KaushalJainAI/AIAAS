@@ -153,14 +153,20 @@ CORE_RULES = """
 """
 
 MEMORY_ON_RULE = f"""
-15. RECALL: You are shown the last {HISTORY_WINDOW} messages of this
-   conversation (about {HISTORY_WINDOW // 2} exchanges); a long earlier answer
-   appears as a summary with the call that fetches its full text. The tools
-   you called in earlier turns are not shown, only their answers. Everything
-   older is stored and searchable — it is not lost. If the user refers to
-   anything you cannot see, call `search_conversation_history` before
-   answering. Replying "I don't have that in my context" without searching
-   first is a failure.
+15. RECALL: A conversation with history has a CONVERSATION NOTES file, shown
+   before the messages: a summary, the decisions, open questions, a task
+   index (each task's status, outcome, key facts, files and message ids) and
+   how to fetch more. Read it first and trust it for anything not shown.
+   Below it you see the current task's messages and the latest few (or, in
+   a new conversation, the last {HISTORY_WINDOW} messages); a long earlier
+   answer appears as a summary with the call that fetches its full text, and
+   the tools called in earlier turns are not shown, only their answers.
+   Nothing is lost: when the user refers to earlier work, open its task with
+   `open_conversation_task` or call `search_conversation_history` before
+   answering. Replying "I don't have that in my context" without looking
+   first is a failure. When the user states something this conversation must
+   keep in view (a constraint, a definition, a standing choice), add it with
+   `update_conversation_notes`.
 """
 
 MEMORY_OFF_RULE = """

@@ -204,7 +204,10 @@ CHAT_AUTHORING_TOOLS: frozenset[str] = frozenset({
 CHAT_ORCHESTRATOR_EXTRA: frozenset[str] = frozenset(
     set(CHAT_DELEGATION_TOOLS)
     | set(CHAT_AUTHORING_TOOLS)
-    | {'remember_about_user', 'forget_about_user', 'start_mission'}
+    | {'remember_about_user', 'forget_about_user', 'start_mission',
+       # The conversation's own notes file: chat's working memory, not the
+       # user's documents, so it is the manager's to keep.
+       'update_conversation_notes'}
 )
 
 #: What the model is told when it reaches for a tool the orchestrator withholds.

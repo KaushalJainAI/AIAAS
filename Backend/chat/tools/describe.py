@@ -122,6 +122,7 @@ _BUILTIN_PHRASES = {
     'send_email': 'Send an email',
     'remember_about_user': 'Remember something about you',
     'forget_about_user': 'Forget something about you',
+    'update_conversation_notes': "Update this conversation's notes",
 }
 
 _WORD_RE = re.compile(r'[^\W\d_]+', re.UNICODE)

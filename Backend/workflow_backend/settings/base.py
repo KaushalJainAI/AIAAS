@@ -983,6 +983,17 @@ SOLUTION_CAPTURE_MODEL = os.environ.get('SOLUTION_CAPTURE_MODEL', '')
 SOLUTION_CAPTURE_ENABLED = os.environ.get('SOLUTION_CAPTURE_ENABLED', 'True').lower() in ('1', 'true', 'yes')
 # Captures one user may start per UTC day (each is a paid model call). 0 = no cap.
 SOLUTION_CAPTURE_DAILY_CAP = int(os.environ.get('SOLUTION_CAPTURE_DAILY_CAP', '30'))
+# Conversation notes (`chat/turn/session_notes.py`): after every chat turn a
+# cheap model updates the conversation's own notes file — summary, decisions,
+# a task index, how to fetch more — which the next turn reads before anything
+# else. Blank provider/model fall through to the context-summary pair (platform
+# key). `SESSION_NOTES_ENABLED=False` stops writing new notes; existing files
+# are still read. The cap counts model calls per user per UTC day; past it the
+# index is still kept, deterministically, without prose. 0 = no cap.
+SESSION_NOTES_ENABLED = os.environ.get('SESSION_NOTES_ENABLED', 'True').lower() in ('1', 'true', 'yes')
+SESSION_NOTES_PROVIDER = os.environ.get('SESSION_NOTES_PROVIDER', '')
+SESSION_NOTES_MODEL = os.environ.get('SESSION_NOTES_MODEL', '')
+SESSION_NOTES_DAILY_CAP = int(os.environ.get('SESSION_NOTES_DAILY_CAP', '300'))
 # Document imports one user may start per UTC day (`solutions/importer.py`; each
 # is several paid model calls). 0 = no cap. SOLUTION_STALE_SWEEP_SECONDS is above.
 SOLUTION_IMPORT_DAILY_CAP = int(os.environ.get('SOLUTION_IMPORT_DAILY_CAP', '5'))

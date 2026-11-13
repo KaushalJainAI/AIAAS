@@ -262,6 +262,17 @@ messages at the start of each new chat turn (never on a resume, so approvals
 still resume). When the budget forces `to_wire_history` to drop the oldest
 window messages, the per-turn context update says how many.
 
+**Across turns, the conversation keeps notes (2026-11-13).** The window above
+is now only what a *new* conversation gets. After each reply a background job
+(`chat/turn/session_notes.py`) files the exchange into a task and rewrites the
+conversation's notes file (`/Chat/Conversations/<title> (<id>).md`): summary,
+decisions, open questions, a task index with message ids, free notes, and the
+list of tools that fetch more. The next turn reads that file first, then the
+current task's messages in full plus a short tail; older tasks are rows the
+model opens with `open_conversation_task`. Two levels, then: within a run the
+transcript is curated (sections 1–4), across turns the conversation is
+indexed. Neither replaces the other.
+
 **Chat curates too, but only for free.** As the orchestrator, one chat turn
 can run many iterations (`run_agent`, `wait_tasks`, `answer_subagent`), so it
 passes `curation.CHAT_POLICY`: `compaction` and `indexing` on, `recursive`

@@ -311,6 +311,119 @@ async def get_chat_message_full_text(args: Dict, context: Dict) -> str:
 
 
 @tool({
+    "type": "function",
+    "function": {
+        "name": "open_conversation_task",
+        "description": (
+            "Read every message of one task in this conversation, oldest "
+            "first. The CONVERSATION NOTES list the tasks (T1, T2, ...) with "
+            "their outcomes; open one when you need what was actually said in "
+            "it — the exact numbers, the wording agreed, the steps taken."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "The task id from the notes, e.g. 'T3'.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Skip this many messages; use the next_offset a previous call returned.",
+                },
+            },
+            "required": ["task_id"],
+            "additionalProperties": False,
+        },
+    },
+}, requires="memory", parallel=True, effect="read")
+async def open_conversation_task(args: Dict, context: Dict) -> str:
+    """The task index's way back to the messages it stands for.
+
+    Ownership is checked on the session, as for every tool in this module:
+    a guessed session id must not read someone else's conversation.
+    """
+    from asgiref.sync import sync_to_async
+
+    from chat.turn import session_notes
+
+    session_id = context.get("session_id")
+    if not session_id:
+        return json.dumps({"error": "No conversation context available."})
+    try:
+        result = await sync_to_async(session_notes.task_messages_sync)(
+            str(session_id), context.get("user_id"),
+            str(args.get("task_id") or ""), int(args.get("offset") or 0),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("open_conversation_task failed")
+        return json.dumps({"error": f"Could not open the task: {exc}"})
+    return json.dumps(result, default=str)
+
+
+@tool({
+    "type": "function",
+    "function": {
+        "name": "update_conversation_notes",
+        "description": (
+            "Replace the Notes section of this conversation's notes file, which "
+            "you and the user read before every turn. Keep there what this "
+            "conversation must stay aware of and that the summary may not "
+            "carry: a constraint the user set, a definition, a standing choice, "
+            "a plan you agreed. Write the whole section each time (it replaces "
+            "the old one), as short bullet points. Not for facts about the "
+            "user in general — use remember_about_user for those."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "notes": {
+                    "type": "string",
+                    "description": "The full new Notes section, in markdown.",
+                },
+            },
+            "required": ["notes"],
+            "additionalProperties": False,
+        },
+    },
+}, requires="memory", effect="reversible")
+async def update_conversation_notes(args: Dict, context: Dict) -> str:
+    """The model's half of the notes file; the user edits the file itself.
+
+    `reversible`: the file keeps versions. Refused in a turn that read text
+    addressed to an AI, for the reason `remember_about_user` is: the notes are
+    read on every later turn, so a planted line would steer all of them.
+    """
+    from asgiref.sync import sync_to_async
+
+    from chat.turn import session_notes
+    from core.safety.provenance import instruction_shaped
+
+    if context.get("tainted_by"):
+        return json.dumps({"error": (
+            f"Not saved: a {context['tainted_by']} result in this turn contained "
+            "text addressed to an AI, so the notes are read-only for the rest "
+            "of the turn."
+        )})
+    notes = (args.get("notes") or "").strip()
+    if len(notes) > 6_000:
+        return json.dumps({"error": f"That is {len(notes):,} characters; keep the notes under 6,000."})
+    if notes and instruction_shaped(notes):
+        return json.dumps({"error": "Not saved: that reads as instructions to an AI, not notes."})
+    session_id = context.get("session_id")
+    if not session_id:
+        return json.dumps({"error": "No conversation context available."})
+    try:
+        result = await sync_to_async(session_notes.set_notes_sync)(
+            str(session_id), context.get("user_id"), notes,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("update_conversation_notes failed")
+        return json.dumps({"error": f"Could not save the notes: {exc}"})
+    return json.dumps(result)
+
+
+@tool({
         "type": "function",
         "function": {
             "name": "read_attachment_text",
