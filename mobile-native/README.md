@@ -35,3 +35,8 @@ EXPO_PUBLIC_API_ORIGIN=http://192.168.1.20:8000 npx expo start
 - `src/components/` - Screen, Button, TextField, ErrorText, EmptyState.
 - `src/theme.ts` - colours (light and dark), spacing, font sizes; `useTheme()`.
 - `src/config.ts` - the API origin.
+
+## Read next
+
+- `DESIGN.md` - the rules that keep every screen looking like the web app on Android and iOS.
+- `PARITY.md` - every place this app differs from the web app, and what still needs setup.
