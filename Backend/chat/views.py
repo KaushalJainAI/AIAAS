@@ -439,6 +439,27 @@ def active_runs(request):
     return Response({"active": runs.active_keys(request.user.id)})
 
 
+@sync_api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def session_context(request, session_id: str):
+    """
+    What the assistant sees in this conversation: the system prompt and user
+    memory, the notes file and task index, the messages the next turn would
+    replay, the current plan, token counts per part and the prompt-cache hit
+    rate. Built by `chat/turn/context_view.py` from the turn's own functions.
+    """
+    from chat.turn import context_view
+
+    try:
+        session = (ChatSession.objects.select_related('user', 'notes_document')
+                   .filter(id=UUID(session_id), user=request.user).first())
+    except (ValueError, TypeError):
+        return Response({"error": "Invalid session id."}, status=400)
+    if session is None:
+        return Response({"error": "Chat session not found."}, status=404)
+    return Response(context_view.describe(session))
+
+
 # ── Deleting messages ────────────────────────────────────────────────────────
 
 @sync_api_view(["DELETE"])

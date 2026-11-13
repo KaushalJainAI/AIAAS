@@ -76,7 +76,8 @@ import ChatHeader from './ChatHeader';
 import ChatMessageItem, { AssistantHeader, TurnOrPlain } from './ChatMessageItem';
 import { formatSteps } from './format';
 import { useSpeech } from '../../hooks/useSpeech';
-import ChatSettingsDialog from './ChatSettingsDialog';
+import ChatSettingsDialog, { type SettingsTab } from './ChatSettingsDialog';
+import ChatContextView from './ChatContextView';
 import ToolApprovalCard from './ToolApprovalCard';
 import QuestionCard from './QuestionCard';
 import type { QuestionAnswer } from '../../lib/question';
@@ -391,6 +392,7 @@ export default function StandaloneChat() {
   const streamedContent = useDeferredValue(live.content);
 
   const [showSessionSettings, setShowSessionSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('settings');
   const [systemPromptDraft, setSystemPromptDraft] = useState('');
   // Last no-credential failure, kept on screen (not just a toast) so the fix
   // — add a key in Credentials, then Verify it — stays visible while acted on.
@@ -1998,6 +2000,10 @@ export default function StandaloneChat() {
             onClose={() => setShowSessionSettings(false)}
             readAloud={readAloud}
             onToggleReadAloud={() => setReadAloud((v) => !v)}
+            tab={settingsTab}
+            onTabChange={setSettingsTab}
+            // Guests have no stored conversation to inspect.
+            contextView={isGuest ? undefined : <ChatContextView sessionId={currentSession.id} />}
           />
         )}
 

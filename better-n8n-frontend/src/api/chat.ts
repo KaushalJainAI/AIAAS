@@ -42,6 +42,12 @@ export interface ChatSession {
   org_name?: string | null;
   /** Whether solutions from this chat are shared with `org`. The per-chat switch. */
   share_solutions?: boolean;
+  /**
+   * The conversation's notes file under /Chat/Conversations/ — summary, task
+   * index, how to fetch more — which the assistant reads before every turn.
+   * Null until the first reply has been filed.
+   */
+  notes_document?: number | null;
   created_at: string;
   updated_at: string;
   messages: ChatMessage[];
@@ -116,6 +122,66 @@ export interface SteerResult {
   delivered: number;
   queued: number;
   dropped: number;
+}
+
+/** One task row of a conversation's notes (`chat/turn/session_notes.py`). */
+export interface NotesTask {
+  id: string;
+  title: string;
+  status: 'in_progress' | 'done' | 'blocked';
+  outcome: string;
+  facts: string[];
+  files: string[];
+  messages: number[];
+}
+
+/** Prompt-cache reuse over some turns. `hit_rate` is null with no usage. */
+export interface CacheSummary {
+  turns: number;
+  prompt_tokens: number;
+  uncached_tokens: number;
+  cached_read_tokens: number;
+  cached_write_tokens: number;
+  output_tokens: number;
+  hit_rate: number | null;
+}
+
+/**
+ * What the assistant sees in a conversation — `GET sessions/<id>/context/`,
+ * built from the same functions the turn uses (`chat/turn/context_view.py`).
+ * Token counts are estimates from text length, like the server's own budget.
+ */
+export interface ChatContext {
+  model: string;
+  provider: string;
+  memory_enabled: boolean;
+  context_window: number;
+  tokens: { system: number; notes: number; history: number; tools: number; total: number };
+  system_prompt: { session_prompt: string; user_memory: string; full: string; tokens: number };
+  notes: {
+    text: string;
+    document_id: number | null;
+    tasks: NotesTask[];
+    current: string | null;
+    through: number;
+    tokens: number;
+  };
+  history: {
+    mode: 'task' | 'window' | 'off';
+    messages: { id: number; role: 'user' | 'assistant'; preview: string; tokens: number; summarised: boolean }[];
+    replayed: number;
+    total_messages: number;
+    not_shown: number;
+    tokens: number;
+  };
+  plan: { todos: TodoItem[]; revisions: number; worker_plans: Record<string, unknown> } | null;
+  tools: { count: number; tokens: number; estimate: boolean };
+  cache: {
+    last_turn: CacheSummary | null;
+    conversation: CacheSummary;
+    recent: { message_id: number; hit_rate: number | null }[];
+  };
+  not_included: string[];
 }
 
 export interface TodoItem {
@@ -552,6 +618,13 @@ export const chatService = {
     const response = await apiClient.post<{ autonomy: string }>(
       `/chat/sessions/${sessionId}/message/steer/`, { autonomy: level },
     );
+    return response.data;
+  },
+
+  /** What the assistant sees in this conversation: prompt, notes, replayed
+   *  messages, plan, token counts per part and the prompt-cache hit rate. */
+  async getContext(sessionId: string): Promise<ChatContext> {
+    const response = await apiClient.get<ChatContext>(`/chat/sessions/${sessionId}/context/`);
     return response.data;
   },
 
