@@ -52,8 +52,6 @@ import MarkdownMessage from './MarkdownMessage';
 import { MediaPreview } from './MediaPreview';
 import TeamSolutionsChip, { type SolutionVerdict } from './TeamSolutionsChip';
 import SolutionDraftCard, { type DraftAction, type SolutionDraftInfo } from '../solutions/SolutionDraftCard';
-import PlanSummary from '../plan/PlanSummary';
-import { actionsFrom, historyFrom } from '../../lib/planView';
 
 /** The chat lead's name on every reply. Worker replies carry their own. */
 export const LEAD_NAME = 'Lead';
@@ -666,22 +664,9 @@ export default function ChatMessageItem({
         />
       )}
 
-      {/* The plan the turn worked to, kept as a record of what
-          it set out to do and what it could not finish. */}
-      {Array.isArray(message.metadata?.todos) &&
-        (message.metadata?.todos ?? []).length > 0 && (
-          <PlanSummary
-            history={historyFrom(message.metadata?.todo_history, message.metadata?.todos)}
-            actions={actionsFrom(message.metadata?.tool_trace)}
-          />
-        )}
-
-      {/* The plans of the agents this reply handed work to. */}
-      {Object.entries(message.metadata?.worker_plans ?? {}).map(([id, plan]) => (
-        Array.isArray(plan?.todos) && plan.todos.length > 0 && (
-          <PlanSummary key={id} history={[plan.todos]} label={plan.agent_name || 'Agent'} />
-        )
-      ))}
+      {/* No plan here: a conversation shows its plan once, in the dock
+          above the composer (the latest reply's, with its agents'). Under
+          every reply it repeated what the dock already said. */}
 
       {/* Outputs: files the turn saved, linked by id rather than by
           whatever path the prose happened to mention. */}

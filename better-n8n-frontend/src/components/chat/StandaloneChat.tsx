@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useDeferredValue, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useDeferredValue, useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   RUN_STATUS_EVENT,
@@ -149,6 +149,10 @@ export default function StandaloneChat() {
   // The answer that just finished streaming. It is already on screen, so it
   // mounts without the entrance animation every other message gets.
   const [settledId, setSettledId] = useState<number | string | null>(null);
+  // The messages a conversation opened with: shown at once, never animated in.
+  const [restoredIds, setRestoredIds] = useState<ReadonlySet<unknown>>(() => new Set());
+  // How the next `messages` change should move the view, if at all.
+  const scrollRequestRef = useRef<ScrollBehavior | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const speech = useSpeech();
   // Hands-free mode: a browser-only preference (localStorage), not server
@@ -284,7 +288,7 @@ export default function StandaloneChat() {
   const [isFollowUpsExpanded, setIsFollowUpsExpanded] = useState(true);
   const [activeIntent, setActiveIntent] = useState<ChatIntent>('normal');
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null);
-  const { toggle: togglePanel, isOpen: isPanelOpen, openIdFor: openPanelId } = useMessagePanels();
+  const { toggle: togglePanel, isOpen: isPanelOpen } = useMessagePanels();
   
   // Text Selection State
   const {
@@ -350,6 +354,7 @@ export default function StandaloneChat() {
 
   // What the plan dock shows: the running turn's plan while there is one,
   // otherwise the most recent reply's — so the current plan has one place.
+  // Saved replies no longer draw their own plan; this is the only copy.
   const dockPlan = useMemo(() => {
     if (isLoading && live.todoHistory.length > 0) {
       return { history: live.todoHistory, actions: actionsFrom(live.activity), live: true };
@@ -362,6 +367,20 @@ export default function StandaloneChat() {
       live: false,
     };
   }, [isLoading, live.todoHistory, live.activity, messages]);
+
+  // The agents' plans beside it: live while the turn runs, then the latest
+  // reply's, read from what that reply saved.
+  const dockWorkerPlans = useMemo(() => {
+    if (isLoading) {
+      return live.workerPlans.map(wp => ({ id: wp.execution_id, label: wp.agent_name, todos: wp.todos }));
+    }
+    const last = [...messages].reverse().find(m => m.role === 'assistant');
+    return Object.entries(last?.metadata?.worker_plans ?? {}).flatMap(([id, wp]) => (
+      Array.isArray(wp?.todos) && wp.todos.length > 0
+        ? [{ id, label: wp.agent_name || 'Agent', todos: wp.todos }]
+        : []
+    ));
+  }, [isLoading, live.workerPlans, messages]);
 
   // Bound as consts so a `&&` guard narrows them inside event handlers too,
   // which a `live.x` property read does not.
@@ -378,13 +397,23 @@ export default function StandaloneChat() {
   const [credentialError, setCredentialError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isReasoningExpanded, setIsReasoningExpanded] = useState(false);
-  const [isLiveCodeExpanded, setIsLiveCodeExpanded] = useState(true);
-  const [isLiveSourcesExpanded, setIsLiveSourcesExpanded] = useState(true);
-  const [isLiveMediaExpanded, setIsLiveMediaExpanded] = useState(true);
+  // Closed until asked for: the answer is what a turn is for, and its
+  // sources, media and code are one click away under it.
+  const [isLiveCodeExpanded, setIsLiveCodeExpanded] = useState(false);
+  const [isLiveSourcesExpanded, setIsLiveSourcesExpanded] = useState(false);
+  const [isLiveMediaExpanded, setIsLiveMediaExpanded] = useState(false);
 
   // --- Effects ---
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Only two things move the view. Opening a conversation lands at its end
+  // with no motion, and sending a message brings it into view. A finished
+  // answer, an edit or a delete moves nothing: scrolling the page out from
+  // under someone reading the reply is the worst moment to do it. Layout
+  // effect, so an opened chat is painted already at the end, not at the top.
+  useLayoutEffect(() => {
+    const behavior = scrollRequestRef.current;
+    if (!behavior) return;
+    scrollRequestRef.current = null;
+    messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
   }, [messages]);
 
   // Handle auto-expanding textarea
@@ -405,6 +434,10 @@ export default function StandaloneChat() {
 
   /** Paints a fetched or cached session. The two must land identically. */
   const applySession = (session: ChatSession) => {
+    scrollRequestRef.current = 'instant';
+    // Messages already in the conversation are there, not arriving: they do
+    // not play the entrance animation, which on open read as the page moving.
+    setRestoredIds(new Set(session.messages.map(m => m.id)));
     setMessages(session.messages as unknown as ChatMessage[]);
     setConversationId(session.id);
     setCurrentSession(session);
@@ -1529,6 +1562,7 @@ export default function StandaloneChat() {
     };
 
     sendSeqRef.current += 1;
+    scrollRequestRef.current = 'smooth';
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -1537,9 +1571,9 @@ export default function StandaloneChat() {
     resetStream();
     resetPlan();
     setIsReasoningExpanded(false);
-    setIsLiveCodeExpanded(true);
-    setIsLiveSourcesExpanded(true);
-    setIsLiveMediaExpanded(true);
+    setIsLiveCodeExpanded(false);
+    setIsLiveSourcesExpanded(false);
+    setIsLiveMediaExpanded(false);
 
     const meta: RunMeta = { optimisticId: userMessage.id as number, intent: intentToSend };
 
@@ -1907,7 +1941,7 @@ export default function StandaloneChat() {
   );
 
   return (
-    <FilePreviewProvider>
+    <FilePreviewProvider docked>
     <div className="flex h-full w-full bg-background overflow-hidden relative">
       {/* No decorative wash. The three blurred orbs that used to sit here were
           off-palette (raw `purple-500`, not the `--agent` violet) and pushed a
@@ -2028,7 +2062,7 @@ export default function StandaloneChat() {
                     message={message}
                     userName={authUser?.display_name || authUser?.name || undefined}
                     index={index}
-                    animate={message.id !== settledId}
+                    animate={message.id !== settledId && !restoredIds.has(message.id)}
                     deleting={deletingMsgId === message.id}
                     copied={copiedId === `msg-${index}`}
                     isSpeaking={speech.speakingId === message.id}
@@ -2241,83 +2275,25 @@ export default function StandaloneChat() {
                           />
                         )}
 
-                        {/* Live Activity Timeline */}
-                        {live.activity.length > 0 && (
-                          <div className="space-y-2 animate-in fade-in duration-300">
-                            <div className="flex items-center gap-3 px-1 mb-2">
-                              <span className="text-sm font-semibold  text-muted-foreground/90">Timeline</span>
-                              <div className="h-px flex-1 bg-border/30" />
+                        {/* The step being worked on now, as one line. The full list of
+                            steps is kept on the saved answer ("Steps"), and the plan in
+                            the dock above the composer: a growing timeline here repeated
+                            both and pushed the answer down while it was being written. */}
+                        {live.activity.length > 0 && (() => {
+                          const current = live.activity[live.activity.length - 1];
+                          const isThought = current.type === 'thought';
+                          const detail = isThought ? '' : stripXmlTags(
+                            argText(current.args?.query) || argText(current.args?.question));
+                          return (
+                            <div className="flex min-w-0 items-center gap-2 text-[13px] leading-5 text-muted-foreground" aria-live="polite">
+                              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                              <span className="shrink-0 font-mono text-[12px] text-foreground/80">
+                                {isThought ? 'thinking' : current.tool}
+                              </span>
+                              {detail && <span className="min-w-0 truncate">{detail}</span>}
                             </div>
-                            <div className="space-y-2">
-                               {live.activity.map((activity, i) => {
-                                 const isThought = activity.type === 'thought';
-                                 const thought = activity.thought;
-                                 const isLongThought = thought && thought.length > 200;
-                             
-                                 return (
-                                   <div 
-                                      key={i}
-                                      className="flex flex-col gap-2 animate-in fade-in slide-in-from-left-2 py-1 border-l-2 border-primary/5 pl-4 ml-3.5 last:border-0"
-                                   >
-                                      <div className="flex items-start gap-3.5 -ml-[30px]">
-                                        {isThought ? (
-                                          <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 shadow-sm">
-                                             <span className="h-1.5 w-1.5 rounded-full bg-primary/50" />
-                                          </div>
-                                        ) : (
-                                          <span className="flex items-center justify-center w-7 h-7 rounded-md bg-amber-500/20 text-xs font-semibold text-amber-600 shrink-0 border border-border shadow-sm">
-                                             {activity.iteration || '?'}
-                                          </span>
-                                        )}
-                                    
-                                        <div className="flex flex-col gap-1 min-w-0 flex-1">
-                                          {isThought ? (
-                                            <div className="flex items-center gap-2 pt-1">
-                                              <span className="text-[11px] font-semibold  text-muted-foreground/50">Processing</span>
-                                              <Loader2 className="w-2.5 h-2.5 animate-spin text-muted-foreground/20" />
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-3">
-                                              <span className="font-mono font-bold text-primary text-[15px]">{activity.tool}</span>
-                                              <Loader2 className="w-3 h-3 animate-spin text-primary/30" />
-                                            </div>
-                                          )}
-
-                                          {/* `question` is ask_vision: the agent interrogating a vision
-                                              model about an image it cannot see. Showing the question it
-                                              asked is legible in a way "calling ask_vision..." is not. */}
-                                          {!isThought && (argText(activity.args?.query) || argText(activity.args?.question)) && (
-                                             <span className="truncate max-w-[40vw] sm:max-w-[340px] text-foreground/60 italic text-[13px] font-medium opacity-80">"{stripXmlTags(argText(activity.args?.query) || argText(activity.args?.question))}"</span>
-                                          )}
-                                      
-                                          {thought && (
-                                            <div className="mt-1.5 group/thought relative">
-                                              <div className={cn(
-                                                "text-[13.5px] text-muted-foreground/75 italic leading-relaxed border-l-2 border-primary/20 pl-3 transition-colors duration-300 ai-activity-markdown pb-1",
-                                                isLongThought && openPanelId('activity') === null && "max-h-[80px] overflow-hidden mask-fade-bottom"
-                                              )}>
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                  {thought}
-                                                </ReactMarkdown>
-                                              </div>
-                                              {isLongThought && (
-                                                <button 
-                                                  onClick={() => togglePanel('activity', -i - 1)}
-                                                  className="text-[10px] font-bold text-primary/40 hover:text-primary transition-colors flex items-center gap-1 mt-1"
-                                                >
-                                                  {isPanelOpen('activity', -i - 1) ? 'Show less' : 'Read more reasoning...'}
-                                                </button>
-                                              )}
-                                            </div>
-                                  )}
-                                        </div>
-                                      </div>
-                                   </div>
-                                 );
-                               })}
-                            </div>
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         {/* Live Code Timeline */}
                         {live.codeExecutions.length > 0 && (
@@ -2568,9 +2544,9 @@ export default function StandaloneChat() {
                   live={dockPlan.live} />
               )}
               {/* Each agent working for this turn shows its own plan too. */}
-              {isLoading && live.workerPlans.map(wp => (
-                <PlanDock key={wp.execution_id} history={[wp.todos]} live
-                  label={wp.agent_name} />
+              {dockWorkerPlans.map(wp => (
+                <PlanDock key={wp.id} history={[wp.todos]} live={isLoading}
+                  label={wp.label} />
               ))}
               </div>
 
