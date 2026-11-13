@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "AIAAS",
+    "slug": "aiaas",
+    "version": "1.0.0",
+    "scheme": "aiaas",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kaushaljain.aiaas"
+    },
+    "android": {
+      "package": "com.kaushaljain.aiaas",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-sharing",
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AIAAS uses your photos when you choose a profile picture or attach an image to a chat.",
+          "cameraPermission": "AIAAS uses the camera when you take a photo to attach to a chat."
+        }
+      ],
+      "expo-notifications"
+    ]
+  }
+}

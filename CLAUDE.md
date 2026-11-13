@@ -10,6 +10,14 @@ name BrowserOS means the Backend and `better-n8n-frontend/` alone.
 
 - **better-n8n-frontend/** — React/Vite visual workflow editor (n8n-inspired) with chat, KB, and MCP UI
 - **Backend/** — Django ASGI backend with LangGraph execution engine and social auth
+- **mobile-native/** (2026-11-12) — React Native (Expo SDK 58, expo-router) app for
+  Android and iOS with full web parity (tabs Chat, Activity, Agents, Files, More;
+  rich editors open the web app's editor in a signed-in web view). A second UI on
+  purpose: it copies the web app's request bodies exactly, so a change to a route it
+  calls is a mobile change too, and it copies the web's look (`src/theme.ts` holds the
+  web's colour tokens, IBM Plex is bundled, `Text` comes from `src/components/Text`).
+  Gates: `npx tsc --noEmit` and `npm run lint`; rules in its `DESIGN.md`; read its
+  `AGENTS.md` before using an Expo API. See `Backend/docs/MOBILE_APP_PLAN.md`
 - **BrowserOS/** — **PARKED (2026-09-04). Do not build features here.** A desktop
   environment with workspace and notification system, and the third sub-system by
   name only: the product is the backend plus `better-n8n-frontend/`, and every
@@ -2867,6 +2875,8 @@ NOTIFICATIONS_EMAIL_ENABLED=False  # Digest email only; nudges are always device
 VAPID_PUBLIC_KEY=                  # Web Push public key (GET /api/notifications/push/vapid-key/); blank = closed-browser push off
 VAPID_PRIVATE_KEY=                 # Web Push private key — never leaves the server (`manage.py generate_vapid_keys`)
 VAPID_SUBJECT=mailto:no-reply@aiaas.local  # VAPID contact claim
+EXPO_PUSH_ENABLED=True             # Native phone push (React Native app) via the Expo Push Service; settings/test.py forces False
+EXPO_ACCESS_TOKEN=                 # Optional Expo access token, sent as Bearer when set
 OPENROUTER_API_KEY=                 # Platform key for the DEFAULT provider — required
 CONTEXT_SUMMARY_PROVIDER=nvidia     # Provider for the context fold (platform key)
 CONTEXT_SUMMARY_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b  # Agent's summaryModel overrides
@@ -3082,7 +3092,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `CONCURRENCY_LAG_FIX_PLAN.md` — The plan (proposed 2026-09-24; Phases 0–5 built 2026-09-24, Phase 5 as the t3.small option — needs the instance resize to take effect; Phase 6 conditional on measurements) for the "lags with several runs, even one user" problem: DB connections held across model calls (pool of 10), the SQLite checkpointer's global lock + full-state serialise on the event loop, per-run/global single-thread `sync_to_async`, memory overcommit on the 913 MB box; Phase 0 measures first
 - `GAP_CLOSURE_PLAN.md` — The plan (proposed 2026-09-24, implemented 2026-09-24) from a codebase-wide gap sweep: digest-only email default, pack availability in Explore, the order-dependent test failures, lint back to zero, Memory and Missions UI, and CLAUDE.md drift
 - `SECURITY_REVIEW_FIX_PLAN.md` — The whole-project security review of 2026-09-25 and its fixes (implemented, undeployed): Google sign-in no longer links into an unverified password account (pre-account takeover), `UserProfile.tokens_valid_after` revokes every JWT on password/email change (`core/auth/revocation.py`, checked by REST, refresh and WebSocket), `token_blacklist` actually installed, no `?token=` HTTP auth, API keys stored as SHA-256, the workspace job hook scoped to its owner and detached, `CSP: sandbox` on file responses. Learning: `learning/15_whole_project_security_review.md`
-- `MOBILE_APP_PLAN.md` — The plan (proposed 2026-11-12; Phase 0 — `lib/origins.ts` and `lib/oauthFlow.ts` — done) for an Android/iOS app that is the same `better-n8n-frontend/` inside Capacitor, never a second UI: installable web app, a mobile build with its own two public URLs, decoupling `ALLOWED_REDIRECT_ORIGINS` from CORS before adding the app's origins, App/Universal Links so sign-in returns to the app, native push (FCM) behind the existing `send_web_push` door, then stores
+- `MOBILE_APP_PLAN.md` — The mobile app plan. Changed 2026-11-12 from a Capacitor wrapper to a separate **React Native (Expo) app in `mobile-native/`**: Chat, Inbox, Agents and Settings tabs built, typechecked and bundled, not yet run on a device; Google sign-in and native push (FCM behind the existing `send_web_push` door) still to do. The superseded Capacitor reasoning is kept in the same file
 - `ORG_KNOWLEDGE_PLAN.md` — The plan (K0–K7 built 2026-11-11, undeployed, not yet checked in a browser) that made solution memory a team product: invitations, drafts and curators, citations in chat, import, stale nudges, insights, KBs shared read-only with an org, org choice per chat and per scheduled agent
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix

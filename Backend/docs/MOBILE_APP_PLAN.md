@@ -1,8 +1,67 @@
 # Mobile app plan
 
-Status: **proposed 2026-11-12, not started.** Phase 0 is done (see below).
+Status: **changed 2026-11-12 — the app is React Native, not Capacitor.**
 
-## What we are building, in one paragraph
+## Decision (2026-11-12): a separate React Native app
+
+The user chose a native codebase over wrapping the web frontend. It lives in
+`mobile-native/` at the repo root: **Expo SDK 58 + expo-router**, TypeScript,
+one codebase for Android and iOS. Built so far (typechecks and bundles for both
+platforms, **not yet run on a device**):
+
+- Foundation: `src/api/client.ts` (fetch + bearer token + one refresh through
+  `/api/auth/token/refresh/`), `src/api/sse.ts` (POST SSE through `expo/fetch`,
+  because React Native's own `fetch` cannot stream a body), tokens in
+  `expo-secure-store`, `src/auth/AuthContext.tsx`.
+- Four tabs, each a folder under `app/(tabs)/` with its logic in
+  `src/features/<tab>/`: **Chat** (sessions, streaming turn, stop/steer,
+  approval and question cards, plan, re-attach), **Inbox** (pending approvals
+  and questions, notifications), **Agents** (list, run, follow a run, steer,
+  cancel), **Settings** (profile name, memory, reminder preferences).
+- **Full parity pass (2026-11-13):** every web area now has a screen — Files,
+  Apps, Pages, Dashboards, Runs (with Insights), Schedules, Missions,
+  Connections, Credentials, full Account/Settings, Knowledge bases and
+  extraction, Team knowledge, Explore (install + publish), Skills, Tools,
+  Evals, the agent builder (wizard + all sections + history) and Imagine;
+  Chat gained attachments, mode/model pickers, slash commands, charts
+  (react-native-svg, the web's 8-hue ramp), HTML artifacts, message actions.
+  Sign-up, forgot password, Google sign-in and push (Expo) are in the app.
+  The rich editors (Docs, Sheets, Slides, PDF, LaTeX, Code, Whiteboard…) open
+  the web app's own editor in a signed-in web view (`app/web.tsx`), so they
+  behave exactly as on the web.
+- **Same look everywhere:** `src/theme.ts` holds the web's own colour tokens,
+  `src/fonts.ts` bundles IBM Plex Sans/Mono, `src/components/Text.tsx` maps
+  weights to font files (Android ignores `fontWeight` on custom fonts), a root
+  navigation theme styles every header and tab bar, and `confirm()` /
+  `Switch` are drawn by the app, not the OS. Rules: `mobile-native/DESIGN.md`.
+- **Google sign-in and connect without a backend change:** the website's
+  callback pages hand the code to `aiaas://` (`better-n8n-frontend/src/lib/
+  appHandoff.ts`) — sign-in by an `app.`-marked state, connect when no web flow
+  in that browser started it. Needs the website deployed first.
+- Not built: voice input and read-aloud (no audio packages), the web's
+  "Allow for this chat" approval scope, staff-only model catalogue tools.
+- **Needs before release:** `eas init` (push is off without a project id), and
+  the backend `DeviceToken` route (uncommitted) kept and deployed.
+
+What changes against the plan below:
+
+- **No CORS change is needed.** CORS is enforced by browsers; a native app's
+  requests are not checked against it. Phase 2 step 3 does not apply.
+- **The drift rule now applies here.** This is a second UI, the shape BrowserOS
+  drifted in. Keep the mobile app to the flows a phone needs, mirror the web
+  app's request bodies exactly (each feature module names the web file it
+  copied from), and treat a backend change to those routes as a mobile change.
+- Phase 3 (sign-in) becomes `expo-auth-session` / `expo-web-browser` with an
+  `aiaas://` scheme or App Links; Phase 4 (push) becomes `expo-notifications`
+  with the same `DeviceToken` + FCM backend design; Phase 6 uses EAS Build
+  (iOS builds without a Mac).
+- `mobile/` (the Capacitor scaffold) and `better-n8n-frontend/.env.mobile` are
+  left over from the first attempt and can be deleted.
+
+The Capacitor plan below is kept for the reasoning; its phases 1 (PWA), 4
+(backend half) and 6 still apply.
+
+## What we were building, in one paragraph (Capacitor, superseded)
 
 An Android and iOS app that is the **same web frontend** (`better-n8n-frontend/`)
 running inside a native shell (Capacitor). It is not a second UI. BrowserOS is
@@ -57,16 +116,22 @@ shows a notification with the app closed.
 
 ## Phase 2 — the Capacitor shell (~3 days)
 
-1. `npm i @capacitor/core @capacitor/cli @capacitor/android @capacitor/ios` in
-   `better-n8n-frontend/`, then `npx cap init` (app id e.g.
-   `com.kaushaljain.aiaas`) and `npx cap add android` / `ios`. Use the current
-   Capacitor major at the time; check its Node/Xcode/Android Studio minimums.
-2. **Mobile build settings.** Add a committed `.env.mobile` holding only the two
-   public addresses (`VITE_PUBLIC_SITE_URL`, `VITE_API_ORIGIN`, both the
-   production site), plus a `!.env.mobile` exception in `.gitignore`, and a
-   `build:mobile` script: `vite build --mode mobile && cap sync`. These are
-   public URLs, not secrets. The web `build` script stays untouched, so the web
-   image still sets nothing.
+Decided 2026-11-12: **Android first**, and the native project lives in its
+**own folder, `mobile/`** at the repo root, not inside `better-n8n-frontend/`.
+The frontend gets no Capacitor dependency; `mobile/` is a small npm project
+whose `webDir` is `../better-n8n-frontend/dist`. iOS is added to the same
+folder later with `npx cap add ios`.
+
+1. `mobile/`: `@capacitor/core`, `@capacitor/android`, `@capacitor/cli`
+   (exact versions), `capacitor.config.ts` (app id `com.kaushaljain.aiaas`),
+   and `npx cap add android`, which generates `mobile/android/` from
+   Capacitor's template. No hand-written native code.
+2. **Mobile build settings.** `better-n8n-frontend/.env.mobile` (committed,
+   with a `!.env.mobile` exception in `.gitignore`) holds only the two public
+   addresses (`VITE_PUBLIC_SITE_URL`, `VITE_API_ORIGIN`). `mobile/`'s
+   `npm run build` runs `vite build --mode mobile` in the frontend, then
+   `cap sync android`. These are public URLs, not secrets. The web `build`
+   script stays untouched, so the web image still sets nothing.
 3. **Backend: let the app's origin in.** The app's page origin is
    `capacitor://localhost` (iOS) and `https://localhost` (Android).
    - Add both to `CORS_ALLOWED_ORIGINS` in production.
@@ -197,8 +262,8 @@ notification within seconds, and tapping it opens that request in the Inbox.
 ## Open questions for the user
 
 1. App name and bundle id (`com.kaushaljain.aiaas`?).
-2. iOS from the start, or Android first? Android first is cheaper (no Mac
-   needed until Phase 6, cheaper store account, faster review).
+2. ~~iOS from the start, or Android first?~~ **Android first** (decided
+   2026-11-12).
 3. Firebase for push is the simplest route for both platforms. Is a Google
    (Firebase) dependency acceptable?
 4. Live updates: worth adding, or ship every change through the stores?
