@@ -94,7 +94,7 @@ apiClient.interceptors.response.use(
     // Check if this is an auth endpoint (login, register, etc.) - don't redirect on 401 for these
     const isAuthEndpoint = requestUrl.includes('/auth/login') ||
                            requestUrl.includes('/auth/register') ||
-                           requestUrl.includes('/auth/refresh');
+                           requestUrl.includes('/auth/token/refresh');
 
     // Guest endpoints are public — never redirect or attempt refresh on auth errors.
     const isGuestEndpoint = requestUrl.includes('/chat/guest/');
@@ -130,7 +130,7 @@ const refreshToken = tokenManager.getRefreshToken();
       }
 
       try {
-        const response = await axios.post(`${API_URL}/auth/refresh/`, {
+        const response = await axios.post(`${API_URL}/auth/token/refresh/`, {
           refresh: refreshToken,
         });
         

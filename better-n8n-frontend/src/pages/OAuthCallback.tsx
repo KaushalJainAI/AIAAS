@@ -24,6 +24,7 @@ import { credentialsService } from '../api/credentials';
 import { mcpService } from '../api/mcp';
 import { oauthCallbackUrl } from '../lib/origins';
 import { takePendingOAuth } from '../lib/oauthFlow';
+import { appReturnUrl, orphanConnectReturnUrl } from '../lib/appHandoff';
 
 type Phase = 'working' | 'done' | 'failed';
 
@@ -32,6 +33,8 @@ export default function OAuthCallback() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>('working');
   const [message, setMessage] = useState('');
+  // Set when the connection started in the native app: the app exchanges the code itself.
+  const [appLink, setAppLink] = useState<string | null>(null);
   // Popups can re-render before they close; exchanging a code twice fails the
   // second time and would report an error over a success.
   const startedRef = useRef(false);
@@ -43,10 +46,26 @@ export default function OAuthCallback() {
     const code = searchParams.get('code');
     const state = searchParams.get('state') ?? undefined;
     const oauthError = searchParams.get('error');
+
+    // An app-started connection is returned to the app before anything is read or
+    // consumed here. This tab has no session to exchange the code with.
+    const toApp = appReturnUrl('oauth', { code, state, error: oauthError });
+    if (toApp) {
+      setAppLink(toApp);
+      window.location.replace(toApp);
+      return;
+    }
     // Consumed before any early return: a record left behind by a declined or
     // malformed authorization would send the *next* Google connection to the
     // MCP endpoint.
     const pending = takePendingOAuth();
+    // No web flow started this (no record, no opener): the app did. Hand it back.
+    const orphan = !pending && !window.opener ? orphanConnectReturnUrl({ code, state, error: oauthError }) : null;
+    if (orphan) {
+      setAppLink(orphan);
+      window.location.replace(orphan);
+      return;
+    }
     const mcpServerId = pending?.kind === 'mcp' ? pending.serverId : null;
 
     // Redirect mode: this is the user's own tab, not a popup, so the outcome is
@@ -130,6 +149,18 @@ export default function OAuthCallback() {
       }
     })();
   }, [searchParams, navigate]);
+
+  if (appLink) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 text-center">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">Returning to the app…</p>
+        <a href={appLink} className="mt-6 text-sm underline text-primary">
+          Open the app
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background px-6 text-center">
