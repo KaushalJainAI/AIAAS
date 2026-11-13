@@ -55,8 +55,8 @@ What changes against the plan below:
   `aiaas://` scheme or App Links; Phase 4 (push) becomes `expo-notifications`
   with the same `DeviceToken` + FCM backend design; Phase 6 uses EAS Build
   (iOS builds without a Mac).
-- `mobile/` (the Capacitor scaffold) and `better-n8n-frontend/.env.mobile` are
-  left over from the first attempt and can be deleted.
+- The first attempt's Capacitor scaffold (`mobile/`, `better-n8n-frontend/.env.mobile`)
+  was never committed and was deleted on 2026-11-13.
 
 The Capacitor plan below is kept for the reasoning; its phases 1 (PWA), 4
 (backend half) and 6 still apply.
