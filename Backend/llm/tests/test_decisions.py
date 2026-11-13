@@ -201,9 +201,12 @@ class DecideTests(TestCase):
             user=self.user, defaults={'decision_provider': 'openrouter',
                                       'decision_model': 'typesafe/jev-1.14'})
         post = AsyncMock(return_value=_response())
-        with patch('credentials.resolution.resolve_api_key', AsyncMock(return_value='sk-test')), \
+        lookup = AsyncMock(return_value='sk-test')
+        with patch('credentials.resolution.resolve_api_key', lookup), \
                 patch.object(self.impl, 'post', post):
             decision = self._decide()
+        # The person's own credential only: never the platform key.
+        self.assertIs(lookup.await_args.kwargs.get('allow_platform_fallback'), False)
         key, body = post.await_args.args
         self.assertEqual(key, 'sk-test')
         self.assertEqual(body['model'], 'typesafe/jev-1.14')
@@ -220,8 +223,16 @@ class DecideTests(TestCase):
 
         with patch('credentials.resolution.resolve_api_key',
                    AsyncMock(side_effect=CredentialUnavailable('none'))):
-            with self.assertRaisesRegex(DecisionError, 'No OpenRouter key'):
+            with self.assertRaisesRegex(DecisionError, 'under Credentials'):
                 self._decide()
+
+    def test_a_platform_key_is_never_used(self):
+        """A platform key is set and the user has no credential: still refused."""
+        with patch('credentials.resolution.platform_api_key', return_value='sk-platform'), \
+                patch.object(self.impl, 'post', AsyncMock(return_value=_response())) as post:
+            with self.assertRaisesRegex(DecisionError, 'under Credentials'):
+                self._decide()
+        post.assert_not_awaited()
 
     def test_provider_errors_become_sentences(self):
         cases = [(401, 'refused the key'), (402, 'out of credits'), (404, 'not served'),

@@ -2847,8 +2847,11 @@ Jev, Gemini Decision, Perplexity Decider and ~40 others on OpenRouter) take a
 P(yes)) and `score` — and return answers with probabilities, never text.
 `llm/decisions.py` is their door, **separate from `llm/access.py`** because the
 call is not chat-shaped (`POST /api/alpha/decisions`, one request in, one typed
-answer out); it shares the key lookup (`credentials.resolution`: the user's
-verified OpenRouter key, else the platform key). Four things carry it.
+answer out). **It pays only with the person's own key**: the
+`credentials.resolution` lookup with `allow_platform_fallback=False`, so a user
+with no OpenRouter credential is told to add one under Credentials and the
+platform key is never spent on a decision (the user's decision, 2026-11-13).
+Four things carry it.
 **Provider, then model, like the chat picker**: `PROVIDERS` holds one
 `DecisionProvider` adapter per provider with a decision endpoint (OpenRouter
 today; another is a subclass), and `resolve()` is the one answer to "which" —

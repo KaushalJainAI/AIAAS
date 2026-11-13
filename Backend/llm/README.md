@@ -44,7 +44,7 @@ OpenRouter's free router (`openrouter/free`), so the platform needs
 | `fallback.py` | What runs when the chosen model is retired or unknown |
 | `catalog_refresh.py` | Refreshing the model list from providers |
 | `context.py` | `ExecutionContext`, extra info handed to a provider handler |
-| `decisions.py` | **Decision models.** Typed answers (choice, yes/no, score) with probabilities, not prose. A separate door from `access.py` because the call is not a chat. Pick a provider, then a model from its live list. `decide()` is what the `decide` tool calls |
+| `decisions.py` | **Decision models.** Typed answers (choice, yes/no, score) with probabilities, not prose. A separate door from `access.py` because the call is not a chat. Pick a provider, then a model from its live list. `decide()` is what the `decide` tool calls. Uses only the user's own key from Credentials, never the platform key |
 | `views.py` | `/api/llm/models/`, what the model picker reads, and `/api/llm/decision-models/`, what the decision-model picker in Settings reads |
 | `handlers/base.py` | The interface every provider handler follows |
 | `handlers/registry.py` | Finds the handler for a provider name |

@@ -12,10 +12,10 @@ They are reached through OpenRouter's Decisions API (`POST
 /api/alpha/decisions`), not chat completions, so this is a door of its own
 beside `llm/access.py` rather than a handler under `llm/handlers/` — a handler
 is chat-shaped (`complete()` / `stream()`), and a decision is one request in,
-one typed answer out. What it shares with the chat funnel is the key: the same
-`credentials.resolution` lookup (the user's own verified OpenRouter key, else
-the platform key), so a decision costs the user exactly what a chat turn on
-the same key would.
+one typed answer out. It pays with the user's own key only: the
+`credentials.resolution` lookup with the platform fallback switched off, so a
+decision is always billed to a key the person added under Credentials and
+never to ours.
 
 Four rules carry it.
 
@@ -102,8 +102,8 @@ class DecisionProvider:
     A provider is chosen and then a model within it, exactly like the chat
     picker. Adding a provider means subclassing this and adding it to
     `PROVIDERS`; nothing above or below this file changes. The key comes from
-    `credentials.resolution` under `credential_provider`, the same lookup
-    chat uses, so BYOK and the platform-key fallback behave identically.
+    `credentials.resolution` under `credential_provider` — the user's own
+    credential only, never the platform key.
     """
 
     slug = ''
@@ -450,11 +450,12 @@ async def decide(user_id: int, state: Any, questions: Any, *, provider: str = ''
         'questions': build_questions(questions),
     }
     try:
-        key = await resolve_api_key(impl.credential_provider, user_id)
+        key = await resolve_api_key(
+            impl.credential_provider, user_id, allow_platform_fallback=False)
     except CredentialUnavailable as exc:
         raise DecisionError(
-            f'No {impl.label} key is available for decisions: add a {impl.label} '
-            'credential under Credentials, or ask the admin to set a platform key.') from exc
+            f'No {impl.label} key is connected for decisions. Add your {impl.label} '
+            'API key under Credentials, then try again.') from exc
 
     started = time.monotonic()
     try:
