@@ -63,9 +63,9 @@ async def signature_hook(request, secret: str):
                 data={'action_url': '/documents'}, send_email=False,
             )
             try:
-                from notifications.webpush import send_web_push
+                from notifications.push import send_push
 
-                send_web_push(
+                send_push(
                     user,
                     title=f'Signature {row.status}: {row.path.rsplit("/", 1)[-1]}',
                     body=f'{len(row.signers or [])} signer(s).',

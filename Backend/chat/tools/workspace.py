@@ -204,11 +204,11 @@ async def notify_user(args: Dict, context: Dict) -> str:
             # device toggle — never email, never loud when the user muted us.
             try:
                 from notifications.models import NotificationPreference
-                from notifications.webpush import send_web_push
+                from notifications.push import send_push
 
                 prefs = NotificationPreference.objects.filter(user=user).first()
                 if prefs is None or prefs.device_notifications_enabled:
-                    send_web_push(user, title=title, body=message,
+                    send_push(user, title=title, body=message,
                                   action_url=data.get('action_url') or '/runs',
                                   kind='agent_update')
             except Exception:

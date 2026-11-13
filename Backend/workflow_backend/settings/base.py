@@ -826,6 +826,13 @@ VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT', 'mailto:no-reply@aiaas.local')
 
+# Native phone push for the React Native app, through the Expo Push Service
+# (`notifications/expo_push.py`). Expo delivers to FCM and APNs, so the backend
+# holds no Google or Apple credentials. EXPO_ACCESS_TOKEN is optional (Expo's
+# enhanced-security setting). Tests switch this off in `settings/test.py`.
+EXPO_PUSH_ENABLED = os.environ.get('EXPO_PUSH_ENABLED', 'True').strip().lower() in ('true', '1', 'yes')
+EXPO_ACCESS_TOKEN = os.environ.get('EXPO_ACCESS_TOKEN', '')
+
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {

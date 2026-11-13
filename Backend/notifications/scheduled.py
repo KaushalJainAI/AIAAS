@@ -113,7 +113,7 @@ def _deliver(reminder, now: datetime) -> None:
     from .models import NotificationPreference
     from .reminders import _in_quiet_hours
     from .utils import create_notification
-    from .webpush import send_web_push
+    from .push import send_push
 
     create_notification(
         reminder.user, 'scheduled_reminder',
@@ -126,7 +126,7 @@ def _deliver(reminder, now: datetime) -> None:
         if prefs is None or prefs.device_notifications_enabled:
             if prefs is not None and _in_quiet_hours(prefs, now):
                 return
-            send_web_push(
+            send_push(
                 reminder.user, title=reminder.title, body=reminder.message,
                 action_url=(reminder.data or {}).get('action_url') or '/runs',
                 kind='scheduled_reminder')

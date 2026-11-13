@@ -7,6 +7,7 @@ from .views import (
     PushSubscriptionListView,
     ScheduledNotificationListView,
     cancel_scheduled_notification,
+    native_device,
     subscribe_push,
     unsubscribe_push,
     vapid_public_key,
@@ -26,5 +27,7 @@ urlpatterns = [
     path('push/', PushSubscriptionListView.as_view(), name='push-subscriptions'),
     path('push/subscribe/', subscribe_push, name='push-subscribe'),
     path('push/unsubscribe/', unsubscribe_push, name='push-unsubscribe'),
+    # Native phones (the React Native app): Expo push tokens, not browsers.
+    path('push/devices/', native_device, name='push-devices'),
     path('', include(router.urls)),
 ]

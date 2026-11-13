@@ -95,3 +95,7 @@ SCHEDULER_ENABLED = False
 # No network in tests: the model second opinion is switched off, and its own
 # tests (`core/tests/test_moderation.py`) turn it on with a fake transport.
 CONTENT_MODERATION_MODEL = ''
+
+# No native push in tests either: `notifications/tests/test_expo_push.py` mocks
+# the Expo HTTP client, and nothing may reach exp.host from a test run.
+EXPO_PUSH_ENABLED = False

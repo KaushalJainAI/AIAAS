@@ -154,9 +154,9 @@ def _notify_device(prefs, *, notif_type: str, title: str, message: str, data: di
         # Closed-browser twin of the socket ping: the service worker renders
         # the OS notification when no tab is open. Same gate — quiet hours and
         # the device toggle suppress both.
-        from .webpush import send_web_push
+        from .push import send_push
 
-        send_web_push(
+        send_push(
             prefs.user,
             title=title,
             body=message,
@@ -421,9 +421,9 @@ def _sweep_daily_digests(now: datetime) -> int:
                     'pending_count': len(pending),
                     'action_url': '/runs',
                 })
-                from .webpush import send_web_push
+                from .push import send_push
 
-                send_web_push(
+                send_push(
                     prefs.user,
                     title=f"{len(pending)} request{'s' if len(pending) != 1 else ''} waiting on you",
                     body='Open your Inbox to unblock your agents.',

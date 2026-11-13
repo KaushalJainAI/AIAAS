@@ -18,6 +18,7 @@ Design: [`docs/NOTIFICATION_SERVICE.md`](../docs/NOTIFICATION_SERVICE.md).
 | `HITLReminderSchedule` | The reminder timetable for one pending approval |
 | `ScheduledNotification` | A reminder set for a time or a repeating interval |
 | `PushSubscription` | A browser registered for push notifications |
+| `DeviceToken` | A native phone's Expo push token (the React Native app) |
 
 ## Files
 
@@ -26,7 +27,9 @@ Design: [`docs/NOTIFICATION_SERVICE.md`](../docs/NOTIFICATION_SERVICE.md).
 | `utils.py` | `create_notification`: **the way to create a notification**. Saves it, pushes it live, may email it |
 | `reminders.py` | The approval-reminder engine and the digest |
 | `scheduled.py` | User-set reminders |
+| `push.py` | `send_push`: **the way to reach a person's devices**. Fans out to browser push and native phones |
 | `webpush.py` | Browser push (works with the tab closed) |
+| `expo_push.py` | Native phone push through the Expo Push Service |
 | `signals.py` | Keeps the reminder timetable in step with its approval request |
 | `tasks.py` | Celery entry for the sweep |
 | `views.py`, `urls.py`, `serializers.py` | `/api/notifications/...` |
@@ -38,6 +41,9 @@ defaults to `False`. When you call `create_notification`, pass
 `send_email=False` unless the notification really should be emailed; the
 scheduled reminders a user asks for are the other exception.
 `notifications/tests/test_email_policy.py` fails if a new caller can email.
+
+A device send goes through `push.send_push`, never a channel directly;
+`notifications/tests/test_expo_push.py::OneDoorTests` enforces it.
 
 ## Management commands
 

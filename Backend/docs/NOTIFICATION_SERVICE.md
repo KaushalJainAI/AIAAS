@@ -152,8 +152,8 @@ frame. Two clients listen on `ws/hitl/`:
 backgrounded or not. Delivery to a *fully closed* browser goes through **Web
 Push**: the browser subscribes with the server's VAPID key (Settings →
 Background notifications, `hooks/useWebPush.ts`), the subscription is stored in
-`notifications.PushSubscription`, and `notifications/webpush.py::send_web_push`
-sends alongside every socket ping (escalation, hourly, digest, `agent_update`).
+`notifications.PushSubscription`, and `notifications/push.py::send_push` fans out to it alongside every socket ping
+(escalation, hourly, digest, `agent_update`), and to native phones.
 The service worker (`better-n8n-frontend/public/sw.js`) renders the OS
 notification and handles the click. Setup: `python manage.py
 generate_vapid_keys` → `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
@@ -163,6 +163,38 @@ pruned on send. Quiet hours and the device toggle gate both transports — the
 in-app row is still written and the ladder still advances, so a request cannot
 get stuck behind a permanently swallowed nudge. The
 daily email digest remains a second closed-browser channel.
+
+### Native phones (the React Native app)
+
+The mobile app (`mobile-native/`, Expo) registers an `ExponentPushToken[...]`
+with `POST /api/notifications/push/devices/` and forgets it with `DELETE` on
+sign-out. Rows live in `notifications.DeviceToken` (one per token, unique).
+The backend sends through the **Expo Push Service** (`notifications/expo_push.py`,
+`https://exp.host/--/api/v2/push/send`), which delivers to FCM and APNs, so the
+backend holds no Google or Apple credentials.
+
+Every notification that reaches a device goes through one function,
+`notifications/push.py::send_push`. It calls web push and Expo push, so a caller
+gets both channels and cannot forget one. `notifications/tests/test_expo_push.py::OneDoorTests`
+fails if any other module calls a channel directly.
+
+- Messages carry `sound: 'default'`, `priority: 'high'`, `channelId: 'default'`.
+  `data` holds `kind` and, only for an in-app path, `action_url`. An external
+  or protocol-relative URL is never sent to the phone.
+- Up to 100 messages per request; a larger fan-out is split into chunks, and a
+  failed chunk does not stop the rest.
+- A ticket that reports `DeviceNotRegistered` deletes that token. Other ticket
+  errors are logged and the token kept.
+- Network errors, non-2xx replies and non-JSON replies are logged, never raised.
+- The same device gates apply as for browser push (device toggle, quiet hours).
+  The in-app row is still written regardless.
+- Settings: `EXPO_PUSH_ENABLED` (default on; `settings/test.py` turns it off so
+  no test reaches the network) and optional `EXPO_ACCESS_TOKEN`, sent as
+  `Authorization: Bearer` when set.
+
+The sender is synchronous on purpose. Its callers (sweeps, tool work in a
+worker thread, the signature callback) have no running event loop, so the async
+`workflow_backend/httpclient.py::shared_client()` cannot serve them.
 
 ### Settings
 

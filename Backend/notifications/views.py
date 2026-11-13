@@ -1,12 +1,15 @@
+from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import (
-    HITLReminderSchedule, Notification, NotificationPreference,
+    DeviceToken, HITLReminderSchedule, Notification, NotificationPreference,
     PushSubscription, ScheduledNotification,
 )
 from .serializers import (
+    DeviceTokenSerializer,
     HITLReminderScheduleSerializer,
     NotificationPreferenceSerializer,
     NotificationSerializer,
@@ -155,3 +158,40 @@ def unsubscribe_push(request):
     if endpoint:
         PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
     return Response({'status': 'unsubscribed'})
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def native_device(request):
+    """
+    Register (POST) or forget (DELETE) one native phone's Expo push token.
+
+    POST upserts on `token`. A token already held by another account moves to
+    the caller, since one phone is one person at a time, and a phone that signs
+    in as someone else must not keep sending the previous account's pushes.
+    DELETE only touches the caller's own token; an unknown token is still 204.
+    """
+    if request.method == 'DELETE':
+        token = (request.data or {}).get('token', '')
+        if not isinstance(token, str) or not token.strip():
+            return Response({'error': 'token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        DeviceToken.objects.filter(user=request.user, token=token.strip()).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    serializer = DeviceTokenSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    defaults = {
+        'user': request.user,
+        'platform': data['platform'],
+        'app_version': data.get('app_version', '') or '',
+        'last_seen_at': timezone.now(),
+    }
+    try:
+        with transaction.atomic():
+            device, _ = DeviceToken.objects.update_or_create(token=data['token'], defaults=defaults)
+    except IntegrityError:
+        # Two registrations of one new token raced; the loser finds the row
+        # the winner wrote and updates it.
+        device, _ = DeviceToken.objects.update_or_create(token=data['token'], defaults=defaults)
+    return Response(DeviceTokenSerializer(device).data, status=status.HTTP_201_CREATED)

@@ -200,10 +200,25 @@ class ImagineConversationViewSet(viewsets.ModelViewSet):
     Like `chat`'s `ChatSession` list, this is the UI for that isolation:
     new chat, switch, delete. Create is via `agent/chat/` (which mints
     a conversation when `conversation_id` is absent), so POST here is
-    disallowed. `destroy` cascades messages (`on_delete=CASCADE`).
+    disallowed. `destroy` cascades messages (`on_delete=CASCADE`). PATCH
+    renames and nothing else: the serializers are read-only, so the title is
+    written here rather than opening every field to the client.
     """
     permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'delete', 'head', 'options']
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    def partial_update(self, request, *args, **kwargs):
+        conversation = self.get_object()
+        title = request.data.get('title')
+        if not isinstance(title, str):
+            return Response({'error': "'title' must be a string."}, status=400)
+        title = title.strip()
+        max_length = ImagineConversation._meta.get_field('title').max_length
+        if len(title) > max_length:
+            return Response({'error': f'Keep the title under {max_length} characters.'}, status=400)
+        conversation.title = title
+        conversation.save(update_fields=['title', 'updated_at'])
+        return Response(ImagineConversationSerializer(conversation).data)
 
     def get_queryset(self):
         # `last_message` on the list serializer reads these annotations; the

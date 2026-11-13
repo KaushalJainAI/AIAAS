@@ -9,6 +9,9 @@ renders the OS notification and handles the click.
 Best-effort by design: a dead push service must never break a sweep, a tool
 call or a webhook. Unconfigured (no VAPID keys) means "skip silently", and
 expired endpoints (HTTP 404/410 from the push service) are pruned.
+
+Callers do not import this module's `send_web_push` directly: they call
+`notifications/push.py::send_push`, which fans out to this and to native phones.
 """
 
 from __future__ import annotations

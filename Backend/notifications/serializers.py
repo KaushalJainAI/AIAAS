@@ -1,6 +1,7 @@
 from rest_framework import serializers
+from .expo_push import is_expo_token
 from .models import (
-    HITLReminderSchedule, Notification, NotificationPreference,
+    DeviceToken, HITLReminderSchedule, Notification, NotificationPreference,
     PushSubscription, ScheduledNotification,
 )
 
@@ -98,3 +99,29 @@ class PushSubscriptionSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'endpoint': {'validators': []},
         }
+
+
+class DeviceTokenSerializer(serializers.ModelSerializer):
+    """
+    The Expo push token the native app registers with.
+
+    `token` is the upsert key, so it is not given the model's unique
+    validator: re-registering the same phone must succeed, not 400.
+    """
+
+    app_version = serializers.CharField(max_length=32, required=False, allow_blank=True, default='')
+
+    class Meta:
+        model = DeviceToken
+        fields = ['id', 'token', 'platform', 'app_version', 'created_at', 'last_seen_at']
+        read_only_fields = ['id', 'created_at', 'last_seen_at']
+        extra_kwargs = {
+            'token': {'validators': []},
+        }
+
+    def validate_token(self, value):
+        if not is_expo_token(value):
+            raise serializers.ValidationError(
+                'Not an Expo push token. Expected ExponentPushToken[...].'
+            )
+        return value

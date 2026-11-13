@@ -320,3 +320,40 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f"Push subscription for {self.user_id} @ {self.endpoint[:60]}"
+
+
+class DeviceToken(models.Model):
+    """
+    One native phone's Expo push token, for the React Native app.
+
+    The app's `expo-notifications` hands the device an `ExponentPushToken[...]`.
+    The backend sends to that token through the Expo Push Service, which
+    delivers to FCM (Android) and APNs (iOS), so one row covers both platforms.
+    `token` is globally unique: a phone that signs out and in as someone else
+    re-assigns the row rather than receiving the previous account's pushes.
+    """
+
+    PLATFORM_CHOICES = [
+        ('android', 'Android'),
+        ('ios', 'iOS'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='device_tokens',
+    )
+    token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES)
+    app_version = models.CharField(max_length=32, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.platform} device for {self.user_id}"
