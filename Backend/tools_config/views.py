@@ -78,6 +78,11 @@ GRANT_META: dict[str, dict[str, str]] = {
         'description': 'Read and write your own files within the virtual filesystem.',
         'icon': 'files',
     },
+    'decisions': {
+        'label': 'Decisions',
+        'description': 'Typed answers with probabilities from a decision model (choice, yes/no, score).',
+        'icon': 'gauge',
+    },
     'subAgents': {
         'label': 'Delegation',
         'description': 'Find and invoke other agents as sub-tasks.',
@@ -187,6 +192,7 @@ LIBRARY_GROUPS: dict[str, tuple[str, ...]] = {
                'edit_workbook', 'render_diagram'),
     'media': ('generate_image',),
     'publish': ('publish_page',),
+    'decisions': ('decide',),
     'browser': ('browse_page', 'browser_act'),
     'voice': ('transcribe_audio', 'text_to_speech'),
     'esign': ('request_signature', 'signature_status'),
@@ -234,7 +240,7 @@ LIBRARY_GROUPS: dict[str, tuple[str, ...]] = {
 CATEGORY_ORDER = [
     'webSearch', 'scrape', 'rag', 'codeExecution', 'fileOps', 'office', 'media',
     'publish', 'browser', 'voice', 'esign', 'talk', 'data', 'api', 'compute',
-    'subAgents', 'mcp', 'shell',
+    'decisions', 'subAgents', 'mcp', 'shell',
     'delegation', 'authoring', 'memory',
     'system', 'chat', 'vision', 'artifacts', 'internal',
 ]
@@ -244,7 +250,8 @@ CATEGORY_ORDER = [
 #: GRANT_TOOLS, rather than by a literal array in the page.
 GRANT_CATEGORIES = ['webSearch', 'scrape', 'rag', 'codeExecution', 'fileOps',
                     'office', 'media', 'publish', 'browser', 'voice', 'esign',
-                    'talk', 'data', 'api', 'compute', 'shell', 'subAgents', 'mcp']
+                    'talk', 'data', 'api', 'compute', 'decisions', 'shell', 'subAgents',
+                    'mcp']
 
 
 def _display_name(tool_name: str) -> str:

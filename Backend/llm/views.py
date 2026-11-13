@@ -288,3 +288,37 @@ class ModelFallbackView(APIView):
         if warning:
             payload['warning'] = warning
         return Response(payload)
+
+
+class DecisionModelListView(APIView):
+    """What the decision-model picker in Settings reads.
+
+    Provider first, then that provider's decision models from its own live
+    listing, newest first (`llm/decisions.py::list_models`). Answers which
+    provider/model this user would get right now, so the picker can show
+    "Platform default (…)" honestly. Reading a public listing needs no key;
+    a model that cannot be called for want of a key fails at call time with
+    a sentence, like every other model.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from . import decisions
+
+        provider = (request.query_params.get('provider') or '').strip()
+        if provider and decisions.get_provider(provider) is None:
+            return Response({'detail': f'"{provider}" has no decision models.'}, status=400)
+        default_provider, default_model = decisions.default_choice()
+        try:
+            eff_provider, eff_model = decisions.resolve(request.user)
+        except decisions.DecisionError:
+            eff_provider, eff_model = default_provider, default_model
+        provider = provider or eff_provider
+        refresh = request.query_params.get('refresh') == '1' and request.user.is_staff
+        return Response({
+            'providers': decisions.list_providers(),
+            'provider': provider,
+            'models': decisions.list_models(provider, refresh=refresh),
+            'default': {'provider': default_provider, 'model': default_model},
+            'effective': {'provider': eff_provider, 'model': eff_model},
+        })

@@ -127,6 +127,24 @@ class UserProfile(models.Model):
         help_text='Preferred voice for that model (blank = model default)'
     )
 
+    # Decisions — the provider and model the `decide` tool asks
+    # (`llm.decisions.resolve`), for chat and for every agent this user owns.
+    # Blank means the platform default (`settings.DECISION_PROVIDER`/
+    # `DECISION_MODEL`). The model is validated against that provider's live
+    # listing of decision models, not a list kept here.
+    decision_provider = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        help_text='Preferred decision-model provider (blank = platform default)'
+    )
+    decision_model = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text='Preferred decision model (blank = platform default)'
+    )
+
     # Identity
     display_name = models.CharField(
         max_length=100,

@@ -34,6 +34,7 @@ import Select from '../components/ui/Select';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import NotificationsTab from '../components/settings/NotificationsTab';
 import MemoryTab from '../components/settings/MemoryTab';
+import DecisionModelPicker from '../components/settings/DecisionModelPicker';
 import { useAIModels } from '../hooks/useAIModels';
 import {
   DEFAULT_EFFORT, EFFORT_LABELS, effortLevelsFor, nearestEffort,
@@ -90,6 +91,8 @@ interface SettingsForm {
   default_temperature: number;
   tts_model: string;
   tts_voice: string;
+  decision_provider: string;
+  decision_model: string;
   default_autonomy: string;
 }
 
@@ -168,6 +171,8 @@ export default function Settings() {
     default_temperature: 0.7,
     tts_model: '',
     tts_voice: '',
+    decision_provider: '',
+    decision_model: '',
     default_autonomy: 'ask',
   });
 
@@ -211,6 +216,9 @@ export default function Settings() {
         // `||` is right here because '' and undefined both mean "default".
         tts_model: u.tts_model || '',
         tts_voice: u.tts_voice || '',
+        // Blank = the platform default decision model.
+        decision_provider: u.decision_provider || '',
+        decision_model: u.decision_model || '',
         default_autonomy: u.default_autonomy || 'ask',
   });
   if (user !== seenUser) {
@@ -749,6 +757,14 @@ export default function Settings() {
                     )}
                   </div>
                 </div>
+                {/* Which decision model answers the `decide` tool — chat and
+                    every agent with the Decisions grant read these two. */}
+                <DecisionModelPicker
+                  provider={formData.decision_provider}
+                  model={formData.decision_model}
+                  onChange={({ provider, model }) =>
+                    setFormData((prev) => ({ ...prev, decision_provider: provider, decision_model: model }))}
+                />
               </div>
             </div>
           </div>

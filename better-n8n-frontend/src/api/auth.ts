@@ -39,6 +39,9 @@ export interface User {
   /** Speech defaults; blank means the platform default (Kokoro + af_heart). */
   tts_model?: string;
   tts_voice?: string;
+  /** Decision model for the `decide` tool; blank means the platform default. */
+  decision_provider?: string;
+  decision_model?: string;
   /** New chats start here: ask | auto | plan (`full` is per-chat only). */
   default_autonomy?: string;
   theme_preference?: 'light' | 'dark' | 'system';
@@ -70,6 +73,8 @@ interface BackendProfileResponse {
   default_max_tokens?: number;
   tts_model?: string;
   tts_voice?: string;
+  decision_provider?: string;
+  decision_model?: string;
   default_autonomy?: string;
   theme_preference?: User['theme_preference'];
   accent_color?: string;
@@ -124,6 +129,8 @@ function mapProfileResponse(data: BackendProfileResponse): User {
     default_max_tokens: data.default_max_tokens,
     tts_model: data.tts_model,
     tts_voice: data.tts_voice,
+    decision_provider: data.decision_provider,
+    decision_model: data.decision_model,
     default_autonomy: data.default_autonomy,
     theme_preference: data.theme_preference,
     accent_color: data.accent_color,

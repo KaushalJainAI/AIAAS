@@ -132,7 +132,7 @@ new config to `base.py`, never to a new top-level `settings.py`.
 | `solutions/` | What an organisation has already solved, found again by the next person: `Solution` records (problem, symptoms, cause, fix, claims with how fast each goes stale), reviews (worked / failed / doubtful, with which model said so), and three small indexes (error signatures, keywords, float16 vectors). **One read door, `access.py::visible`**, checks org membership live; a choke-point test fails on any other `Solution.objects` read. Organisations themselves are `core.Organization`/`Membership` (`core/orgs.py`). See `Backend/docs/SOLUTION_MEMORY_PLAN.md` |
 | `notifications/` | Persistent notifications + the HITL reminder engine (escalation ladder, hourly nudges, daily email digest) |
 | `imagine/` | Media generation (image/video/audio) via OpenRouter; form + conversational agent with HITL |
-| `llm/` | The whole provider layer: vocabulary (`providers.py`), the `AIProvider`/`AIModel` registry, the handler calling convention + registry (`handlers/base.py`, `handlers/registry.py` — the `nodes` app was deleted 2026-08-19 and its two load-bearing files moved here), the five provider handlers (`handlers/llm_providers.py`, `handlers/llm_nodes.py`, `handlers/openai_compatible.py`, `handlers/llm_base.py`), and the access funnel `access.py` (was `chat/turn/llm.py`), plus `context.py` — `ExecutionContext`, what a handler is handed besides its config (was `compiler/schemas.py`; that app held nothing else and was deleted 2026-08-24). Serves `/api/llm/models/` |
+| `llm/` | The whole provider layer (and `decisions.py`, the decision-model door): vocabulary (`providers.py`), the `AIProvider`/`AIModel` registry, the handler calling convention + registry (`handlers/base.py`, `handlers/registry.py` — the `nodes` app was deleted 2026-08-19 and its two load-bearing files moved here), the five provider handlers (`handlers/llm_providers.py`, `handlers/llm_nodes.py`, `handlers/openai_compatible.py`, `handlers/llm_base.py`), and the access funnel `access.py` (was `chat/turn/llm.py`), plus `context.py` — `ExecutionContext`, what a handler is handed besides its config (was `compiler/schemas.py`; that app held nothing else and was deleted 2026-08-24). Serves `/api/llm/models/` |
 | `eval/` | Evaluation of sub-agents: suites, cases, graders, sweeps, and the human review of what the graders decided. `graders.py` is a registry (registration *is* the schema, as in `chat/tools/`); `runner.py` sweeps a suite through the same `run_agent` door as every other run; `supervision.py` owns the review policy and is the single place a run's score is computed. **`eval/api.py` is the public surface other apps import** — pure grading (`grade_answer`, `grade_execution` scores an `ExecutionLog` that already ran), sweeps (`run_suite_now` awaited / `start_suite_run` detached), supervision and the reads. Nothing in `eval/` imports a sibling app at module scope, so no cycle is possible, and `eval/__init__.py` stays empty because `INSTALLED_APPS` imports the package before the app registry is ready. **App label is `eval`, singular** — a deleted `evals` app left inert `evals_*` tables in dev databases. See `Backend/docs/EVALUATION.md`. **The practical benchmark is `eval/benchmarks/`** — suites as code (capability + guardrail groups), installed into an account through `AgentSerializer` and run with `manage.py benchmark run --user <email>`, writing a scorecard to `eval/benchmarks/reports/`; guardrail suites have a 100% bar because they test our code, not the model. Start at its `README.md`. The **work tier** (2026-09-17) is the harder half: each case starts from a folder of messy fixtures reset before every attempt (`eval/workspace.py`), is graded on the files it produced (`file_*`, `json_value`, `csv_value` graders) rather than on its prose, and is run 3 times so the scorecard reports pass@1 *and* pass^k — a case that works twice in three runs is not a feature. Expected values are computed by a reference solution over the same fixture text, and a test fails if a case cannot be passed with ideal outputs or *can* be passed with the untouched fixtures |
 
 **Tests live in a `tests/` package per app** — `<app>/tests/test_<topic>.py`, never a flat
@@ -2804,6 +2804,42 @@ No settings-level `TTS_MODEL`/`TTS_VOICE` env var: a third knob on top of
 "caller" and "user preference" was one too many, and `TTS_ENGINE` alone
 still carries the per-environment switch. Tests: `chat/tests/test_speak.py`.
 
+**A decision model answers typed questions, and is picked like a chat model
+(2026-11-13).** Some answers must be one of a known set — route this, is it
+urgent, which of three — and a chat model writing prose that is then parsed is
+slower, costs more and gives no real probability. Decision models (TypeSafe
+Jev, Gemini Decision, Perplexity Decider and ~40 others on OpenRouter) take a
+*state* (any text or JSON) plus typed questions — `choice`, `noul` (yes/no, as
+P(yes)) and `score` — and return answers with probabilities, never text.
+`llm/decisions.py` is their door, **separate from `llm/access.py`** because the
+call is not chat-shaped (`POST /api/alpha/decisions`, one request in, one typed
+answer out); it shares the key lookup (`credentials.resolution`: the user's
+verified OpenRouter key, else the platform key). Four things carry it.
+**Provider, then model, like the chat picker**: `PROVIDERS` holds one
+`DecisionProvider` adapter per provider with a decision endpoint (OpenRouter
+today; another is a subclass), and `resolve()` is the one answer to "which" —
+call-time choice, else `UserProfile.decision_provider`/`decision_model`
+(Settings → AI), else `DECISION_PROVIDER`/`DECISION_MODEL`; a saved model is
+inherited only with its own provider. **Ids come from the provider's live
+listing, newest first** (`list_models`, cached 1h, expired rows dropped,
+`GET /api/llm/decision-models/`), never typed into code; the profile
+serializer validates against it, and only an *unreachable* listing falls back
+to checking the id's shape. The one hard-coded id is the default, a router
+alias (`~typesafe/jev-latest`) for the `openrouter/free` reason. **Questions
+refuse, never trim** (10 questions, 20 options, 10 levels, 60k chars of state):
+a dropped option is a decision quietly made over the wrong set. And the tool
+**`decide`** (`chat/tools/decisions.py`) is `effect="read"` + `parallel`, so
+chat as the orchestrator holds it with no change to `chat_orchestrator_allowed`
+and it is safe in `plan`; agents get it through the **`decisions` grant**
+(`GRANT_TOOLS`, `TOOL_KEYS`, a builder toggle; no scope). Not done yet: no
+`CostEntry` (a decision costs ~$0.00002, under the ledger's ₹1 floor, so it is
+returned in the result and logged as `[Latency] decision …` instead), no
+per-agent model override, and no internal consumer (the auto reviewer in shadow
+mode is the planned first). The endpoint is labelled alpha upstream, which is
+why every detail of its shape lives in that one file. Tests:
+`llm/tests/test_decisions.py`, `chat/tests/test_decide_tool.py`,
+`src/api/__tests__/decisions.test.ts`.
+
 **A ChatGPT plan is a provider you sign in to, and it translates at both
 edges (2026-10-11).** OpenCode Zen is gone (never verified with a real key,
 and its free models duplicated `openrouter/free`); `chatgpt` took its place as
@@ -2907,6 +2943,8 @@ CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns alrea
 MISSION_SWEEP_SECONDS=120          # Mission sweep interval (in-process scheduler)
 STT_ENGINE=openrouter              # Chat mic + transcribe_audio; `none` = off (voice/stt.py)
 STT_MODEL=openai/whisper-large-v3-turbo  # OpenRouter STT model, ~$0.012/hour of audio
+DECISION_PROVIDER=openrouter       # Platform default for the `decide` tool; users pick provider+model in Settings (llm/decisions.py)
+DECISION_MODEL=~typesafe/jev-latest  # Router alias, survives releases being retired
 TTS_ENGINE=none                    # text_to_speech + /api/chat/speak/; `openrouter` = platform key (voice/tts.py). Model/voice are per-user (UserProfile.tts_model/tts_voice via voice.tts.resolve_voice()), not env vars
 SENTRY_DSN=                        # Error reporting for web + worker; blank = off (workflow_backend/observability.py)
 SENTRY_TRACES_SAMPLE_RATE=0        # Performance tracing; off by default on the small box

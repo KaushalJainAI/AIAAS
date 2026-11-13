@@ -66,6 +66,8 @@ export interface ToolGrants {
   api: boolean;
   /** Run commands and long jobs on the workspace machine. */
   compute: boolean;
+  /** Typed answers with probabilities from the decision model in Settings. */
+  decisions: boolean;
   /** May it hand work to the user's other agents. */
   subAgents: boolean;
 }

@@ -373,6 +373,11 @@ TTS_ENGINE = os.environ.get('TTS_ENGINE', 'openrouter')
 # knob, so there is one place that decision is made, not two.
 TTS_REMOTE_URL = os.environ.get('TTS_REMOTE_URL', '')
 TTS_API_TOKEN = os.environ.get('TTS_API_TOKEN', '')
+# Decision models (`llm/decisions.py`, the `decide` tool): the platform
+# default when a user has not picked one in Settings. A router alias so it
+# survives individual releases being retired; blank = the module's default.
+DECISION_PROVIDER = os.environ.get('DECISION_PROVIDER', 'openrouter')
+DECISION_MODEL = os.environ.get('DECISION_MODEL', '~typesafe/jev-latest')
 ESIGN_ENGINE = os.environ.get('ESIGN_ENGINE', 'none')
 ESIGN_REMOTE_URL = os.environ.get('ESIGN_REMOTE_URL', '')
 ESIGN_API_TOKEN = os.environ.get('ESIGN_API_TOKEN', '')

@@ -322,6 +322,11 @@ TOOL_HELP = {
         'unattended run may only publish link pages'
     ),
     'rag': "search the user's knowledge bases (and read scanned documents)",
+    'decisions': (
+        'classify, route, triage or rate with a fast decision model that '
+        'answers typed questions with probabilities (the model is the one '
+        'picked in Settings)'
+    ),
     'voice': (
         'transcribe recordings the user has, and speak text into audio files. '
         'Needs `fileAccess` other than none. Off unless the platform has '

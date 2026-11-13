@@ -143,6 +143,7 @@ const GRANT_COPY: Record<string, string> = {
   talk: 'Message on Slack, WhatsApp, Teams, SMS and Telegram',
   data: 'Query databases',
   api: 'Call HTTP APIs',
+  decisions: 'Make typed decisions with a decision model',
   subAgents: 'Delegate to your other agents',
 };
 

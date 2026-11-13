@@ -96,6 +96,12 @@ GRANT_TOOLS: dict[str, tuple[str, ...]] = {
     # ladder gates it with no new mechanism; above `link` visibility from an
     # unattended run is refused inside the tool, where the argument is.
     'publish': ('publish_page',),
+    # Decision models (`chat/tools/decisions.py`): typed answers with
+    # probabilities from the provider/model the owner picked in Settings.
+    # Reads text the run already holds and changes nothing, so it needs no
+    # scope; it is a grant because it calls a third-party model, billed
+    # per input token to the owner's key.
+    'decisions': ('decide',),
     # Delegation. There is no 'orchestrator' kind of agent — an agent that
     # fans out to other agents is one holding this grant, so composition is
     # checked by the same mechanism as every other capability instead of by a

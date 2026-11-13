@@ -47,6 +47,8 @@ export interface AccountProfileResponse {
   default_max_tokens?: number;
   tts_model?: string;
   tts_voice?: string;
+  decision_provider?: string;
+  decision_model?: string;
   default_autonomy?: string;
   theme_preference?: ThemePreference;
   accent_color?: string;
@@ -73,6 +75,8 @@ export interface AccountProfile {
   default_max_tokens?: number;
   tts_model?: string;
   tts_voice?: string;
+  decision_provider?: string;
+  decision_model?: string;
   default_autonomy?: string;
   theme_preference?: ThemePreference;
   accent_color?: string;
@@ -96,6 +100,8 @@ export interface AccountProfilePatch {
   default_temperature?: number;
   tts_model?: string;
   tts_voice?: string;
+  decision_provider?: string;
+  decision_model?: string;
   default_autonomy?: DefaultAutonomy;
   theme_preference?: ThemePreference;
   accent_color?: string;

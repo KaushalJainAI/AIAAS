@@ -113,6 +113,9 @@ export interface AgentConfig {
     api: boolean;
     /** Run commands and long jobs on the workspace machine. */
     compute: boolean;
+    /** Typed answers with probabilities from the decision model picked in
+     *  Settings (`decide`). Reads only what the run already holds. */
+    decisions: boolean;
     /** May it hand work to the user's other agents. Scoped by `delegatesTo`:
      *  an agent that can delegate to one with wider tools has those tools by
      *  proxy, so the grant alone was never the whole answer. */
@@ -291,6 +294,7 @@ export const DEFAULT_AGENT: AgentConfig = {
     data: false,
     api: false,
     compute: false,
+    decisions: false,
     subAgents: false,
   },
 

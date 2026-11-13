@@ -35,6 +35,7 @@ import {
   Shield,
   Plug,
   Terminal,
+  Gauge,
   ChevronDown,
   X,
   Lock,
@@ -75,6 +76,7 @@ const iconMap: Record<string, LucideIcon> = {
   shield: Shield,
   plug: Plug,
   terminal: Terminal,
+  gauge: Gauge,
 };
 
 // ---------------------------------------------------------------------------

@@ -1137,6 +1137,7 @@ export default function AgentBuilder() {
                 ['publish', 'Publish pages', 'Share a report, page or file by link. Pauses before anything goes public.'],
                 ['browser', 'Use a browser', 'Read JavaScript pages; click and type only on the sites listed below.'],
                 ['rag', 'Knowledge base search', 'Retrieve from your indexed documents.'],
+                ['decisions', 'Decisions', 'Classify, route or rate with a fast decision model (the one picked in Settings). Answers with probabilities.'],
                 ['mcp', 'MCP servers (Plugins)', 'The tools from your connected plugins (MCP servers), using your connectors.'],
                 ['voice', 'Transcribe and speak', 'Transcripts from recordings; audio files from text. Needs file access.'],
                 ['esign', 'E-signatures', 'Send documents out for signature. Pauses before anything goes out.'],

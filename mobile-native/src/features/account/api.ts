@@ -85,6 +85,8 @@ function mapProfile(data: AccountProfileResponse): AccountProfile {
     default_max_tokens: data.default_max_tokens,
     tts_model: data.tts_model,
     tts_voice: data.tts_voice,
+    decision_provider: data.decision_provider,
+    decision_model: data.decision_model,
     default_autonomy: data.default_autonomy,
     theme_preference: data.theme_preference,
     accent_color: data.accent_color,

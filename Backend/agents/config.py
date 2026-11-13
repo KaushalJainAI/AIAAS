@@ -58,7 +58,8 @@ logger = logging.getLogger(__name__)
 # than an always-on capability because those tools reach real systems under
 # the user's credentials — see mcp_integration/credential_injector.py.
 TOOL_KEYS = {'codeExecution', 'shell', 'webSearch', 'scrape', 'fileOps', 'office', 'media', 'publish', 'browser', 'rag',
-             'mcp', 'subAgents', 'voice', 'esign', 'talk', 'data', 'api', 'compute'}
+             'mcp', 'subAgents', 'voice', 'esign', 'talk', 'data', 'api', 'compute',
+             'decisions'}
 # `connectors` holds `MCPServer` ids, validated against what the user can
 # actually see. It used to be a hardcoded set of six presentation slugs
 # ({'gdrive', 'gmail', 'sheets', 'photos', 'calendar', 'slack'}) that nothing

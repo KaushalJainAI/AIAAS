@@ -50,6 +50,7 @@ const TOOL_NAMES: Record<string, string> = {
   talk: 'Messaging',
   data: 'Databases',
   api: 'APIs',
+  decisions: 'Decisions',
   subAgents: 'Other agents',
 };
 

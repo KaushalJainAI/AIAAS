@@ -42,6 +42,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'llm_provider', 'llm_model', 'llm_effort', 'llm_credential_id',
             'vision_provider', 'vision_model',
             'tts_model', 'tts_voice',
+            'decision_provider', 'decision_model',
             'default_temperature', 'default_max_tokens',
             'default_autonomy', 'paused_until',
             'theme_preference', 'accent_color',
@@ -144,6 +145,41 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if model_id not in {m['id'] for m in TTS_MODELS}:
             raise serializers.ValidationError('Not a known speech model.')
         return model_id
+
+    def validate_decision_provider(self, value):
+        from llm.decisions import PROVIDERS
+
+        slug = (value or '').strip()
+        if slug and slug not in PROVIDERS:
+            raise serializers.ValidationError('That provider has no decision models.')
+        return slug
+
+    def validate(self, attrs):
+        """The decision model is checked against its own provider's listing.
+
+        Done here rather than per field because the answer depends on both:
+        an id is only meaningful within the provider that serves it. Blank
+        model means that provider's default; blank both means the platform's.
+        """
+        attrs = super().validate(attrs)
+        if 'decision_model' in attrs or 'decision_provider' in attrs:
+            from llm.decisions import DEFAULT_DECISION_PROVIDER, is_known_model
+
+            instance = getattr(self, 'instance', None)
+            provider = attrs.get('decision_provider',
+                                 getattr(instance, 'decision_provider', '') if instance else '')
+            model_id = (attrs.get('decision_model',
+                                  getattr(instance, 'decision_model', '') if instance else '') or '').strip()
+            if 'decision_model' in attrs:
+                attrs['decision_model'] = model_id
+            if model_id:
+                provider = provider or DEFAULT_DECISION_PROVIDER
+                if 'decision_model' in attrs and not is_known_model(provider, model_id):
+                    raise serializers.ValidationError(
+                        {'decision_model': 'Not a decision model that provider serves.'})
+                if not attrs.get('decision_provider') and not getattr(instance, 'decision_provider', ''):
+                    attrs['decision_provider'] = provider
+        return attrs
 
     def update(self, instance, validated_data):
         # Handle nested user updates if provided in request data

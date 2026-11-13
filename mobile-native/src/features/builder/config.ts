@@ -94,6 +94,7 @@ export const DEFAULT_AGENT: AgentConfig = {
     data: false,
     api: false,
     compute: false,
+    decisions: false,
     subAgents: false,
   },
 
@@ -242,6 +243,7 @@ export const GRANT_ITEMS: readonly { key: keyof ToolGrants; label: string; hint:
   { key: 'publish', label: 'Publish pages', hint: 'Share a report, page or file by link. Pauses before anything goes public.' },
   { key: 'browser', label: 'Use a browser', hint: 'Read JavaScript pages; click and type only on the sites listed.' },
   { key: 'rag', label: 'Knowledge base search', hint: 'Retrieve from your indexed documents.' },
+  { key: 'decisions', label: 'Decisions', hint: 'Classify, route or rate with the decision model picked in Settings.' },
   { key: 'mcp', label: 'Connections (MCP)', hint: 'Tools from your connected plugins, using your connectors.' },
   { key: 'voice', label: 'Transcribe and speak', hint: 'Transcripts from recordings; audio files from text.' },
   { key: 'esign', label: 'E-signatures', hint: 'Send documents out for signature. Pauses before anything goes out.' },

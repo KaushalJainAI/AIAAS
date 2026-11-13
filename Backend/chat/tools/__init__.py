@@ -65,6 +65,7 @@ from . import (  # noqa: F401  — imported for their registration side effect
     conversation,
     dashboards,
     data,
+    decisions,
     docs,
     esign,
     eval_manager,
