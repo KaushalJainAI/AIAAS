@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
-from workflow_backend.thresholds import MAX_LLM_INPUT_TOKENS
+from workflow_backend.thresholds import LLM_INPUT_TOKEN_CEILING, MAX_LLM_INPUT_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,12 @@ _WINDOW_SAFETY_TOKENS = 2_048
 #: than for the life of the process.
 _WINDOW_TTL_SECONDS = 300
 _window_cache: dict[str, tuple[float, int]] = {}
+
+#: Windows learned from a provider refusing a request as too long. The catalogue
+#: can be wrong (or say 0, "unknown"), and the provider's refusal is the only
+#: authoritative statement of the real limit, so it wins over the catalogue for
+#: the life of the process. Only ever lowers a budget.
+_learned_windows: dict[str, int] = {}
 
 
 # ── Sizing ───────────────────────────────────────────────────────────────────
@@ -90,6 +96,22 @@ def entry_tokens(entry: dict) -> int:
 
 def history_tokens(entries: Iterable[dict]) -> int:
     return sum(entry_tokens(entry) for entry in entries)
+
+
+def tools_tokens(tools: Sequence[dict] | None) -> int:
+    """What the tool definitions sent with a request cost.
+
+    They ride in their own `tools` field, so nothing that sizes `messages` saw
+    them — and an orchestrator offering seventy tools spends 10-20k tokens on
+    them every call. Left uncounted, a request measured as fitting was refused
+    by the provider as too long.
+    """
+    if not tools:
+        return 0
+    try:
+        return estimate_tokens(json.dumps(list(tools)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def truncate_middle(text: str, max_tokens: int) -> str:
@@ -185,8 +207,46 @@ def cached_input_budget(model: str, *, reserve_output: int = 0) -> int:
     replaced: never worse than before, better as soon as a turn has preflighted.
     """
     cached = _window_cache.get(model or "")
-    window = cached[1] if cached else 0
+    window = _with_learned(model, cached[1] if cached else 0)
     return _budget_from_window(window, reserve_output)
+
+
+def _with_learned(model: str, window: int) -> int:
+    learned = _learned_windows.get(model or "")
+    if not learned:
+        return window
+    return min(window, learned) if window > 0 else learned
+
+
+def learn_window(model: str, *, reported: int | None, sent_tokens: int = 0) -> int:
+    """Lower `model`'s window after the provider refused a request as too long.
+
+    `reported` is the limit the provider named in its error, when it named one
+    ("maximum context length is 131072 tokens") — the authoritative figure. When
+    it named none, the window is taken as three quarters of what we believed it
+    was (or of what we sent), so the retry lands well inside whatever the real
+    limit is rather than probing just under it. Returns the window now in force.
+    """
+    if not model:
+        return 0
+    if reported and reported > 0:
+        window = reported
+    else:
+        cached = _window_cache.get(model)
+        believed = _with_learned(model, cached[1] if cached else 0)
+        base = believed or (MAX_LLM_INPUT_TOKENS + _WINDOW_SAFETY_TOKENS)
+        if sent_tokens:
+            base = min(base, sent_tokens)
+        window = int(base * 0.75)
+    window = max(window, 4_000)
+    previous = _learned_windows.get(model)
+    if previous is None or window < previous:
+        _learned_windows[model] = window
+        logger.warning(
+            "[Budget] %s refused a request as too long; using a %d-token window",
+            model, window,
+        )
+    return _learned_windows[model]
 
 
 async def prime(model: str) -> None:
@@ -195,29 +255,46 @@ async def prime(model: str) -> None:
 
 
 def _budget_from_window(window: int, reserve_output: int) -> int:
+    """The input budget for a model with this window.
+
+    A known window is used whole (less the reply and a safety margin), so a
+    long run gets everything the model can read and curation starts at 70% of
+    *the model's* limit. An unknown window keeps the flat budget. The optional
+    `LLM_INPUT_TOKEN_CEILING` caps both, for an install that wants to bound what
+    one call can cost.
+    """
+    ceiling = LLM_INPUT_TOKEN_CEILING if LLM_INPUT_TOKEN_CEILING > 0 else None
     if window <= 0:
-        return MAX_LLM_INPUT_TOKENS
+        return min(MAX_LLM_INPUT_TOKENS, ceiling or MAX_LLM_INPUT_TOKENS)
     usable = window - max(reserve_output, 0) - _WINDOW_SAFETY_TOKENS
-    return max(min(usable, MAX_LLM_INPUT_TOKENS), 2_000)
+    if ceiling:
+        usable = min(usable, ceiling)
+    return max(usable, 2_000)
+
+
+def budget_for(model: str, window: int, *, reserve_output: int = 0) -> int:
+    """`input_budget_for` for a caller that already read the window (sync)."""
+    return _budget_from_window(_with_learned(model, window), reserve_output)
 
 
 async def input_budget_for(model: str, *, reserve_output: int = 0) -> int:
     """
     How many input tokens this model can actually be sent.
 
-    `MAX_LLM_INPUT_TOKENS` stays the ceiling — it is a cost control, not a
-    capability claim — so a declared window can only ever *lower* the budget. The
-    bug this fixes is the other direction: a flat 96k was applied to every model
-    including the 8k and 32k ones, so the guard passed and the provider rejected
-    the request.
+    The model's own window, less its reply and a margin (2026-11-16: it used to
+    be capped at a flat 96k, which cut a 1M-token model to a tenth of what it
+    reads; `LLM_INPUT_TOKEN_CEILING` is the opt-in cost cap now). A window the
+    provider has refused past is lowered to what it said (`learn_window`).
 
     A model absent from the registry, or one whose `context_window` is 0
-    ("unknown/variable"), keeps the flat budget: guessing small would silently
-    throw away context the model could have read.
+    ("unknown/variable"), keeps the flat `MAX_LLM_INPUT_TOKENS`: guessing big
+    there is a 400, and guessing small throws away context.
     """
     # Never returns something unusable: a tiny window still gets a floor, and the
     # per-message clamps are what keep that floor honest.
-    return _budget_from_window(await context_window(model), reserve_output)
+    return _budget_from_window(
+        _with_learned(model, await context_window(model)), reserve_output
+    )
 
 
 async def context_window(model: str) -> int:

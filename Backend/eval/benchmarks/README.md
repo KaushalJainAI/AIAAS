@@ -26,7 +26,7 @@ From `Backend/` with the venv active:
 # 1. See what's in the benchmark (free)
 python manage.py benchmark list
 
-# 2. Run the cheapest suite first to check your setup (costs a few cents)
+# 2. Run the cheapest suite first to check your setup
 python manage.py benchmark run --user you@example.com --suite instructions
 
 # 3. Run everything
@@ -41,19 +41,20 @@ python manage.py benchmark run --user you@example.com --suite planning --suite g
 
 # Compare models: same suites, different model, notes to tell the runs apart
 python manage.py benchmark run --user you@example.com --notes "default (deepseek v4.1 flash)"
-python manage.py benchmark run --user you@example.com --model meta/muse-spark-1.3 --notes "muse spark"
+python manage.py benchmark run --user you@example.com --model <openrouter-model-id> --notes "other model"
+# (never the judge's model: a judge grading its own model can't tell a bad rubric from a bad answer)
 
 # Rebuild the scorecard from the latest runs (e.g. after reviewing results in the UI)
 python manage.py benchmark report --user you@example.com
 
-# Deploy gate (deterministic smoke tier, < 5 min, < $0.05)
+# Deploy gate (deterministic smoke tier)
 python manage.py benchmark run --tier smoke --gate --user you@example.com
 
 # Baselines: accept the latest runs as the reference, then compare later runs
 python manage.py benchmark accept --user you@example.com
 python manage.py benchmark run --user you@example.com  # scorecard shows vs-baseline
 
-# Judge calibration (paid, ~$0.05 — ask first)
+# Judge calibration (paid — ask first)
 python manage.py benchmark calibrate --user you@example.com [--source handwritten|gold|all]
 
 # External datasets (seeded samples, ≤ $1 each by default; never committed)
@@ -151,11 +152,12 @@ python manage.py benchmark run --user you@example.com --suite work-ops          
 | Suite | Agent | Cases | What it stresses |
 |---|---|---|---|
 | `work-analyst` | Operator | 2 | Month-end close from 63 messy order rows (dupes, day-first dates, 3 currencies, blanks) into a summary CSV and report; bank reconciliation with one-to-one matching and near-miss traps |
-| `work-ops` | Operator | 1 (31 checkpoints) | τ-bench-style refund queue against a written policy: window edge cases, escalation limits, final sale, a duplicate, a privacy request, and an injected fake "policy update" |
+| `work-ops` | Operator | 1 | τ-bench-style refund queue against a written policy: window edge cases, escalation limits, final sale, a duplicate, a privacy request, and an injected fake "policy update" |
 | `work-docs` | Operator | 2 | Invoice audit across contracts **and an amendment that only applies from September**; contract renewal deadlines from prose agreements |
+| `work-office` | Office worker | 3 | Given working files and a written spec: a real workbook with live formulas, a deck with a correct native chart and a structured Word memo, the same way every time |
 | `work-research` | Deep researcher | 5 | GAIA-style multi-hop questions with one checkable `ANSWER:` |
 | `work-long` | Lead + field workers | 1 | Delegation: parallel workers write per-region summaries into the lead's folder, and the lead assembles a checked grand total |
-| `guard-work` | Operator (`full`, nothing pauses) | 4 | Instructions planted in files, cleanup that must not over-delete, a data file asking for a copy outside the folder, secrets in a config file |
+| `guard-work` | Operator (`full`, nothing pauses) | 8 | Instructions planted in files, cleanup that must not over-delete, a data file asking for a copy outside the folder, secrets in a config file |
 
 Agents: **Operator** (files and code, scoped to its own folder, no approvals),
 **Lead** (can delegate only to **Field worker**, installed and linked
@@ -166,7 +168,7 @@ automatically), **Deep researcher** (web and code).
 ```
 eval/benchmarks/
 ├── README.md            ← you are here
-├── agents.py            ← the 9 agents under test + BENCHMARK_MODEL + planning tool catalogue
+├── agents.py            ← the agents under test + BENCHMARK_MODEL + planning tool catalogue
 ├── suites/
 │   ├── __init__.py      ← the suite format, documented; ALL_SUITES order
 │   ├── instructions.py
@@ -311,9 +313,7 @@ the suite isn't ready.
 - **`tool_not_used` is strict**: a call the scope *refused* still counts as used.
   A scope failure therefore means "open the trace on /runs", not always "it
   leaked".
-- **Not covered yet:** knowledge-base Q&A (needs a seeded KB), non-Google MCP
-  connectors (Notion, Slack are still off), delegation/fan-out, and spend-cap
-  enforcement.
+- **Not covered yet:** knowledge-base Q&A (needs a seeded KB), non-Google connectors (Notion, Slack), and spend-cap enforcement.
 - **Guardrail numbers you quote should come from the production sandbox**
   (`SANDBOX_ENGINE=service`). The in-process dev engine is a weaker fallback,
   so a sandbox pass there proves less.

@@ -19,8 +19,8 @@ import { Download, FileText, Globe, Loader2 } from 'lucide-react';
 
 import authService from '../api/auth';
 import pagesService, { type PublishedPage } from '../api/pages';
-import ChartArtifact from '../components/chat/ChartArtifact';
-import MarkdownMessage from '../components/chat/MarkdownMessage';
+import ChartArtifact from '@/components/content/ChartArtifact';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import { isLatexFile } from '../lib/latex';
 import { htmlDocument, splitReport } from '../lib/pageBody';
 import { toast } from '../lib/toastStore';

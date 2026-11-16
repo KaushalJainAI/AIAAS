@@ -1,122 +1,70 @@
-# `inference/`: the user's files, folders and knowledge bases
+# `inference/`: your files, folders and knowledge bases
 
-Despite the name, this app is mostly about **your stuff**:
+The user sees this as the Documents page: a file tree with a recycle bin, the
+knowledge bases they search, the Docs, Sheets and Slides editors, shared pages,
+dashboards and extraction. Despite the name, it is mostly about **your stuff**.
 
-- **Files and folders**: a per-user file tree (the Documents page).
-- **Recycle bin**: deleting moves a file to the bin; a sweep empties it later.
-- **Knowledge bases (KBs)**: sets of documents indexed for search (RAG).
-- **The agent's file system** (`vfs.py`): lets the AI use paths like
-  `/reports/q1.md` over your file tree, safely.
-- **Extraction**: pulling structured rows out of documents.
-- **Hosted pages and dashboards**: shareable snapshots and live tiles.
-- **The document apps' backend**: version history, autosave, export, and
-  turning spreadsheets and Word/PowerPoint files into something the in-browser
-  editors (Docs, Sheets, Slides) can edit.
+"Folders organise, knowledge bases index." A document has a folder *and* may
+be in a knowledge base, independently. Moving a file never re-indexes it.
 
-"Folders organise, knowledge bases index." A document has a folder *and*
-may be in a KB, independently. Moving a file between folders never re-indexes it.
+Design: [`docs/RAG_STRATEGY.md`](../docs/RAG_STRATEGY.md) (search). The office
+library the editors save through is [`office/`](../office/README.md).
 
 ## Read in this order
 
-1. `models.py` → `Folder`, `Document`, `KnowledgeBase`.
+1. `models.py`: `Folder`, `Document`, `KnowledgeBase`.
 2. `filesystem.py`: the only way a folder id from a request becomes a `Folder`.
-3. `vfs.py`: the path-based view the AI uses.
-4. `engine.py` and `backends/`: how KB search works.
+3. `vfs.py`: the path view the AI uses.
+4. `engine.py`, `backends/`: how knowledge-base search works.
 
 ## Data (`models.py`)
 
 | Model | What it is |
 |---|---|
-| `Folder` | A folder. `folder=NULL` on a document means "at the root" (there is no root row) |
-| `Document` | A file: its bytes, extracted text (`content_text`), folder, KB, `deleted_at` if in the bin. `metadata.spec` is the editable structure for office files; `metadata.draft` a parked autosave |
-| `DocumentVersion` | What a file held before an overwrite (bytes/text plus spec), per source coalesced, capped at 25 |
-| `KnowledgeBase` | A searchable set of documents. `backend` says how it is searched. `org` and `shared_with_org` say whether a team can search it (read-only, from chat) |
+| `Folder` | A folder. `folder=NULL` on a document means the root (there is no root row) |
+| `Document` | A file: bytes, extracted text, folder, KB, `deleted_at` if in the bin. `metadata.spec` is an office file's editable structure; `metadata.draft` a parked autosave |
+| `DocumentVersion` | What a file held before an overwrite. Capped at 25 |
+| `KnowledgeBase` | A searchable set of documents. `backend` says how it is searched |
 | `DocumentChunk`, `IndexedTerm` | Pieces of documents for vector search, and words for keyword search |
 | `ExtractionSchema`, `ExtractedRow` | "Pull these fields out of these files", and the rows that came out |
-| `PublishedPage` | A snapshot shared by link (`/p/<slug>`) |
-| `Dashboard` | Live tiles on the Dashboards page |
-| `RecentFile`, `AppSession` | Files you opened recently (and where you were in each), and the tabs you had open in each document app |
+| `PublishedPage` | A shared snapshot at `/p/<slug>` |
+| `Dashboard` | Tiles on the Dashboards page |
+| `RecentFile`, `AppSession` | Recently opened files, and the tabs open in each document app |
 
-Trashed rows are hidden automatically: the default manager (`LiveManager`)
-filters them out, so ordinary queries never see the bin.
+Trashed rows are hidden by the default manager (`LiveManager`), so ordinary queries never see the bin.
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `views.py`, `urls.py` | Documents, KBs and search over HTTP |
-| `folder_views.py` | The folder tree and the recycle bin over HTTP |
-| `kb_access.py` | The one door for reading a knowledge base on someone else's behalf: your own, or one your team shares with you. Team membership is checked on every call |
-| `kb_views.py` | `/api/inference/knowledge-bases/`: the knowledge bases you may search, and the switch that shares one with a team |
 | `filesystem.py` | Folder lookups and moves. Unknown and not-yours ids both give 404 |
-| `vfs.py` | The AI's file system: list, read, write, edit, find, delete, inside a scope |
+| `vfs.py` | The AI's file system: list, read, write, edit, find, move, delete, inside a scope |
+| `search.py` | Search for the file browser: exact matches first, then close matches by name |
+| `engine.py` | The HNSW vector index behind semantic search |
+| `backends/` | The four ways a KB is searched: `vector`, `fulltext`, `hybrid`, `raw` (read only) |
+| `kb_access.py` | The one door for reading a KB on someone else's behalf. Team membership is checked on every call |
+| `kb_views.py`, `views.py`, `folder_views.py`, `serializers.py`, `urls.py` | Documents, folders, KBs and search over HTTP |
 | `recycle.py` | Trash, restore, and the sweep that deletes for good |
-| `recents.py` | Recently opened files (`RecentFile`, with each file's saved view position) and saved app tabs (`AppSession`); `recent_views.py` serves them |
-| `engine.py` | The vector index (HNSW) behind semantic search |
-| `backends/` | The four ways a KB can be searched: `vector`, `fulltext` (keywords), `hybrid` (both), `raw` (no search, just read) |
-| `utils.py` | Reading text out of uploaded files (PDF, Word, Excel, OpenDocument, RTF, email...) |
-| `tasks.py` | Background jobs: turning an upload into chunks and embeddings |
+| `quota.py` | Storage per tier and a file count. `check()` refuses a write that does not fit |
+| `indexing.py`, `tasks.py`, `utils.py` | Upload → text → chunks → embeddings, through a queue with a fixed number of workers |
 | `reindex.py`, `migration_tasks.py` | Re-indexing after the embedding model changes |
-| `indexing.py` | The queue every producer hands a document to for indexing. A fixed number run at once, however many files arrive |
-| `quota.py` | How much one account may keep: bytes per tier and a file count. `usage()` adds it up, `check()` refuses a write that does not fit |
-| `signals.py` | Keeps each KB's document count right; a deleted document or version takes its stored file with it |
-| `extraction.py`, `extraction_views.py`, `extraction_urls.py` | The extraction engine and its API (served at `/api/extraction/`) |
-| `pages.py`, `page_views.py` | Publishing and serving hosted pages |
-| `dashboard_views.py` | Dashboards |
-| `office_edit.py` | Creating and editing files from the in-browser apps |
-| `versions.py` | Version history: snapshot before every overwrite, restore, prune |
-| `export.py`, `text_blocks.py` | Exporting to other formats (Word↔PDF/Markdown, deck→PDF, workbook↔CSV) |
-| `drafts.py` | Office autosaves parked cheaply, rendered after quiet or on read |
-| `dashboards.py` | The dashboard spec validator, shared with the `save_dashboard` tool |
-| `importers.py` | Uploaded Word/PowerPoint files converted to editable specs |
-| `previews.py` | Image conversion (TIFF/BMP/HEIC→PNG) and zip listings |
+| `signals.py` | Keeps KB document counts right; deleting a row deletes its stored file |
+| `versions.py`, `drafts.py`, `office_edit.py` | Version history, parked autosaves, and create or edit from the in-browser apps |
+| `export.py`, `importers.py`, `text_blocks.py` | Exporting to other formats; uploaded Word and PowerPoint files turned into editable specs |
+| `previews.py`, `recents.py`, `recent_views.py` | Image conversion and zip listings; recently opened files and saved tabs |
+| `pages.py`, `page_views.py` | Publishing and serving shared pages |
+| `dashboards.py`, `dashboard_views.py` | Dashboard spec validator (shared with the `save_dashboard` tool) and its API |
+| `extraction.py`, `extraction_views.py`, `extraction_urls.py` | The extraction engine, served at `/api/extraction/` |
 
-## Sharing a knowledge base with a team
+## Rules
 
-An owner can share one of their knowledge bases, read-only, with an
-organisation they belong to. The rules:
-
-- **Only chat reads it.** A person searching from a chat in that organisation
-  can search and read the shared knowledge base. An agent run cannot: agents
-  read only their owner's own knowledge bases, even when a run was started from
-  a chat in that organisation.
-- **Membership is checked on every read.** Leave the organisation and you lose
-  the knowledge base on your next search.
-- **The owner must still be a member.** If the owner leaves, the share stops
-  for everyone, until the owner is back.
-- **Only the owner changes sharing.** A curator of that organisation may switch
-  sharing off, and nothing else.
-- **Nothing else changes hands.** A member cannot upload into, rename, delete
-  from, or re-index the shared knowledge base.
-- **Hidden eval corpora are never shared, and never listed.**
-
-Who can read is decided in `kb_access.py` each time, never from a stored flag.
-The search engine looks knowledge bases up by id only, so it needed no change.
-
-## Safety rules
-
-- **The API never takes a path**, only ids. Paths are for display.
-- **The AI's file system never touches the real disk.** `vfs.py` never imports
-  `os`. The worst a bug can reach is another database row, never a server file.
-- **Paths are walked one folder at a time**, never matched as strings.
-- **Deleting goes to the recycle bin**, so an AI mistake can be undone.
-- **An account has a storage limit.** Uploads, AI file writes, new files and
-  copies all ask `quota.check()` first. Files in the trash still count until
-  the trash is emptied, because they are still on disk.
-
-Search design: [`docs/RAG_STRATEGY.md`](../docs/RAG_STRATEGY.md).
-
-## Management commands
-
-`purge_recycle_bin`, `reindex_all`, `run_extraction`, `retype_documents`
-(repairs rows the old file-type vocabulary mistyped).
+- The API takes ids, never paths. Paths are for display.
+- `vfs.py` never imports `os`. The AI's file tree is database rows, so a bug reaches another row, never a server file.
+- Deleting goes to the recycle bin. Files in the bin still count against quota until emptied.
+- A team can search a shared KB only from chat, and only while both sides are members. The rules are in `kb_access.py`.
 
 ## Tests
 
-`inference/tests/`: `test_filesystem.py`, `test_vfs.py`, `test_recycle.py`,
-`test_chat_files.py`, `test_file_types.py`, `test_versions.py`,
-`test_drafts.py`, `test_sheets.py`, `test_formulas.py` (these two test the
-[`office/`](../office/README.md) library the apps save through), `test_import.py`,
-`test_previews.py`, `test_recents.py`, `test_quota.py` (the storage limit, the
-indexing queue, and that deleting a row frees its file), `test_kb_sharing.py`
-(who can read a team's knowledge base, and who can change its sharing).
+`inference/tests/`: `test_filesystem.py`, `test_vfs.py`, `test_vfs_hardening.py`,
+`test_recycle.py`, `test_versions.py`, `test_quota.py`, `test_kb_sharing.py`,
+`test_search.py`, `test_import.py`, `test_previews.py`.

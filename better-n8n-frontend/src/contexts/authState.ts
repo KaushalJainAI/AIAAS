@@ -4,8 +4,7 @@
  * Split from `AuthContext.tsx` so that file exports the provider and nothing
  * else. A module exporting both a component and a plain function opts out of
  * fast refresh, so editing the provider would remount the tree — which for
- * this provider means dropping the signed-in user mid-edit. Same reasoning as
- * BrowserOS's `osState.ts` / `OSContext.tsx`.
+ * this provider means dropping the signed-in user mid-edit.
  */
 import { createContext, useContext } from 'react';
 

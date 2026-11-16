@@ -20,7 +20,7 @@ import { ChevronLeft, ChevronRight, ImageIcon, Loader2 } from 'lucide-react';
 import type { IWorkbookData } from '@univerjs/core';
 
 import { documentsService, type Document, type WorkbookGrid } from '../../api/documents';
-import ChartArtifact from '../chat/ChartArtifact';
+import ChartArtifact from '@/components/content/ChartArtifact';
 import {
   formatCell,
   hex,

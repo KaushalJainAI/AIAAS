@@ -1,8 +1,8 @@
 """
 Agent runtime tests.
 
-The cases here are the ones docs/AGENT_TEMPLATES.md §10 names as the way this
-design fails: the permissions screen drifting from what the runtime enforces.
+The cases here pin the way this design fails: the permissions screen drifting
+from what the runtime enforces.
 So the bulk of them are about a denied grant actually failing — both at
 advertising time and, more importantly, at call time, because a model can name
 a tool it was never offered.

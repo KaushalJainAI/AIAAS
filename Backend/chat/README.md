@@ -1,87 +1,96 @@
 # `chat/`: the assistant, the AI loop, and every tool
 
-The biggest app (about 33,000 lines). It holds three different things:
+The user sees this as the chat page: sessions, messages, attachments, the plan
+panel, approval cards and the slash-command palette. Chat is the orchestrator:
+it reads, plans, and hands writing and sending work to saved agents.
+
+The app holds three things:
 
 1. **The chat feature**: sessions, messages, attachments.
-2. **The AI loop** (`turn/`), which saved agents also use.
-3. **The tool library** (`tools/`): everything the AI can do, for chat and agents.
+2. **The AI loop** (`turn/`). Saved agents run on the same loop.
+3. **The tool library** (`tools/`): everything the AI can do.
 
-Full design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md).
+Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
+[`docs/CONTEXT_LIFECYCLE.md`](../docs/CONTEXT_LIFECYCLE.md).
 
 ## Read in this order
 
-1. `tools/clock.py`: the smallest tool. Shows what a tool looks like.
+1. `tools/clock.py`: the smallest tool.
 2. `tools/registry.py`: what `@tool(...)` records (schema, `effect`, `parallel`, `sensitive`, `requires`).
 3. `turn/pipeline.py` → `run_chat_turn`: one message, end to end.
 4. `turn/agent.py` → `_build_graph`, `run_turn`, `TurnContext`: the loop.
-5. `tools/permissions.py`: which calls need your approval.
+5. `tools/permissions.py`: which calls need approval.
 
 ## Data (`models.py`)
 
 | Model | What it is |
 |---|---|
-| `ChatSession` | One conversation. Holds its model, effort level, autonomy mode, memory on/off |
-| `ChatMessage` | One message (yours or the assistant's), with sources, trace and cost in `metadata` |
+| `ChatSession` | One conversation: model, effort, autonomy mode, memory on or off, org |
+| `ChatMessage` | One message, with sources, trace and cost in `metadata` |
 | `ChatAttachment` | An uploaded file on a session |
-| `ToolOutput` | A tool result too big to show the model, stored so `read_tool_output` can fetch it |
-| `ToolPermission` | "Always allow" / "allow this session" answers to approval prompts |
 | `VisionExchange` | Questions asked about an image, and the answers |
+| `ToolOutput` | A tool result too big for the model, kept so `read_tool_output` can fetch it |
+| `ToolPermission` | "Always allow" answers to approval prompts |
 
-## Folders
+## Files
 
-| Folder | What is in it |
+| File | What it does |
 |---|---|
-| `turn/` | Running one turn: `pipeline` (the steps), `agent` (the loop), `prompts`, `history`, `session_notes` (the conversation's notes file: summary, task index, how to fetch more; read first every turn), `curation` (shrink long runs), `steering` (messages mid-run), `todos` (the run's plan), `pace` (quick / standard / deep, and the budget the model is told), `reviewer` (auto-mode judge), `checkpoints` (where run state is saved), `runs` (turns that outlive the request), `events` (what is streamed) |
-| `tools/` | One file per topic. See the list below |
-| `commands/` | Slash commands. `registry.py` declares them, `resolve.py` parses them, one file per group |
-| `transport/` | Streaming the events over HTTP |
-| `sources/` | Web search (`search.py`) and file attachments (`attachments.py`) |
-| `vision/` | A cheap vision model a text-only model can question about an image |
+| `turn/pipeline.py` | The steps before and after the model: preflight, history, memory, attachments, the run's plan |
+| `turn/agent.py` | The loop (LangGraph): model, tools, curation, steering. `tools_node` runs a batch in four passes |
+| `turn/prompts.py` | System prompt and the context update message. Nothing that changes may go in the system prompt |
+| `turn/history.py` | Loads the transcript the model sees |
+| `turn/session_notes.py` | The conversation's notes file: summary, task index, how to fetch more. Read first every turn |
+| `turn/context_view.py` | Backs `GET /api/chat/sessions/<id>/context/`, the "What the assistant sees" panel |
+| `turn/curation.py` | Shrinks a long run's transcript and archives what it cuts |
+| `turn/prune.py` | Deletes old chat checkpoint rows |
+| `turn/extraction.py` | Fallback parser for models that write tool calls as text instead of native tool calls |
+| `turn/side_calls.py` | Model calls a turn makes outside its own loop (for example, follow-up questions). Priced into the turn's cost |
+| `turn/steering.py` | Messages sent to a running turn |
+| `turn/todos.py` | The run's plan: `update_todos`, with history |
+| `turn/pace.py` | quick, standard or deep, and the budget the model is told about |
+| `turn/reviewer.py` | The auto-mode judge |
+| `turn/checkpoints.py`, `turn/runs.py`, `turn/events.py` | Where run state is saved, runs that outlive the request, and what is streamed |
+| `tools/` | One file per topic (below) |
+| `commands/` | Slash commands. `registry.py` declares them, `resolve.py` parses them |
+| `sources/` | Web search (`search.py`) and attachments (`attachments.py`) |
+| `transport/` | Streaming events over HTTP |
+| `vision/` | A cheap vision model that a text-only model can question about an image |
 | `guest/` | Chat for visitors without an account |
 
-## The tool files
+### The tool files (`tools/`)
 
 | File | Tools |
 |---|---|
-| `web.py`, `fetch.py`, `browser.py` | Web search, reading pages, downloading files, driving a browser |
-| `knowledge.py` | Searching your knowledge bases |
-| `files.py` | Reading and writing your files (`inference/vfs.py`): versions, restore, export, block/slide edits |
-| `sandbox.py` | Running Python (`execute_python`, `run_python_on_files`) |
-| `office.py` | The tools for making `.pptx`, `.xlsx`, `.docx`, `.pdf` and diagrams, and reading and editing workbooks (`read_workbook`, `edit_workbook`). The rendering itself is the separate [`office/`](../office/README.md) library |
-| `charts.py`, `artifacts.py`, `dashboards.py`, `publish.py` | Drawing charts, HTML snippets, dashboards, shareable pages. The chart spec is `office/charts.py` and the dashboard spec `inference/dashboards.py`, because other apps check them too |
+| `web.py`, `fetch.py`, `browser.py` | Web search, reading pages, downloading files, the browser |
+| `knowledge.py`, `solutions.py` | Searching knowledge bases; team solutions |
+| `files.py` | Your files: read, write, edit, move, versions, export |
+| `sandbox.py` | `execute_python`, `run_python_on_files` |
+| `office.py`, `charts.py` | Decks, workbooks, documents, PDFs, diagrams, charts |
+| `artifacts.py`, `dashboards.py`, `publish.py` | HTML snippets, dashboards, shared pages |
 | `google/`, `notion.py` | Gmail, Drive, Sheets, Calendar, Docs, Notion |
+| `docs.py` | Reads a scanned document as text, rows or fields |
 | `messaging/`, `talk.py` | Slack, WhatsApp, Teams, SMS, Telegram |
 | `data.py`, `apicaller.py` | Your databases and your own APIs |
-| `agents.py`, `authoring.py`, `tasks.py` | Running agents, creating agents by description, the coding team's task dispatch. When a worker agent pauses, `answer_subagent` in `agents.py` lets the chat assistant (its manager) answer it; approving a risky action still goes through your normal approval rules |
-| `ask.py` | `ask_user`: the AI asks you a question (a choice, a number or free text) and the run **pauses** until you answer on a `QuestionCard`. In schedules and evals nobody is there to answer, so it writes the question down and carries on with the assumption it stated |
-| `memory.py`, `conversation.py`, `planning.py` | What the assistant remembers about you, searching this chat, the run's todo list |
-| `media.py`, `voice.py`, `vision.py`, `docs.py` | Images, speech, questions about an image, reading scanned documents |
-| `code.py`, `compute.py` | Coding and compute tools. Hidden until a workspace engine exists |
-| `workspace.py`, `runs.py`, `missions.py`, `esign.py`, `eval_manager.py`, `internal.py`, `clock.py` | Smaller single-purpose tools |
-| `permissions.py` | Decides which call needs approval |
-| `describe.py` | Turns a tool call into a sentence a person can read on an approval card |
-| `tool_output.py` | Caps huge tool results and stores the rest |
-| `__init__.py` | Imports every tool file (that is what registers them) and picks which tools a turn is offered. Chat gets only reads plus delegation, agent-building, memory and missions (`chat_orchestrator_allowed`); chat's calls go through `execute_chat_tool`, agents' through `execute_tool` |
+| `agents.py`, `authoring.py`, `tasks.py` | Running agents, creating agents, the coding team's tasks, `answer_subagent` |
+| `ask.py` | `ask_user`: the run pauses until you answer |
+| `decisions.py` | `decide`: a typed answer from a decision model |
+| `memory.py`, `conversation.py`, `planning.py` | What the assistant remembers, searching this chat, the plan |
+| `media.py`, `voice.py`, `vision.py` | Images, speech, questions about an image |
+| `code.py`, `compute.py`, `workspace.py` | Coding (grant `shell`) and compute (grant `compute`). Need a workspace engine, so not offered until one exists |
+| `runs.py`, `missions.py`, `esign.py`, `eval_manager.py`, `internal.py`, `clock.py` | Smaller tools: runs, missions, e-sign, eval management (chat only), internal, clock |
+| `permissions.py`, `describe.py`, `tool_output.py` | Approval policy, the sentence on an approval card, and capping big results |
+| `registry.py` | The `@tool` declaration |
+| `__init__.py` | Imports every tool file (this registers them) and picks what a turn is offered. Chat gets reads, delegation, agent-building, memory and missions (`chat_orchestrator_allowed`) |
 
-## How to add a tool
+## Rules
 
-See "Common jobs" in [`START_HERE.md`](../../START_HERE.md#9-common-jobs-step-by-step).
-In short: `@tool({...})` on an `async def f(args, context) -> str`, import the
-file in `tools/__init__.py`, and add the name to `GRANT_TOOLS` in
-`agents/grants.py` if agents should get it. Chat only gets tools with
-`effect="read"`: anything that writes, sends or spends is an agent's job.
+- **Tools check ownership themselves.** `/api/chat/execute-tool/` can call any tool with any arguments.
+- **Declare `effect` honestly.** It defaults to `"irreversible"`. Auto mode uses it to decide what needs approval.
+- **Chat gets reads only, plus delegation.** Anything that writes, sends or spends is a saved agent's job. Adding a critical tool to `CHAT_ORCHESTRATOR_EXTRA` undoes that; give it a grant instead.
+- **Adding a tool:** `@tool({...})` on an `async def`, import the file in `tools/__init__.py`, and add it to `GRANT_TOOLS` if agents should have it. Step by step: [`START_HERE.md`](../../START_HERE.md#9-common-jobs).
 
-## Watch out for
+## Tests
 
-- **Tools must check ownership themselves.** `/api/chat/execute-tool/` can call
-  any tool with any arguments.
-- **Declare `effect` honestly.** It defaults to `"irreversible"`, the safest
-  guess. `auto` mode uses it to decide what needs approval.
-- **Don't put changing things in the system prompt** (see `turn/prompts.py`).
-  Put them in the context update message instead, or the provider's prompt
-  cache stops working.
-- **Tests that fake the model patch `llm.access.stream`.**
-- **`turn/agent.py::tools_node` runs a batch of tool calls in four passes**, one
-  function each: `_settle_gates` (every approval first), `_plan_calls`,
-  `_dispatch_calls` (safe calls in parallel) and `_record_results`. Read them in
-  that order; each docstring says why its pass is separate.
+`chat/tests/`. Start with `test_turn_output_e2e.py` (what a client receives),
+`test_curation_e2e.py`, `test_orchestrator_scope.py`, `test_auto_mode.py`.

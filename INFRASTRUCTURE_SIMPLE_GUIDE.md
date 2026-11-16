@@ -1,250 +1,144 @@
-# How This App Actually Runs — Simple Guide
+# How AIAAS Is Hosted: Simple Guide
 
-> Docker, Redis, Nginx, Caddy, Postgres, Sandbox — explained in plain words.
-> Your code is Django + React. These tools turn that code into a real website that stays online.
+> Containers, proxies, databases and networking, in plain words. For commands and numbers, see [DEPLOYMENT.md](./DEPLOYMENT.md). For live connections (streams, WebSockets, webhooks, schedules), see [REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md](./REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md).
 
 ---
 
-## 1. The big idea in one picture
-
-A normal coding tutorial stops here:
-
-```
-Your laptop: Python + React = works for you only
-```
-
-A real deployable system looks like this:
+## 1. The Big Picture
 
 ```mermaid
 flowchart LR
-    User[You in browser] --> Caddy[Caddy: main gate + lock]
-    Caddy --> Nginx[Nginx: waiter inside frontend]
-    Nginx --> Backend[Django Backend]
-    Backend --> Redis[(Redis: shared memory)]
-    Backend --> DB[(Postgres: permanent files)]
-    Backend --> Sandbox[Sandbox: safe room for AI code]
+    User[Browser] -->|https :443| Edge[edge-caddy<br/>TLS + routing]
+    Edge --> FE[frontend<br/>nginx]
+    FE -->|/api, /ws| BE[backend<br/>Daphne]
+    BE --> DB[(db<br/>Postgres)]
+    BE --> R[(redis)]
+    BE --> SB[sandbox]
+    BE -->|outbound| Ext[Model providers,<br/>Google APIs]
 ```
 
-**Simple rule:** your code does the thinking. These tools do the carrying, locking, remembering, and protecting.
+Your code does the thinking. The tools around it carry requests, keep state, and keep things apart.
 
 ---
 
-## 2. Docker — same box, everywhere
+## 2. Docker: One Box per Job
 
-**Problem:** "It works on my laptop but not on the server."
+- An **image** is a sealed package: code, Python or Node, and settings. A **container** is an image that is running.
+- A **compose file** lists the containers that make up the app and how they connect.
+- Images are built on a dev machine and pushed to Docker Hub. The server only pulls and runs them.
 
-**What Docker does:** it packs your app + Python + settings into a sealed box called an **image**. That box runs the same on any computer.
-
-Think of it like a lunchbox. Without it, you carry curry in your hands. With it, the same lunch reaches office safely.
-
-```mermaid
-flowchart TB
-    subgraph Laptop["Your laptop"]
-        Code[Your code]
-    end
-    subgraph Image["Docker image"]
-        Code2[Your code] + Python[Python 3.12] + Setup[Settings]
-    end
-    subgraph Server["EC2 server"]
-        Box1[backend box]:::b
-        Box2[frontend box]:::f
-        Box3[redis box]:::r
-    end
-    Laptop --> Image --> Server
-    classDef b fill:#dbeafe,stroke:#3b82f6;
-    classDef f fill:#dcfce7,stroke:#22c55e;
-    classDef r fill:#fee2e2,stroke:#ef4444;
-```
-
-**In this project:**
-
-| File | What it builds |
-|------|----------------|
-| `Backend/Dockerfile` | Backend box: installs Python packages, collects static files once, starts with `manage.py boot && daphne` |
-| `better-n8n-frontend/Dockerfile` | Frontend box: builds React with Node, then serves it with Nginx |
-| `Backend/sandbox_service/Dockerfile` | Sandbox box: tiny locked Python room for AI-written code |
-| `docker-compose.yml` | Local set: redis + backend + frontend |
-| `docker-compose.prod.yml` | Server set: redis + database + sandbox + backend + frontend + caddy |
-
-**Volumes = memory that survives restart.** Without volumes, a redeploy wipes the database. With them (`pgdata`, `backend_data`, `redis_data`), files stay safe.
-
----
-
-## 3. Redis — the shared short memory
-
-**Problem:** Django forgets everything after each request. But chat needs live streaming, and agent runs go for 2 hours.
-
-**What Redis does:** it is a super-fast notebook that all boxes can read and write at the same time.
-
-Think of it like a whiteboard in a shared office. Everyone sees the same notes instantly.
-
-```mermaid
-flowchart TD
-    Redis[(Redis whiteboard)]:::r
-    Backend[Django backend] <--> Redis
-    Worker[Celery worker] <--> Redis
-    WS[Live chat + WebSocket] <--> Redis
-    Cache[Tool list + cache] <--> Redis
-    classDef r fill:#fee2e2,stroke:#ef4444;
-```
-
-**3 jobs of Redis here:**
-
-1. **Live wires** — `USE_REDIS_CHANNEL_LAYER=True`. Chat messages and run logs travel through Redis to your screen via WebSocket / SSE.
-2. **Work queue** — `CELERY_BROKER_URL=redis://redis:6379/0`. Long tasks wait in a line instead of blocking the website.
-3. **Fast cache** — tool lists, vision checks, small repeated answers. No need to ask the database again and again.
-
-> In production Redis is capped at `64 MB` with `allkeys-lru` — old notes are thrown first so one burst never kills the small server.
-
----
-
-## 4. Nginx — the waiter inside the frontend
-
-**Problem:** React is just files. Someone must serve files, send `/api` calls to Django, and keep video-like chat streams open.
-
-**What Nginx does:** it lives *inside* the frontend box (`nginx:1.27-alpine`). It decides: "Is this a file? An API call? A live wire?"
-
-Think of it like a restaurant waiter. You talk to one person, he runs to kitchen, file room, or phone desk.
-
-```mermaid
-flowchart LR
-    Browser[Browser] --> Nginx[Nginx waiter]
-    Nginx -->|/ = files| Files[React files]
-    Nginx -->|/api/ = kitchen| Backend[Django :8000]
-    Nginx -->|/ws/ = live phone| Backend2[Django websocket]
-    Nginx -->|/media/ = photos| Backend3[Django media]
-```
-
-**Real rules from `better-n8n-frontend/nginx.conf`:**
-
-* `/api/` → `backend:8000`, `proxy_buffering off`, timeout `300s` — chat streams must flow, not wait.
-* `/ws/` → `backend:8000`, `Upgrade` header, timeout `86400s` — execution logs stay open all day if needed.
-* `/assets/` → cache `1 year` (file names have hash, safe). `/index.html` → `no-cache` (else users see old site after deploy).
-* `/health` → returns `healthy` so Docker knows the box is alive.
-
----
-
-## 5. Caddy — the main gate with lock
-
-**Problem:** Nginx talks `http` inside. The internet needs `https` (padlock), compression, and one door for the whole site.
-
-**What Caddy does:** it is the only box with open doors to the world (`80, 443`). It adds the `https` lock automatically and forwards everything to Nginx.
-
-Think of it like the building security gate. Nginx is the reception inside. You cross the gate first.
-
-```mermaid
-flowchart LR
-    Internet[Internet] -->|https :443| Caddy[Caddy gate]
-    Caddy -->|http :80| Nginx[Nginx reception]
-    Nginx --> Backend[Django]
-```
-
-**Real rules from `Caddyfile`:**
-
-```
-aiaas.kaushaljain.com {
-  encode zstd gzip
-  reverse_proxy frontend:80 { flush_interval -1 }
-}
-```
-
-* Auto-TLS for `aiaas.kaushaljain.com` — no manual certificates.
-* `encode zstd gzip` — makes JS bundle smaller, site loads faster.
-* `flush_interval -1` — do not hold back chat streams.
-
-**Nginx vs Caddy — do not confuse:**
-
-| | Caddy | Nginx |
+| File | Builds | Used for |
 |---|---|---|
-| Where | Edge, faces internet | Inside frontend box |
-| Job | Lock (TLS), compress, forward | Serve files, route `/api`, `/ws` |
-| Ports | `80, 443` open | Only talks inside Docker network |
+| `Backend/Dockerfile` | backend | Runs `manage.py boot`, then Daphne |
+| `better-n8n-frontend/Dockerfile` | frontend | Builds React, serves it with nginx |
+| `Backend/sandbox_service/Dockerfile` | sandbox | Runs model-written Python |
+| `docker-compose.yml` | none | Local: redis, backend, frontend, sandbox (plus optional worker and beat) |
+| `docker-compose.prod.yml` | none | Production: redis, db, sandbox, backend, frontend (and caddy, which the shared VM leaves out, see §5) |
+
+**Volumes** are the parts that survive a restart: `pgdata` (database), `backend_data` (agent checkpoints), `backend_media` (uploads) and `redis_data`. A redeploy replaces containers, not volumes.
+
+Every production container has a memory limit. Sizes are in [DEPLOYMENT.md §5](./DEPLOYMENT.md).
 
 ---
 
-## 6. The helpers: Postgres, Daphne, Sandbox
+## 3. The Server
 
-```mermaid
-flowchart TB
-    Backend[Django + Daphne] --> PG[(Postgres: safe cupboard)]
-    Backend --> SB[Sandbox: locked playroom]
-    Backend --> RD[(Redis: whiteboard)]
-```
-
-**Postgres (`db` service, prod only):** the permanent cupboard. SQLite is a notebook — fine locally, breaks with many writers. Postgres + small pool (`max_connections=25`) safely holds real users, agents, run history.
-
-**Daphne (not `runserver`):** `runserver` is a bicycle for testing — single-threaded, restarts on file change and kills live streams. Daphne is the ASGI bus — handles normal requests + WebSockets together. That's why `CMD` is `exec daphne -b 0.0.0.0 -p 8000`.
-
-**Sandbox (sidecar):** the AI writes Python code. You cannot run stranger's code in your kitchen. So it runs in a locked playroom: `read_only`, `cap_drop: ALL`, no internet (`internal:true` network), memory + process caps. Even if code escapes Python, it is still inside a throwaway box with no secrets.
+- Production is one **Google Cloud Compute Engine VM** (`e2-medium`: 2 vCPU, 4 GB RAM). It is a rented computer that stays on.
+- It is **shared with another project** (NGU). Memory limits matter here. One unlimited container could starve both apps.
+- Only the proxy is reachable from the internet. Everything else is on private Docker networks.
 
 ---
 
-## 7. One request, full journey
+## 4. Networking Basics
 
-What happens when you send a chat message on `https://aiaas.kaushaljain.com`:
-
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant C as Caddy :443
-    participant N as Nginx :80
-    participant D as Daphne Django :8000
-    participant R as Redis
-    participant P as Postgres
-    participant S as Sandbox
-    B->>C: https chat message
-    C->>N: http forward
-    N->>D: /api/chat/... + /ws/ stream
-    D->>R: publish live frames
-    D->>P: save message, load memory
-    D->>S: run execute_python safely
-    R-->>B: tokens stream back live
-    D-->>B: final answer saved
-```
-
-1. **Caddy** removes the lock, compresses.
-2. **Nginx** sees `/api/` → sends to Django, keeps stream open.
-3. **Django/Daphne** checks auth, loads memory from Postgres, runs the agent loop.
-4. **Redis** carries each token to your screen instantly.
-5. **Sandbox** runs any Python the model wrote, returns numbers only.
-6. **Postgres** keeps the chat for tomorrow.
+- **IP address.** A public IP is the VM's street address. A private IP is a container's room number inside Docker. Containers find each other by name (`backend:8000`). The internet cannot reach private IPs.
+- **Static IP.** The VM's external IP must be *reserved*. An ephemeral one changes when the VM stops, and then DNS breaks for every app on the box.
+- **DNS.** A name-to-number lookup. The `A` record for `aiaas.kaushaljain.com` points at the VM. Check it with `nslookup aiaas.kaushaljain.com`. Do not trust an IP written in a document until you check it.
+- **Ports.** Ports are doors. 80 (HTTP) and 443 (HTTPS) are open to the world. The backend (8000), Postgres (5432), Redis (6379) and the sandbox (8100) are internal only. The firewall decides what the internet can reach. Compose decides what the host publishes. Production publishes only the proxy.
+- **Firewall.** The GCP firewall allows 80, 443 and SSH. Nothing else.
+- **Docker networks.** `aiaas-network` lets the app's containers talk to each other. `sandbox-net` is `internal: true`: it has no route out, so the sandbox cannot reach the internet.
+- **Inbound and outbound.** Inbound is traffic from the world to us. Only 80 and 443 accept it. Outbound is our traffic to the world. The backend calls model providers and Google. The sandbox calls nothing.
+- **TLS (HTTPS).** Encrypts traffic and proves the server's name with a certificate. `edge-caddy` gets and renews Let's Encrypt certificates by itself, and stores them in a volume. Traffic inside the box is plain HTTP. It never leaves the machine.
 
 ---
 
-## 8. Local vs Server — same code, different wiring
+## 5. The Proxy Chain
 
-```mermaid
-flowchart TB
-    subgraph Local["docker-compose.yml"]
-        L1[redis] --- L2[backend SQLite]
-        L2 --- L3[frontend nginx]
-    end
-    subgraph Prod["docker-compose.prod.yml"]
-        P1[redis 64MB] --- P2[backend 384MB]
-        P2 --- P3[frontend nginx]
-        P2 --- P4[postgres 256MB]
-        P2 --- P5[sandbox locked]
-        P3 --- P6[caddy TLS]
-    end
-```
+A request passes three hops. Each hop must pass streams straight through, or chat tokens arrive in one lump at the end.
 
-| | Local | Server |
+1. **edge-caddy** (one per VM, shared with NGU). Terminates HTTPS for `aiaas.kaushaljain.com` and forwards to the frontend. Other hosts, including the bare IP, go to NGU.
+2. **nginx** inside the frontend container. Serves the React files. It sends `/api/` to the backend with buffering off. It sends `/ws/` with the WebSocket upgrade. It caches `/assets/` for a year, because file names change with their content. It sends `index.html` with no caching, so a deploy shows at once.
+3. **Daphne** inside the backend container. An ASGI server: one process that handles normal HTTP and WebSockets. Django's `runserver` is for development only.
+
+The repo's `Caddyfile` is the config for a dedicated box. On the GCP VM, `edge-caddy` does that job, and the server's compose file has no `caddy` service.
+
+---
+
+## 6. Each Box, and What Breaks if It Stops
+
+| Box | Job | If it stops |
 |---|---|---|
-| Build | `build:` from your folders | `image:` pulled from Docker Hub, nothing built on server |
-| Database | SQLite file in volume | Postgres in `db` box |
-| Async | Optional `worker + beat` with `--profile async` | No Celery — scheduler loop lives inside backend |
-| Entry | `localhost:3000` direct | `https` via Caddy only |
+| edge-caddy | HTTPS and routing | Nothing on the VM answers, NGU included |
+| frontend (nginx) | Files and routing | Blank page. The API still answers. |
+| backend (Daphne) | Application logic and streams | Pages load. Chat and runs fail. |
+| db (Postgres) | Users, chats, runs, checkpoints | Sign-in and history fail |
+| redis | Live channel messages and cache | Live updates freeze. The cache refills. |
+| sandbox | Runs `execute_python` | The code tool reports busy. Chat still works. |
 
 ---
 
-## 9. Remember in 30 seconds
+## 7. Helpers
 
-* **Docker** = same box everywhere. No "works on my laptop" excuse.
-* **Redis** = shared whiteboard. Live chat, job line, fast cache.
-* **Nginx** = indoor waiter. Files vs `/api` vs `/ws`.
-* **Caddy** = outdoor gate. Auto `https` + compression + forward.
-* **Postgres** = cupboard that never forgets.
-* **Sandbox** = locked playroom for AI code.
-* **Daphne** = real server that can hold many live wires at once.
+- **Postgres** (`db`, version 16) is the permanent store. The app and the agent checkpointer each keep a connection pool. Pool sizes and the connection budget are in DEPLOYMENT §5.
+- **Redis** does three jobs. It carries live messages between processes (the channel layer, `USE_REDIS_CHANNEL_LAYER`). It is the cache. It is also the Celery broker, but production runs no Celery. Production evicts old cache keys when it reaches its memory cap.
+- **Sandbox** is a separate container for code the model wrote. Its root filesystem is read-only. It has no Linux capabilities, a memory cap, a process cap and no network, and it holds no secrets. A runaway program is killed with its whole process group. If the sandbox is busy, the backend gets a retryable "busy" error.
+- **Scheduler loop.** Not a container. A loop inside the backend process fires schedules and runs periodic jobs. Only one process holds its lease at a time. See REALTIME §7.
 
-> Framework code answers one question. This system delivers that answer fast, live, safely, to everyone, even after a restart.
+---
+
+## 8. Local and Production
+
+| | Local (`docker-compose.yml`) | Production (the VM) |
+|---|---|---|
+| Images | Built from your folders | Pulled from Docker Hub |
+| Database | SQLite file in a volume | Postgres |
+| Entry point | `localhost:3000`, no proxy | `https://aiaas.kaushaljain.com` via edge-caddy |
+| Sandbox | Yes | Yes |
+| Celery | Optional (`--profile async`) | None |
+| `DEBUG` | `True` | `False` |
+| CORS | Allow all | Allow-list of the one domain |
+
+---
+
+## 9. Scaling: One Box, on Purpose
+
+- Scale **up** first: a bigger VM, or higher limits in the compose file. Scale **out** only when the bigger box is not enough.
+- Adding a second backend breaks four things today:
+  - WebSocket connections stick to one process, so the balancer needs sticky sessions.
+  - Chat-run subscriptions live in one process's memory. They must move to Redis pub/sub first.
+  - The scheduler lease lets one process sweep. It is already safe, because only the lease holder sweeps.
+  - The connection budget doubles, so Postgres's `max_connections` must grow.
+  - Uploads and checkpoints must move to shared storage. `USE_S3` is off today, so files sit on a volume.
+- Serverless (Lambda-style) does not fit. Streams and agent runs last minutes to hours, and checkpoints need a process that stays warm.
+- There is no CDN. Static files come from nginx with long cache headers.
+
+---
+
+## 10. Operating It
+
+- **Logs:** `docker compose logs` for each container, and `docker logs edge-caddy` for the proxy. Logs are capped and rotated.
+- **Errors:** Sentry, if `SENTRY_DSN` is set. It is off by default.
+- **Secrets:** live in `.env` on the VM, never in git. `CREDENTIAL_ENCRYPTION_KEY` is the one to back up. Lose it and stored credentials cannot be decrypted.
+- **Backups:** see DEPLOYMENT §7. A dump on the same disk is not a backup.
+- **Deploys:** see DEPLOYMENT §3. Nothing is built on the VM.
+
+---
+
+## 11. Remember in 30 Seconds
+
+- **Docker:** a sealed package per job. The server only runs them.
+- **Public IP:** the street address. **Private IP:** the room number. **Static:** an address you keep.
+- **DNS:** a phone book from name to number.
+- **Firewall:** only 80 and 443 are open. Inside Docker, the sandbox has no road out.
+- **Proxy chain:** edge-caddy (HTTPS), then nginx (files and routing), then Daphne (the app). Every hop must not buffer streams.
+- **One box on purpose.** Scale up before you scale out.

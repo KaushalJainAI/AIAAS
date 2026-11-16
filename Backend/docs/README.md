@@ -1,87 +1,67 @@
 # Backend docs: what to read
 
-There are about 40 files here. Most are **plans**: notes written before a
-feature was built. They explain *why* things are the way they are, but some
-describe designs that changed later. Read the **reference** docs first,
-because they describe how the code works today. When a plan and the code
-disagree, the code is right.
+The **reference** docs describe how the code works today. The **plan** docs
+are records of built work and open proposals — useful for the "why", but when
+a plan and the code disagree, the code is right.
 
 New to the codebase? Start with [`../../START_HERE.md`](../../START_HERE.md).
 
-## Reference: how it works now
+**Open items across all plans live in [OPEN_WORK.md](OPEN_WORK.md)** — read
+that before picking up a plan.
 
-Read these in roughly this order.
+## Reference: how it works now
 
 | Doc | What it explains |
 |---|---|
 | [CHAT_AGENT.md](CHAT_AGENT.md) | The chat assistant: one message, end to end, and the AI loop |
-| [SLASH_COMMANDS.md](SLASH_COMMANDS.md) | Slash commands in plain language: the three kinds, the pipeline, the full list |
+| [SLASH_COMMANDS.md](SLASH_COMMANDS.md) | Slash commands: the three kinds, the pipeline, the full list |
 | [CONTEXT_AND_ATTACHMENTS.md](CONTEXT_AND_ATTACHMENTS.md) | What the model sees each turn, and how attached files reach it |
-| [API.md](API.md) | Every HTTP route: what it does, who may call it, which tables it touches. **Update it whenever you change a route.** |
-| [AGENT_OBSERVABILITY.md](AGENT_OBSERVABILITY.md) | How a run is recorded: run → turns → steps, plus agent revisions |
 | [CONTEXT_LIFECYCLE.md](CONTEXT_LIFECYCLE.md) | How a long run stays inside the model's memory limit |
-| [SANDBOX_EXECUTION.md](SANDBOX_EXECUTION.md) | How the AI's Python code runs safely |
-| [SAFETY_AND_GUARDRAILS.md](SAFETY_AND_GUARDRAILS.md) | Every guardrail on the AI agents in one place: what an agent can reach, who approves, prompt-injection defences, containment, limits, content and legal duties, and the gaps still open |
-| [CREDENTIALS_AND_SECURITY.md](CREDENTIALS_AND_SECURITY.md) | How API keys are stored and used |
-| [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | How outside tool servers (MCP) are connected. [MCP_INTEGRATION.md](MCP_INTEGRATION.md) is a shorter overview |
+| [AGENT_OBSERVABILITY.md](AGENT_OBSERVABILITY.md) | How a run is recorded: run → turns → steps, plus agent revisions |
+| [SAFETY_AND_GUARDRAILS.md](SAFETY_AND_GUARDRAILS.md) | Every guardrail: what an agent can reach, who approves, injection defences, containment, limits, legal duties, known gaps, credential storage |
+| [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | The MCP runtime: sessions, pooling, memory budget, credentials |
 | [RAG_STRATEGY.md](RAG_STRATEGY.md) | How knowledge-base search works |
 | [EVALUATION.md](EVALUATION.md) | How agents are tested and scored |
-| [NOTIFICATION_SERVICE.md](NOTIFICATION_SERVICE.md) | Notifications and approval reminders |
+| [NOTIFICATION_SERVICE.md](NOTIFICATION_SERVICE.md) | Notifications, HITL reminders, device push |
+| [WEBHOOK_TRIGGERS.md](WEBHOOK_TRIGGERS.md) | How a webhook starts an agent run |
 | [IMAGINE.md](IMAGINE.md) | Image / video / audio generation |
 | [VISION_AGENT.md](VISION_AGENT.md) | How a text-only model gets answers about an image |
-| [AGENT_TEMPLATES.md](AGENT_TEMPLATES.md) | Installable agent templates (§3's data model is out of date: `Workflow` became `SubAgent`) |
-| [WEBHOOK_TRIGGERS.md](WEBHOOK_TRIGGERS.md) | How a webhook starts an agent run |
+| [SANDBOX_EXECUTION.md](SANDBOX_EXECUTION.md) | How AI Python code runs safely |
 | [ENGINEERING_DECISIONS.md](ENGINEERING_DECISIONS.md) | The hardest problems and why each was solved the way it was |
+| [API.md](API.md) | Every HTTP route: access, cost, tables touched. **Update it when you change a route.** |
 
-## Plans that are built
+## Plans
 
-Useful for the "why". The code is the source of truth where they differ.
+Each plan opens with **Status**, so you don't need to read the whole file to
+know where it stands. Built plans carry three sections: what was delivered,
+decisions worth remembering, and what is still open.
 
-| Doc | Status |
+| Doc | What it covers |
 |---|---|
-| [SPECIALIST_AGENTS_PLAN.md](SPECIALIST_AGENTS_PLAN.md) | Built 2026-09-20: office files, specialists as templates |
-| [PLATFORM_CAPABILITIES_PLAN.md](PLATFORM_CAPABILITIES_PLAN.md) | P0–P10 built 2026-09-21: messaging, data, browser, missions, auto mode, slash commands |
-| [CODING_AGENTS_PLAN.md](CODING_AGENTS_PLAN.md) | Built 2026-09-22, but needs a workspace engine to actually run |
-| [EVALUATION_PRODUCTION_PLAN.md](EVALUATION_PRODUCTION_PLAN.md) | Built 2026-09-19; paid benchmark runs not done yet |
-| [SCHEDULES_SIMPLIFICATION_PLAN.md](SCHEDULES_SIMPLIFICATION_PLAN.md) | Phases 1–4 built 2026-09-22 |
-| [OPENCODE_ZEN_PLAN.md](OPENCODE_ZEN_PLAN.md) | Retired 2026-10-11: the provider was removed |
-| [AGENT_CONFIG_IMPROVEMENT_PLAN.md](AGENT_CONFIG_IMPROVEMENT_PLAN.md) | Audit of agent settings, 2026-09-18 |
-| [TOOL_CONFIGURATION_PLAN.md](TOOL_CONFIGURATION_PLAN.md) | The Tools page and per-user tool switches |
-| [EXTRACTION_MERGE.md](EXTRACTION_MERGE.md) | Done 2026-08-18: `extraction` folded into `inference` |
-| [POSTGRES_PRODUCTION_MIGRATION_PLAN.md](POSTGRES_PRODUCTION_MIGRATION_PLAN.md) | Moving production to PostgreSQL |
-| [GAP_CLOSURE_PLAN.md](GAP_CLOSURE_PLAN.md) | Done 2026-09-24: gaps found in a codebase sweep (email default, pack availability, flaky tests, lint, Memory and Missions pages) |
-| [EVAL_ENVIRONMENTS_PLAN.md](EVAL_ENVIRONMENTS_PLAN.md) | E-1 to E-5 built 2026-09-24: fake test worlds the judge builds, with simulated mail, calendar, drive and web. E-6 (paid proof runs) not done yet |
-| [SECURITY_REVIEW_FIX_PLAN.md](SECURITY_REVIEW_FIX_PLAN.md) | Done 2026-09-25: the whole-project security review and its fixes (sign-in takeover, logging out everywhere, hashed API keys, no tokens in URLs). Not deployed yet |
-| [OFFICE_SUITE_PLAN.md](OFFICE_SUITE_PLAN.md) | All six phases built 2026-09-25: Docs, Sheets and Slides as full-screen apps (TipTap, Univer, CodeMirror), autosave and undo, version history, export, previews for every file type |
-| [CONCURRENCY_LAG_FIX_PLAN.md](CONCURRENCY_LAG_FIX_PLAN.md) | Phases 0–5 built 2026-09-24. Phase 5 only helps after the server is resized; Phase 6 depends on measurements |
-| [VFS_HARDENING_PLAN.md](VFS_HARDENING_PLAN.md) | Built 2026-09-26: concurrent-write locks, stale-write guard, move/copy verbs, read/file search upgrades |
-| [PROMPT_AND_MEMORY_PLAN.md](PROMPT_AND_MEMORY_PLAN.md) | Built 2026-09-28: chat no longer sends earlier turns twice, user memory keeps "who you are" first and shows what fits, and both system prompts fixed (charts, modes, questions, dates, untrusted sources) |
-
-## Plans in progress or not started
-
-| Doc | Status |
-|---|---|
-| [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | Built 2026-10-11, **not yet tried with a real ChatGPT account**: OpenCode Zen removed; "Continue with ChatGPT" added so a user's ChatGPT plan pays for their turns. Works only on an install you run yourself; off on the hosted site until OpenAI approves it. Run `scripts/chatgpt_plan_spike.py` first |
-| [ORG_KNOWLEDGE_PLAN.md](ORG_KNOWLEDGE_PLAN.md) | Built 2026-11-11 (undeployed): team knowledge as a product — invites, drafts and curators, citations in chat, import, stale nudges, insights, shared knowledge bases. Phases K0–K7 |
-| [SOLUTION_MEMORY_PLAN.md](SOLUTION_MEMORY_PLAN.md) | Mostly built 2026-09-28: organisations, the solution library, auto-capture, freshness labels, "doubtful" flags, `/solutions`. Benchmark suite (S5) not built |
-| [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) | Proposed 2026-11-12, Phase 0 done: Android/iOS app as the same web frontend inside Capacitor — installable web app, sign-in that returns to the app, native push through the existing notification door, stores |
-| [CUSTOM_TOOLS_PLAN.md](CUSTOM_TOOLS_PLAN.md) | Approved, being built: user-made tools |
-| [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Approved, being built |
+| [PLATFORM_CAPABILITIES_PLAN.md](PLATFORM_CAPABILITIES_PLAN.md) | P0–P10: messaging, data, browser, missions, auto mode |
+| [ORG_KNOWLEDGE_PLAN.md](ORG_KNOWLEDGE_PLAN.md) | Team knowledge: invites, curators, shared KBs, citations |
+| [SOLUTION_MEMORY_PLAN.md](SOLUTION_MEMORY_PLAN.md) | Organisations and the solution library |
+| [SPECIALIST_AGENTS_PLAN.md](SPECIALIST_AGENTS_PLAN.md) | Office files, specialist agents as templates |
+| [CODING_AGENTS_PLAN.md](CODING_AGENTS_PLAN.md) | The coding team (needs a workspace engine to run) |
+| [OFFICE_SUITE_PLAN.md](OFFICE_SUITE_PLAN.md) | Docs/Sheets/Slides apps, autosave, version history, previews |
+| [SCHEDULES_SIMPLIFICATION_PLAN.md](SCHEDULES_SIMPLIFICATION_PLAN.md) | Triggers and schedules |
+| [PROMPT_AND_MEMORY_PLAN.md](PROMPT_AND_MEMORY_PLAN.md) | Chat transcript bounding, user memory, system prompts |
+| [GAP_CLOSURE_PLAN.md](GAP_CLOSURE_PLAN.md) | Gaps found in a codebase sweep |
+| [EVALUATION_PRODUCTION_PLAN.md](EVALUATION_PRODUCTION_PLAN.md) | Making evals production-grade |
+| [EVAL_ENVIRONMENTS_PLAN.md](EVAL_ENVIRONMENTS_PLAN.md) | Judge-built test worlds for evals |
 | [EVAL_EXPANSION_PLAN.md](EVAL_EXPANSION_PLAN.md) | Eval datasets for every agent |
-| [COMPUTE_ISOLATION_PLAN.md](COMPUTE_ISOLATION_PLAN.md) | For discussion: a private machine per user (needed by the coding agents) |
-| [ACTIVITY_PAGE_PLAN.md](ACTIVITY_PAGE_PLAN.md) | Partly built 2026-09-26: `/api/activity/` live + recent-files endpoints, run delete/bulk-delete/mark-failed routes, Activity frontend components started; missions/schedules sections still open |
-| [PRODUCTIVITY_SUITE_PLAN.md](PRODUCTIVITY_SUITE_PLAN.md) | Proposed: in-browser office apps |
-| [ORCHESTRATOR_LATENCY_OPTIMIZATION_PLAN.md](ORCHESTRATOR_LATENCY_OPTIMIZATION_PLAN.md) | Ideas for faster responses; its "current state" numbers are estimates |
-
-## History: kept for the record, do not follow
-
-These describe the old drag-and-drop workflow product, which was removed.
-
-| Doc | Why it is kept |
-|---|---|
-| [WORKFLOW_RETIREMENT.md](WORKFLOW_RETIREMENT.md) | The decision to remove the workflow editor (done 2026-08-17) |
-| [AGENT_BLOCKS_PLAN.md](AGENT_BLOCKS_PLAN.md) | "Agents from blocks", the step between workflows and agents |
-| [AGENT_WORKFLOW_MERGE_PLAN.md](AGENT_WORKFLOW_MERGE_PLAN.md) | Superseded 2026-08-14 |
-| [AGENT_WORKFLOW_UNIFICATION.md](AGENT_WORKFLOW_UNIFICATION.md) | Never built |
-| [tool_calling_architecture_review.md](tool_calling_architecture_review.md) | An early review; the tool registry has since been rewritten (`chat/tools/registry.py`) |
-| [learnings/](learnings/) | Notes from past performance work on the search index |
+| [ORCHESTRATOR_LATENCY_OPTIMIZATION_PLAN.md](ORCHESTRATOR_LATENCY_OPTIMIZATION_PLAN.md) | Faster agent orchestration |
+| [CONCURRENCY_LAG_FIX_PLAN.md](CONCURRENCY_LAG_FIX_PLAN.md) | Server concurrency and lag |
+| [AGENT_CONFIG_IMPROVEMENT_PLAN.md](AGENT_CONFIG_IMPROVEMENT_PLAN.md) | Audit and rebuild of agent settings |
+| [SECURITY_REVIEW_FIX_PLAN.md](SECURITY_REVIEW_FIX_PLAN.md) | The whole-project security review and its fixes |
+| [VFS_HARDENING_PLAN.md](VFS_HARDENING_PLAN.md) | Virtual filesystem hardening |
+| [CUSTOM_TOOLS_PLAN.md](CUSTOM_TOOLS_PLAN.md) | User-made tools |
+| [TOOL_CONFIGURATION_PLAN.md](TOOL_CONFIGURATION_PLAN.md) | The Tools page and per-user tool switches |
+| [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Run visibility and reminder fixes |
+| [ACTIVITY_PAGE_PLAN.md](ACTIVITY_PAGE_PLAN.md) | The Activity page |
+| [PREVIEW_PANE_AND_BROWSER_PLAN.md](PREVIEW_PANE_AND_BROWSER_PLAN.md) | Tabbed side pane (phone + desktop), showing and improving the agent's browser |
+| [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | "Continue with ChatGPT" provider |
+| [COMPUTE_ISOLATION_PLAN.md](COMPUTE_ISOLATION_PLAN.md) | A private machine per user |
+| [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) | The React Native (Expo) mobile app |
+| [UI_REDESIGN_PLAN.md](UI_REDESIGN_PLAN.md) | The UI redesign |
+| [APP_FLOW_GAP_REVIEW.md](APP_FLOW_GAP_REVIEW.md) | The app-flow review, as a gap register |

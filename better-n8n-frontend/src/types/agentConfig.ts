@@ -236,6 +236,11 @@ export interface AgentConfig {
    * run genuinely holds, so it is the one with a knob.
    */
   maxRunSeconds: number;
+  /**
+   * Model calls one run may make (3-200). It was a fixed 36 for every agent;
+   * 36 stays the default, so an agent saved before the field opens with it.
+   */
+  maxIterations: number;
   // `egress` was removed (2026-09-03). It was read in one place — to add a
   // sentence to the system prompt — and its other two values could never have
   // been honoured: the sandbox is a sidecar container on an internal-only
@@ -327,6 +332,7 @@ export const DEFAULT_AGENT: AgentConfig = {
   notifyOnHitl: true,
   spendCapRupees: 500,
   maxRunSeconds: 15 * 60,
+  maxIterations: 36,
 
   summaryModel: '',
   summaryProvider: '',

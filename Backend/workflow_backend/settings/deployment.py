@@ -28,6 +28,8 @@ os.environ.setdefault('CORS_ALLOW_ALL_ORIGINS', 'False')
 os.environ.setdefault('MCP_ALLOW_STDIO', 'False')
 # Not until OpenAI approves the hosted site: see CHATGPT_PLAN_ENABLED in base.py.
 os.environ.setdefault('CHATGPT_PLAN_ENABLED', 'False')
+# Caddy (edge) -> frontend nginx -> daphne: two proxies we run. See base.py.
+os.environ.setdefault('TRUSTED_PROXY_COUNT', '2')
 os.environ.setdefault('GOOGLE_OAUTH_REDIRECT_URI', 'https://aiaas.kaushaljain.com/auth/google/callback')
 
 from .base import *  # noqa: F401, F403, E402

@@ -1,11 +1,11 @@
 # Frontend Beginner's Guide
 
-A plain-language tour of the web app. For the whole system (backend too),
-start with [`../START_HERE.md`](../START_HERE.md).
+A plain tour of the web app. For the whole system, read
+[`../START_HERE.md`](../START_HERE.md). For where code goes in `src/` and which
+rules the lint enforces, see the Folders section below and `eslint.config.js`.
 
-> Older versions of this guide described a drag-and-drop workflow canvas.
-> That canvas was removed in August 2026. The app is now about **chat** and
-> **agents**. If you see "workflow" or "node" in a name, it is left over.
+If you see "workflow" or "node" in a name, it is left over from the old
+drag-and-drop canvas, which is gone. The app is about **chat** and **agents**.
 
 ---
 
@@ -15,32 +15,32 @@ You sign in and land on **Ask** (the chat). From the menu you can reach:
 
 | Menu | Route | Page file | What it is |
 |---|---|---|---|
-| Ask | `/ai-chat` | `pages/AIChat.tsx` → `components/chat/StandaloneChat.tsx` | Chat with the assistant |
+| Ask | `/ai-chat` | `features/chat/AIChat.tsx` → `features/chat/components/StandaloneChat.tsx` | Chat with the assistant |
 | Activity | `/runs` | `pages/Runs.tsx` | Every agent run, and runs waiting for your approval |
 | Automations | `/agents`, `/agents/:id` | `pages/Agents.tsx`, `pages/AgentBuilder.tsx` | Your saved agents, and the editor for one |
 | Explore | `/templates` | `pages/Templates.tsx` | Ready-made agents and packs to install |
-| Tools | `/tools` | `pages/Tools.tsx` | Switch tools on/off; your custom tools |
+| Tools | `/tools` | `pages/Tools.tsx` | Switch tools on and off |
 | Schedules | `/schedules` | `pages/Schedules.tsx` | When agents run automatically |
-| Studio | `/imagine` | `pages/Imagine.tsx` | Image / video / audio generation |
+| Studio | `/imagine` | `pages/Imagine.tsx` | Image, video and audio generation |
 | Skills | `/skills` | `pages/Skills.tsx` | Reusable instruction snippets |
 | Evals | `/evals` | `pages/Evals.tsx` | Testing how good an agent is |
-| Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack, MCP servers... |
+| Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack, MCP servers |
 | Credentials | `/credentials` | `pages/Credentials.tsx` | Saved API keys |
-| Apps | `/apps`, `/apps/:appId` | `pages/Apps.tsx`, `components/apps/AppFrame.tsx` | The launcher, and the full-screen Docs, Sheets, Slides, code and PDF apps. An app opens without the normal menus, with its own bar, tabs and file panel |
+| Apps | `/apps`, `/apps/:appId` | `pages/Apps.tsx`, `components/apps/AppFrame.tsx` | The launcher, and the full-screen Docs, Sheets, Slides, code and PDF apps |
 | Documents | `/documents` | `pages/Documents.tsx` | Your files, folders and knowledge bases |
-| Team knowledge | `/team` (`/solutions` opens the same page) | `pages/Solutions.tsx`, `components/solutions/` | What your team has already solved, its shared documents, your team's people, and (for curators) the queue and insights. See below |
+| Team knowledge | `/team` (also `/solutions`) | `pages/Solutions.tsx`, `components/solutions/` | What your team has solved. See below |
 | Dashboards | `/dashboards` | `pages/Dashboards.tsx` | Live tiles an agent saved |
 | Pages | `/pages` | `pages/Pages.tsx` | Pages you published by link |
-| Settings / Profile | `/settings`, `/profile` | `pages/Settings.tsx`, `pages/Profile.tsx` | Your preferences, including Memory (what the assistant remembers about you) |
-| Missions | Part of `/runs` | `pages/Runs.tsx` (data from `api/missions.ts`) | Long goals that span many agent runs |
+| Settings, Profile | `/settings`, `/profile` | `pages/Settings.tsx`, `pages/Profile.tsx` | Preferences, including Memory (what the assistant remembers about you) |
+| Missions | part of `/runs` | `pages/Runs.tsx` (data from `api/missions.ts`) | Long goals that span many agent runs |
 
 Public pages without login: `/a/:slug` (a shared agent) and `/p/:slug` (a
 published page).
 
-Some old addresses only redirect: `/inbox`, `/overview` and `/missions` go to
-`/runs`, and `/insights` goes to Settings.
+Old addresses only redirect. `/inbox`, `/overview`, `/missions` and `/executions`
+go to `/runs`. `/insights` goes to Settings.
 
-## Tools we use
+## Libraries
 
 | Library | What for |
 |---|---|
@@ -48,45 +48,46 @@ Some old addresses only redirect: `/inbox`, `/overview` and `/missions` go to
 | Vite | Dev server and build |
 | Tailwind CSS | Styling with class names (`p-4 text-sm ...`) |
 | React Router | Pages and URLs (`App.tsx`) |
-| TanStack Query (`@tanstack/react-query`) | Fetching and caching server data (`useQuery`, `useMutation`) |
-| Axios | HTTP calls (`api/client.ts`) |
+| TanStack Query | Fetching and caching server data (`useQuery`, `useMutation`) |
+| Axios | HTTP calls, inside `api/client.ts` only |
 | Zustand | Small global stores (e.g. `lib/toastStore.ts`) |
 | lucide-react | Icons |
-| react-markdown | Showing the AI's markdown answers |
+| react-markdown | The assistant's markdown answers |
 | Vitest, Playwright | Unit tests and browser tests |
 
 ## Folders in `src/`
 
 ```
 src/
-├── main.tsx          starts the app
-├── App.tsx           all routes. Every page is lazy-loaded except the login screens
-├── pages/            one file per screen
-├── components/       pieces of screens, grouped by feature
-│   ├── ui/           shared building blocks: Button, Modal, Switch, Select, EmptyState...
-│   ├── layout/       Topbar, Sidebar, mobile bars, PageHeader (menu items: lib/navigation.ts)
-│   ├── chat/         everything in the chat page
-│   ├── apps/         the document apps (Docs, Sheets, Slides...): AppFrame,
-│   │                 AppBar, FileMenu, one editor per file type. The heavy
-│   │                 editors (Univer, TipTap, CodeMirror, pdf.js) load lazily,
-│   │                 only inside the app that uses them. Edits save by
-│   │                 themselves (there is no Save button)
-│   ├── files/        file cards and the shared file preview
-│   └── agents/, runs/, orchestration/, schedules/, ...   one folder per feature
-├── api/              one file per backend area. THE ONLY place that calls the backend
-├── hooks/            reusable React logic (useChatStream, useLiveRun, ...)
-├── lib/              plain functions, no React (cron text, costs, paths, ...)
-├── contexts/         app-wide state: logged-in user, theme, assistant
-└── types/            shared types (agentConfig.ts = every agent setting)
+├── main.tsx, App.tsx     start the app; every route is in App.tsx
+├── pages/                one file per screen
+├── features/             feature folders with a front door (index.ts). Today: chat/
+│   └── chat/             AIChat.tsx, components/, hooks/, lib/
+├── components/           pieces of screens, grouped by feature
+│   ├── ui/               shared building blocks: Button, Modal, Switch, Select, EmptyState...
+│   ├── layout/           Sidebar, MobileTopBar, MobileBottomNav, PageHeader
+│   │                     (menu items: lib/navigation.ts)
+│   ├── content/          markdown, charts, question cards, media previews
+│   ├── plan/             the assistant's plan (PlanView, PlanDock)
+│   ├── orchestration/    the team lanes when several agents work at once (PlanPanel)
+│   ├── files/            file cards and the shared file preview (PreviewFrame)
+│   ├── apps/             the document apps: AppFrame, AppBar, FileMenu, one editor per file type.
+│   │                     Heavy editors (Univer, TipTap, CodeMirror, pdf.js) load lazily.
+│   │                     Edits save by themselves. There is no Save button.
+│   └── agents/, runs/, schedules/, solutions/, ...   one folder per feature
+├── api/                  one file per backend area. THE ONLY place that calls the backend
+├── hooks/                reusable React logic (useLiveRun, useHITLReminders, ...)
+├── lib/                  plain functions, no React (cron text, costs, paths, ...)
+├── contexts/             app-wide state: logged-in user, theme, the assistant
+└── types/                shared types (agentConfig.ts = every agent setting)
 ```
 
-Tests sit next to the code in `__tests__/` folders, e.g.
-`src/lib/__tests__/cron.test.ts`.
+Tests sit beside the code in `__tests__/` folders, for example
+`src/lib/__tests__/cron.test.ts`. `@/` means `src/`.
 
 ## How a page gets data (the pattern to copy)
 
-Almost every page follows the same three steps. `pages/Dashboards.tsx` is a
-short, clean example.
+Most pages follow the same three steps. `pages/Dashboards.tsx` is a short example.
 
 1. **A service in `api/`** wraps the HTTP call:
 
@@ -98,7 +99,7 @@ short, clean example.
    };
    ```
 
-2. **The page reads it with `useQuery`** (loading, error and caching are handled for you):
+2. **The page reads it with `useQuery`**. Loading, errors and caching are handled for you:
 
    ```tsx
    const { data, isLoading, isError } = useQuery({
@@ -114,106 +115,102 @@ short, clean example.
      mutationFn: (id: number) => dashboardsService.remove(id),
      onSuccess: () => {
        toast.success('Dashboard deleted.');
-       qc.invalidateQueries({ queryKey: ['dashboards'] });   // re-fetch the list
+       qc.invalidateQueries({ queryKey: ['dashboards'] });
      },
    });
    ```
 
-`api/client.ts` adds your login token to every request and quietly refreshes it
-when it expires. Pages never deal with tokens.
+`api/client.ts` adds your login token to every request and refreshes it when it
+expires. Pages never deal with tokens.
 
 ## Live updates
 
-- **Chat streams over HTTP.** The chat endpoint sends a stream of `data:` lines.
-  `api/sse.ts` reads them; `hooks/useChatStream.ts` turns each event into what
-  you see (text arriving, tool calls, charts, approval cards). The event names
-  are listed in `Backend/docs/CHAT_AGENT.md`.
-- **Everything else uses WebSockets** through one helper, `lib/websocket.ts`
-  (`useSocket`). It reconnects by itself. Don't open a `WebSocket` directly.
+- **Chat streams over HTTP.** The chat endpoint sends `data:` lines. `api/sse.ts`
+  reads them. `features/chat/hooks/useChatStream.ts` turns each event into what you
+  see. The event list is `Backend/chat/turn/events.py`.
+- **Steering is not a socket.** A message typed while the assistant works is sent to
+  `POST /api/chat/sessions/<id>/message/steer/`.
+- **Everything else uses WebSockets**, through one helper, `lib/websocket.ts`
+  (`useSocket`). It reconnects by itself. Do not open a `WebSocket` directly.
   - `hooks/useLiveRun.ts`: live steps of an agent run (`ws/execution/<id>/`)
   - `hooks/useHITLReminders.ts`: approval reminders and notifications (`ws/hitl/`)
 
 ## The chat page
 
-`components/chat/StandaloneChat.tsx` holds the chat page's state and handlers.
-The screen is drawn by smaller pieces it passes data and callbacks to:
+`features/chat/components/StandaloneChat.tsx` holds the chat page's state and
+handlers. Smaller pieces draw the screen from the data and callbacks they are given.
 
 | File | What it is |
 |---|---|
-| `components/chat/ChatHistorySidebar.tsx` | The conversation list on the left |
-| `components/chat/ChatHeader.tsx` | The thin bar above the chat: history button, title, memory-off chip, cost, settings |
-| `components/chat/ChatSettingsDialog.tsx` | Per-chat system prompt and memory switch |
-| `components/chat/ChatMessageItem.tsx` | One saved question or answer, with its sources, reasoning, charts and action buttons |
-| `components/chat/ToolApprovalCard.tsx` | "The assistant wants to do X": Approve / Deny / Allow for this chat / Always |
-| `components/chat/format.ts` | Small text helpers shared by the pieces above |
-| `hooks/useChatStream.ts` | State of the answer currently streaming in |
+| `features/chat/components/ChatHistorySidebar.tsx` | The conversation list |
+| `features/chat/components/ChatHeader.tsx` | The bar above the chat: history, title, memory chip, cost, settings |
+| `features/chat/components/ChatSettingsDialog.tsx` | Per-chat system prompt and memory switch |
+| `features/chat/components/ChatMessageItem.tsx` | One saved question or answer, with sources, reasoning and charts |
+| `features/chat/components/ToolApprovalCard.tsx` | "The assistant wants to do X": Approve, Deny, Allow for this chat |
+| `features/chat/components/format.ts` | Small text helpers shared by the pieces above |
+| `features/chat/hooks/useChatStream.ts` | State of the answer streaming in right now |
 | `hooks/useChatModelSelection.ts`, `hooks/useEffortSelection.ts` | The model picker and "how hard to think" |
 | `hooks/useChatDraft.ts` | Keeps unsent text per conversation |
-| `components/chat/MarkdownMessage.tsx` | Draws one answer |
-| `components/chat/ChartArtifact.tsx`, `HtmlArtifact.tsx` | Charts and HTML the AI produced |
-| `components/chat/TodoPanel.tsx` | The AI's plan while it works |
-| `components/orchestration/PlanPanel.tsx` | When the AI hands work to several agents: one lane per worker, with Steer / Stop buttons. A side rail on desktop, a bottom sheet on phones |
-| `components/chat/QuestionCard.tsx` | A question the AI paused to ask you (pick one, pick several, a number, or text). The Activity page uses the same card |
-| `components/files/PreviewFrame.tsx` | The one file preview used everywhere: chat's side drawer, the Documents page, and the preview dialog |
-| `components/chat/CommandPalette.tsx`, `CommandCard.tsx` | The `/` command menu and its results |
-| `components/chat/ThinkingTimer.tsx` | The ticking timer (kept separate so it doesn't redraw everything) |
+| `components/content/MarkdownMessage.tsx` | Draws one answer |
+| `components/content/ChartArtifact.tsx`, `features/chat/components/HtmlArtifact.tsx` | Charts and HTML the AI produced |
+| `components/plan/PlanView.tsx`, `components/plan/PlanDock.tsx` | The plan while the AI works, pinned above the message box |
+| `components/orchestration/PlanPanel.tsx` | Several agents at once: one lane per worker, with Steer and Stop. A side rail on desktop, a sheet on phones |
+| `components/content/QuestionCard.tsx` | A question the AI paused to ask you. The Activity page uses the same card |
+| `components/files/PreviewFrame.tsx` | The one file preview: chat's side drawer, the Documents page, the preview dialog |
+| `features/chat/components/CommandPalette.tsx`, `CommandCard.tsx` | The `/` command menu and its results |
+| `features/chat/components/ThinkingTimer.tsx` | The ticking timer, kept apart so it does not redraw everything |
 
-## The Team knowledge page (`/team`)
+## Team knowledge (`/team`)
 
-Team knowledge is where a team keeps what it has already solved, so the next
-person does not start from zero. The assistant searches it first when someone
-asks a troubleshooting question. A fix belongs to the team it was solved in,
-and no other team sees it.
+`/team` (also `/solutions`) is where a team keeps the problems it has already
+solved. The assistant searches it first. A fix belongs to the team it was solved
+in, and no other team sees it. The page has tabs (Library, Drafts, Queue,
+Insights, Team), chosen with `?tab=`. Queue and Insights are for curators. A draft
+is not visible to the team until its author shares it. Code: `pages/Solutions.tsx`
+and `components/solutions/`.
 
-The page has tabs. The address can name one with `?tab=`.
+## Engineering notes
 
-| Tab (`?tab=`) | Who sees it | What is on it |
-|---|---|---|
-| Library (`library`) | Everyone in the team | The team's solved problems. Search them, add one by hand, import one from a document, or filter to those that need attention, to your own, or by tag. The team's shared documents are listed under them |
-| Drafts (`drafts`) | Everyone | Fixes the assistant found in your chats. Share each one with the team, or discard it. Nothing is shared until you do |
-| Queue (`queue`) | Curators only | Shared fixes waiting for a curator to approve |
-| Insights (`insights`) | Curators only | What the team searched for in the last 30 days, and what it found. Counts only; it never says who searched |
-| Team (`team`) | Everyone. Changing people and settings is for owners and admins | The people in the team, invitations waiting for you to accept or decline, the team's settings, and which of your knowledge bases you share with the team |
-
-Plain words for the words on the page:
-
-- **Draft**: a fix that is not live yet. Only its author sees it.
-- **Pending review**: a fix the author asked to share, in a team where a
-  curator must approve each share. Only the author and curators see it until then.
-- **Needs check**: a fix that people have said did not work. It stays
-  visible, but is marked so nobody relies on it blindly.
-- **Curator**: a person who approves, edits and withdraws the team's fixes.
-  Owners and admins are curators too. A curator does not manage people.
-- **Shared knowledge base**: a knowledge base you share with your team, read
-  only. The assistant can search it when someone asks from a chat in that team.
-  Agents never use it. Nobody can add to it or delete from it except you.
-
-An invitation to join a team arrives as a notification, and the link opens the
-Team tab. You accept or decline it there. You can accept only with a verified
-email address. Signing up alone does not verify it. Declining needs no
-verification.
+- **Chat streams over POST, so it uses one SSE reader.** `api/sse.ts` is the only
+  reader for `data:` streams, because `EventSource` cannot send a POST. See
+  "Live updates".
+- **One WebSocket helper.** `lib/websocket.ts::useSocket` owns the URL, the
+  exponential backoff and the remount race guard. No feature opens its own socket.
+- **Lazy routes.** Every page except the sign-in screens is code-split. The app
+  used to ship as one 1.2 MB chunk behind a login screen that needed none of it.
+  Add a new page to the lazy block in `App.tsx`, not to the static imports.
+- **Render isolation.** The ticking timer is its own component, and
+  `MarkdownMessage` is memoised. Anything that updates faster than a reader can
+  read gets isolated the same way.
+- **One wording, two copies, one test table.** The schedule reading is drawn in the
+  browser at once and replaced by the server's reading a moment later. Both are
+  tested against the same table of expected strings, so the sentence never rewrites
+  itself under the cursor.
+- **Safe redirects.** `lib/nextPath.ts::safeNext` refuses any post-login redirect
+  that is not a same-origin path. An open redirect on a sign-in page is a phishing
+  primitive.
+- **Lint fences.** `npm run lint` fails if code outside `src/api/` imports axios, and
+  if code imports another feature's inner files instead of its `index.ts`.
 
 ## Common jobs
 
 **Add a page**
 
 1. Create `src/pages/MyPage.tsx`.
-2. In `App.tsx`, add `const MyPage = lazyPage(() => import('./pages/MyPage'));`
-   and a `<Route path="/my-page" element={<MyPage />} />`.
-3. Add it to `lib/navigation.ts`. That one list feeds the sidebar, the desktop
-   top bar and the mobile tab bar, so a page is never reachable from only one of them.
+2. In `App.tsx`, add `const MyPage = lazyPage(() => import('./pages/MyPage'));` and
+   `<Route path="/my-page" element={<MyPage />} />`.
+3. Add it to `lib/navigation.ts`. That one list feeds the sidebar, the desktop top
+   bar and the mobile tab bar.
 
 **Call a new backend endpoint**
 
-Add a function to the matching file in `src/api/`, and use it from the page
-with `useQuery` or `useMutation`. Never call `axios` or `fetch` from a
-component. `npm run lint` enforces this: importing the HTTP client (or axios)
-outside `src/api/` is an error. Helpers such as `tokenManager` are fine.
+Add a function to the matching file in `src/api/`, then use it from the page with
+`useQuery` or `useMutation`. Never call `axios` or `fetch` from a component.
 
 **Add a shared UI piece**
 
 Check `components/ui/` first. There is already one `Button`, one `Modal`, one
-`Switch`, one `Select` for the whole app. Reuse them so every screen looks the same.
+`Switch` and one `Select`. Reuse them, so every screen looks the same.
 
 ## Checks before you push
 
@@ -226,10 +223,12 @@ npm run build          # production build
 
 ## Gotchas
 
-- The whole page layout is `overflow-hidden`. **Each page scrolls itself.** If
-  your page doesn't scroll, give its main area `overflow-y-auto`. A
-  Playwright test (`tests/e2e/mobile-layout.spec.ts`) checks this on phone sizes.
-- Anything that ticks fast (timers) goes in its own small component, or the
-  whole chat transcript re-renders every tick.
-- After login, `lib/nextPath.ts::safeNext` decides where to send the user.
-  Always use it; never redirect to a URL taken straight from the query string.
+- The page layout is `overflow-hidden`. **Each page scrolls itself.** If your page
+  does not scroll, give its main area `overflow-y-auto`. A Playwright test
+  (`tests/e2e/mobile-layout.spec.ts`) checks this at phone sizes.
+- Anything that ticks fast goes in its own small component. Otherwise the whole
+  chat transcript re-renders on every tick.
+- After login, `lib/nextPath.ts::safeNext` decides where to send the user. Always
+  use it. Never redirect to a URL taken straight from the query string.
+- Import another feature through its front door, `@/features/<name>`. Lint rejects
+  imports of its inner files.

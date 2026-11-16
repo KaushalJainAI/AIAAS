@@ -130,25 +130,6 @@ A **module** is one `.py` file. A **package** is a folder of them (with an
 
 ---
 
-## Words you'll see (glossary)
-
-| Word | Plain meaning |
-|---|---|
-| **argument / parameter** | a value you hand to a function |
-| **return value** | what a function hands back |
-| **object / instance** | one thing made from a class |
-| **attribute** | a value stored on an object: `scope.mode` |
-| **method** | a function stored on an object: `scope.may_write_at(...)` |
-| **module / package** | one `.py` file / a folder of them |
-| **type hint** | a note saying what type a value should be (not enforced) |
-| **decorator** | a line starting with `@` that wraps or registers the function below |
-| **exception** | an error object; "raise" throws it, "except" catches it |
-| **immutable** | can't be changed after it's made (tuples, frozen dataclasses) |
-| **iterate** | go through items one by one (a `for` loop) |
-| **coroutine** | what an `async def` function gives you; it runs when you `await` it |
-| **event loop** | the scheduler that switches between waiting async tasks |
-| **dunder** | "double underscore" names like `__init__`, which Python calls for you |
-
 ---
 
 ## P0. How to read a Python file here
@@ -283,7 +264,7 @@ flowchart LR
 A decorator **with arguments** is a function that returns the real decorator.
 This project's `@tool`, written out, is three layers: `tool(...)` → `register`
 → your function. It's worth tracing once in
-[`chat/tools/registry.py:95`](../Backend/chat/tools/registry.py#L95).
+[`chat/tools/registry.py`](../Backend/chat/tools/registry.py).
 
 Decorators you'll see:
 

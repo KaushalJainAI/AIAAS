@@ -78,7 +78,7 @@ Models: `UserProfile`, `APIKey`, `UsageTracking`, `PasswordOTP` (+ `auth.User`).
 | `/api/auth/login/` | POST | JWT obtain | Public (5/min) | O(1) |  | `CustomTokenObtainPairSerializer` | User | Wrong pw → 400 (audit: should be 401) |
 | `/api/auth/google/` | POST | Google login | Public | External | `core/tests/test_security_review.py` | — | User, UserProfile | Refuses `email_verified != true`. Links by email case-insensitively; linking to a never-verified password account makes that password unusable and revokes its tokens (S1, pre-account takeover). Sets `email_verified_at` |
 | `/api/auth/token/refresh/` | POST | Refresh JWT | Public | O(1) | `core/tests/test_security_review.py` | `RevocableTokenRefreshSerializer` | token_blacklist_* | Refuses a token older than `tokens_valid_after` (S2). Rotation blacklists the used token — really, since `token_blacklist` was installed 2026-09-25 (S11) |
-| `/api/auth/profile/` | GET/PUT/PATCH | Read/update profile | Auth | O(1) |  | `UserProfileSerializer` | User, UserProfile | Writes `vision_provider`/`vision_model` — the witness `ask_vision` calls (docs/VISION_AGENT.md). **`credits_remaining` and `llm_credential_id` are read-only** (2026-09-18): the balance was writable, so any user could PATCH an unlimited platform-key allowance. `timezone` must be an IANA zone (400 otherwise) and `language` is stored as a code whichever spelling is sent (`English` → `en`), because both now reach the model: `core/preferences.py` renders timezone, language, `display_name` and `bio` into chat's and every agent run's system prompt, and the timezone drives chat's clock and an agent's `useEnvironment` time. A nested `user.email` already held by another account (case-insensitive) is refused 400 — sign-in and reset look accounts up by email; changing it still has no verification step. Tests: `core/tests/test_preferences.py` **A nested `user.email` that differs from the current one is refused 400** — change it through `auth/email/change/`; the unchanged address the form always sends is fine. `default_max_tokens` is read-only (stored, never read, and a small cap empties a reasoning model's answer) **2026-11-11 (UI redesign, `docs/UI_REDESIGN_PLAN.md`):** `accent_color` is a closed set `teal|ink|blue|magenta` (anything else 400s), default `teal`; `core.0017` moved every stored `blue` (the old default) to `teal`. Tests: `core/tests/test_accent.py` | **2026-11-13:** `decision_provider` + `decision_model` (blank = platform default `DECISION_PROVIDER`/`DECISION_MODEL`): the provider must have a decision endpoint (`llm.decisions.PROVIDERS`), and the model must be in that provider's live listing (any well-formed id is accepted only while the listing is unreachable); a model saved with no provider gets the default provider. Tests: `llm/tests/test_decisions.py::SettingTests` |
+| `/api/auth/profile/` | GET/PUT/PATCH | Read/update profile | Auth | O(1) |  | `UserProfileSerializer` | User, UserProfile | Writes `vision_provider`/`vision_model` — the witness `ask_vision` calls (docs/VISION_AGENT.md). **`credits_remaining` and `llm_credential_id` are read-only** (2026-09-18): the balance was writable, so any user could PATCH an unlimited platform-key allowance. `timezone` must be an IANA zone (400 otherwise) and `language` is stored as a code whichever spelling is sent (`English` → `en`), because both now reach the model: `core/preferences.py` renders timezone, language, `display_name` and `bio` into chat's and every agent run's system prompt, and the timezone drives chat's clock and an agent's `useEnvironment` time. A nested `user.email` already held by another account (case-insensitive) is refused 400 — sign-in and reset look accounts up by email; changing it still has no verification step. Tests: `core/tests/test_preferences.py` **A nested `user.email` that differs from the current one is refused 400** — change it through `auth/email/change/`; the unchanged address the form always sends is fine. `default_max_tokens` is read-only (stored, never read, and a small cap empties a reasoning model's answer) **2026-11-11 (UI redesign, `docs/UI_REDESIGN_PLAN.md`):** `accent_color` is a closed set `teal|ink|blue|magenta` (anything else 400s), default `teal`; `core.0017` moved every stored `blue` (the old default) to `teal`. Tests: `core/tests/test_accent.py` | **2026-11-13:** `decision_provider` + `decision_model` (blank = platform default `DECISION_PROVIDER`/`DECISION_MODEL`): the provider must have a decision endpoint (`llm.decisions.PROVIDERS`), and the model must be in that provider's live listing (any well-formed id is accepted only while the listing is unreachable); a model saved with no provider gets the default provider. Tests: `llm/tests/test_decisions.py::SettingTests` **2026-11-16:** the chat orchestrator's limits (Settings → Orchestrator): `chat_max_steps` (3-200, default 36), `chat_time_limit_seconds` (60-28800, default 1800), `chat_spend_cap_rupees` (0-100000, 0 = no cap, default 500), `chat_summarise_long_turns` (default false). Out of range is 400 naming the range, never clamped; read through `chat/turn/limits.py`. Tests: `chat/tests/test_orchestrator_limits.py` |
 | `/api/auth/profile/avatar/` | POST | Upload avatar | Auth | O(1) | ~ | — | UserProfile | Multipart — 2 MB (`MAX_AVATAR_BYTES`), PNG/JPEG/GIF/WebP only, checked by decoding (`core/views.py::_avatar_refusal`; the view assigns to the model directly, which runs no validators, so before 2026-10-11 it took any file up to 55 MB). The previous picture's file is removed. `UploadThrottle`. `core/tests/test_avatar_upload.py` |
 | `/api/auth/change-password/request-otp/` | POST | OTP to change pw | Auth-intended | O(1)+email | ~ | — | PasswordOTP | Returns 401 on empty body (audit) |
 | `/api/auth/change-password/verify-otp/` | POST | Verify change OTP | Auth-intended | O(1) | ~ | — | PasswordOTP | |
@@ -114,7 +114,7 @@ The app itself is now gone: the two load-bearing files were moved into
   call and then executes the model through the handler it returns
 
 The graph-structural handlers (core, logic, utility, subworkflow, all 13
-triggers) were deleted; see [WORKFLOW_RETIREMENT.md](WORKFLOW_RETIREMENT.md).
+triggers) were deleted with the drag-and-drop workflow product (2026-08-17).
 
 ---
 
@@ -144,7 +144,7 @@ graph for the retired DAG runtime.
 
 What remains is library code on the agent hot path:
 
-- [`schemas.py`](../compiler/schemas.py) — `ExecutionContext`, constructed on
+- `llm/context.py` (was `compiler/schemas.py`) — `ExecutionContext`, constructed on
   every LLM call (`llm/access.py`) and passed into every node handler
 
 ---
@@ -191,8 +191,8 @@ its CRUD are gone; the DAG-era tables (`WorkflowVersion`,
 modules (`executions.py`, `generation.py`, `partial.py`, `versions.py`) with
 the workflow canvas they served.
 
-Agents are `SubAgent` rows — see
-[docs/AGENT_TEMPLATES.md](AGENT_TEMPLATES.md) §3 for why.
+Agents are `SubAgent` rows — see CLAUDE.md, "A subagent is a configuration,
+not a graph", for why.
 
 | URL | Method | What | Access | Complexity | Tested | Serializer | DB tables | Notes |
 |-----|--------|------|--------|-----------|--------|-----------|-----------|-------|
@@ -221,7 +221,7 @@ Agents are `SubAgent` rows — see
 | `/api/memory/{id}/` | DELETE | Forget one fact | Auth (owner) | O(1) |  | — | core.UserMemory | Scoped by `user=` in the query, so another user's id and a nonexistent id are both 404 — "exists but not yours" is an ownership oracle |
 | `/api/orchestrator/agents/{id}/steer/` | POST | Send a mid-run instruction to a run already going | Auth (owner) | Light |  | `AgentSteerSerializer` (`message`) | SubAgent, ExecutionLog | Lands in the in-process steer mailbox keyed by the run's `thread_id`; the graph's `steering` node picks it up at its next tool boundary. Same run, same log, same stream — no restart. 404 when nothing is running. **Queued, not last-write-wins (2026-09-04)**: several messages sent while the agent works are all delivered, in order, as one user message. Response carries `delivered` / `queued` / `dropped` (`replaced` is gone) |
 | `/api/orchestrator/agents/{id}/autonomy/` | POST | Change how much a running agent asks, mid-run | Auth (owner) | Light |  | `AgentAutonomySerializer` (`level`) | SubAgent, ExecutionLog | The counterpart to `steer/`, sharing its mailbox and its run lookup. `level` is `review` \| `ask` \| `auto` \| `full` — **not `plan`**, because which tools exist is settled when the toolbox is built, so a mid-run `plan` could only gate the mutating tools rather than withdraw them. Takes effect at the next tool batch and is *not* retroactive: a call already paused still needs an answer, since the looser setting arrived after the question. 404 when nothing is running, 409 when the run has no thread id |
-| `/api/orchestrator/templates/` | GET | Everything installable: curated templates **and** agents other users published | Auth | Light | `agents/tests/test_gallery.py::GalleryReadTests`, `agents/tests/test_sharing.py::ExploreTests` | — (plain dicts) | SharedAgent, MCPServer, KnowledgeBase, Skill (read-only) | **Two sources, one shape.** A *curated* entry is code — `agents/gallery.py`, per the note in `templates/models.py`: a template is a `SubAgent` used as a starting point and needs no table. A *community* entry is a `SharedAgent` row. They are presented with the same keys and installed by the same function, because provenance changes how much an installer trusts an entry, not what it is; `source` says which. Each carries a flat `AgentConfig` under `config`, which is what the install screen renders its permissions from, so the screen and the runtime read the same keys. `requirements` name *kinds* (`connector` / `knowledge_base` / `skill`), never ids — an entry pointing at knowledge base 2 would, installed elsewhere, silently read somebody else's row 2. `candidates` are computed per requirement from the caller's own rows via the **same predicate the serializer validates against** (`visible_servers_sync`); a `provider` hint reorders that pool and never filters it. Listing shows `visibility='platform'` shares only — a `link` share is reachable by slug and nowhere else, which is the entire difference between the two — plus the caller's own rows whatever their visibility, so publishing something unlisted does not look like it failed. `?source=curated\|community` narrows; `?mine=1` returns the caller's own publications including withdrawn ones (which is why the frontend filter is a server parameter and not a client-side `.filter()`). Each curated entry names its one-click pack under `pack` (computed from `gallery.PACKS`, never stored, so the catalogue cannot disagree with the pack; `null` for entries in no pack and for every shared entry) — what the Explore page groups by. Every entry also carries `available` + `unavailable_reason` (2026-09-24): whether it can run on this server at all, from the one predicate `agents/views/capabilities.py::unavailable_grants` (a grant whose engine is `none` - workspace, browser, e-sign, speech). Explore badges an unavailable entry and disables its install; the anonymous public projection carries `available` only |
+| `/api/orchestrator/templates/` | GET | Everything installable: curated templates **and** agents other users published | Auth | Light | `agents/tests/test_gallery.py::GalleryReadTests`, `agents/tests/test_sharing.py::ExploreTests` | — (plain dicts) | SharedAgent, MCPServer, KnowledgeBase, Skill (read-only) | **Two sources, one shape.** A *curated* entry is code — `agents/gallery/`, per the note in `templates/models.py`: a template is a `SubAgent` used as a starting point and needs no table. A *community* entry is a `SharedAgent` row. They are presented with the same keys and installed by the same function, because provenance changes how much an installer trusts an entry, not what it is; `source` says which. Each carries a flat `AgentConfig` under `config`, which is what the install screen renders its permissions from, so the screen and the runtime read the same keys. `requirements` name *kinds* (`connector` / `knowledge_base` / `skill`), never ids — an entry pointing at knowledge base 2 would, installed elsewhere, silently read somebody else's row 2. `candidates` are computed per requirement from the caller's own rows via the **same predicate the serializer validates against** (`visible_servers_sync`); a `provider` hint reorders that pool and never filters it. Listing shows `visibility='platform'` shares only — a `link` share is reachable by slug and nowhere else, which is the entire difference between the two — plus the caller's own rows whatever their visibility, so publishing something unlisted does not look like it failed. `?source=curated\|community` narrows; `?mine=1` returns the caller's own publications including withdrawn ones (which is why the frontend filter is a server parameter and not a client-side `.filter()`). Each curated entry names its one-click pack under `pack` (computed from `gallery.PACKS`, never stored, so the catalogue cannot disagree with the pack; `null` for entries in no pack and for every shared entry) — what the Explore page groups by. Every entry also carries `available` + `unavailable_reason` (2026-09-24): whether it can run on this server at all, from the one predicate `agents/views/capabilities.py::unavailable_grants` (a grant whose engine is `none` - workspace, browser, e-sign, speech). Explore badges an unavailable entry and disables its install; the anonymous public projection carries `available` only |
 | `/api/orchestrator/templates/{slug}/` | GET | One entry, same shape as the listing | Auth | Light | `agents/tests/test_gallery.py::GalleryReadTests`, `agents/tests/test_sharing.py::ExploreTests` | — | SharedAgent | Curated slugs are looked up first, which is why `_mint_slug` checks the gallery as well as the table — the two share a namespace and a shared agent that took a curated slug would be permanently unreachable. A `link` share resolves here for anybody holding the slug: that *is* the sharing mechanism. A withdrawn share resolves only for its author, so they can relist it; 404 for everyone else |
 | `/api/orchestrator/templates/{slug}/install/` | POST | Create one of the caller's own agents from a curated template or a shared agent | Auth | Light (no model call) | `agents/tests/test_gallery.py::InstallTests`, `agents/tests/test_sharing.py::ExploreTests` | `AgentSerializer` | SubAgent, SharedAgent, Trigger, SubAgentRevision | Body `{name?, requirements: {key: id}, timezone?}`. **Writes through `AgentSerializer`, not around it** — install is the same act as saving in the builder, so it gets the same closed tool-grant set and the same ownership re-check on every id; a second write path is a second place to forget a guardrail, and here that check is the whole reason installing a stranger's agent is safe (`test_a_shared_agents_requirements_are_resolved_against_the_installer` supplies the *author's* KB id and gets a 400). A required requirement left blank is a 400 naming it. `timezone` applies only when the entry ships a cron — the author's own zone is deliberately not carried, since "Monday morning" is a different instant for whoever installs it — and the resulting `Trigger` is `origin='builder'`. Duplicate names are suffixed like `agents/`; the agent is tagged `template:<slug>` or `shared:<slug>`, and `revisions.record(source='create')` writes revision 1. A community install bumps `install_count` with `F()`, not read-modify-write. 409 (2026-09-24) when the entry holds a grant whose engine is `none` on this server - installing it would write an agent that can only talk |
 | `/api/orchestrator/templates/install-pack/` | POST | Install a pack (e.g. `{"pack": "office"}`) in one click | Auth | Light (no model call) | `agents/tests/test_install_pack.py` | `AgentSerializer` | SubAgent, SubAgentRevision | Installs every template in `gallery.PACKS[pack]` whose requirements are all optional and which the caller has not already installed (checked via `SubAgent.template_slug`, set by both single and pack installs). Required-requirement templates are skipped as `{slug, reason: 'needs setup'}` rather than installed half-configured; already-installed as `'already installed'`. Idempotent: reinstalling installs nothing. Optional **`overrides: {slug: AgentConfig-fragment}`** — per-template tightening (`autonomy`, `writePaths`, `commandScope`, `toolPermissions`, `toolScope`, `spendCapRupees`, `playbooks`) through the same serializer the builder saves through, so the install screen's matrix and the runtime read one copy; a bad override skips only that template as `'invalid configuration'`. Installing the **`code` pack wires the lead**: `coding-lead`'s `delegatesTo` is set to the installed roster ids (recomputed over earlier installs too), so a lead cannot delegate outside the roster. Members holding a grant whose engine is `none` are skipped as `engine unavailable: <reason>` rather than installed unable to run; when *every* setup-free member is engine-blocked the pack answers 409 naming the engine instead of an empty install (the Code pack on a default install). The management command `install_packs` skips the same members as `engine unavailable`. Returns `{pack, installed: [{slug, id, name}], skipped: [{slug, reason}]}` |
@@ -254,8 +254,8 @@ it issued. `AgentStep` was `NodeExecutionLog` until 2026-08-19 (`logs.0013`).
 
 Views are thin sync `@api_view`s; every query lives in `logs/queries.py`.
 Responses keep the `workflow_id` / `workflow_name` wire names even though the
-column is `subagent` — the frontend and BrowserOS ship their own builds, so the
-rename is done in `queries.py` rather than across three repos.
+column is `subagent` — the frontend ships its own build, so the rename is done
+in `queries.py` rather than across the clients.
 
 | URL | Method | What | Access | Complexity | Tested | Serializer | DB tables | Notes |
 |-----|--------|------|--------|-----------|--------|-----------|-----------|-------|
@@ -419,7 +419,7 @@ ViewSets. **IDOR-sensitive — verify per-user scoping when reviewing.**
 
 ---
 
-## 9. Templates (community) — app: `templates` — [templates/views.py](../templates/views.py)
+## 9. Templates (community) — app: `templates` (models and migrations only; no views)
 
 Models: `WorkflowTemplate`, `WorkflowRating`, `WorkflowBookmark`, `TemplateComment`.
 
@@ -608,23 +608,18 @@ differ only in their event sink, so their behaviour cannot drift.
 
 ---
 
-## 13. Buddy — BrowserOS desktop assistant — **REMOVED 2026-09-02, to be rebuilt**
+## 13. Buddy — desktop assistant — **REMOVED 2026-09-02, to be rebuilt**
 
 The `buddy` backend app (`api/buddy/commands/`) was removed again on 2026-09-02.
 It had been briefly restored 2026-09-01 as a single stateless command endpoint,
 but the desktop assistant is being redesigned against the agent model rather
-than kept as a bespoke one-shot decision endpoint. The **BrowserOS frontend was
-deliberately kept** — `components/os/BuddyPanel.tsx` and
-`components/apps/ChatbotApp.tsx` still POST `/api/buddy/commands/`, so those
-calls 404 until the backend is rebuilt. No models or sockets were involved, so
+than kept as a bespoke one-shot decision endpoint. No models or sockets were involved, so
 removal was a clean deletion (app package + `INSTALLED_APPS` + URL include); no
 migration.
 
-### 14. BrowserOS workspace models — **REMOVED 2026-08-16, not restored**
+### 14. Desktop workspace models — **REMOVED 2026-08-16, not restored**
 
-`api/browseros/` and the `ws/buddy/` socket stay gone. `OSWorkspace` /
-`OSAppWindow` persisted desktop layout server-side; BrowserOS keeps that in its
-own contexts. Chat also lost the screen-context block `ws/buddy/` warmed — the
+The desktop-layout API and the `ws/buddy/` socket stay gone. Chat also lost the screen-context block `ws/buddy/` warmed — the
 `screen_context` field the chat POST body carried was never read by anything.
 
 ---
@@ -731,7 +726,7 @@ Models: `Generation`, `ImagineConversation`, `ImagineMessage`. Router ViewSets +
 ## 18. Evals + Tuning — **REMOVED 2026-08-16**
 
 `api/evals/` and `api/tuning/` were already routed out; the apps are now
-deleted (`AGENT_BLOCKS_PLAN.md` §6). Both accepted work, wrote a `queued` row
+deleted. Both accepted work, wrote a `queued` row
 and had no executor behind them.
 
 `tuning/` went in that pass; `evals/` did not, and survived un-routed and out of
@@ -947,7 +942,6 @@ Every request names the org it asks from (`?org=<id>` / body `org`; absent or `p
   runtime, so the DAG-triggering attack surface is gone entirely.
 - **Known crashes still open** (from the audit): template search (KeyError 500),
   notifications create (IntegrityError 500), and a hanging endpoint (MCP `tools/`).
-  (The browserOS workspace-create IntegrityError went with the app.)
   These rows are flagged / above.
 - **`executor` app has views but no URL routing** — dead HTTP surface (audit §5.6);
   it's exercised only through the engine tests.

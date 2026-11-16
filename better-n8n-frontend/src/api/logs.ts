@@ -8,8 +8,8 @@
  * never had.
  *
  * `workflow_id` / `workflow_name` are frozen wire names. What they identify is
- * a SubAgent — the backend renames the column on the way out so that this app
- * and BrowserOS, which ship their own builds, do not have to move together.
+ * a SubAgent — the backend renames the column on the way out so that this app,
+ * which ships its own build, does not have to move with it.
  */
 
 import apiClient from './client';

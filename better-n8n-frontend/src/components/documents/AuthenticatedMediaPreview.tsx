@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { documentsService, type Document } from '../../api/documents';
-import { MediaPreview } from '../chat/MediaPreview';
+import { MediaPreview } from '@/components/content/MediaPreview';
 
 interface Props {
   doc: Document;

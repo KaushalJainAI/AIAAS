@@ -38,8 +38,11 @@ from agents.agent.orchestrator import MAX_PARALLEL_WORKERS
 from agents.models import SubAgent
 from agents.serializers import SUSPICIOUS_WORKFLOW_NAME_RE
 from workflow_backend.thresholds import (
+    DEFAULT_MAX_STEPS,
     DEFAULT_RUN_SECONDS,
+    MAX_MAX_STEPS,
     MAX_RUN_SECONDS,
+    MIN_MAX_STEPS,
     MIN_RUN_SECONDS,
 )
 from agents.triggers import (
@@ -388,6 +391,14 @@ class AgentSerializer(serializers.Serializer):
         required=False, default=DEFAULT_RUN_SECONDS,
         min_value=MIN_RUN_SECONDS, max_value=MAX_RUN_SECONDS,
     )
+    # Model calls one run may make (2026-11-16). It was a constant (36) for
+    # every agent, so a long-horizon agent could not be given more room and a
+    # quick one could not be held to less. Default is that old constant, so an
+    # agent saved before the field existed runs exactly as it did.
+    maxIterations = serializers.IntegerField(
+        required=False, default=DEFAULT_MAX_STEPS,
+        min_value=MIN_MAX_STEPS, max_value=MAX_MAX_STEPS,
+    )
 
 
     # Context lifecycle
@@ -543,8 +554,8 @@ class AgentSerializer(serializers.Serializer):
         """Only real tool names, and only ones a grant can unlock.
 
         An unknown name would sit in the config doing nothing while the screen
-        implied the agent had been narrowed to it — the permissions-screen lie
-        `docs/AGENT_TEMPLATES.md` §5 calls unforgivable.
+        implied the agent had been narrowed to it — the permissions screen must
+        never be a promise nothing enforces.
         """
         from agents.grants import GRANT_TOOLS
 
@@ -968,6 +979,7 @@ class AgentSerializer(serializers.Serializer):
             # saved before this field existed has no key at all, and every one
             # of them still has to run.
             'maxRunSeconds': budget.limit_for(agent),
+            'maxIterations': budget.steps_for(agent),
             'summaryModel': settings_.get('summaryModel', ''),
             'summaryProvider': settings_.get('summaryProvider', ''),
             'recursiveContext': settings_.get('recursiveContext', True),
@@ -1057,6 +1069,9 @@ class AgentSerializer(serializers.Serializer):
             'spendCapRupees': data.get('spendCapRupees', 500),
             'maxRunSeconds': budget.clamp_run_seconds(
                 data.get('maxRunSeconds', DEFAULT_RUN_SECONDS)
+            ),
+            'maxIterations': budget.clamp_steps(
+                data.get('maxIterations', DEFAULT_MAX_STEPS)
             ),
         }
         if 'allowUnattended' in data:

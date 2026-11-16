@@ -41,7 +41,16 @@ FLASH_SUMMARY_CHAR_LIMIT = 30_000  # Truncate content for summary generation to 
 # so a turn that hits several of them at once can still add up to more than the
 # model accepts. clamp_llm_input applies this to the assembled payload, which is
 # the only place the true total is known.
+#
+# A model with a known window gets that whole window (less its reply and a
+# safety margin), and curation starts at `CONTEXT_HIGH_WATER_RATIO` (70%) of it.
+# This flat figure is only the budget for a model whose window is *unknown*
+# (no catalogue row, or `context_window` 0) — guessing big there is a 400.
 MAX_LLM_INPUT_TOKENS = 96_000
+#: Optional cost ceiling on any one request, whatever the model could read.
+#: 0 (the default) means none: a 1M-token model may be sent up to ~700k tokens
+#: before curation starts, and that is billed per call. Set it to cap spend.
+LLM_INPUT_TOKEN_CEILING = _int_env('LLM_INPUT_TOKEN_CEILING', 0)
 MAX_SINGLE_MESSAGE_TOKENS = 24_000  # One message may not eat the whole budget
 
 # ==================== Conversation History Retrieval ====================
@@ -103,6 +112,23 @@ MAX_TOOL_ITERATIONS = 12
 #: `deep` is also the turn's hard ceiling: it sizes the graph's step budget,
 #: because any turn may be promoted to it.
 PACE_ITERATIONS = {"quick": 3, "standard": MAX_TOOL_ITERATIONS, "deep": 36}
+
+# ── Run length (2026-11-16): set per agent and, for chat, per account ──
+#: Model calls one run may make. An agent's `maxIterations` and the account's
+#: orchestrator `chat_max_steps` are clamped into this range; the default is
+#: what both were fixed at before they were settable.
+DEFAULT_MAX_STEPS = 36
+MIN_MAX_STEPS = 3
+MAX_MAX_STEPS = 200
+#: A chat turn's time limit (`UserProfile.chat_time_limit_seconds`). Chat had
+#: none at all before; the default is generous because a person is watching.
+DEFAULT_CHAT_TURN_SECONDS = 30 * 60
+MIN_CHAT_TURN_SECONDS = 60
+MAX_CHAT_TURN_SECONDS = 8 * 60 * 60
+#: A chat turn's own spend cap, in rupees (`UserProfile.chat_spend_cap_rupees`);
+#: 0 means none. Counts the orchestrator's model calls; each worker it starts
+#: is bounded by its own agent's cap.
+DEFAULT_CHAT_SPEND_RUPEES = 500
 #: A message longer than this is not a quick lookup, whatever it opens with.
 PACE_QUICK_MAX_CHARS = 240
 
@@ -301,6 +327,12 @@ CONTEXT_KEEP_RECENT_SEGMENTS = 3
 #: recognise what the result was, never enough to work from — working from it is
 #: what `recall_context` and `read_tool_output` are for.
 CONTEXT_TOOL_RECORD_CHARS = 400
+#: An old tool-calling turn whose serialised *arguments* exceed this is
+#: compacted too: a written file or a deck spec rides in every later request
+#: just as a large result does.
+CONTEXT_TOOL_ARGS_CHARS = 2_000
+#: How much of each long argument value survives — enough to recognise it.
+CONTEXT_TOOL_ARG_KEEP_CHARS = 200
 #: Target length of a recursive summary. Small on purpose: a summary that grows
 #: with the run is just the run again.
 CONTEXT_SUMMARY_TARGET_WORDS = 250

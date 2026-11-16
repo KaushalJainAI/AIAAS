@@ -55,7 +55,7 @@ data.
 
 ## R1. Your first component, from this codebase
 
-[`components/chat/ThinkingTimer.tsx`](../better-n8n-frontend/src/components/chat/ThinkingTimer.tsx)
+[`features/chat/components/ThinkingTimer.tsx`](../better-n8n-frontend/src/features/chat/components/ThinkingTimer.tsx)
 (the "(3.4s)" counter while the assistant thinks), slightly trimmed:
 
 ```tsx
@@ -145,7 +145,7 @@ array index when items can be reordered or removed.
 
 ## R3. Props: passing data and callbacks down
 
-[`components/chat/ToolApprovalCard.tsx`](../better-n8n-frontend/src/components/chat/ToolApprovalCard.tsx):
+[`features/chat/components/ToolApprovalCard.tsx`](../better-n8n-frontend/src/features/chat/components/ToolApprovalCard.tsx):
 
 ```tsx
 interface ToolApprovalCardProps {
@@ -177,7 +177,7 @@ know how approving works. It just reports the click. That's what makes it easy
 to test (Part 3 §11.4.1).
 
 **`children`** is a special prop: whatever you put between the tags.
-[`components/chat/CollapsiblePanel.tsx`](../better-n8n-frontend/src/components/chat/CollapsiblePanel.tsx):
+[`features/chat/components/CollapsiblePanel.tsx`](../better-n8n-frontend/src/features/chat/components/CollapsiblePanel.tsx):
 
 ```tsx
 interface CollapsiblePanelProps {
@@ -340,7 +340,7 @@ markdown is expensive.
 
 When state has several fields that change together in response to events, a
 reducer is clearer than many `useState`s.
-[`hooks/useChatStream.ts`](../better-n8n-frontend/src/hooks/useChatStream.ts):
+[`features/chat/hooks/useChatStream.ts`](../better-n8n-frontend/src/features/chat/hooks/useChatStream.ts):
 
 ```tsx
 function reducer(state: ChatStreamState, action: Action): ChatStreamState {
@@ -465,7 +465,7 @@ if (isAuthenticated) return <Navigate to="/ai-chat" replace />;   // redirect wh
 The main layout draws the top bar and sidebar once, and the page appears in
 the outlet.
 
-**Lazy pages:** `const AIChat = lazyPage(() => import('./pages/AIChat'));`
+**Lazy pages:** `const AIChat = lazyPage(() => import('@/features/chat'));`
 downloads a page's code only when someone visits it. `<Suspense>` shows the
 fallback meanwhile.
 
@@ -576,7 +576,7 @@ sequenceDiagram
 
 ## R15. A decoder exercise
 
-Real code from [`components/chat/CollapsiblePanel.tsx`](../better-n8n-frontend/src/components/chat/CollapsiblePanel.tsx):
+Real code from [`features/chat/components/CollapsiblePanel.tsx`](../better-n8n-frontend/src/features/chat/components/CollapsiblePanel.tsx):
 
 ```tsx
 export function CollapsiblePanel({ open, children }: CollapsiblePanelProps) {

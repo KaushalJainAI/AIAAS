@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shlex
 from typing import Any, Dict
 
 from .agents import worker_caller
@@ -989,12 +990,17 @@ async def _revert_one(engine, context, project, change, path: str) -> str | None
     try:
         if not change.before_hash:
             # The worker created this file: remove what it made.
-            await engine.exec(ws, f'rm {path!r}', cwd=project.workspace_path, timeout=60)
+            # `shlex.quote`, never `{path!r}`: Python quoting puts a path
+            # holding `'` in double quotes, where `$(...)` runs. `--` stops a
+            # path starting with `-` being read as a flag.
+            await engine.exec(
+                ws, f'rm -- {shlex.quote(path)}', cwd=project.workspace_path, timeout=60)
         else:
             # A tracked edit: restore what git had. New-but-committed files
             # land here too, which is also correct — HEAD is what was there.
             out = await engine.exec(
-                ws, f'git checkout -- {path!r}', cwd=project.workspace_path, timeout=60)
+                ws, f'git checkout -- {shlex.quote(path)}',
+                cwd=project.workspace_path, timeout=60)
             if int(out.get('exit_code') or 0) != 0:
                 return 'git checkout refused it (untracked or ignored?)'
     except WorkspaceError as exc:

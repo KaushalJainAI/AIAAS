@@ -517,8 +517,8 @@ class AgentRunStream:
         await self._safe(self._broadcaster.workflow_started(
             self.execution_id,
             # Reads `subagent_id` since `Workflow` was dropped. The broadcast
-            # key keeps its wire name because BrowserOS and the canvas ship
-            # their own builds and parse `workflow_id`; what it identifies is
+            # key keeps its wire name because the frontend ships its own
+            # build and parses `workflow_id`; what it identifies is
             # the agent, which is what it always identified for an agent run.
             workflow_id=self._log.subagent_id,
             workflow_name=goal[:120],

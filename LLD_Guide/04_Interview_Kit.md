@@ -155,9 +155,9 @@ def tick(now):
 
 ---
 
-## 15. Talking about it: stories, questions, answers
+## 15. Talking about it: stories and the 2-minute version
 
-### 15.1 Three stories in STAR form (practise these)
+### 15.1 Four stories in STAR form (practise these)
 
 **Story 1 — The registry (design for change).**
 - *Situation:* Tools were defined in three places and drifted; a tool could be
@@ -200,51 +200,7 @@ def tick(now):
   chat now also compacts long turns. Lesson: a framework's default merge rule
   (here, "append") is a design decision you inherit, whether you meant to or not.
 
-### 15.2 Questions you should be able to answer
-
-**Q: When would you use Strategy vs Template Method?**
-A: Template Method when subclasses share most of an algorithm and vary a few
-steps — my LLM providers share HTTP, streaming and parsing, and override only
-payload hooks. Strategy when whole algorithms swap — approval policies share
-nothing, so they're plain functions chosen by the autonomy level.
-
-**Q: Isn't a singleton an anti-pattern?**
-A: It's global state, so it hurts testing. I have one — the provider registry —
-and it's safe because it stores classes and returns a fresh handler per call.
-My credential cache singleton did bite me: ids restart per test DB, so cached
-entries leaked across tests. Now tests clear it in `setUp`.
-
-**Q: How do you prevent two workers doing the same job?**
-A: A lease row for leader election — one conditional UPDATE, "mine or expired".
-And per job a compare-and-swap claim: `UPDATE ... WHERE next_due_at = <what I
-read>`. Rowcount zero means I lost; no lock is held, so no deadlocks.
-
-**Q: How do you make a permission check impossible to bypass?**
-A: One door, checked at both points: filter what's offered, and re-check at
-dispatch. Defaults fail closed. And scopes intersect down a delegation tree so a
-child never exceeds its parent.
-
-**Q: How do you design for failure?**
-A: Decide per failure whether to degrade or fail loudly. Dev checkpointer
-degrades to memory; prod raises. Observers must never raise. Retry only
-transport failures before any output. Timeouts must actually kill the work. And
-fail before showing "thinking" if the call can't be paid for.
-
-**Q: What's the difference between HLD and LLD in your project?**
-A: HLD: a modular monolith on one small box — Django ASGI, Postgres pool,
-Redis for channels, a no-network sandbox sidecar, SSE for chat. LLD: how that
-box behaves inside — registries, the dispatch chain, the steering queue, leases,
-the file scope, and the admission controller that keeps connectors inside a
-memory budget.
-
-**Q: How did you keep a 30+ app Django project from turning into spaghetti?**
-A: Apps are grouped by mechanism, not by page. Layers are declared in
-`.importlinter` and a test fails CI on a wrong-way import. Code other apps need
-(the grants table, the serializer, the office library) was moved *out* of views
-and tool modules into its own module so it can be imported without dragging the
-engine along.
-
-### 15.3 How to present this project in 2 minutes
+### 15.2 How to present this project in 2 minutes
 
 ```mermaid
 flowchart LR
@@ -332,7 +288,7 @@ mindmap
 | Materialised path | Tree as id path string | `Folder.path` | `inference/filesystem.py` |
 | Admission control | Reserve before spending | `ConnectorSupervisor` | `mcp_integration/supervisor.py` |
 | LRU | Evict least recently used | MCP session pool | `mcp_integration/client.py` |
-| Reducer | Pure `(state, event) → state` | `useChatStream` | `src/hooks/useChatStream.ts` |
+| Reducer | Pure `(state, event) → state` | `useChatStream` | `src/features/chat/hooks/useChatStream.ts` |
 | Choke point | One read function, enforced by a test | `visible(user, org)` | `solutions/access.py` |
 | Derived state | Compute when read, don't store | Solution freshness | `solutions/freshness.py` |
 | Fair selection | Share a budget round-robin | Memory categories | `core/memory.py` |

@@ -40,7 +40,7 @@ helpers/
   assertions.ts  # shared expect helpers (auth, nav, status pill, etc.)
 scenarios/
   001-regular-user-smoke.spec.ts   # signup → chat → docs → agents → runs → overview
-  002-hit-permission-flow.spec.ts  # approval scopes once|session|always + plan withholds
+  002-hitl-permission-flow.spec.ts  # approval scopes once|session|always + plan withholds
   003-rag-kb-scope.spec.ts         # KB scope + RAG search shape
 fixtures/
   trace/         # gitignored
@@ -50,7 +50,7 @@ fixtures/
 
 - **One scenario = one journey file**, named `NNN-kebab-case.spec.ts`. Each seeds its own data via `helpers/seed.ts` — no cross-file state.
 - **Auth via API + localStorage injection** (fast, mirrors `better-n8n-frontend/tests/e2e/connections.spec.ts:freshLogin`). After `register_or_login`, call `injectAuth(page, access)` which does `page.addInitScript(localStorage.setItem('access_token', …))` + `refresh_token`. No UI login unless the spec is testing login UX itself.
-- **Selectors**: prefer `getByLabel` / `getByRole` / `aria-label` (stable today). `data-testid` migration is planned but specs already work without it — see `instance/docs/USER_JOURNEY.md:115` for the target list.
+- **Selectors**: prefer `getByLabel` / `getByRole` / `aria-label` (stable today). `data-testid` migration is planned but specs already work without it — see section 4 of `instance/docs/USER_JOURNEY.md`.
 - **Human timing**: type with `delay: 30`, wait for SSE/stream Idle via `expect(page.getByRole('button', {name: /stop/i})).toBeHidden({timeout: 30000})`, not fixed `waitForTimeout`.
 - **Trace/video**: kept `retain-on-failure` — open with `npx playwright show-report` or `--trace on`.
 

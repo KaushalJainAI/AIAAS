@@ -1,141 +1,96 @@
-# AIAAS — Low-Level Design Guide
+# AIAAS Low-Level Design Guide
 
-A study guide to the design of AIAAS, taught from its own code. It covers the
-high-level design (the big boxes) and, mostly, the low-level design: the
-classes, patterns, data structures and invariants inside each box, on both the
-**backend** (Django / Python) and the **frontend** (React / TypeScript).
+The single index for this guide and for the deep dives in `../learning/`.
 
-Every pattern links to the real file. Every section ends with a line you can
-say in an interview. Most sections open with a picture: about 100 Mermaid
-diagrams (flowcharts, sequence, class and state diagrams, a mind map) plus five
-drawn images in [`diagrams/`](diagrams/). **Look at the picture first, then read.**
+The guide teaches the design of AIAAS from its own code: the high-level design
+(the big boxes) and the low-level design (the classes, patterns and invariants
+inside each box), for the backend (Django / Python) and the frontend (React /
+TypeScript). Every pattern links to a real file. Most sections open with a
+picture. **Look at the picture first, then read.** Mermaid renders on GitHub and
+in VS Code's preview (install "Markdown Preview Mermaid Support" if a block shows
+as code).
 
-| Picture | Shows | Used in |
-|---|---|---|
-| ![](diagrams/hld-overview.svg) | The whole system on one page | Part 1 §2.2 |
-| ![](diagrams/agent-loop.svg) | The four-step agent loop | Part 1 §2.3 |
-| ![](diagrams/one-door.svg) | Every gate a tool call passes | Part 2 §7.4 |
-| ![](diagrams/filescope.svg) | What an agent may read and write | Part 2 §10 |
-| ![](diagrams/state-by-lifetime.svg) | Where frontend state lives | Part 3 §11.2 |
-
-Mermaid renders on GitHub and in VS Code's Markdown preview (install the
-"Markdown Preview Mermaid Support" extension if a block shows as code).
-
-> Written 2026-09-27, updated 2026-09-28. This folder is part of the AIAAS
-> repository: since 2026-09-27 the backend, the frontend and the project docs
-> are **one git repository** (both old histories merged in). Links are
-> relative, so they open in VS Code and on GitHub.
-
----
-
-## What changed recently (2026-09-28)
-
-The guide was updated for the work that landed on 2026-09-28. If you have
-already read it, these are the new or changed sections:
-
-| Change in the code | What it teaches | Where in the guide |
-|---|---|---|
-| **Organisations + solution memory** (`solutions/`, `core/orgs.py`): solved problems are saved and found again, only inside the org they came from | A single read door that every query must pass (with a test that enforces it); state computed when read instead of stored; search that refuses to answer on weak evidence | Part 1 §3.3 · Part 2 §8.9, §8.10 · Part 9 §14.7 · Part 10 §O |
-| **Chat sent earlier turns twice** (the database history *and* the checkpoint) | One source of truth; the bug a test on the provider's input caught | Part 1 §2.3 · Part 2 §12 · Part 4 §15.1 story 4 |
-| **User memory picks facts fairly** (categories take turns under a 2,000-char budget; "Who they are" first) | Fair selection under a budget (round-robin) | Part 2 §8.11 · Part 10 §O |
-| **The prompt tells the model the chat's mode** and how many old messages were left out | Put changing facts in the per-turn update, not the cached system prompt | Part 9 §14.1 · Part 10 §O |
-| **`run_in_thread`**: start async work from sync code | Bridging sync and async safely | Part 2 §9.7 |
-| **Frontend**: Solutions page, Organisation settings, a per-chat sharing switch, the Memory tab shows what the model actually sees | Showing users the system's real state | Part 3 §11.13 |
-| **One repository** | — | This README; Part 10 §A5 |
-
----
-
-## New to Python, Django, TypeScript or React? Start here
-
-These four primers are written for beginners. Each starts with the basics in
-plain words, then a glossary, then the exact syntax this codebase uses, with
-real lines from it, a decoder exercise, and a cheat sheet.
-
-| # | File | Read it if… | Time |
-|---|---|---|---|
-| 5 | [05_Python_Syntax.md](05_Python_Syntax.md) | Python is new, or `@decorator`, `async`, `*,` and dataclasses look strange | 45 min |
-| 6 | [06_Django_Primer.md](06_Django_Primer.md) | you don't know models, the ORM, URLs, views, serializers, migrations | 60 min |
-| 7 | [07_TypeScript_Syntax.md](07_TypeScript_Syntax.md) | JavaScript/TypeScript is new, or `?.`, `??`, `<T>` and unions look strange | 45 min |
-| 8 | [08_React_Primer.md](08_React_Primer.md) | you don't know components, props, state, hooks, routing, React Query | 60 min |
-
-**Suggested path for a beginner:** 5 → 6 → Part 1 → Part 2, then 7 → 8 → Part 3,
-then Part 4.
-
-## Know AI/data science but not software design? Start here
-
-| # | File | What it gives you | Time |
-|---|---|---|---|
-| 9 | [09_Design_Patterns_for_AI_Engineers.md](09_Design_Patterns_for_AI_Engineers.md) | Each pattern explained from something you've used (scikit-learn, PyTorch, Keras callbacks, Hugging Face `AutoModel`, `DataLoader`), then shown in AIAAS; plus AI-specific patterns (context curation, LLM-as-judge, guardrail layers, rank fusion) and the CS underneath | 50 min |
-
-## Preparing for interviews
-
-| # | File | What it gives you |
-|---|---|---|
-| 10 | [10_Probable_Interview_Questions.md](10_Probable_Interview_Questions.md) | ~90 likely questions on this project (overview, HLD, LLD, agents, RAG, evals, data, concurrency, frontend, security, ops, scaling, behavioural, and the 2026-09-28 work on organisations, solution memory and prompts), each with a model answer, level tag and the likely follow-up; numbers to know by heart; questions to ask the interviewer |
-
-## How we know it works
-
-| # | File | What it gives you | Time |
-|---|---|---|---|
-| 11 | [11_How_We_Test.md](11_How_We_Test.md) | Every kind of test in the project and why it exists: fake-model unit tests, end-to-end tests through the real agent graph, tests that enforce the architecture, frontend/backend contract tests, concurrency and security tests, the frontend stack, and the real-model benchmark (capability vs guardrail, pass@1 vs pass^k); the latest results; the CI setup; interview answers | 30 min |
-
-## Reading order (design)
+## Design reading order
 
 | # | File | What it covers | Time |
 |---|---|---|---|
-| 1 | [01_HLD_and_Object_Model.md](01_HLD_and_Object_Model.md) | HLD vs LLD; the system's boxes and data flow; HLD decisions and their costs; the core classes and why they're shaped that way | 25 min |
-| 2 | [02_Backend_LLD_Patterns.md](02_Backend_LLD_Patterns.md) | SOLID; creational, structural and behavioural patterns; persistence, concurrency and safety patterns; backend anti-patterns fixed | 90 min |
-| 3 | [03_Frontend_LLD_Patterns.md](03_Frontend_LLD_Patterns.md) | Frontend layers; API client, SSE, error boundary layer; state by lifetime (React Query, reducers, external store, context, Zustand); WebSocket primitive; component design; hooks; performance; client security; FE/BE agreement; testing; frontend anti-patterns | 75 min |
-| 4 | [04_Interview_Kit.md](04_Interview_Kit.md) | Designing a feature end to end; classic LLD problems (LRU, scheduler, rate limiter…) mapped to this code; STAR stories; Q&A; full cheat sheet | 45 min |
+| 1 | [01_HLD_and_Object_Model.md](01_HLD_and_Object_Model.md) | The big boxes, one request's path, the core classes and why they are shaped that way | 25 min |
+| 2 | [02_Backend_LLD_Patterns.md](02_Backend_LLD_Patterns.md) | The backend pattern catalogue: SOLID, GoF and system patterns, safety, AI-system patterns, anti-patterns this project fixed | 90 min |
+| 3 | [03_Frontend_LLD_Patterns.md](03_Frontend_LLD_Patterns.md) | Frontend layers, state by lifetime, API and real-time, components, performance, client security, testing | 60 min |
+| 4 | [04_Interview_Kit.md](04_Interview_Kit.md) | A feature designed end to end, classic problems mapped to this code, STAR stories | 40 min |
 
-Section numbers run across all four files (§0–§16), so a reference like "see
-§7.6" means section 7.6 wherever it lives: §0–3 in Part 1, §4–10 and §12 in
-Part 2, §11 in Part 3, §13–16 in Part 4.
+Section numbers run across the four files: §0–3 in 01, §4–12 in 02, §11 in 03,
+§13–16 in 04. A reference like "§8.9" means section 8.9 wherever it is.
 
----
+## Primers (for reading the code when a language is new)
 
-## Pattern finder
+| # | File | Read it if… | Time |
+|---|---|---|---|
+| 5 | [05_Python_Syntax.md](05_Python_Syntax.md) | `@decorator`, `async`, bare `*`, dataclasses or `is None` look strange | 45 min |
+| 6 | [06_Django_Primer.md](06_Django_Primer.md) | You don't know models, the ORM, URLs, views, serializers or migrations | 60 min |
+| 7 | [07_TypeScript_Syntax.md](07_TypeScript_Syntax.md) | `?.`, `??`, `<T>` or unions look strange | 45 min |
+| 8 | [08_React_Primer.md](08_React_Primer.md) | You don't know components, state, effects, hooks or React Query | 60 min |
 
-| Pattern | Backend | Frontend |
+**Beginner path:** 5 → 6 → 1 → 2, then 7 → 8 → 3, then 4.
+**Know AI but not software design:** read [02 §10](02_Backend_LLD_Patterns.md) (the AI-system patterns) first.
+
+## Interviews and testing
+
+| # | File | What it gives you |
 |---|---|---|
-| Singleton | `ProviderRegistry`, `CredentialManager` (§5.1) | axios `apiClient` (§11.1.1) |
-| Factory / lazy init | `checkpoints.build()`, `get_graph()` (§5.2–5.3) | `lazyPage` (§11.6) |
-| Builder | LangGraph `StateGraph` (§5.4) | — |
-| Facade | `arun_code`, `llm/access`, `eval/api` (§6.1) | `toast.*` over the store (§11.2.5) |
-| Adapter | Provider payload hooks, eval simulators (§6.2) | `usePersistedState`, `asArray` (§11.1.3, §11.2.6) |
-| Decorator / middleware | `HybridMiddleware`, `@tool` (§6.3) | axios interceptors (§11.1.1) |
-| Proxy | Eval environment in `dispatch` (§6.4) | — |
-| Registry / plugin | Tools, graders, contracts, commands (§7.1) | Icon map by `icon_slug` (§11.8) |
-| Strategy | Approval policies, sandbox engines (§7.2) | Transport choice: SSE / WS / polling (§11.3) |
-| Template Method | `OpenAICompatibleLLMNode` (§7.3) | — |
-| Chain of Responsibility | `AgentToolbox.dispatch` (§7.4) | Interceptor chain (§11.1.1) |
-| Observer | `EventSink`, `on_tool_result` (§7.5) | `subscribeChatRun`, `useSyncExternalStore` (§11.2.3) |
-| Command / queue | Steering mailbox, slash commands (§7.6) | Undo history (§11.5) |
-| State machine | Run / HITL / trigger status (§7.7) | Run status in `chatRuns` (§11.2.3) |
-| Reducer / event sourcing | Whole-list `update_todos` (§7.6) | `useChatStream`, `planStream` (§11.2.2) |
-| Optimistic concurrency | Slot claim, `expected_version` (§8.2) | Autosave etag (Part 2 §8.2) |
-| Lease / leader election | `SchedulerLease` (§8.3) | — |
-| LRU / bounded caches | MCP pool, credential cache (§9.4) | Run retention + GC (§11.2.3) |
-| Admission control | `ConnectorSupervisor` (§9.3) | — |
-| Allow-list validation | Env passthrough, `SHAREABLE_KEYS` (§10) | `nextPath`, `safeUrl` (§11.7) |
-| Choke point / single read door | `solutions/access.py::visible`, `filesystem.resolve_folder` (§8.9) | only `src/api/` calls the backend (§11.1) |
-| Derived state (computed at read time) | Solution freshness `fresh`/`check` (§8.10) | `in_prompt` shown on the Memory tab (§11.13) |
-| Fair selection under a budget | Memory categories take turns (§8.11) | — |
-| Single source of truth | Chat history only from the database (§12) | Screen state as a fold over events (§11.2.2) |
+| 10 | [10_Probable_Interview_Questions.md](10_Probable_Interview_Questions.md) | The only interview bank: questions by topic, model answers, numbers to know, questions to ask |
+| 11 | [11_How_We_Test.md](11_How_We_Test.md) | Every kind of test, what each guards against, and how to run them |
 
----
+## Deep dives (`../learning/`)
+
+One topic each, written from the real code and incidents.
+
+| File | Topic |
+|---|---|
+| [01 Google OAuth and JWT](../learning/01_google_oauth_jwt.md) | Social login, token verification, cookie security |
+| [05 MCP](../learning/05_mcp_model_context_protocol.md) | The tool protocol, stdio vs remote, credential injection, tool caching |
+| [06 React hooks and WebSockets](../learning/06_react_hooks_websocket_patterns.md) | `useRef` vs `useState`, cleanup, backoff, the StrictMode race |
+| [07 WebSocket overuse and polling](../learning/07_websocket_overuse_and_polling_fixes.md) | Choosing SSE, WebSocket or polling; the hardcoded-URL pitfall |
+| [08 Agentic security hardening](../learning/08_agentic_security_hardening.md) | Approval bypass, environment leaks, shell timeouts, path validation |
+| [10 Performance, caching, queries](../learning/10_performance_caching_and_query_optimization.md) | Keyset pagination, React Query, payload trimming |
+| [12 Docker build time and disk](../learning/12_docker_build_speed_and_deploy.md) | BuildKit cache mounts, image transfer, patch-layer hotfix, the Docker disk on Windows |
+| [13 Async Django concurrency](../learning/13_async_django_concurrency_bottlenecks.md) | Why one user made the server lag: pool held across waits, thread executors, event-loop blocking |
+| [14 The auto-mode judge that never ran](../learning/14_auto_mode_judge_that_never_ran.md) | A fail-safe that hid a broken import; mocks that skip the broken seam |
+| [15 Whole-project security review](../learning/15_whole_project_security_review.md) | Pre-account takeover, JWT revocation, hashed keys, SSRF through redirects |
+| [16 Deploy downtime and background work](../learning/16_deploy_downtime_and_background_work.md) | What a restart does to streams, runs and the scheduler; at-least-once vs at-most-once |
+
+**Find by topic**
+
+| Topic | Read |
+|---|---|
+| Security | 01, 08, 15 |
+| Agents and MCP | 05, 08, 14 |
+| Frontend | 06, 07 |
+| Concurrency and deploys | 13, 16, 12 |
+| Data and performance | 10 |
+
+## Pictures
+
+| Picture | Shows | Used in |
+|---|---|---|
+| ![](diagrams/hld-overview.svg) | The whole system on one page | 01 §2.2 |
+| ![](diagrams/agent-loop.svg) | The four-step agent loop | 01 §2.3 |
+| ![](diagrams/one-door.svg) | Every gate a tool call passes | 02 §7.4 |
+| ![](diagrams/filescope.svg) | What an agent may read and write | 02 §10.2 |
+| ![](diagrams/state-by-lifetime.svg) | Where frontend state lives | 03 §11.2 |
 
 ## How to study it
 
 1. Read a section, then open the linked file and find the excerpt.
 2. Write the pattern from memory in a scratch file, without the project.
-3. Say the "interview line" out loud.
-4. For every pattern, be ready for: *what problem? why here? what does it cost?
-   what would you do at 10× scale?*
+3. Say the section's "interview line" out loud.
+4. For every pattern, be ready for: what problem, why here, what it costs, and
+   what changes at 10× scale.
 
-## Related notes
+## Related
 
-- `../learning/` — deep dives on single topics (OAuth/JWT, MCP, WebSockets,
-  async Django concurrency, deploy downtime, the security review).
-- `../START_HERE.md` — plain-language tour of the product.
-- `../CLAUDE.md` — the full design history, one decision at a time.
+- [../START_HERE.md](../START_HERE.md): plain-language tour of the product
+- [../INFRASTRUCTURE_SIMPLE_GUIDE.md](../INFRASTRUCTURE_SIMPLE_GUIDE.md): containers, proxies and the server
+- [../REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md](../REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md): SSE, WebSockets and polling in plain words
+- [../CLAUDE.md](../CLAUDE.md): the full design history, one decision at a time
+- [../Backend/docs/README.md](../Backend/docs/README.md): the index of backend docs

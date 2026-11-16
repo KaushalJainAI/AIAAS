@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Cpu,
   Timer,
+  Footprints,
   FolderLock,
   Wrench,
   Plug,
@@ -418,6 +419,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'history', label: 'History' },
 ];
 
+/** One-click step limits, labelled by the kind of job they fit. */
+const STEP_PRESETS = [
+  { label: 'Quick', steps: 12, hint: 'A lookup, a triage, a short reply' },
+  { label: 'Standard', steps: 36, hint: 'The default: most reports and tasks' },
+  { label: 'Long', steps: 80, hint: 'Research across many sources, a multi-file change' },
+  { label: 'Very long', steps: 150, hint: 'Large migrations, month-end closes; pair with a longer time limit' },
+];
+
 /** Which tab holds each config field, so a save the server rejects can bring
  *  the offending field on screen instead of naming it on a tab you can't see.
  *  Keys are the AgentConfig names the serializer reports errors under. */
@@ -425,7 +434,8 @@ const FIELD_TAB: Partial<Record<string, TabId>> = {
   name: 'basics', brief: 'basics', description: 'basics', tags: 'basics',
   status: 'basics', provider: 'basics', model: 'basics', effort: 'basics',
   temperature: 'basics',
-  fileAccess: 'behavior', maxRunSeconds: 'behavior', outputContract: 'behavior',
+  fileAccess: 'behavior', maxRunSeconds: 'behavior', maxIterations: 'behavior',
+  outputContract: 'behavior',
   fanoutParallel: 'behavior', compaction: 'behavior', recursiveContext: 'behavior',
   summaryModel: 'behavior', summaryProvider: 'behavior', indexing: 'behavior',
   tools: 'tools', connectors: 'tools', toolScope: 'tools', toolPermissions: 'tools',
@@ -1051,8 +1061,8 @@ export default function AgentBuilder() {
                 checkpoint, a database connection, for as long as it waits on a
                 model. So the knob is time, and unlike the two it replaced it is
                 enforced. */}
-            <Section icon={Timer} title="Run limit"
-              hint="How long one run may take">
+            <Section icon={Timer} title="Run limits"
+              hint="How long one run may take, and how many steps">
               <Knob path="maxRunSeconds" label="Time limit" hint="per run">
                 <div className="flex items-center gap-2">
                   <Timer className="w-4 h-4 text-muted-foreground" />
@@ -1081,6 +1091,40 @@ export default function AgentBuilder() {
                 Near the limit the agent stops calling tools and answers with what it
                 has, so a run that runs long still returns something. Work it delegates
                 shares this budget — a sub-agent cannot outlive the run that called it.
+              </p>
+
+              <Knob path="maxIterations" label="Step limit" hint="model calls per run">
+                <div className="flex items-center gap-2">
+                  <Footprints className="w-4 h-4 text-muted-foreground" />
+                  <input type="number" min={3} max={200} step={1}
+                    value={cfg.maxIterations ?? 36}
+                    onChange={(e) => set('maxIterations',
+                      Math.max(3, Math.min(200, Math.round(Number(e.target.value) || 36))))}
+                    className="w-full h-9 px-2 rounded-md border border-input bg-background text-sm" />
+                  <span className="text-sm text-muted-foreground shrink-0">steps</span>
+                </div>
+              </Knob>
+              <div className="flex flex-wrap gap-1.5">
+                {STEP_PRESETS.map((p) => (
+                  <button key={p.steps} type="button" title={p.hint}
+                    onClick={() => set('maxIterations', p.steps)}
+                    className={`h-7 px-2.5 rounded-md border text-[12px] transition-colors ${
+                      (cfg.maxIterations ?? 36) === p.steps
+                        ? 'border-primary text-primary bg-primary/10'
+                        : 'border-input text-muted-foreground hover:text-foreground'
+                    }`}>
+                    {p.label} · {p.steps}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[12px] text-muted-foreground">
+                A step is one model call: the agent thinks, calls tools, reads the
+                results. Size it to the job: a lookup or triage agent needs 5–15, a
+                report 30–60, a long multi-file job 100 or more. A higher limit costs
+                nothing until it is used, but an agent that goes round in circles spends
+                up to it, so it works together with the time limit above and the spend
+                cap under Automation &amp; safety. On its last step the agent answers with
+                what it has.
               </p>
             </Section>
 

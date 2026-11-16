@@ -39,7 +39,7 @@ const lazyPage = <T extends { default: React.ComponentType }>(
   load: () => Promise<T>,
 ) => lazy(load);
 
-const AIChat = lazyPage(() => import('./pages/AIChat'));
+const AIChat = lazyPage(() => import('@/features/chat'));
 const Apps = lazyPage(() => import('./pages/Apps'));
 const AppFrame = lazyPage(() => import('./components/apps/AppFrame'));
 const Dashboards = lazyPage(() => import('./pages/Dashboards'));
@@ -202,7 +202,7 @@ const AppContent = () => {
                   template or a run — never browsed as its own catalogue. The
                   editor routes stay so every existing deep link still opens. */}
               <Route path="/workflows" element={<Navigate to="/agents" replace />} />
-              {/* The DAG editor is gone (AGENT_BLOCKS_PLAN.md §6). Old links land on agents. */}
+              {/* The DAG editor is gone (removed 2026-08-17). Old links land on agents. */}
               <Route path="/workflow/:id" element={<Navigate to="/agents" replace />} />
               <Route path="/workflows/new" element={<Navigate to="/agents" replace />} />
               <Route path="/documents" element={<Documents />} />

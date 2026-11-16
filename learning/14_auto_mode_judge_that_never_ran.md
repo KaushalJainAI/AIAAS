@@ -120,25 +120,31 @@ still covers the address.
 
 ---
 
-## Interview Questions
+## The Same Trap, One Layer Lower: Shadowing a Broken Library
 
-1. *Your fail-safe path catches every exception and returns a safe default. What can go
-   wrong?*
-   → A permanent bug looks like normal cautious behaviour. Log the exception type, and alert
-   when the failure rate is high.
+A cousin of this failure happened at import time, not call time. LangGraph
+0.5.2 hit `TypeError: Cannot create a consistent method resolution order
+(MRO) for bases ABC, Generic` on import, which crashed the entire server —
+migrations, `runserver`, tests.
 
-2. *All your tests pass but the feature never worked in production. How?*
-   → The tests mocked the layer that was broken. Keep one test per integration seam that
-   mocks one level lower.
+The stopgap was a **local mock on the path**: a `Backend/langgraph/` folder
+with empty stubs (`class StateGraph: pass`). Python's `sys.path` prefers the
+current directory, so the stub shadowed the site-package and Django could
+boot — enough to run migrations and keep non-agent work moving.
 
-3. *How do you run N independent checks concurrently but keep deterministic output?*
-   → `asyncio.gather` to decide, then iterate the results in the original order to act.
+The rules that made it a stopgap and not a fix:
 
-4. *Why can re-running a node after an interrupt cause duplicate or contradictory
-   prompts?*
-   → The replay re-executes nondeterministic work. Memoize by a stable id or skip
-   already-settled items.
+- **Never in production.** It is for unblocking `migrate` or work that
+  doesn't execute the library — not a state the agent runtime can run in,
+  because the classes are no-ops.
+- **Time-boxed to the real fix** — the conflict was resolved by upgrading
+  (requirements now pin `langgraph==1.1.10`), not by living with the stub.
+  The folder is gone from the tree.
+- **The same shape of lie as the judge bug**: a stub that lets every
+  downstream import succeed while the thing being imported does nothing.
+  Broad-catch plus a mock is a bug that cannot be seen, twice removed.
 
-5. *How would you choose a model for an inline "allow or ask" judge?*
-   → Latency budget first (it blocks the user), then consistency (temperature 0, no
-   reasoning), then cost. Measure p50/p95 on the real prompt.
+**Lesson:** a mock is a statement about what you have tested, not about
+what works. When an import or a wiring seam is the thing under test,
+mocking one level lower is mandatory, and shipping a shadow stub is a
+stopgap with an owner and an expiry date, not a resolution.

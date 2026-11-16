@@ -21,7 +21,6 @@ import json
 from typing import Any
 
 from llm.access import estimate_tokens
-from workflow_backend.thresholds import MAX_CONTEXT_TOKENS
 
 PREVIEW_CHARS = 160
 
@@ -146,7 +145,16 @@ def describe(session) -> dict[str, Any]:
     if session.memory_enabled:
         notes_text = session_notes.for_prompt_sync(session)
         past = history.load_history_sync(session, exclude_id=None)
-        wire = history.to_wire_history(past, max_tokens=MAX_CONTEXT_TOKENS - 4_000)
+        from llm import budget as llm_budget
+
+        # Same sizing the turn uses (`pipeline.run_chat_turn`).
+        model = session.llm_model or ''
+        wire = history.to_wire_history(
+            past,
+            max_tokens=history.history_budget(
+                llm_budget.budget_for(model, _context_window(model))
+            ),
+        )
 
     state = session_notes.clean_state(session.notes_state)
     focus = session_notes.focus(session.notes_state)

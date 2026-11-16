@@ -1,15 +1,18 @@
 # `credentials/`: saved API keys and logins
 
-Stores the keys and OAuth tokens a user connects (OpenAI key, Google login,
-Slack token...), **encrypted** with `CREDENTIAL_ENCRYPTION_KEY`.
+The user sees this on the Credentials and Connections pages: the keys and
+OAuth logins they connect (an OpenAI key, a Google login, a Slack token). Each
+secret is **encrypted** with `CREDENTIAL_ENCRYPTION_KEY` and is never sent back
+to the browser.
 
-Design: [`docs/CREDENTIALS_AND_SECURITY.md`](../docs/CREDENTIALS_AND_SECURITY.md).
+Design: [`docs/SAFETY_AND_GUARDRAILS.md`](../docs/SAFETY_AND_GUARDRAILS.md) (the old
+`CREDENTIALS_AND_SECURITY.md` was folded into it).
 
 ## Data (`models.py`)
 
 | Model | What it is |
 |---|---|
-| `CredentialType` | A kind of credential and its fields ("OpenAI: api_key"). Created by a migration, so a fresh install has them |
+| `CredentialType` | A kind of credential and its fields, for example "OpenAI: api_key". Created by a migration, so a fresh install has them |
 | `Credential` | One saved credential for one user. Secret fields are encrypted |
 | `CredentialAuditLog` | Who used or changed a credential, and when |
 
@@ -18,23 +21,23 @@ Design: [`docs/CREDENTIALS_AND_SECURITY.md`](../docs/CREDENTIALS_AND_SECURITY.md
 | File | What it does |
 |---|---|
 | `manager.py` | `CredentialManager`: **the one way to read a credential**. Decrypts, caches for 5 minutes, refreshes OAuth tokens |
-| `resolution.py` | "Which key do we use to call provider X for user Y?" |
-| `refs.py` | Secret references: a tool argument can *name* a credential (`{"secret_ref": "slug.field"}`) instead of containing it |
-| `oauth.py` | `GoogleOAuthProvider`: the Google sign-in flow for connecting an account. Also `ALLOWED_REDIRECT_ORIGINS`, which remote-MCP OAuth reuses |
-| `chatgpt.py` | Continue with ChatGPT: the sign-in link, the code exchange, refreshing the token (it rotates, so the new one is always saved) and sign-out |
-| `chatgpt_views.py`, `chatgpt_urls.py` | Its routes: `/api/credentials/chatgpt/…` and `/auth/callback`, where OpenAI sends the browser back |
-| `verification.py` | `CredentialVerifier`: testing a credential actually works |
-| `views.py`, `urls.py`, `serializers.py` | `/api/credentials/`. Secrets are never sent back to the browser |
-| `browser_utils.py` | Logging into a site with a headless browser and collecting its auth tokens |
+| `resolution.py` | Which key is used to call provider X for user Y. Platform-key fallback lives here |
+| `refs.py` | Secret references: a tool argument names a credential (`{"secret_ref": "slug.field"}`) and the value is filled in at dispatch, then scrubbed from results |
+| `oauth.py` | The Google sign-in flow for connecting an account. Holds `ALLOWED_REDIRECT_ORIGINS` |
+| `chatgpt.py` | "Continue with ChatGPT": sign-in link, code exchange, token refresh (the refresh token rotates, so the new one is always saved), sign-out |
+| `chatgpt_views.py`, `chatgpt_urls.py` | Its routes, including `/auth/callback`, where OpenAI sends the browser back |
+| `verification.py` | `CredentialVerifier`: checks that a saved credential actually works |
+| `browser_utils.py` | Logs into a site with a headless browser and collects its auth tokens |
+| `views.py`, `urls.py`, `serializers.py` | `/api/credentials/` |
+| `management/commands/seed_connector_credentials.py` | Creates the credential types the connectors need. The migration calls the same code |
 
-## Watch out for
+## Rules
 
-- `CredentialManager` keeps a **process-wide cache**. Tests that read
-  credentials must clear it in `setUp`, because test databases reuse ids.
-- `CredentialType` rows already exist in tests (from migrations). Use
-  `update_or_create`, not `create`.
+- Read a credential only through `CredentialManager`. A second lookup would skip the cache and the refresh.
+- A blob field wins over the same-named token column. Do not "unify" that.
+- Tests that read credentials must clear the manager's cache in `setUp`. Test databases reuse ids.
+- `CredentialType` rows already exist in tests, from migrations. Use `update_or_create`, not `create`.
 
-## Management commands
+## Tests
 
-`seed_connector_credentials`: the credential types connectors need (the
-migration calls the same code).
+`credentials/tests/`: `test_credentials.py`, `test_refs.py`, `test_chatgpt_auth.py`, `test_browser_utils.py`, `test_health.py`.

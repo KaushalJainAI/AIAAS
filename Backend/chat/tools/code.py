@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shlex
 from typing import Dict
 
 from .registry import tool
@@ -177,7 +178,12 @@ async def ws_search(args: Dict, context: Dict) -> str:
     try:
         ws = await _workspace(context)
         out = await _engine.exec(
-            ws, f'rg -n --no-heading -g {args.get("glob") or "!*"} {pattern!r} .',
+            # Every model-supplied value is shell-quoted: `{x!r}` is Python
+            # quoting, and a value holding `'` comes out in double quotes,
+            # where `$(...)` would run. `-e` keeps a pattern starting with
+            # `-` from being read as a flag.
+            ws, (f'rg -n --no-heading -g {shlex.quote(str(args.get("glob") or "!*"))} '
+                 f'-e {shlex.quote(pattern)} .'),
             cwd=project.workspace_path)
     except WorkspaceError as exc:
         return json.dumps({'error': str(exc)})
@@ -468,10 +474,13 @@ async def git_diff(args: Dict, context: Dict) -> str:
     },
 }, requires='workspace', effect='reversible')
 async def git_commit(args: Dict, context: Dict) -> str:
-    message = str(args.get('message') or '').strip().replace('"', '')
+    message = str(args.get('message') or '').strip()
     if not message:
         return json.dumps({'error': 'Give the commit message.'})
-    return await _git(args, context, f'git add -A && git commit -m "{message[:200]}"')
+    # Quoted, not stripped of `"`: inside double quotes `$(...)` and backticks
+    # still run, so removing one character never made this safe.
+    return await _git(
+        args, context, f'git add -A && git commit -m {shlex.quote(message[:200])}')
 
 
 @tool({
@@ -491,7 +500,9 @@ async def git_commit(args: Dict, context: Dict) -> str:
 }, requires='workspace', sensitive=True, effect='irreversible')
 async def git_push(args: Dict, context: Dict) -> str:
     branch = str(args.get('branch') or '').strip() or 'HEAD'
-    return await _git(args, context, f'git push origin {branch}')
+    if branch.startswith('-'):
+        return json.dumps({'error': 'A branch name cannot start with "-".'})
+    return await _git(args, context, f'git push origin {shlex.quote(branch)}')
 
 
 @tool({

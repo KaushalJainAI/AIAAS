@@ -15,6 +15,7 @@ from uuid import UUID
 from asgiref.sync import sync_to_async
 
 from workflow_backend.thresholds import (
+    CONTEXT_LOW_WATER_RATIO,
     HISTORY_WINDOW,
     LARGE_FILE_PREVIEW_LENGTH,
     MAX_CONTEXT_TOKENS,
@@ -194,6 +195,24 @@ def load_history_sync(
 #: The turn's door. The sync body is also read by `context_view`, which shows
 #: the user exactly what the next turn would replay.
 load_history = sync_to_async(load_history_sync)
+
+
+def history_budget(input_budget: int) -> int:
+    """How many tokens of earlier messages a turn replays, for a model whose
+    input budget is `input_budget`.
+
+    The share curation cuts back to (`CONTEXT_LOW_WATER_RATIO`, 45%) of what
+    the model can read, so the replay alone never starts a turn past the point
+    where curation would fire — and switching a conversation to a model with a
+    smaller window replays less on its very next turn instead of being trimmed
+    blindly at the wire. Older turns stay covered by the notes file's task
+    index, and the model is told how many were left out. Capped at the old flat
+    figure: past that, a bigger window buys a longer replay nobody reads.
+    """
+    return max(
+        2_000,
+        min(MAX_CONTEXT_TOKENS - 4_000, int(input_budget * CONTEXT_LOW_WATER_RATIO)),
+    )
 
 
 def to_wire_history(

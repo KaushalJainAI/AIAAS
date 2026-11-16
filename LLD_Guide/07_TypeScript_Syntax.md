@@ -125,23 +125,6 @@ import type { SseEvent } from './sse';                  // types only; removed a
 
 ---
 
-## Words you'll see (glossary)
-
-| Word | Plain meaning |
-|---|---|
-| **type** | what kind of value: `string`, `number`, an object shape… |
-| **interface** | a named description of an object's shape |
-| **union** | "one of these": `'light' \| 'dark'` |
-| **generic** | a type with a blank to fill in: `Array<T>`, `useState<number>` |
-| **narrowing** | an `if` check that lets TypeScript know a more exact type |
-| **Promise** | a value that arrives later; `await` waits for it |
-| **callback** | a function you pass to someone else to call later |
-| **module** | one `.ts`/`.tsx` file with imports and exports |
-| **`.tsx`** | a TypeScript file that also contains JSX (HTML-like React markup) |
-| **compile / build** | TypeScript checks types, then outputs plain JavaScript |
-
----
-
 ## T1. Adding types
 
 ```ts
@@ -174,7 +157,7 @@ export interface StreamRequest {
 }
 ```
 
-From [`hooks/useChatStream.ts`](../better-n8n-frontend/src/hooks/useChatStream.ts)
+From [`features/chat/hooks/useChatStream.ts`](../better-n8n-frontend/src/features/chat/hooks/useChatStream.ts)
 and [`lib/chatRuns.ts`](../better-n8n-frontend/src/lib/chatRuns.ts):
 
 ```ts

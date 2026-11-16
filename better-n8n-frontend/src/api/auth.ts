@@ -44,6 +44,12 @@ export interface User {
   decision_model?: string;
   /** New chats start here: ask | auto | plan (`full` is per-chat only). */
   default_autonomy?: string;
+  /** The chat orchestrator's limits (Settings → Orchestrator). */
+  chat_max_steps?: number;
+  chat_time_limit_seconds?: number;
+  /** Rupees one chat turn may spend on its own model calls; 0 = no cap. */
+  chat_spend_cap_rupees?: number;
+  chat_summarise_long_turns?: boolean;
   theme_preference?: 'light' | 'dark' | 'system';
   accent_color?: string;
   createdAt: string;
@@ -76,6 +82,10 @@ interface BackendProfileResponse {
   decision_provider?: string;
   decision_model?: string;
   default_autonomy?: string;
+  chat_max_steps?: number;
+  chat_time_limit_seconds?: number;
+  chat_spend_cap_rupees?: number;
+  chat_summarise_long_turns?: boolean;
   theme_preference?: User['theme_preference'];
   accent_color?: string;
   created_at: string;
@@ -132,6 +142,10 @@ function mapProfileResponse(data: BackendProfileResponse): User {
     decision_provider: data.decision_provider,
     decision_model: data.decision_model,
     default_autonomy: data.default_autonomy,
+    chat_max_steps: data.chat_max_steps,
+    chat_time_limit_seconds: data.chat_time_limit_seconds,
+    chat_spend_cap_rupees: data.chat_spend_cap_rupees,
+    chat_summarise_long_turns: data.chat_summarise_long_turns,
     theme_preference: data.theme_preference,
     accent_color: data.accent_color,
     createdAt: data.created_at,

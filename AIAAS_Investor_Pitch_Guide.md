@@ -1,6 +1,6 @@
 # Presenter guide: AIAAS investor pitch
 
-Use this with `AIAAS_Investor_Pitch.pptx` (41 slides). The audience is a
+Use this with `AIAAS_Investor_Pitch.pptx`. The audience is a
 **technical investor**: someone who wants to know why this matters, and also
 whether the engineering is real and hard to copy.
 
@@ -90,7 +90,7 @@ back."
 **5. The product.** *Point:* four parts working together.
 *Say:* chat, agents, files, evaluation. Tap the numbers: five autonomy
 levels, four permission axes, one entry point, and the whole backend in
-384 MB.
+768 MB.
 
 **6. Why us.** *Point:* AIAAS sits in the gap between the three approaches
 people use today.
@@ -112,8 +112,8 @@ app, streaming both ways, one async Django backend, Postgres and Redis, the
 model providers, Google's APIs, and a code sandbox with no network access.
 
 **9. One entry point.** *Point:* one door, so the checks can't be skipped.
-*Say:* five ways to start a run (chat, another agent, a schedule, the API, a
-test), one entry point, and four checks done once for everyone.
+*Say:* six ways to start a run (chat, another agent, a schedule, the API, a
+test, a mission), one entry point, and four checks done once for everyone.
 
 **10. The turn loop.** *Point:* each step has a job. *Say:* agent → tools →
 curate → steering. Approvals settle before anything runs. Curation keeps
@@ -203,7 +203,7 @@ every edit.
 *Say:* the model writes a spec, and our renderer decides the look. Real,
 editable charts. Formulas stay formulas.
 
-**28. Fifteen apps.** *Point:* whatever an agent produces, people open and
+**28. Sixteen apps.** *Point:* whatever an agent produces, people open and
 edit in the product. *Say:* sweep the grid, then the strip: lightweight
 open-source editors, with no office server to host or license.
 
@@ -218,7 +218,7 @@ every Monday. *If you have a live demo, this is its script.*
 ### Part 5: Runtime (31–33)
 
 **31. Built to run lean.** *Point:* efficiency is a product feature. It's
-cheap to run and easy to deploy. *Say:* the three numbers (384 MB, about
+cheap to run and easy to deploy. *Say:* the three numbers (768 MB, about
 11 s to restart, zero extra processes for Google), then the four points.
 
 **32. Parallel tools.** *Point:* faster answers. Independent calls run
@@ -230,7 +230,7 @@ steal and no way out.
 ### Part 6: Trust (34–37): why a company can say yes
 
 **34. Prompt injection.** *Point:* we limit what injected text can do,
-because detecting it reliably isn't possible. *Say:* six layers. Example:
+because detecting it reliably isn't possible. *Say:* the layers. Example:
 "A link the agent builds itself can't carry data, so injected text can't
 leak the inbox through a URL."
 
@@ -275,7 +275,7 @@ with: "Abundant, and controlled. Thank you."
 |---|---|
 | What's the moat? | The control model is part of the architecture: one entry point, four permission axes, five autonomy levels, exactly-once approvals, secrets the model never sees. Adding this to an existing tool means rebuilding its core. |
 | Why won't a big AI lab just build this? | Labs build assistants for individuals. This is an organisation layer: permissions per agent, memory isolated per organisation, real files, and approvals routed to the right person. |
-| Which models do you use? | Pluggable: OpenRouter, NVIDIA, OpenAI and Ollama. Customers can bring their own keys. The default keeps working as individual models are retired. |
+| Which models do you use? | Pluggable: OpenRouter, NVIDIA, OpenAI, Ollama, and your own ChatGPT plan on an install you run yourself. Customers can bring their own keys. The default keeps working as individual models are retired. |
 | How do you keep costs down? | A lean runtime (slide 31), spend caps per agent split across workers, prompt caching by design (slide 20), and cheap models for background work. |
 | Is it secure enough for real company data? | Encrypted credentials the model never sees (35), per-organisation isolation (37), a no-network sandbox (33), injection limits (34), and audited records of every run (38). |
 | How do you know the agents are good? | Generated test worlds, graders checked against human review, and repeated runs (39). |
@@ -299,8 +299,7 @@ what's next.
 
 ## 5. Before you present
 
-- [ ] Open the `.pptx` in PowerPoint and check the fonts. The preview was
-      made in ONLYOFFICE.
+- [ ] Open the `.pptx` in PowerPoint and check the fonts.
 - [ ] Practise slides 2, 3 and 6 until they're natural. They carry the
       pitch.
 - [ ] Have a live demo ready for slide 30: an agent that will ask for one

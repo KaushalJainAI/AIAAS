@@ -7,7 +7,7 @@ whose Connect button does not exist. A user cannot act on any of it, so the
 card is noise shaped like homework.
 
 The fix is data, not rendering: `setup_notes` is served verbatim to every
-client (web frontend, BrowserOS), so clamping it in one UI would leave the
+client (web frontend, mobile app), so clamping it in one UI would leave the
 jargon one screen away. The trimmed note keeps the what-it-does sentence and
 one plain line about what will be asked for once it ships.
 

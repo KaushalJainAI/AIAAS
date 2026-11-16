@@ -1,24 +1,24 @@
 # AIAAS mobile
 
-The native Android and iOS app for AIAAS, built with Expo and expo-router.
-This is the foundation: sign-in, a secure session, the API client, the chat
-stream reader, and four tab placeholders (Chat, Inbox, Agents, Settings).
-Feature screens are built on top of it.
+The Android and iOS app for AIAAS, built with Expo (SDK 58) and expo-router. It
+talks to the same backend as the web app. Native apps are not subject to browser
+CORS, so the backend needs no origin change.
 
-The app talks to the same backend as the web app (`https://aiaas.kaushaljain.com/api`).
-Native apps are not subject to browser CORS, so the backend needs no origin change.
+Most features are native screens. The rich editors (Docs, Sheets, Slides, PDF and
+others) open the web app's own editor in a signed-in web view (`app/web.tsx`).
+
+**Status:** the app has not been run on a real phone yet. [PARITY.md](PARITY.md)
+lists what is not built and where it differs from the web app.
 
 ## Run it
 
 ```bash
+cd mobile-native
 npm install
-npx expo start          # scan the QR code with Expo Go on a phone on the same Wi-Fi
-npx expo run:android    # builds a development build; needs Android Studio and an SDK
-npm run typecheck       # tsc --noEmit
+npx expo start             # scan the QR code with Expo Go, on a phone on the same Wi-Fi
+npx expo run:android       # development build; needs Android Studio and an SDK
+npx expo run:ios           # needs a Mac. Without one, build in the cloud: npx eas-cli@latest build --platform ios
 ```
-
-iOS builds need a Mac (`npx expo run:ios`). Without a Mac, build in the cloud
-with EAS: `npx eas-cli@latest build --platform ios`.
 
 To point a dev build at a local backend, set the origin before starting:
 
@@ -26,17 +26,38 @@ To point a dev build at a local backend, set the origin before starting:
 EXPO_PUBLIC_API_ORIGIN=http://192.168.1.20:8000 npx expo start
 ```
 
+The default origin is in `src/config.ts`.
+
+## Checks
+
+Run both before you call a change done:
+
+```bash
+npx tsc --noEmit           # typecheck (same as npm run typecheck)
+npm run lint               # expo lint
+```
+
 ## Layout
 
-- `app/` - routes (expo-router). `_layout.tsx` holds the providers and the sign-in gate.
-- `app/(tabs)/` - the bottom tabs. Each tab folder has its own `_layout.tsx` Stack for detail screens.
-- `src/api/` - `client.ts` (JSON requests, refresh on 401), `sse.ts` (chat stream reader), `auth.ts`, `tokens.ts` (secure token store).
-- `src/auth/AuthContext.tsx` - the signed-in user and sign-in/sign-out.
-- `src/components/` - Screen, Button, TextField, ErrorText, EmptyState.
-- `src/theme.ts` - colours (light and dark), spacing, font sizes; `useTheme()`.
-- `src/config.ts` - the API origin.
+- `app/`: the routes (expo-router). `_layout.tsx` holds the providers and the
+  sign-in gate. `app/(tabs)/` has the five tabs: **Chat**, **Activity** (folder
+  `inbox/`), **Agents**, **Files** and **More**. Settings is reached from More;
+  its route exists but is hidden from the tab bar.
+- `src/features/`: one folder per feature (`chat`, `agents`, `runs`, `files`, ...).
+- `src/components/`: the shared parts every screen uses (`Screen`, `Section`,
+  `ListRow`, `Card`, `Text`, `Markdown`, `Sheet`, ...).
+- `src/api/`: `client.ts` (JSON requests, refresh on 401), `sse.ts` (the chat
+  stream reader), `auth.ts`, `tokens.ts` (secure token store).
+- `src/auth/`, `src/notifications/`, `src/hooks/`, `src/lib/`.
+- `src/theme.ts` (the web app's colours), `src/fonts.ts` (IBM Plex, bundled),
+  `src/config.ts` (the API origin).
 
-## Read next
+## Read before you change
 
-- `DESIGN.md` - the rules that keep every screen looking like the web app on Android and iOS.
-- `PARITY.md` - every place this app differs from the web app, and what still needs setup.
+- [DESIGN.md](DESIGN.md): the rules that keep every screen the same on Android and
+  iOS, and close to the web app. For example, import `Text` from
+  `src/components/Text`, never from `react-native`.
+- [PARITY.md](PARITY.md): every place this app differs from the web app, and what
+  is still to build.
+- [AGENTS.md](AGENTS.md): rules for working in this Expo project. Read it before you
+  use any Expo API, because Expo changes between SDK releases.

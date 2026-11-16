@@ -18,8 +18,8 @@ import {
   type HITLResponse,
 } from '../../api';
 import { cn } from '../../lib/utils';
-import MarkdownMessage from '../chat/MarkdownMessage';
-import QuestionCard from '../chat/QuestionCard';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
+import QuestionCard from '@/components/content/QuestionCard';
 import { toQuestionSpec } from '../../lib/question';
 
 /* Which option values are a real `HITLResponse.action` rather than free text.

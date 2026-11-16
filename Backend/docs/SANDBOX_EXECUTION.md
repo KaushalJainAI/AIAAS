@@ -83,9 +83,8 @@ container instead.
   the backend.
 - EC2: push `kaushaljainai/aiaas-sandbox:latest` from a dev machine, then
   `docker compose -f docker-compose.prod.yml pull sandbox && ... up -d` on the
-  box — nothing is built there. The image is ~300–400 MB
-  (numpy/pandas); the container idles around ~100 MB and a run can spike to
-  `SANDBOX_MEM_MB`, so on the RAM-tight box the cap is deliberately modest.
+  box — nothing is built there. A run's memory is capped by
+  `SANDBOX_MEM_MB`.
 
 ## Tests
 

@@ -45,17 +45,17 @@ repeated runs and a human-checked judge."
 
 ## 1. The numbers
 
+Counted 2026-11-17:
+
 | What | Count | Where |
 |---|---|---|
-| Backend test files | 252 | `Backend/<app>/tests/test_*.py` |
-| Backend tests | 3,873 passing (+1,070 subtests) | biggest: `chat` 889, `agents` 628, `inference` 571, `eval` 395, `mcp_integration` 322 |
-| Sandbox container tests | 4 files | `Backend/sandbox_service/tests/` |
-| Frontend unit test files | 43 (352 tests) | `src/**/__tests__/*.test.ts(x)` |
+| Backend test files | 291 | `Backend/<app>/tests/test_*.py` |
+| Backend test functions | 4,612 (`def test_`) | every `<app>/tests/` package |
+| Sandbox container tests | 3 files | `Backend/sandbox_service/tests/` |
+| Frontend unit test files | 78 (624 `it`/`test` blocks) | `src/**/__tests__/*.test.ts(x)` |
 | Frontend integration tests | 3 pages | `tests/integration/` (MSW + jsdom) |
 | Browser (Playwright) tests | 3 specs + 1 demo | `tests/e2e/`, `tests/demo/` |
 | Benchmark suites | 15 | `Backend/eval/benchmarks/suites/` |
-
-**Last local run (2026-09-28):** see [§13](#13-last-run-results).
 
 ---
 
@@ -69,7 +69,7 @@ trustworthy.
    Frontend tests sit beside the code in `__tests__/` folders.
 2. **No network, no Redis, no database server.**
    [`settings/test.py`](../Backend/workflow_backend/settings/test.py) forces
-   in-memory SQLite, a dummy cache, the in-memory checkpointer and fake
+   in-memory SQLite, an in-memory (LocMem) cache, the in-memory checkpointer and fake
    platform keys. The keys are never sent anywhere, because the provider call
    itself is patched.
 3. **The model is always faked in fast tests.** A stub provider returns scripted
@@ -149,7 +149,7 @@ sequenceDiagram
 | [`chat/tests/test_turn_output_e2e.py`](../Backend/chat/tests/test_turn_output_e2e.py) | The events a client receives carry what the UI needs | The invisible todo panel |
 | [`chat/tests/test_curation_e2e.py`](../Backend/chat/tests/test_curation_e2e.py) | 20 tool-calling turns: the request never outgrows the window, a fact from a trimmed step can still be recalled, and the transcript stays valid | Pieces wired in the wrong order |
 | [`chat/tests/test_chat_transcript.py`](../Backend/chat/tests/test_chat_transcript.py) | On turn 3, the provider receives each earlier turn **once** | Earlier turns were sent twice (from the database and from the checkpoint) |
-| [`chat/tests/test_iteration_limit.py`](../Backend/chat/tests/test_iteration_limit.py) | A 40-iteration agent really gets 40 iterations | Step budget sized for a 2-node loop, so runs died at about half |
+| [`chat/tests/test_iteration_limit.py`](../Backend/chat/tests/test_iteration_limit.py) | A 20-iteration run really reaches its cap and answers | Step budget sized for a 2-node loop, so runs died at about half |
 
 The trick in `test_curation_e2e.py` is worth copying. It plants a secret
 ("the reconciliation code is QX-8842") in turn 2's tool result, shrinks the
@@ -205,15 +205,11 @@ the same table**.
 | How a schedule is described in words ("Every weekday at 09:00") | `agents/tests/test_schedules.py::DescribeTests.CANONICAL` | [`src/lib/__tests__/cron.test.ts`](../better-n8n-frontend/src/lib/__tests__/cron.test.ts) |
 | The reasoning-effort ladder (`none` … `high`) | [`llm/tests/test_effort.py`](../Backend/llm/tests/test_effort.py) | [`src/hooks/__tests__/effort.test.ts`](../better-n8n-frontend/src/hooks/__tests__/effort.test.ts) |
 | The default provider, model and effort (three copies) | `ShippedDefaultTests` in `llm/tests/test_effort.py` | same values pinned |
-| Chat UI callbacks get the right arguments | — | [`chatPieces.test.tsx`](../better-n8n-frontend/src/components/chat/__tests__/chatPieces.test.tsx) |
+| Chat UI callbacks get the right arguments | — | [`chatPieces.test.tsx`](../better-n8n-frontend/src/features/chat/components/__tests__/chatPieces.test.tsx) |
 
 Why the schedule wording matters: the browser shows its own description while
 you type, and the server's replaces it a moment later. If they differ by one
 word, the sentence rewrites itself under your cursor, which looks like a bug.
-
-We also run an **endpoint wiring check**: every URL the frontend calls is
-resolved against Django's URL table. It catches calls to routes that no longer
-exist, which neither the type-checker nor pytest can see.
 
 ---
 
@@ -395,18 +391,7 @@ Also not in CI today, by choice:
 
 ---
 
-## 13. Last run results
-
-Run locally on 2026-09-28 while writing this chapter:
-
-| Suite | Result |
-|---|---|
-| Backend (`pytest`, excluding the sandbox container) | **3,873 passed**, 0 failed, 21 skipped (plus 1,070 subtests passed), in 36 min 40 s |
-| Frontend unit (`vitest run`) | **352 passed** in 43 files, 0 failed |
-
----
-
-## 14. How to run everything
+## 13. How to run everything
 
 ```bash
 # Backend (from Backend/, venv active)
@@ -430,30 +415,3 @@ python manage.py benchmark run --tier smoke --gate --user you@example.com
 
 ---
 
-## 15. Interview questions on testing
-
-**Q: How do you test an LLM application when the model isn't deterministic?**
-A: We separate the two. Our code is tested with a stub provider that returns
-scripted replies, so those tests are deterministic and free. Model quality is
-measured by a benchmark with pass bars, three repeats per case, and a judge
-that's itself checked against human reviews.
-
-**Q: What's the most valuable test you wrote?**
-A: The end-to-end tests that run the real agent graph and assert on the exact
-request sent to the provider. One caught every earlier chat turn being sent
-twice, which passed every unit test.
-
-**Q: How do you stop the architecture from decaying?**
-A: The rules are tests: import-linter layers, choke-point tests for tables that
-have a single read door, and tests that fail if a setting exists but nothing
-reads it.
-
-**Q: How do you know your evaluation is right?**
-A: Every work case is proven passable with the ideal output and failing with
-the untouched input. The judge is a different model from the one being tested
-and is calibrated against humans, and we report judge–human agreement.
-
-**Q: What would you improve?**
-A: Move CI to the repository root so it runs again, add Playwright and the
-smoke benchmark to the deploy pipeline, and widen the frontend integration
-tests beyond three pages.

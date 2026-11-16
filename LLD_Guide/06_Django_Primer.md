@@ -528,10 +528,11 @@ Others in this project: `boot` (migrate + seed once per container),
 ```python
 @admin.register(SubAgent)
 class SubAgentAdmin(admin.ModelAdmin):
-    list_display = ['name', 'user', 'status', 'llm_provider']
-    list_filter = ['status', 'llm_provider']
-    search_fields = ['name', 'user__email']
-    readonly_fields = ['execution_count', 'created_at']
+    list_display = ['name', 'user', 'status', 'llm_provider', 'allow_unattended',
+                    'execution_count', 'last_executed_at', 'updated_at']
+    list_filter = ['status', 'allow_unattended', 'llm_provider', 'updated_at']
+    search_fields = ['name', 'description', 'user__username', 'user__email']
+    readonly_fields = ['execution_count', 'last_executed_at', 'created_at', 'updated_at']
 ```
 
 Free CRUD screens at `/admin/` for staff users. Configuration only; no HTML.

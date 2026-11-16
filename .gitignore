@@ -1,3 +1,6 @@
+# ── Personal files (resumes, decks, videos, keys) — local only ───────
+/personal/
+
 # ── Secrets & credentials ────────────────────────────────────────────
 .env
 .env*
@@ -30,7 +33,6 @@ credentials.toml
 .git-backup/
 .deploy-coordination/
 .claude/settings.local.json
-BrowserOS/
 scratch/
 backups/
 .eval_data/
@@ -132,3 +134,9 @@ storageState*.json
 # Phase 0 answers for the ChatGPT plan provider (raw API responses, no tokens)
 Backend/scripts/chatgpt_spike_out/
 bash.exe.stackdump
+
+# Personal decks stay on disk, out of the repo
+*.pptx
+# Stray logs, and dated benchmark scorecards (only reports/latest.md is kept)
+*.log.err
+Backend/eval/benchmarks/reports/20*.md

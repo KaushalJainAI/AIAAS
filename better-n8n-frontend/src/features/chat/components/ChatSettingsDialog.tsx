@@ -1,0 +1,273 @@
+/**
+ * Per-chat settings: the conversation's system prompt and its memory switch,
+ * and — on its second tab — everything the assistant sees in this chat.
+ *
+ * The prompt is edited as a draft owned by the parent and saved only on Save.
+ * The memory switch saves straight away. The tab is a prop too: this piece
+ * holds no state, and the context view is handed in already built.
+ */
+import type React from 'react';
+import { Loader2, X } from 'lucide-react';
+
+import type { ChatSession } from '@/api';
+import { cn } from '@/lib/utils';
+
+interface ChatSettingsDialogProps {
+  session: ChatSession;
+  isGuest: boolean;
+  promptDraft: string;
+  onPromptDraftChange: (value: string) => void;
+  saving: boolean;
+  onSave: (patch: Partial<ChatSession>) => void;
+  onClose: () => void;
+  /** Client-side only — read aloud is a browser preference, not server state. */
+  readAloud: boolean;
+  onToggleReadAloud: () => void;
+  /** Which tab is showing. Without `contextView` there is only Settings. */
+  tab?: SettingsTab;
+  onTabChange?: (tab: SettingsTab) => void;
+  /** The "What the assistant sees" tab's body (`ChatContextView`). */
+  contextView?: React.ReactNode;
+}
+
+export type SettingsTab = 'settings' | 'context';
+
+const TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'settings', label: 'Settings' },
+  { id: 'context', label: 'What the assistant sees' },
+];
+
+export default function ChatSettingsDialog({
+  session,
+  isGuest,
+  promptDraft,
+  onPromptDraftChange,
+  saving,
+  onSave,
+  onClose,
+  readAloud,
+  onToggleReadAloud,
+  tab = 'settings',
+  onTabChange,
+  contextView,
+}: ChatSettingsDialogProps) {
+  const showingContext = Boolean(contextView) && tab === 'context';
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm
+                 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className={cn(
+          "flex max-h-[90dvh] w-full mx-4 flex-col rounded-md border border-border bg-card shadow-lg",
+          "animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300 ease-out",
+          contextView ? "max-w-2xl" : "max-w-lg",
+        )}
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <h2 className="text-sm font-bold text-foreground">Chat settings</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {contextView && (
+          <div role="tablist" aria-label="Chat settings sections" className="flex gap-1 border-b border-border px-4">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => onTabChange?.(t.id)}
+                className={cn(
+                  "-mb-px border-b-2 px-2.5 py-2 text-xs font-semibold transition-colors",
+                  tab === t.id
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {showingContext ? (
+          <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{contextView}</div>
+        ) : (
+        <div role={contextView ? 'tabpanel' : undefined} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+          <div>
+            <label htmlFor="system-prompt" className="block text-xs font-bold text-foreground">
+              System prompt
+            </label>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Standing instructions for this conversation. Applies to every message,
+              including ones already sent.
+            </p>
+            <textarea
+              id="system-prompt"
+              value={promptDraft}
+              onChange={e => onPromptDraftChange(e.target.value)}
+              rows={5}
+              placeholder="e.g. Answer concisely. Prefer tables over prose. Always cite sources."
+              className="mt-2 w-full resize-y rounded-md border border-border bg-background px-3 py-2
+                         text-xs leading-relaxed text-foreground outline-none
+                         transition-colors duration-200 placeholder:text-muted-foreground/50
+                         focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          {!isGuest ? (
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-foreground">Memory</div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {session.memory_enabled
+                    ? 'The assistant sees recent turns and can search the rest of this conversation.'
+                    : 'The assistant answers from your current message alone. Nothing is deleted – turning this back on restores the full history.'}
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={session.memory_enabled}
+                aria-label="Toggle memory"
+                disabled={saving}
+                onClick={() => onSave({ memory_enabled: !session.memory_enabled })}
+                className={cn(
+                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
+                  "transition-colors duration-300 ease-out",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                  "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                  "disabled:opacity-50",
+                  session.memory_enabled ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
+                    session.memory_enabled ? "translate-x-5" : "translate-x-0"
+                  )}
+                />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-warning-subtle p-3.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                  <span>Memory</span>
+                  <span className="rounded border border-border bg-card px-1.5 py-0.5 micro-label">Login required</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Conversation memory is only available to logged-in users. Log in to let the assistant remember previous turns.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={false}
+                aria-label="Memory requires login"
+                disabled
+                title="Log in to use memory"
+                className="mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5 bg-muted-foreground/20 opacity-50 cursor-not-allowed"
+              >
+                <span className="h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm translate-x-0" />
+              </button>
+            </div>
+          )}
+          {!isGuest && session.org ? (
+            <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-foreground">Share solutions with {session.org_name || 'your organisation'}</div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {session.share_solutions
+                    ? 'When a problem gets solved here, colleagues in this organisation can find the fix. Secrets and contact details are removed first.'
+                    : 'Fixes from this chat are saved for you only. Nothing from this chat is shared.'}
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={Boolean(session.share_solutions)}
+                aria-label="Share solutions with the organisation"
+                disabled={saving}
+                onClick={() => onSave({ share_solutions: !session.share_solutions })}
+                className={cn(
+                  "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
+                  "transition-colors duration-300 ease-out",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                  "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                  "disabled:opacity-50",
+                  session.share_solutions ? "bg-primary" : "bg-muted-foreground/30"
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
+                    session.share_solutions ? "translate-x-5" : "translate-x-0"
+                  )}
+                />
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-foreground">Read replies aloud</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Speaks each reply as it finishes, using the same voice as the speaker button.
+                Stored in this browser only.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={readAloud}
+              aria-label="Read replies aloud"
+              onClick={onToggleReadAloud}
+              className={cn(
+                "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
+                "transition-colors duration-300 ease-out",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                readAloud ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span
+                className={cn(
+                  "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
+                  readAloud ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
+        </div>
+        )}
+
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">
+          <button
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-xs font-semibold text-muted-foreground
+                       transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {showingContext ? 'Close' : 'Cancel'}
+          </button>
+          {!showingContext && (
+            <button
+              disabled={saving}
+              onClick={() => onSave({ system_prompt: promptDraft })}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-xs font-bold
+                         text-primary-foreground transition-colors duration-200
+                         hover:brightness-110 active:scale-95 disabled:opacity-50"
+            >
+              {saving && <Loader2 className="w-3 h-3 animate-spin" />}
+              Save
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

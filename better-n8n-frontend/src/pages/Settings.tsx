@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Loader2,
   Bookmark,
+  Workflow,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import InsightsDashboard from '../components/billing/InsightsDashboard';
@@ -34,6 +35,7 @@ import Select from '../components/ui/Select';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import NotificationsTab from '../components/settings/NotificationsTab';
 import MemoryTab from '../components/settings/MemoryTab';
+import OrchestratorTab from '../components/settings/OrchestratorTab';
 import DecisionModelPicker from '../components/settings/DecisionModelPicker';
 import { useAIModels } from '../hooks/useAIModels';
 import {
@@ -68,7 +70,7 @@ function languageCode(stored: string | undefined): string {
   return hit?.value ?? 'en';
 }
 
-type SettingsTab = 'general' | 'account' | 'notifications' | 'memory' | 'organization' | 'security' | 'appearance' | 'api' | 'insights' | 'billing';
+type SettingsTab = 'general' | 'account' | 'orchestrator' | 'notifications' | 'memory' | 'organization' | 'security' | 'appearance' | 'api' | 'insights' | 'billing';
 
 
 /**
@@ -130,7 +132,7 @@ export default function Settings() {
   // replaced away so a reload keeps the user's own last tab, not the link's.
   useEffect(() => {
     const asked = searchParams.get('tab');
-    const visible: readonly string[] = ['general', 'account', 'insights', 'billing', 'notifications', 'memory', 'organization', 'appearance', 'api'];
+    const visible: readonly string[] = ['general', 'account', 'orchestrator', 'insights', 'billing', 'notifications', 'memory', 'organization', 'appearance', 'api'];
     if (asked && visible.includes(asked)) {
       setActiveTab(asked as SettingsTab);
       setSearchParams({}, { replace: true });
@@ -397,6 +399,7 @@ export default function Settings() {
   const tabs = [
     { id: 'general' as const, label: 'General', icon: SettingsIcon },
     { id: 'account' as const, label: 'Account', icon: User },
+    { id: 'orchestrator' as const, label: 'Orchestrator', icon: Workflow },
     { id: 'insights' as const, label: 'Insights', icon: BarChart3 },
     { id: 'billing' as const, label: 'Billing', icon: CreditCard },
     { id: 'notifications' as const, label: 'Notifications', icon: Bell },
@@ -1062,6 +1065,8 @@ export default function Settings() {
 
       case 'notifications':
         return <NotificationsTab />;
+      case 'orchestrator':
+        return <OrchestratorTab />;
       case 'memory':
         return <MemoryTab />;
       // Organisation moved to its own page beside Solutions. A persisted or

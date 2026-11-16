@@ -21,6 +21,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .oauth import ALLOWED_REDIRECT_ORIGINS
+from core.http.client_ip import client_ip
 
 @extend_schema_view(
     list=extend_schema(
@@ -142,7 +143,7 @@ class CredentialViewSet(viewsets.ModelViewSet):
             credential=instance,
             user=request.user,
             action='deleted',
-            ip_address=request.META.get('REMOTE_ADDR'),
+            ip_address=client_ip(request),
             user_agent=request.META.get('HTTP_USER_AGENT') or '',
             snapshot={
                 'name': instance.name,
@@ -166,7 +167,7 @@ class CredentialViewSet(viewsets.ModelViewSet):
         # Capture audit context
         audit_context = {
             'user': request.user,
-            'ip_address': request.META.get('REMOTE_ADDR'),
+            'ip_address': client_ip(request),
             'user_agent': request.META.get('HTTP_USER_AGENT')
         }
         

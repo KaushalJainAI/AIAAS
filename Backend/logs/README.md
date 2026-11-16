@@ -1,49 +1,55 @@
 # `logs/`: the record of what agents did
 
-When an agent runs, this app stores what happened, at three levels:
+The user sees this on the Activity page (live runs, history, what needs them)
+and in run details. Every agent run is stored at three levels:
 
 ```
-ExecutionLog   one run          (status, goal, answer, cost, who started it)
- └─ AgentTurn   one model call   (the model's full reasoning for that turn)
-     └─ AgentStep  one tool call  (arguments, result, approval decision)
+ExecutionLog   one run           (status, goal, answer, cost, what started it)
+ └─ AgentTurn    one model call    (the model's reasoning for that turn)
+     └─ AgentStep  one tool call   (arguments, result, approval decision)
 ```
 
-It also stores `SubAgentRevision`: a snapshot of an agent's settings, so every
-run points at the exact config it ran with.
+`SubAgentRevision` is a snapshot of an agent's settings, so every run points at
+the exact config it ran with.
 
-Full design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
+Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 
 ## Data (`models.py`)
 
 | Model | What it is |
 |---|---|
-| `ExecutionLog` | One run. `caller` says what started it (`chat`, `api`, `trigger`, `orchestrator`, `eval`). `parent_step` points at the tool call that delegated it, if any |
-| `AgentTurn` | One model call inside a run, with its reasoning |
-| `AgentStep` | One tool call inside a turn. Created *before* the tool runs |
+| `ExecutionLog` | One run. `caller` says what started it (`api`, `chat`, `orchestrator`, `trigger`, `eval`, `mission`). `parent_step` is the tool call that delegated it, if any |
+| `AgentTurn` | One model call, with its reasoning |
+| `AgentStep` | One tool call. Written *before* the tool runs |
 | `SubAgentRevision` | An agent's settings at one point in time |
-| `CostEntry` | Spending that isn't model tokens (images, SMS...) |
-| `Feedback`, `RunSignal` | Thumbs up/down, and automatic quality signals |
+| `CostEntry` | Spending that is not model tokens (images, messages) |
+| `Feedback`, `RunSignal` | A thumbs up or down, and automatic quality signals |
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `models.py` | The tables above |
 | `queries.py` | **Every** database read behind `/api/logs/`. Views stay thin |
-| `views.py`, `urls.py` | `/api/logs/`: insights, run history, revisions. Run cleanup lives here too: delete one run, delete many, mark a stuck run failed |
-| `activity.py`, `activity_urls.py` | `/api/activity/`: everything live + recent file activity for the Activity page (read-only unions over logs/eval/chat/inference rows) |
-| `revisions.py` | Saving a new revision only when settings really changed |
+| `views.py`, `urls.py` | `/api/logs/`: insights, run history, revisions, and run cleanup (delete, mark a stuck run failed) |
+| `activity.py`, `activity_urls.py` | `/api/activity/`: live and recent activity for the Activity page |
+| `revisions.py` | Saves a new revision only when settings really changed |
 | `costs.py` | The only writer of `CostEntry` |
-| `failures.py` | One-word reasons a run failed |
-| `signals_api.py` | Recording implicit quality signals |
-| `retention.py`, `tasks.py` | After 180 days, clears a finished run's reasoning and tool data, but keeps the run itself (`manage.py purge_run_detail`) |
+| `failures.py` | Classifies why a run failed, as one word |
+| `signals_api.py` | Records automatic quality signals |
+| `retention.py`, `tasks.py` | After `RUN_DETAIL_RETENTION_DAYS` (180), clears a finished run's reasoning and tool payloads. The run record stays. `manage.py purge_run_detail` runs it by hand |
+| `serializers.py` | API shape |
 
-**Who writes the run records?** Not this app. `agents/agent/runtime.py`
-creates the `ExecutionLog` when a run opens, and `agents/agent/stream.py`
-writes each `AgentTurn` and `AgentStep` while the run happens.
+**Who writes the run records?** Not this app. `agents/agent/runtime.py` opens
+the `ExecutionLog`, and `agents/agent/stream.py` writes turns and steps as the
+run goes.
+
+## Rules
+
+- Views never query the database. Put the query in `queries.py`.
+- A truncated list says so in its own body. A short list and a cut one must not look the same.
+- Paused runs never age out of retention.
 
 ## Tests
 
 `logs/tests/`: `test_turns.py`, `test_delegation.py`, `test_revisions.py`,
-`test_ledger.py`, `test_checkpoints.py`, `test_run_delete.py`,
-`test_retention.py`, `test_activity_live.py`.
+`test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`.

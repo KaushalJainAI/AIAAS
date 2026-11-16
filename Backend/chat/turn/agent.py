@@ -266,14 +266,22 @@ class TurnContext:
     #: `subAgents` grant, and the cost of that is multiplicative.
     depth: int = 0
 
-    #: `agents.budget.Deadline`, or None in chat. The instant this run must be
-    #: finished by. Read in two places and nowhere else: `agent_node` stops
-    #: asking for tools once it is `wrapping_up`, and `tools_node` passes it to
-    #: delegating tools so a worker cannot outlive the run that asked for it.
-    #: Typed `Any` for the same reason `file_scope` is — chat has no concept of
-    #: an agent budget, and importing one here to name it would invert the
-    #: dependency between this module and `agents/`.
+    #: `agents.budget.Deadline`, or None. The instant this run must be
+    #: finished by — an agent's `maxRunSeconds`, or for chat the account's
+    #: orchestrator time limit (`chat/turn/limits.py`). Read in two places and
+    #: nowhere else: `agent_node` stops asking for tools once it is
+    #: `wrapping_up`, and `tools_node` passes it to delegating tools so a
+    #: worker cannot outlive the run that asked for it.
+    #: Typed `Any` for the same reason `file_scope` is: importing the type here
+    #: would invert the dependency between this module and `agents/`.
     deadline: Any = None
+
+    #: Tokens this turn's own model calls may spend, or None for no cap — the
+    #: account's orchestrator spend cap, converted (`limits.token_budget`). Once
+    #: `total_tokens` reaches it, `agent_node` withholds tools and asks for the
+    #: answer, the same graceful stop as running out of time. Workers the turn
+    #: starts are bounded by their own agents' caps, not by this.
+    token_budget: int | None = None
 
     #: Consulted for calls `sensitive_tools` does not already name. Left None,
     #: chat's own policy applies. The agent runtime supplies a stricter one for
@@ -783,6 +791,23 @@ async def _run_model(
             accumulator.error_status, accumulator.error,
             model=turn.model, provider=turn.provider,
         )
+        overflow = llm.is_context_overflow(accumulator.error_status, accumulator.error)
+        if overflow:
+            # The provider's refusal is the only authoritative statement of the
+            # real window. Remember it, so the retry (and every later call to
+            # this model) is clamped to what the model actually accepts.
+            from llm import budget as llm_budget
+
+            llm_budget.learn_window(
+                turn.model,
+                reported=llm.window_from_error(accumulator.error),
+                sent_tokens=(
+                    llm.estimate_tokens(turn.system_message)
+                    + llm.estimate_tokens(prompt)
+                    + llm_budget.history_tokens(history)
+                    + llm_budget.tools_tokens(tools)
+                ),
+            )
         return Completion(
             content=f"⚠️ {sentence}",
             usage=completion.usage,
@@ -791,6 +816,7 @@ async def _run_model(
             # ended here used to close as `completed` with this as its answer
             # (benchmark, 2026-09-17: "Upstream error from Alibaba: ...").
             error=sentence or "provider error",
+            overflow=overflow,
         )
 
     return completion
@@ -877,18 +903,25 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     # are served by withholding tools below — a run stopped any other way has
     # paid for every tool call it made and returns none of what they found.
     out_of_time = turn.deadline is not None and turn.deadline.wrapping_up
+    # A spend cap reached is a third way to the last pass, served the same way:
+    # stop asking for tools and answer with what has been found.
+    out_of_budget = (
+        turn.token_budget is not None
+        and state.get("total_tokens", 0) >= turn.token_budget
+    )
     # The cap follows the turn's pace, read from `metadata` on every pass
     # because a turn that plans or delegates is promoted mid-run (`pace.py`).
     # `max_iterations` stays the hard ceiling, and is the whole cap for a
     # caller that sets no pace.
     tier = pace.current(state.get("metadata"))
     limit = pace.cap(tier, turn.max_iterations)
-    at_limit = iteration >= limit - 1 or out_of_time
+    at_limit = iteration >= limit - 1 or out_of_time or out_of_budget
 
     await turn.sink(Event.STATUS, {
         "phase": "thinking",
         "message": (
             "Wrapping up — time limit reached..." if out_of_time
+            else "Wrapping up — spend cap reached..." if out_of_budget
             else "Thinking..." if not iteration
             else f"Reasoning (step {iteration + 1})..."
         ),
@@ -898,6 +931,9 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         state["messages"], at_limit=at_limit, out_of_time=out_of_time,
     )
     history = list(turn.history) + prior
+    # Where the transcript ends and this pass's trailing notes begin, so an
+    # overflow retry can rebuild the transcript and keep the notes.
+    transcript_end = len(history)
 
     # The plan, re-read rather than merely written. A list the model records and
     # never sees again is theatre: it writes one, feels organised, and proceeds
@@ -961,24 +997,49 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     # The call below waits on a provider, not on the database. Hand this run's
     # pooled connection back first, or every iteration of every concurrent run
     # holds one for the whole model wait (G1). The next ORM call re-takes one.
+    # What this pass's tool definitions cost, for `curate_node`, which measures
+    # the whole request against the window and cannot see the tool list.
+    from llm import budget as llm_budget
+
+    turn.memo["context:tools_tokens"] = llm_budget.tools_tokens(tools)
     await release_db()
-    try:
-        completion = await _run_model(
+    completion = await _call_model(
+        effective, prompt=prompt, history=history, tools=tools, timings=timings
+    )
+
+    # The provider refused the request as too long. `_run_model` has already
+    # learned the real window, so compact the transcript to fit it and try once
+    # more — a long run should not die on a limit we can work inside.
+    curated: list[BaseMessage] = []
+    if completion.overflow:
+        await turn.sink(Event.STATUS, {
+            "phase": "curating",
+            "message": "Too long for this model — condensing earlier steps and retrying...",
+        })
+        curated = await _compact_after_overflow(
+            turn, state["messages"],
+            extra_tokens=(
+                llm_budget.tools_tokens(tools)
+                + llm_budget.history_tokens(history[transcript_end:])
+            ),
+        )
+        messages = add_messages(list(state["messages"]), curated) if curated else state["messages"]
+        prior, prompt = _split_transcript(
+            messages, at_limit=at_limit, out_of_time=out_of_time,
+        )
+        history = list(turn.history) + prior + history[transcript_end:]
+        failed = completion
+        completion = await _call_model(
             effective, prompt=prompt, history=history, tools=tools, timings=timings
         )
-    except LLMUserActionable:
-        # Deliberately not caught: no credential, no credit, or a model that no
-        # longer exists. No retry and no rephrasing helps. It ends the turn as
-        # an error frame the client shows as such, instead of an apology in the
-        # assistant's voice that reads like the model chose not to answer.
-        raise
-    except LLMUnavailable as exc:
-        logger.warning("[Agent] %s", exc)
-        completion = Completion(content=_NO_PROVIDER_MESSAGE)
-    except Exception:
-        logger.exception("[Agent] Model call failed")
-        completion = Completion(
-            content="Something went wrong reaching the model. Please try again."
+        completion = replace(
+            completion,
+            usage=failed.usage + completion.usage,
+            tokens=failed.tokens + completion.tokens,
+        )
+        logger.info(
+            "[Curation] Overflow on %s: %d result(s) compacted, retry %s",
+            turn.model, len(curated), "failed" if completion.error else "succeeded",
         )
 
     _log_latency(
@@ -1077,7 +1138,10 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
             logger.exception("[Agent] on_model_turn observer raised")
 
     return {
-        "messages": [message],
+        # Overflow compaction first: the replacements carry the ids they
+        # replace, so `add_messages` substitutes them in place, and the new
+        # turn lands after them exactly as it would have.
+        "messages": [*curated, message],
         "thinking": thinking,
         "total_tokens": state.get("total_tokens", 0) + completion.tokens,
         "usage": state.get("usage", EMPTY_USAGE) + completion.usage,
@@ -1087,6 +1151,83 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         # would leave the old dict in state and silently drop the merge.
         "metadata": meta,
     }
+
+
+async def _call_model(
+    turn: TurnContext,
+    *,
+    prompt: str,
+    history: list[dict[str, Any]],
+    tools: list[dict] | None,
+    timings: dict[str, int],
+) -> Completion:
+    """`_run_model` with the failures a turn survives turned into replies."""
+    try:
+        return await _run_model(
+            turn, prompt=prompt, history=history, tools=tools, timings=timings
+        )
+    except LLMUserActionable:
+        # Deliberately not caught: no credential, no credit, or a model that no
+        # longer exists. No retry and no rephrasing helps. It ends the turn as
+        # an error frame the client shows as such, instead of an apology in the
+        # assistant's voice that reads like the model chose not to answer.
+        raise
+    except LLMUnavailable as exc:
+        logger.warning("[Agent] %s", exc)
+        return Completion(content=_NO_PROVIDER_MESSAGE)
+    except Exception:
+        logger.exception("[Agent] Model call failed")
+        return Completion(
+            content="Something went wrong reaching the model. Please try again."
+        )
+
+
+async def _compact_after_overflow(
+    turn: TurnContext,
+    messages: Sequence[BaseMessage],
+    *,
+    extra_tokens: int,
+) -> list[BaseMessage]:
+    """Compact the transcript to fit after the provider said it is too long.
+
+    Runs whatever the agent's curation toggles say. A refused request ends the
+    run otherwise, and the alternative to compacting — `clamp_input` dropping
+    whole steps at the wire — loses more. Only the free mechanism runs here
+    (no fold: a paid summary call is the agent's choice to make, and a note
+    appended now would land after the turn's own prompt). The agent's
+    `indexing` choice is kept, so what is cut stays reachable when it asked
+    for that.
+    """
+    from . import curation
+
+    indexing = bool(getattr(turn.curation, "indexing", True)) if turn.curation else True
+    policy = curation.CurationPolicy(
+        enabled=True, compaction=True, recursive=False, indexing=indexing,
+    )
+    from llm import budget as llm_budget
+
+    try:
+        result = await curation.curate(
+            messages,
+            policy=policy,
+            model=turn.model,
+            reserve_output=turn.max_tokens,
+            baseline_tokens=(
+                llm.estimate_tokens(turn.system_message)
+                + llm_budget.history_tokens(turn.history)
+                + extra_tokens
+            ),
+            context={
+                "user_id": turn.user_id,
+                "session_id": turn.session_id,
+                "turn_id": turn.turn_id,
+            },
+            force=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("[Curation] Overflow compaction failed; retrying with the clamp alone")
+        return []
+    return list(result.updates)
 
 
 async def _answer_again(
@@ -2491,6 +2632,7 @@ async def curate_node(state: AgentState, config: RunnableConfig) -> dict[str, An
         return {}
 
     from . import curation
+    from llm import budget as llm_budget
 
     summariser = await _summariser_for(turn)
     try:
@@ -2499,12 +2641,15 @@ async def curate_node(state: AgentState, config: RunnableConfig) -> dict[str, An
             policy=turn.curation,
             model=turn.model,
             reserve_output=turn.max_tokens,
-            # The system message and any conversation outside the run are
-            # already spoken for; the watermark has to be measured against the
-            # whole request, not against the part that lives in graph state.
+            # The system message, any conversation outside the run and the tool
+            # definitions are already spoken for; the watermark has to be
+            # measured against the whole request, not against the part that
+            # lives in graph state. History is sized with its tool calls, and
+            # the tools as the last pass offered them (`agent_node` notes it).
             baseline_tokens=(
                 llm.estimate_tokens(turn.system_message)
-                + sum(llm.estimate_tokens(str(e.get("content") or "")) for e in turn.history)
+                + llm_budget.history_tokens(turn.history)
+                + int(turn.memo.get("context:tools_tokens") or 0)
             ),
             context={
                 "user_id": turn.user_id,

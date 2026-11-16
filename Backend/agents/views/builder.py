@@ -64,7 +64,13 @@ from agents.config import (
 )
 from agents.agent.orchestrator import MAX_PARALLEL_WORKERS
 from llm.effort import LADDER as EFFORT_LADDER
-from workflow_backend.thresholds import MAX_RUN_SECONDS, MIN_RUN_SECONDS
+from workflow_backend.thresholds import (
+    DEFAULT_MAX_STEPS,
+    MAX_MAX_STEPS,
+    MAX_RUN_SECONDS,
+    MIN_MAX_STEPS,
+    MIN_RUN_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -545,6 +551,14 @@ KNOBS: dict[str, Knob] = {
         f'Wall-clock ceiling on one run, in seconds ({MIN_RUN_SECONDS}-'
         f'{MAX_RUN_SECONDS}). Bulk work needs more; a quick lookup needs less.',
         _number(MIN_RUN_SECONDS, MAX_RUN_SECONDS),
+    ),
+    'maxIterations': Knob(
+        'Step limit',
+        f'Model calls one run may make ({MIN_MAX_STEPS}-{MAX_MAX_STEPS}, default '
+        f'{DEFAULT_MAX_STEPS}). Size it to the job: a lookup or triage agent '
+        'needs 5-15, a report 30-60, a long multi-file job 100+. A higher limit '
+        'costs nothing until it is used, but a looping agent spends up to it.',
+        _number(MIN_MAX_STEPS, MAX_MAX_STEPS),
     ),
     'recursiveContext': Knob(
         'Recursive context',

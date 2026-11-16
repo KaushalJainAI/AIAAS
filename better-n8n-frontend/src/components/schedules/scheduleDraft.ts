@@ -3,8 +3,7 @@
  *
  * Not a stylistic split: exporting a function alongside a component defeats
  * fast refresh for the whole module, so editing the editor would lose the
- * modal's in-progress draft on every keystroke-triggered reload. The same
- * reason `OSContext.tsx` in BrowserOS holds its provider alone.
+ * modal's in-progress draft on every keystroke-triggered reload.
  */
 import type { OverlapPolicy } from '../../api';
 import { DEFAULT_SPEC, localZone, toCron } from '../../lib/cron';

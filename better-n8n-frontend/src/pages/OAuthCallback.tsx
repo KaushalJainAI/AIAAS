@@ -23,7 +23,7 @@ import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { credentialsService } from '../api/credentials';
 import { mcpService } from '../api/mcp';
 import { oauthCallbackUrl } from '../lib/origins';
-import { takePendingOAuth } from '../lib/oauthFlow';
+import { peekPendingOAuth, takePendingOAuth } from '../lib/oauthFlow';
 import { appReturnUrl, orphanConnectReturnUrl } from '../lib/appHandoff';
 
 type Phase = 'working' | 'done' | 'failed';
@@ -33,8 +33,20 @@ export default function OAuthCallback() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>('working');
   const [message, setMessage] = useState('');
-  // Set when the connection started in the native app: the app exchanges the code itself.
-  const [appLink, setAppLink] = useState<string | null>(null);
+  // The native app's return link, read from the URL once at first render
+  // (`appReturnUrl` is pure): the app exchanges the code itself.
+  // An app-started connection with no web record and no opener (an "orphan")
+  // is handed back too; the record is only peeked here and consumed in the effect.
+  const [appLink] = useState<string | null>(() => {
+    const params = {
+      code: searchParams.get('code'),
+      state: searchParams.get('state') ?? undefined,
+      error: searchParams.get('error'),
+    };
+    const direct = appReturnUrl('oauth', params);
+    if (direct) return direct;
+    return !peekPendingOAuth() && !window.opener ? orphanConnectReturnUrl(params) : null;
+  });
   // Popups can re-render before they close; exchanging a code twice fails the
   // second time and would report an error over a success.
   const startedRef = useRef(false);
@@ -49,21 +61,17 @@ export default function OAuthCallback() {
 
     // An app-started connection is returned to the app before anything is read or
     // consumed here. This tab has no session to exchange the code with.
-    const toApp = appReturnUrl('oauth', { code, state, error: oauthError });
-    if (toApp) {
-      setAppLink(toApp);
-      window.location.replace(toApp);
+    if (appLink && appReturnUrl('oauth', { code, state, error: oauthError })) {
+      window.location.replace(appLink);
       return;
     }
-    // Consumed before any early return: a record left behind by a declined or
-    // malformed authorization would send the *next* Google connection to the
+    // Consumed before any other early return: a record left behind by a declined
+    // or malformed authorization would send the *next* Google connection to the
     // MCP endpoint.
     const pending = takePendingOAuth();
     // No web flow started this (no record, no opener): the app did. Hand it back.
-    const orphan = !pending && !window.opener ? orphanConnectReturnUrl({ code, state, error: oauthError }) : null;
-    if (orphan) {
-      setAppLink(orphan);
-      window.location.replace(orphan);
+    if (appLink) {
+      window.location.replace(appLink);
       return;
     }
     const mcpServerId = pending?.kind === 'mcp' ? pending.serverId : null;
@@ -148,7 +156,7 @@ export default function OAuthCallback() {
         fail(detail ?? 'Could not finish connecting your account.');
       }
     })();
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, appLink]);
 
   if (appLink) {
     return (

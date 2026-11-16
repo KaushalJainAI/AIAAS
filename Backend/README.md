@@ -1,38 +1,12 @@
 # AIAAS Backend
 
-[![tests](https://github.com/KaushalJainAI/AIAAS_Backend/actions/workflows/tests.yml/badge.svg?branch=agent)](https://github.com/KaushalJainAI/AIAAS_Backend/actions/workflows/tests.yml)
+The server for AIAAS. Django (ASGI) with a LangGraph agent loop, Django Channels
+for live updates, and a sandboxed Python runner. The web app is in
+[`../better-n8n-frontend/`](../better-n8n-frontend/README.md).
 
-The backend for **AIAAS**, a platform for building AI agents that do real work
-on a user's behalf: read and triage a mailbox, research a question, analyse a
-spreadsheet in a sandbox, run on a schedule, and **stop to ask a human** before
-anything irreversible happens.
-
-Django (ASGI) + LangGraph + Celery + Redis, with the frontend in
-[`workflow_assistant`](https://github.com/KaushalJainAI/workflow_assistant).
-
-> **New here?** Start with [`../START_HERE.md`](../START_HERE.md). Each app
-> folder also has its own `README.md` explaining its files in plain words.
->
-> **Engineering write-up:** [`docs/ENGINEERING_DECISIONS.md`](docs/ENGINEERING_DECISIONS.md)
-> covers the hard problems (memory limits, human approval, long-context agents,
-> scaling limits) and why each was solved the way it was.
-
----
-
-## What it does
-
-| Capability | How |
-|---|---|
-| **Chat assistant** | The *manager*. A streaming tool-calling agent that reads (web, knowledge bases, files, connected apps), runs Python, draws charts and plans. Anything that writes, sends or spends is handed to an agent |
-| **Agents** | The *workers*. An agent is a *configuration* (prompt, model, granted tools, guardrails), not code. Built in a UI, from a template, or by describing it in chat |
-| **Human in the loop** | Five autonomy levels (`plan → review → ask → auto → full`). Sensitive calls pause the run; the user approves once, for the session, or always, from chat or an Inbox. An agent can also pause to ask a question |
-| **Office files** | Agents write real `.pptx`, `.xlsx`, `.docx` and `.pdf` files, which open in the in-browser Docs, Sheets and Slides apps, with version history and export |
-| **Schedules & webhooks** | Cron schedules evaluated in the user's timezone (DST handled), webhook triggers, overlap policies |
-| **Delegation** | An agent can fan work out to other agents, bounded by depth, budget and result size |
-| **Connected apps** | Gmail, Drive, Sheets, Calendar and MCP servers, with credentials AES-encrypted at rest and injected at call time |
-| **Knowledge & files** | Per-user file system, hierarchical RAG, document extraction |
-| **Observability** | Every run is recorded as run → turn (with full model reasoning) → tool step, pinned to the agent revision it ran under |
-| **Evaluation** | Test suites with graders, plus human review that measures how often the graders were right. Tests can run inside fake "worlds" with simulated mail, calendar and files, so they never touch real data |
+> **New here?** Read [`../START_HERE.md`](../START_HERE.md). It has the run recipe,
+> the app map, the layers rule and the common jobs. Each app folder also has its
+> own `README.md`.
 
 ## Architecture
 
@@ -56,88 +30,54 @@ flowchart LR
 
 **One door for every run.** Chat, API calls, schedules and delegation all start
 runs through `agents/agent/runtime.py::run_agent`. Callers differ in
-configuration, never in code path, so a guardrail can't be skipped by starting
-a run a different way.
+configuration, not in code path, so a guardrail cannot be skipped by starting a
+run a different way.
 
-**One funnel for every model call.** `llm/access.py` resolves credentials,
-falls back to the platform key, enforces credits, clamps context to the model's
-window, and classifies provider errors (so an empty balance becomes an
-immediate error, not a spinner followed by an apology).
-
-## Run it locally
-
-```bash
-python -m venv venv
-source venv/Scripts/activate        # Windows; use venv/bin/activate elsewhere
-pip install -r requirements.txt     # requirements-linux.txt on Linux/macOS
-cp .env.local .env                  # then set OPENROUTER_API_KEY
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
-
-Redis and Celery are optional, in development and in production. One loop
-inside the server process (`agents/scheduler.py`) fires schedules and runs every
-other periodic job: reminders, run recovery, the recycle-bin purge. Each is
-also a management command (`send_hitl_reminders`, `recover_runs`,
-`purge_recycle_bin`) for running by hand.
-
-## Tests
-
-```bash
-python -m pytest            # ~3,650 tests (about 12 min), no network, Redis or database server needed
-```
-
-Tests live in `<app>/tests/`. Several are end-to-end: they drive the real
-LangGraph graph against a stub provider and assert on what a client actually
-receives. That's how a feature that passed every unit test but reached no user
-was caught.
+**One funnel for every model call.** `llm/access.py` resolves credentials, falls
+back to the platform key, clamps context to the model's window, and classifies
+provider errors. An empty balance becomes an immediate error, not a spinner
+followed by an apology.
 
 ## Operations
 
 | Concern | Where |
 |---|---|
+| Database | PostgreSQL in production. SQLite locally (`DB_ENGINE`). |
+| Redis | Used in production for the Channels layer and the cache (`USE_REDIS_CHANNEL_LAYER=True`, set in `settings/deployment.py`). Not needed locally. |
+| Background work | One in-process scheduler loop (`agents/scheduler.py`) runs schedules and every periodic job, under a database lease. Production runs no Celery worker. |
 | Error reporting | Sentry, enabled by `SENTRY_DSN` (`workflow_backend/observability.py`) |
-| Backups | `pg_dump -Fc` from the database container before every deploy; `python manage.py backup_db` for SQLite installs (online snapshot, gzip, retention, optional S3 upload) |
+| Backups | Production: `pg_dump` from the database container (see [`DEPLOYMENT.md`](../DEPLOYMENT.md)). SQLite installs: `python manage.py backup_db`. |
 | Health check | `GET /api/health/` |
-| Crashed runs | Run recovery (every 10 min, in-process) resumes or closes runs orphaned by a restart |
-| Restarts | `manage.py boot` then `exec daphne`: ~11 s from start to serving, 1.3 s to stop (see `learning/16_deploy_downtime_and_background_work.md`) |
-| Cost control | Per-user credits on the platform key (`llm/credits.py`); per-agent monthly spend caps |
+| Crashed runs | Run recovery runs every 10 minutes. It resumes or closes runs orphaned by a restart. |
+| Restarts | `manage.py boot`, then `exec daphne`: about 11 s from start to serving. Why: [`learning/16_deploy_downtime_and_background_work.md`](../learning/16_deploy_downtime_and_background_work.md). |
+| Spend | Per-agent spend caps (`agents/spend.py`). |
 
-## Project layout
-
-| App | Responsibility |
-|---|---|
-| `agents/` | Agents, runtime, delegation, schedules, HITL, templates, publishing (Django label `orchestrator`). The permission tables are `agents/grants.py`, the save path `agents/config.py` |
-| `chat/` | Chat turn pipeline, tool registry, steering, context curation, vision |
-| `llm/` | Provider handlers, model catalogue, credits, effort levels, context budget |
-| `mcp_integration/` | Connector client, memory supervisor, tool catalogue cache |
-| `credentials/` | Encrypted credential vault and OAuth refresh |
-| `inference/` | File system, RAG, extraction, recycle bin |
-| `logs/` | Run → turn → step observability, agent revisions |
-| `eval/` | Graders, suites, sweeps, human review |
-| `notifications/` | Notifications and the HITL reminder ladder |
-| `sandbox/` + `sandbox_service/` | Python execution in a hardened sidecar container |
-| `office/` | Not a Django app: the library that builds and reads `.pptx`, `.xlsx`, `.docx`, PDF, diagrams and charts |
-| `core/` | Users, login, API keys, user memory, rate limits, input safety checks |
-| Everything else | `datasources/`, `messaging/`, `browsing/`, `missions/`, `workspaces/`, `imagine/`, `skills/`, `tools_config/`, `streaming/`, `esign/`, `voice/`. The full map, in plain words, is section 7 of [`../START_HERE.md`](../START_HERE.md) |
-
-## Layers
-
-Lower apps may read another app's *models*, but never import the agent
-runtime (`agents.agent`), the chat engine (`chat.turn`), the tool library
-(`chat.tools`), `eval`, or another app's *views*. `office/` imports nothing
-but `workflow_backend.thresholds`, and `llm/` never imports the product apps.
-The rules live in [`.importlinter`](.importlinter), each exception with its
-reason, and `workflow_backend/tests/test_import_contracts.py` fails CI when one
-breaks:
+## Tests
 
 ```bash
-lint-imports        # full report, from Backend/
+python -m pytest            # no network, Redis or database server needed
 ```
 
-Detailed design docs are in [`docs/`](docs/); [`docs/README.md`](docs/README.md)
-sorts them into current reference and old plans. Start with
-[`API.md`](docs/API.md) (every route), [`CONTEXT_LIFECYCLE.md`](docs/CONTEXT_LIFECYCLE.md),
-[`AGENT_OBSERVABILITY.md`](docs/AGENT_OBSERVABILITY.md),
-[`SANDBOX_EXECUTION.md`](docs/SANDBOX_EXECUTION.md) and
-[`EVALUATION.md`](docs/EVALUATION.md).
+Tests live in `<app>/tests/`. Several are end-to-end. They drive the real
+LangGraph graph against a stub provider and assert on what a client actually
+receives. That is how a feature that passed every unit test but reached no user
+was caught.
+
+## Run it locally, layout, layers
+
+- Run recipe: [`../START_HERE.md`](../START_HERE.md), section 3.
+- Project layout and the layers rule: [`../START_HERE.md`](../START_HERE.md), section 7.
+  The import rules live in [`.importlinter`](.importlinter). `lint-imports` (run from
+  `Backend/`) prints the full report.
+
+## Design docs
+
+[`docs/README.md`](docs/README.md) sorts the design docs into current reference and
+old plans. Start with:
+
+- [`docs/API.md`](docs/API.md): every HTTP route
+- [`docs/CONTEXT_LIFECYCLE.md`](docs/CONTEXT_LIFECYCLE.md): how a long run stays inside its context window
+- [`docs/AGENT_OBSERVABILITY.md`](docs/AGENT_OBSERVABILITY.md): the run, turn and step records
+- [`docs/SANDBOX_EXECUTION.md`](docs/SANDBOX_EXECUTION.md): the Python sandbox
+- [`docs/SAFETY_AND_GUARDRAILS.md`](docs/SAFETY_AND_GUARDRAILS.md): every AI guardrail in one place
+- [`docs/EVALUATION.md`](docs/EVALUATION.md): how agents are graded

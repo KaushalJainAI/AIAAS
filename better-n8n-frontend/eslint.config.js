@@ -5,6 +5,16 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
+// A feature folder (`src/features/<name>/`) is used from outside only
+// through its front door, `@/features/<name>` (its index.ts). Reaching past
+// it couples the rest of the app to files the feature should be free to move.
+// Inside a feature, its own files import each other with relative paths,
+// which this pattern does not match. See FRONTEND_STRUCTURE.md.
+const FEATURE_BOUNDARY = [{
+  group: ['@/features/*/**', '**/features/*/**', '!**/features/*/index', '!**/features/*/index.ts'],
+  message: 'Import a feature through its front door (@/features/<name>), not its inner files. See FRONTEND_STRUCTURE.md.',
+}]
+
 export default defineConfig([
   globalIgnores(['dist']),
   {
@@ -51,8 +61,17 @@ export default defineConfig([
           group: ['**/api/client'],
           importNames: ['default'],
           message: 'Add a function to the matching service in src/api/ and call that instead.',
-        }],
+        }, ...FEATURE_BOUNDARY],
       }],
+    },
+  },
+  {
+    // `src/api/` sits outside the block above, so it gets the feature
+    // boundary on its own: the shared layers never reach into a feature.
+    files: ['src/api/**/*.{ts,tsx}'],
+    ignores: ['**/__tests__/**'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: FEATURE_BOUNDARY }],
     },
   },
 ])

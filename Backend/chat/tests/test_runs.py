@@ -358,3 +358,73 @@ class StreamEndpointWiringTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class StreamAuthenticationTests(TestCase):
+    """
+    The streaming views verify their own bearer token, so they must apply the
+    same rules as `RevocableJWTAuthentication` — and nothing looser.
+    """
+
+    def setUp(self) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+        self.user = User.objects.create_user(
+            username="streamer", email="stream@example.com", password="pw"
+        )
+
+    def _request(self, token: str | None = None, session_user=None):
+        from django.test import RequestFactory
+
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {}
+        request = RequestFactory().post("/x/", **headers)
+        if session_user is not None:
+            request.user = session_user
+        return request
+
+    def _token(self) -> str:
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        return str(AccessToken.for_user(self.user))
+
+    async def test_a_valid_bearer_token_authenticates(self) -> None:
+        from chat.transport.streaming_http import authenticate
+
+        user = await authenticate(self._request(self._token()))
+        self.assertEqual(user.pk, self.user.pk)
+
+    async def test_a_session_cookie_user_is_not_trusted(self) -> None:
+        """The views are csrf_exempt; a cookie login must not reach them."""
+        from chat.transport.streaming_http import authenticate
+
+        self.assertIsNone(await authenticate(self._request(session_user=self.user)))
+
+    async def test_a_revoked_token_is_refused(self) -> None:
+        from datetime import timedelta
+
+        from asgiref.sync import sync_to_async
+        from django.utils import timezone
+
+        from chat.transport.streaming_http import authenticate
+        from core.models import UserProfile
+
+        token = self._token()
+
+        def _revoke_after_issue() -> None:
+            profile, _ = UserProfile.objects.get_or_create(user=self.user)
+            profile.tokens_valid_after = timezone.now() + timedelta(seconds=5)
+            profile.save(update_fields=["tokens_valid_after"])
+
+        await sync_to_async(_revoke_after_issue)()
+        self.assertIsNone(await authenticate(self._request(token)))
+
+    async def test_an_inactive_user_is_refused(self) -> None:
+        from asgiref.sync import sync_to_async
+
+        from chat.transport.streaming_http import authenticate
+
+        token = self._token()
+        self.user.is_active = False
+        await sync_to_async(self.user.save)(update_fields=["is_active"])
+        self.assertIsNone(await authenticate(self._request(token)))

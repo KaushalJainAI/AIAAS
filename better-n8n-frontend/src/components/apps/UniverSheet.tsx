@@ -1,7 +1,7 @@
 /**
  * A Univer grid over an `IWorkbookData` snapshot — the Sheets app's editor.
  *
- * Loaded lazily (with its CSS and worker) so the login screen and every other
+ * Loaded lazily (with its CSS) so the login screen and every other
  * page skip the several megabytes of grid, formula engine and UI. The parent
  * owns loading and saving; this owns the Univer lifetime: create on mount,
  * dispose on unmount, and report dirtiness.
@@ -18,7 +18,6 @@ import {
 } from '@univerjs/core';
 import { createUniver } from '@univerjs/presets';
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core';
-import SheetsWorker from '@univerjs/preset-sheets-core/lib/worker.js?worker';
 
 import '@univerjs/preset-sheets-core/lib/index.css';
 
@@ -103,7 +102,6 @@ export default function UniverSheet({ snapshot, onDirtyChange, onError, readOnly
   useEffect(() => {
     let cancelled = false;
     let univer: { dispose: () => void } | null = null;
-    let worker: Worker | null = null;
     let timer: number | null = null;
     let events: { dispose: () => void } | null = null;
     const container = containerRef.current;
@@ -123,24 +121,16 @@ export default function UniverSheet({ snapshot, onDirtyChange, onError, readOnly
         '@univerjs/preset-sheets-core/locales/en-US'
       )) as unknown as { default: unknown };
       if (cancelled) return;
-      try {
-        worker = new SheetsWorker();
-      } catch {
-        // Without the formula worker the grid still edits; formulas show
-        // the backend-calculated values the snapshot seeded.
-        worker = null;
-      }
-      if (cancelled) {
-        worker?.terminate();
-        return;
-      }
+      // No `workerURL`: the formula engine calculates on the main thread. The
+      // preset delegates calculation to a worker only when given one, and the
+      // old worker module only exports a factory, so nothing ever answered and
+      // new formulas stayed blank until a reload.
       const { univer: created, univerAPI } = createUniver({
         locale: LocaleType.EN_US,
         locales: { [LocaleType.EN_US]: locales.default as ILanguagePack },
         presets: [
           UniverSheetsCorePreset({
             container,
-            workerURL: worker ?? undefined,
             header: false,
             formulaBar: !readOnly,
             footer: readOnly ? false : undefined,
@@ -180,8 +170,6 @@ export default function UniverSheet({ snapshot, onDirtyChange, onError, readOnly
       apiRef.current = null;
       recheckRef.current = null;
       univer?.dispose();
-      worker?.terminate();
-      worker = null;
     };
     // One lifetime per file: the shell remounts on file change.
     // eslint-disable-next-line react-hooks/exhaustive-deps

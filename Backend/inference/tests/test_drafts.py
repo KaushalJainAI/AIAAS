@@ -166,6 +166,13 @@ class DraftRenderTests(DraftCase):
         shown = self.me.get(f'/api/inference/documents/{doc["id"]}/office/').json()
         self.assertIn('hello', shown['sheets'][0]['rows'][1])
 
+    def test_a_new_workbook_opens_in_the_sheets_app(self):
+        """The Sheets app needs a Univer snapshot; with none it cannot open the file."""
+        doc = self.new('Fresh.xlsx')
+        shown = self.me.get(f'/api/inference/documents/{doc["id"]}/office/').json()
+        self.assertIsInstance(shown.get('snapshot'), dict)
+        self.assertTrue(shown['snapshot'].get('sheets'))
+
 
 class DraftEtagTests(DraftCase):
     def test_a_pre_render_etag_still_lands_after_the_render(self):

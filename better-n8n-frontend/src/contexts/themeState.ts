@@ -4,8 +4,7 @@
  * Split from `ThemeContext.tsx` so that file exports the provider and nothing
  * else. A module that exports both a component and a plain function opts out
  * of fast refresh entirely, so editing the provider would remount the tree and
- * drop the theme — the same reason BrowserOS keeps `OSProvider` alone in its
- * file and its hooks in `osState.ts`.
+ * drop the theme.
  */
 import { createContext, useContext } from 'react';
 

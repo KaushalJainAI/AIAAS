@@ -1,11 +1,15 @@
 # `notifications/`: the bell, reminders and the digest
 
-- **Notifications**: rows in the bell menu, also pushed live over the
-  `ws/hitl/` socket and, if enabled, as browser push notifications.
-- **Approval reminders**: a run waiting for you is nudged at +0, +1 hour and
-  +1 day, then left alone.
-- **Daily digest**: one summary email a day of what is waiting on you.
-- **Scheduled reminders**: reminders you (or the AI) set for a time.
+The user sees this as the bell menu. It carries:
+
+- **Notifications**: rows in the bell menu, pushed live over `ws/hitl/` and, if
+  enabled, as browser or phone push.
+- **Approval reminders**: a run waiting for an answer is nudged at +0, +1 hour
+  and +1 day, then left alone. An opt-in hourly nudge is also available.
+- **Daily digest**: one summary a day of what is waiting on you, by email if
+  email is on.
+- **Scheduled reminders**: reminders a user (or the assistant) sets for a time
+  or an interval.
 
 Design: [`docs/NOTIFICATION_SERVICE.md`](../docs/NOTIFICATION_SERVICE.md).
 
@@ -14,48 +18,39 @@ Design: [`docs/NOTIFICATION_SERVICE.md`](../docs/NOTIFICATION_SERVICE.md).
 | Model | What it is |
 |---|---|
 | `Notification` | One row in the bell menu |
-| `NotificationPreference` | Your settings: digest time, hourly nudge on/off |
+| `NotificationPreference` | Digest time, hourly nudge, and the digest's day mark |
 | `HITLReminderSchedule` | The reminder timetable for one pending approval |
-| `ScheduledNotification` | A reminder set for a time or a repeating interval |
-| `PushSubscription` | A browser registered for push notifications |
-| `DeviceToken` | A native phone's Expo push token (the React Native app) |
+| `ScheduledNotification` | A reminder set for a time or an interval |
+| `PushSubscription` | A browser registered for push |
+| `DeviceToken` | A phone's Expo push token (the React Native app) |
 
 ## Files
 
 | File | What it does |
 |---|---|
 | `utils.py` | `create_notification`: **the way to create a notification**. Saves it, pushes it live, may email it |
+| `push.py` | `send_push`: **the way to reach a person's devices**. Fans out to browsers and phones |
+| `webpush.py` | Browser push, which works with the tab closed |
+| `expo_push.py` | Phone push through the Expo Push Service |
 | `reminders.py` | The approval-reminder engine and the digest |
-| `scheduled.py` | User-set reminders |
-| `push.py` | `send_push`: **the way to reach a person's devices**. Fans out to browser push and native phones |
-| `webpush.py` | Browser push (works with the tab closed) |
-| `expo_push.py` | Native phone push through the Expo Push Service |
+| `scheduled.py` | User-set reminders. Claims each firing before sending it |
 | `signals.py` | Keeps the reminder timetable in step with its approval request |
-| `tasks.py` | Celery entry for the sweep |
+| `tasks.py` | Celery entry for the sweeps |
 | `views.py`, `urls.py`, `serializers.py` | `/api/notifications/...` |
 
-## Email
+## Rules
 
-Email belongs to the daily digest (at most one a day). `NOTIFICATIONS_EMAIL_ENABLED`
-defaults to `False`. When you call `create_notification`, pass
-`send_email=False` unless the notification really should be emailed; the
-scheduled reminders a user asks for are the other exception.
-`notifications/tests/test_email_policy.py` fails if a new caller can email.
-
-A device send goes through `push.send_push`, never a channel directly;
-`notifications/tests/test_expo_push.py::OneDoorTests` enforces it.
+- Email is off unless `NOTIFICATIONS_EMAIL_ENABLED` is set. The digest is the normal email; `send_email=False` on `create_notification` opts a notification out.
+- A scheduled reminder the user asked to be emailed is the one other email.
+- Send devices only through `push.send_push`, never a channel directly. `test_expo_push.py::OneDoorTests` checks it.
+- The two sweeps run inside the server on the scheduler loop. Each firing is claimed before it is sent, so two sweeps never send one reminder twice.
 
 ## Management commands
 
-The two sweeps run inside the server, on the scheduler loop
-(`agents/scheduler.py`); no cron is needed. `send_hitl_reminders` and
-`send_scheduled_notifications` run the same sweeps by hand.
-`generate_vapid_keys` makes the keys for browser push.
-
-The scheduled sweep **claims each firing before sending it**, so two sweeps
-running at once (say the loop and a manual run) never send a reminder twice.
-If sending fails, the claim is handed back and the next sweep retries.
+`send_hitl_reminders` and `send_scheduled_notifications` run the same sweeps by
+hand. `generate_vapid_keys` makes the browser push keys.
 
 ## Tests
 
-`notifications/tests/`: `test_reminders.py`, `test_agent_notifications.py`.
+`notifications/tests/`: `test_reminders.py`, `test_agent_notifications.py`,
+`test_scheduled_sweep.py`, `test_email_policy.py`, `test_expo_push.py`, `test_webpush.py`.

@@ -124,7 +124,10 @@ async def message_hook(request, channel: str, secret: str):
                 and params.get('hub.verify_token') == verify_token):
             from django.http import HttpResponse
 
-            return HttpResponse(params.get('hub.challenge', ''))
+            # text/plain: the challenge is echoed back, and as the default
+            # text/html it would be reflected markup on this origin.
+            return HttpResponse(params.get('hub.challenge', ''),
+                                content_type='text/plain; charset=utf-8')
         return _refused()
     if request.method != 'POST':
         return _refused()
@@ -151,7 +154,8 @@ async def message_hook(request, channel: str, secret: str):
     if channel == 'slack' and body.get('type') == 'url_verification':
         from django.http import HttpResponse
 
-        return HttpResponse(str(body.get('challenge', '')))
+        return HttpResponse(str(body.get('challenge', '')),
+                            content_type='text/plain; charset=utf-8')
 
     parsed = _parse(channel, body)
     if parsed is None:

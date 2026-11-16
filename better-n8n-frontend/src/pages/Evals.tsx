@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import PageHeader from '../components/layout/PageHeader';
-import MarkdownMessage from '../components/chat/MarkdownMessage';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button } from '../components/ui/Button';
 import evalsService, {

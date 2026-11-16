@@ -8,11 +8,12 @@ Run these from the `Backend/` folder. None of them run automatically.
 | `seed_runs.py` | Adds example agent runs (run after `seed_demo.py`) | `python manage.py shell < scripts/seed_runs.py` |
 | `seed_improve.py` | Adds more demo agents and extraction data | `python manage.py shell < scripts/seed_improve.py` |
 | `seed_notion_dev.py` | Creates test pages in a Notion workspace for the Notion tools | `python scripts/seed_notion_dev.py --token ntn_xxx --parent <page>` |
-| `check_imports.py` | Imports every module one by one to find import errors | `python scripts/check_imports.py [prefix]` |
+| `chatgpt_plan_spike.py` | Phase 0 check for the ChatGPT plan provider: does ChatGPT plan usage work for this app, and how. Needs your own ChatGPT account | `python scripts/chatgpt_plan_spike.py` (or `--port 8000`) |
+| `check_imports.py` | Imports every module one by one (each in a subprocess, with a timeout) to find import errors | `python scripts/check_imports.py [prefix]` |
 
-Two seed files stay in `Backend/` on purpose, because other code loads them by
-name:
+Two seed files stay in `Backend/` on purpose, because other code loads them by name:
 
-- `populate_models.py`: the model catalogue. The production container runs it
-  on every start (see `Dockerfile`), and `llm/catalog_refresh.py` imports it.
+- `populate_models.py`: the model catalogue. The production container runs it on start (see `Dockerfile`), and `llm/catalog_refresh.py` imports it.
 - `populate_credentials.py`: credential types, used by `instance/scripts/setup.*`.
+
+Plan behind the ChatGPT spike: [`docs/CHATGPT_PLAN_PROVIDER_PLAN.md`](../docs/CHATGPT_PLAN_PROVIDER_PLAN.md).

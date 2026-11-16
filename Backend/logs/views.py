@@ -8,7 +8,7 @@ than `async def` wrappers around a `sync_to_async` closure.
 
 Note the vocabulary seam: the URL and query parameter are still spelled
 `workflow_id`, and responses still carry `workflow_id` / `workflow_name`,
-because the frontend and BrowserOS ship their own builds. What they identify is
+because the frontend ships its own build. What they identify is
 a `SubAgent`. `queries.py` does the renaming in one place.
 """
 from drf_spectacular.types import OpenApiTypes

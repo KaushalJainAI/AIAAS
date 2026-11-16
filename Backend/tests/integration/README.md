@@ -25,15 +25,12 @@ pytest tests/integration -v
 | File | Apps exercised | Adversarial focus |
 |------|----------------|-------------------|
 | `test_auth_flow.py` | `core`, `dj_rest_auth` | Credential reuse, throttling, token tampering |
-| `test_workflow_lifecycle.py` | `orchestrator`, `compiler`, `nodes` | Cyclic graphs, oversized payloads, unauthorized access |
 | `test_credentials_mcp.py` | `credentials`, `mcp_integration` | Cross-user credential leak, decryption failures, mapping injection |
 | `test_adversarial_credentials.py` | `credentials` | Encryption tampering, wrong key, malformed input |
-| `test_adversarial_compiler.py` | `compiler` | Cycles, dangling edges, malformed nodes, deep nesting |
-| `test_adversarial_orchestrator.py` | `orchestrator` | IDOR, mass assignment, oversized state, race conditions |
 
 ## Conventions
 
-- Every adversarial file has three classes: `HappyPath`, `SadPath`, `AngryPath`.
+- Every adversarial file has three classes: a Happy, a Sad and an Angry one.
   - **Happy** — the documented golden path works.
   - **Sad** — predictable failures (missing field, wrong type, empty string).
   - **Angry** — hostile input designed to break invariants

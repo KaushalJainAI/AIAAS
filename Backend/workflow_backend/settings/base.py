@@ -521,6 +521,15 @@ REST_FRAMEWORK = {
     },
 }
 
+# How many reverse proxies we run in front of Django. Every throttle (login,
+# register, guest chat, anonymous) keys on the client address DRF reads from
+# `X-Forwarded-For`; unset, it keys on the *whole* header, which a client can
+# vary at will to dodge a limit. Production is two hops (Caddy, then the
+# frontend's nginx), set in `deployment.py`. Unset locally, where there is no
+# proxy and `REMOTE_ADDR` is the client. See `core/http/client_ip.py`.
+_TRUSTED_PROXY_COUNT = os.environ.get('TRUSTED_PROXY_COUNT', '').strip()
+REST_FRAMEWORK['NUM_PROXIES'] = int(_TRUSTED_PROXY_COUNT) if _TRUSTED_PROXY_COUNT else None
+
 # --- Guest chat (anonymous OpenRouter free-router demo) ---
 # NVIDIA_API_KEY is still read here: it remains the platform default key for
 # authenticated users with no credential of their own (PLATFORM_ENV_KEYS in

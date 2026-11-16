@@ -32,7 +32,7 @@ import { ModelPicker } from './ModelPicker';
 import { SendButton } from '../ui/SendButton';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
-import MarkdownMessage from '../chat/MarkdownMessage';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 
 /** `auto` leaves the modality to the router. */
 type KindChoice = 'auto' | MediaKind;

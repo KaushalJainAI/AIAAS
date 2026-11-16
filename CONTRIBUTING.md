@@ -1,58 +1,49 @@
 # Contributing to AIAAS
 
-Thanks for taking a look. Feedback, bug reports, ideas and pull requests are all welcome.
+Thanks for taking a look. Bug reports, ideas and pull requests are all welcome.
 
 ## Ways to help
 
-- **Try it and tell us what broke.** Open an issue with what you did, what you expected and what happened.
-- **Suggest an idea.** Open an issue describing the problem first, then the change you have in mind.
+- **Try it and tell us what broke.** Open an issue: what you did, what you expected, what happened.
+- **Suggest an idea.** Open an issue that describes the problem first, then the change you have in mind.
 - **Send a pull request.** Small, focused changes are easiest to review.
 
 ## Run it locally
 
-Start with `START_HERE.md` for a plain-language tour of how the project fits together.
-
-Backend (`Backend/`):
-
-```bash
-python -m venv venv && source venv/Scripts/activate   # Windows (Git Bash)
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
-
-Frontend (`better-n8n-frontend/`):
-
-```bash
-npm install
-npm run dev          # http://localhost:5173
-```
-
-Copy `Backend/.env.local` to `Backend/.env` and fill in the keys it asks for. `OPENROUTER_API_KEY` is needed to run the default model.
+See [START_HERE.md](START_HERE.md), section 3.
 
 ## Before you open a pull request
 
 Run the checks for the part you changed.
 
 ```bash
-# Backend
-python manage.py test            # or: pytest
+# Backend (from Backend/). Includes the import-contract test.
+python -m pytest                 # or: python manage.py test
 
-# Frontend
+# Frontend (from better-n8n-frontend/)
+npx tsc -b --force               # type check (plain tsc --noEmit checks nothing here)
 npm run lint
-npm run build                    # type-checks, then bundles
+npm test
+npm run build
+
+# Mobile (from mobile-native/)
+npx tsc --noEmit
+npm run lint
 ```
 
-Please also:
+Also:
 
-- Put new backend tests in `<app>/tests/test_<topic>.py`, and frontend tests in `src/<dir>/__tests__/`.
-- Keep `Backend/docs/API.md` current if you add or change a route.
+- Put backend tests in `<app>/tests/test_<topic>.py`, and frontend tests in `src/<dir>/__tests__/`.
+- If you add or change a route, update `Backend/docs/API.md` in the same change.
 - Match the style of the code around your change.
 - Describe what changed and why in the pull request.
 
 ## Where things live
 
-Each backend app has its own `README.md`, and `Backend/docs/README.md` sorts the design docs. `better-n8n-frontend/BEGINNER_GUIDE.md` covers the frontend.
+[START_HERE.md](START_HERE.md) maps the codebase. Each backend app has its own
+`README.md`. [`Backend/docs/README.md`](Backend/docs/README.md) indexes the design
+docs, and [`better-n8n-frontend/BEGINNER_GUIDE.md`](better-n8n-frontend/BEGINNER_GUIDE.md)
+covers the frontend.
 
 ## Security
 

@@ -7,8 +7,11 @@ Key design decisions:
   overridable with EMBEDDING_MODEL / EMBEDDING_API_BASE)
 - Quantization: PyTorch dynamic int8 on CPU — no CUDA required, ~4x memory reduction
 - Index type: FAISS IndexHNSWFlat (approx NN, much faster search than flat for large corpora)
-- Persistence: each KB saves a .faiss index + .pkl document map locally, then syncs to S3
-- Embeddings are stored in the pickle so deletion never requires re-encoding
+- Persistence: each KB saves a .faiss index + a JSON document map locally, then syncs to S3
+- Embeddings are stored in the document map so deletion never requires re-encoding
+- The map is JSON, never pickle: it is downloaded from S3, and unpickling a file
+  someone else could write is code execution. A legacy local .pkl is read once
+  to migrate it, and never one fetched from S3.
 - S3 sync is best-effort: if AWS is not configured, local-only mode is used silently
 - Version tracking: each index stores the model name that created it; on model
   change the index is automatically rebuilt from stored text content.
@@ -16,8 +19,9 @@ Key design decisions:
 import asyncio
 import hashlib
 import logging
+import json
 import os
-import pickle
+import pickle  # legacy local migration only — see _load_local
 import threading
 import time
 from concurrent.futures import Future
@@ -33,6 +37,13 @@ from django.conf import settings
 from workflow_backend.background import spawn
 
 logger = logging.getLogger(__name__)
+
+
+def _json_default(value):
+    """Embeddings may be numpy arrays or numpy scalars; JSON wants lists."""
+    if hasattr(value, 'tolist'):
+        return value.tolist()
+    raise TypeError(f'{type(value).__name__} is not JSON serializable')
 
 # ---------------------------------------------------------------------------
 # Global embedder singleton
@@ -341,6 +352,12 @@ class HNSWKnowledgeBase:
 
     @property
     def _local_docs_path(self) -> Path:
+        return settings.FAISS_INDEX_DIR / f'kb_{self.kb_id}_docs.json'
+
+    @property
+    def _legacy_docs_path(self) -> Path:
+        # Written by this server before the map moved to JSON. Read once to
+        # migrate, then deleted; anything fetched from S3 lands at the JSON path.
         return settings.FAISS_INDEX_DIR / f'kb_{self.kb_id}_docs.pkl'
 
     @property
@@ -349,7 +366,7 @@ class HNSWKnowledgeBase:
 
     @property
     def _s3_docs_key(self) -> str:
-        return f'{self._s3_prefix}_docs.pkl'
+        return f'{self._s3_prefix}_docs.json'
 
     def _create_fresh_index(self):
         import faiss
@@ -368,20 +385,30 @@ class HNSWKnowledgeBase:
                 '_version': EMBEDDER_VERSION,
                 'documents': self._documents,
             }
-            with open(self._local_docs_path, 'wb') as f:
-                pickle.dump(bundle, f)
+            tmp = self._local_docs_path.with_suffix('.json.tmp')
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(bundle, f, default=_json_default)
+            os.replace(tmp, self._local_docs_path)
         except Exception as e:
             logger.error(f"[KB {self.kb_id}] Local save failed: {e}")
 
     def _load_local(self) -> bool:
         try:
-            if not self._local_index_path.exists() or not self._local_docs_path.exists():
+            legacy = (not self._local_docs_path.exists()
+                      and self._legacy_docs_path.exists())
+            if not self._local_index_path.exists() or not (
+                    self._local_docs_path.exists() or legacy):
                 return False
             import faiss
             self._index = faiss.read_index(str(self._local_index_path))
             self._index.hnsw.efSearch = self.HNSW_EF_SEARCH
-            with open(self._local_docs_path, 'rb') as f:
-                raw = pickle.load(f)
+            if legacy:
+                # One-time migration of a file this server wrote itself.
+                with open(self._legacy_docs_path, 'rb') as f:
+                    raw = pickle.load(f)  # noqa: S301 — local, self-written, migrated below
+            else:
+                with open(self._local_docs_path, encoding='utf-8') as f:
+                    raw = json.load(f)
 
             # Supports both old format (plain dict) and new versioned bundle
             if isinstance(raw, dict) and '_version' in raw:
@@ -391,6 +418,12 @@ class HNSWKnowledgeBase:
                 # Legacy index — no version tag, treat as "unknown"
                 self._stored_version = None
                 self._documents = raw
+            # JSON object keys are strings; the map is keyed by FAISS row.
+            self._documents = {int(k): v for k, v in self._documents.items()}
+            if legacy:
+                self._save_local()
+                if self._local_docs_path.exists():
+                    self._legacy_docs_path.unlink(missing_ok=True)
 
             logger.info(
                 f"[KB {self.kb_id}] Loaded from local disk "
@@ -724,7 +757,8 @@ class HNSWKnowledgeBase:
 
     def destroy_local(self):
         """Remove local index files (e.g. when KB is deleted)."""
-        for path in [self._local_index_path, self._local_docs_path]:
+        for path in [self._local_index_path, self._local_docs_path,
+                     self._legacy_docs_path]:
             try:
                 path.unlink(missing_ok=True)
             except Exception:

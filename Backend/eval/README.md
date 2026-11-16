@@ -1,65 +1,57 @@
 # `eval/`: is this agent any good?
 
-Tests agents the way unit tests test code. A **suite** holds **cases** (an
-input and what a good answer looks like). A **sweep** runs the agent on every
-case and **graders** score each answer. A person can review what the graders
-decided, and the app measures how often the graders were right.
+The user sees this as the Evals page. A **suite** holds **cases** (an input and
+what a good answer looks like). A **sweep** runs the agent on every case, and
+**graders** score each answer. A person reviews what the graders decided, and
+the app measures how often the graders agreed with them.
 
-Design: [`docs/EVALUATION.md`](../docs/EVALUATION.md).
-The practical benchmark lives in [`benchmarks/`](benchmarks/README.md).
+Design: [`docs/EVALUATION.md`](../docs/EVALUATION.md). Environments:
+[`docs/EVAL_ENVIRONMENTS_PLAN.md`](../docs/EVAL_ENVIRONMENTS_PLAN.md). The
+built-in benchmark: [`benchmarks/README.md`](benchmarks/README.md).
 
-> The Django app label is `eval` (singular). An older `evals` app left unused
-> `evals_*` tables in some dev databases; ignore them.
+The app label is `eval` (singular). An older `evals` app left unused `evals_*`
+tables in some dev databases. Ignore them.
 
 ## Data (`models.py`)
 
 | Model | What it is |
 |---|---|
-| `EvalSuite`, `EvalCase` | A test suite and its cases |
-| `EvalWorld` | A fake situation the judge model built for a suite: made-up files, emails, calendar entries and web pages, with the facts the answers depend on. Regenerating makes a new version; it never edits an old one |
+| `EvalSuite`, `EvalCase` | A suite and its cases |
+| `EvalWorld` | A made-up situation for a suite (files, mail, calendar, web) with the facts answers depend on. Versioned: regenerating makes a new version |
 | `EvalRun` | One sweep of a suite against an agent |
-| `EvalResult` | One case's outcome. `auto_passed` is what the graders said, kept forever |
-| `EvalReview` | A person's verdict on a result. The score uses this when it exists |
-| `JudgeCalibration` | How well the AI judge agrees with known-correct labels |
+| `EvalResult` | One case's outcome. `auto_passed` is what the graders said, kept for ever |
+| `EvalReview` | A person's verdict on a result. The score uses this |
+| `JudgeCalibration` | How often the AI judge agrees with known-correct labels |
 
 ## Files
 
 | File | What it does |
 |---|---|
 | `api.py` | **What other apps import.** Use this, not the internals |
-| `graders.py` | The graders: small named checks (`contains`, `json_value`, `llm_judge`...). Adding one = registering it here |
-| `runner.py` | Running a suite: one agent run per case, grade, queue doubtful ones for review |
-| `supervision.py` | When a result needs a person, and how the final score is computed |
-| `queries.py` | Database reads behind `/api/eval/` |
-| `views.py`, `urls.py`, `serializers.py` | `/api/eval/` |
+| `graders.py` | Registry of small named checks (`contains`, `json_value`, `llm_judge`...). Registering one is the schema |
+| `runner.py` | Runs a suite: one agent run per case, grade, queue doubtful results for review |
+| `supervision.py` | Which results need a person, and how the final score is computed |
+| `environment.py` | Puts one attempt inside its world. Connector tools without a simulator are refused |
+| `sim/` | Simulators (`mail`, `calendar`, `drive`, `web`, `notify`) that return the real tools' shapes and record each call |
+| `generator.py`, `starter_kits.py` | Draft cases and worlds the judge writes. Drafts stay inactive until accepted on the Evals page |
 | `workspace.py` | Per-case folders of starting files, reset before each attempt |
-| `office_files.py` | Reading `.xlsx` / `.docx` / `.pptx` back for grading. Formulas are evaluated by `office/formulas.py`, the same evaluator the Sheets app uses |
-| `calibration.py` | Checking the AI judge |
-| `bare.py` | Running the plain model with no platform, for comparison |
-| `generator.py`, `starter_kits.py` | Test data a user didn't have to write. `generator.py` also builds worlds. Everything it makes is a **draft** until a person accepts it on the Evals page |
-| `environment.py` | Puts one attempt inside its world: files go to a hidden folder, and connector tools are answered by simulators instead of the real service. A tool with no simulator is refused |
-| `sim/` | The simulators: `mail`, `calendar`, `drive`, `web`, `notify`. They return the same shapes as the real tools and record every call, so graders can check what the agent did |
-| `kb_world.py` | The world's hidden knowledge base |
-| `recovery.py` | Closing sweeps a restart interrupted |
+| `office_files.py` | Reads `.xlsx`, `.docx` and `.pptx` back for grading |
+| `calibration.py` | Checks the AI judge against labelled examples |
+| `bare.py` | Runs the plain model with no platform, for comparison |
+| `kb_world.py` | An eval world's hidden knowledge base |
+| `recovery.py` | Closes sweeps that a restart interrupted |
+| `queries.py`, `views.py`, `urls.py`, `serializers.py` | `/api/eval/` |
 | `benchmarks/` | The built-in benchmark suites, as code |
 
-## Key rules
+## Rules
 
-- Eval runs use `caller='eval'`, so they don't count against spend caps or show up on the Activity page.
-- **An eval never stops to ask.** Where a real run would pause for approval or
-  ask a question, an eval writes down what it would have asked and carries on.
-  Graders such as `asked_question` read those notes.
-- **An eval inside a world never touches real data.** Mail, calendar, drive and
-  web calls go to the simulators in `sim/`.
-- A result with no graders is *not* a pass. It goes to a person.
-- The judge model and the model under test must be different
-  (see "Model IDs" in `CLAUDE.md`).
-
-## Management commands
-
-- `benchmark run --user <email>`: run the benchmark and write a scorecard.
-- `seed_starter_evals`: starter suites.
+- Eval runs use `caller='eval'`. They are kept out of spend caps and the Activity page.
+- An eval never stops to ask. Where a real run would pause, an eval records the question and carries on. See CLAUDE.md, "An eval never stops to ask".
+- Inside a world, no real mail, calendar, drive or web call happens. See CLAUDE.md, "An eval runs inside a world the judge built".
+- The judge model and the model under test must be different. See CLAUDE.md, "Model IDs".
 
 ## Tests
 
-`eval/tests/`.
+`eval/tests/`: `test_api.py`, `test_graders.py`, `test_runner.py`,
+`test_supervision.py`, `test_environments.py`, `test_world_isolation.py`,
+`test_benchmarks.py`.

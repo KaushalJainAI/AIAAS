@@ -28,6 +28,7 @@ nothing is indexed — a new blank file is `stored`, like one an agent writes.
 from __future__ import annotations
 
 import io
+import logging
 from typing import Any
 
 from django.core.files.base import ContentFile
@@ -37,6 +38,8 @@ from django.utils.dateparse import parse_datetime
 from office import formulas
 from .models import Document
 from .utils import TEXT_FILE_TYPES
+
+logger = logging.getLogger(__name__)
 
 #: What a new file may be, by extension → `Document.file_type`.
 NEW_TEXT_TYPES = {
@@ -312,12 +315,24 @@ def workbook_grid(doc: Document) -> dict:
 
     if doc.file_type != 'xlsx':
         raise EditError('Only .xlsx workbooks have a grid.')
+    data = _read_bytes(doc)
     try:
-        book = openpyxl.load_workbook(io.BytesIO(_read_bytes(doc)))
+        book = openpyxl.load_workbook(io.BytesIO(data))
     except EditError:
         raise
     except Exception as exc:  # noqa: BLE001
         raise EditError(f'This file could not be opened as a workbook ({exc}).') from exc
+
+    # The Sheets app edits a Univer snapshot, not the grid; without one it
+    # cannot open the file at all. A snapshot that fails to build costs the
+    # app, never the grid the previews and agents read.
+    snapshot = None
+    try:
+        from office import sheets as univer_sheets
+
+        snapshot = univer_sheets.to_snapshot(data)
+    except Exception:  # noqa: BLE001
+        logger.exception('[Office] Univer snapshot failed for document %s', doc.pk)
 
     try:
         sheets = []
@@ -342,7 +357,10 @@ def workbook_grid(doc: Document) -> dict:
                 'col_count': max_col,
                 'truncated': max_row > GRID_MAX_ROWS or max_col > GRID_MAX_COLS,
             })
-        return {'sheets': sheets, 'updated_at': doc.updated_at}
+        result = {'sheets': sheets, 'updated_at': doc.updated_at}
+        if snapshot is not None:
+            result['snapshot'] = snapshot
+        return result
     finally:
         book.close()
 

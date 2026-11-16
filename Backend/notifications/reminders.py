@@ -106,8 +106,8 @@ def push_device_notification(user_id: int, payload: dict) -> bool:
     """
     Push an OS-level notification request over the per-user HITL socket.
 
-    The frontend raises a browser Notification and BrowserOS raises a desktop
-    one; both listen on the same `hitl_{user_id}` group. Best-effort — a dead
+    The frontend raises a browser Notification; it listens on the
+    `hitl_{user_id}` group. Best-effort — a dead
     channel layer must never break the sweep or HITL creation.
     """
     from asgiref.sync import async_to_sync

@@ -129,6 +129,11 @@ def cap(tier: str, ceiling: int) -> int:
     """
     if tier not in TIERS:
         return ceiling
+    if tier == DEEP:
+        # `deep` is "as far as this turn may go", and how far that is is the
+        # account's own setting (Settings → Orchestrator, `max_iterations`).
+        # A fixed 36 here would cap a user who raised it.
+        return max(1, ceiling)
     return max(1, min(PACE_ITERATIONS[tier], ceiling))
 
 

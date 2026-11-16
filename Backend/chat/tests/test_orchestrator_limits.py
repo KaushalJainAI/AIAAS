@@ -1,0 +1,218 @@
+"""
+The chat orchestrator's own limits, and an agent's step limit.
+
+Sub-agents carried a time limit and a spend cap; chat — the orchestrator that
+starts them — had neither, and both ran on a fixed 36 model calls. These pin
+the account settings that replaced the constants (Settings → Orchestrator,
+`UserProfile.chat_*` read through `chat/turn/limits.py`), the agent field
+`maxIterations`, and what each limit actually does to a running turn.
+"""
+from __future__ import annotations
+
+import json
+from unittest.mock import patch
+
+from asgiref.sync import async_to_sync
+from django.contrib.auth.models import User
+from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APITestCase
+
+from agents import budget as agent_budget
+from agents.config import AgentSerializer
+from agents.models import SubAgent
+from chat.turn import limits, pace
+from chat.turn.agent import TurnContext, run_turn
+from core.models import UserProfile
+from workflow_backend.thresholds import (
+    DEFAULT_CHAT_SPEND_RUPEES,
+    DEFAULT_CHAT_TURN_SECONDS,
+    DEFAULT_MAX_STEPS,
+    MAX_MAX_STEPS,
+    RUPEES_PER_MILLION_TOKENS,
+)
+
+
+class ResolverTests(SimpleTestCase):
+    def test_no_profile_means_the_defaults(self):
+        got = limits.for_profile(None)
+        self.assertEqual(
+            (got.max_steps, got.time_limit_seconds, got.spend_cap_rupees, got.summarise_long_turns),
+            (DEFAULT_MAX_STEPS, DEFAULT_CHAT_TURN_SECONDS, DEFAULT_CHAT_SPEND_RUPEES, False),
+        )
+
+    def test_a_stored_value_outside_the_range_is_clamped_not_trusted(self):
+        class Row:
+            chat_max_steps = 10_000
+            chat_time_limit_seconds = 1
+            chat_spend_cap_rupees = 50
+            chat_summarise_long_turns = True
+        got = limits.for_profile(Row())
+        self.assertEqual(got.max_steps, MAX_MAX_STEPS)
+        self.assertEqual(got.time_limit_seconds, 60)
+        self.assertTrue(got.summarise_long_turns)
+
+    def test_the_spend_cap_becomes_tokens_at_the_agent_rate(self):
+        got = limits.OrchestratorLimits(spend_cap_rupees=85)
+        self.assertEqual(got.token_budget, int(85 * 1_000_000 / RUPEES_PER_MILLION_TOKENS))
+        self.assertIsNone(limits.OrchestratorLimits(spend_cap_rupees=0).token_budget)
+
+
+class DeepPaceFollowsTheSettingTests(SimpleTestCase):
+    def test_deep_is_the_turns_own_ceiling(self):
+        self.assertEqual(pace.cap(pace.DEEP, 120), 120)
+        self.assertEqual(pace.cap(pace.DEEP, 8), 8)
+
+    def test_the_lighter_paces_are_unchanged(self):
+        self.assertEqual(pace.cap(pace.QUICK, 120), 3)
+        self.assertEqual(pace.cap(pace.STANDARD, 4), 4)
+
+
+class SettingsApiTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='o', email='o@example.com', password='pw')
+        UserProfile.objects.get_or_create(user=self.user)
+        self.client.force_authenticate(self.user)
+
+    def test_new_accounts_read_the_defaults(self):
+        data = self.client.get('/api/auth/profile/').data
+        self.assertEqual(data['chat_max_steps'], DEFAULT_MAX_STEPS)
+        self.assertEqual(data['chat_time_limit_seconds'], DEFAULT_CHAT_TURN_SECONDS)
+        self.assertEqual(data['chat_spend_cap_rupees'], DEFAULT_CHAT_SPEND_RUPEES)
+        self.assertFalse(data['chat_summarise_long_turns'])
+
+    def test_values_in_range_are_saved(self):
+        response = self.client.patch('/api/auth/profile/', {
+            'chat_max_steps': 120, 'chat_time_limit_seconds': 4 * 3600,
+            'chat_spend_cap_rupees': 0, 'chat_summarise_long_turns': True,
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        got = limits.for_profile(UserProfile.objects.get(user=self.user))
+        self.assertEqual((got.max_steps, got.time_limit_seconds), (120, 4 * 3600))
+        self.assertIsNone(got.token_budget)
+        self.assertTrue(got.summarise_long_turns)
+
+    def test_out_of_range_is_refused_with_the_range(self):
+        for field, value in (('chat_max_steps', 500), ('chat_max_steps', 1),
+                             ('chat_time_limit_seconds', 10),
+                             ('chat_time_limit_seconds', 9 * 3600),
+                             ('chat_spend_cap_rupees', 200_000)):
+            with self.subTest(field=field, value=value):
+                response = self.client.patch('/api/auth/profile/', {field: value}, format='json')
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.data)
+
+
+class AgentStepLimitTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='a', email='a@example.com', password='pw')
+
+    def test_an_agent_that_predates_the_field_keeps_36(self):
+        agent = SubAgent.objects.create(user=self.user, name='Legacy')
+        self.assertEqual(AgentSerializer.to_config(agent)['maxIterations'], 36)
+        self.assertEqual(agent_budget.steps_for(agent), 36)
+
+    def test_a_chosen_limit_round_trips_and_is_what_the_runtime_reads(self):
+        serializer = AgentSerializer(data={'name': 'Long', 'maxIterations': 150})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        agent = SubAgent(user=self.user)
+        AgentSerializer.apply(agent, serializer.validated_data)
+        agent.save()
+        self.assertEqual(AgentSerializer.to_config(agent)['maxIterations'], 150)
+        self.assertEqual(agent_budget.steps_for(agent), 150)
+
+    def test_out_of_range_is_refused(self):
+        for value in (2, 201):
+            serializer = AgentSerializer(data={'name': 'A', 'maxIterations': value})
+            self.assertFalse(serializer.is_valid())
+            self.assertIn('maxIterations', serializer.errors)
+
+    def test_it_travels_with_a_published_agent(self):
+        from agents.publishing import SHAREABLE_KEYS
+        self.assertIn('maxIterations', SHAREABLE_KEYS)
+
+    def test_the_builder_assistant_may_propose_it(self):
+        from agents.views.builder import KNOBS, Reject
+        self.assertEqual(KNOBS['maxIterations'].coerce(60, None), 60)
+        with self.assertRaises(Reject):
+            KNOBS['maxIterations'].coerce(999, None)
+
+
+class _ToolLoopProvider:
+    """Asks for a tool every call (never answers on its own); each call costs
+    `cost` tokens. Records whether each request offered tools."""
+
+    def __init__(self, cost: int) -> None:
+        self.cost = cost
+        self.offered: list[bool] = []
+
+    def __call__(self, **kwargs):
+        offered = bool(kwargs.get("tools"))
+        self.offered.append(offered)
+        step = len(self.offered)
+
+        async def chunks():
+            if offered:
+                yield {"type": "tool_calls", "tool_calls": [{
+                    "index": 0, "id": f"c{step}",
+                    "function": {"name": "read_file", "arguments": json.dumps({"path": "/x"})},
+                }]}
+            else:
+                yield {"type": "content", "content": "final answer"}
+            yield {"type": "metadata", "usage": {"total_tokens": self.cost}}
+
+        return chunks()
+
+
+async def _ok(name, args, context):
+    return "ok"
+
+
+async def _never(name, args, context):
+    return False
+
+
+class TurnObeysTheLimitsTests(TestCase):
+    """What each limit does to a running turn: it stops asking for tools and
+    answers, rather than being cut off mid-call."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='t', email='t@example.com', password='pw')
+
+    def _run(self, provider, thread, **turn_kwargs):
+        turn = TurnContext(
+            provider="stub", model="stub", system_message="test", user_id=self.user.id,
+            session_id=thread, intent="chat", user_text="go", memory_enabled=False,
+            tool_dispatch=_ok, approval_policy=_never, **turn_kwargs,
+        )
+        with patch("llm.access.stream", new=provider):
+            return async_to_sync(run_turn)(turn, prompt="go", thread_id=thread)
+
+    def test_the_step_limit_ends_with_an_answer(self):
+        provider = _ToolLoopProvider(cost=1)
+        result = self._run(provider, "steps", max_iterations=5)
+        self.assertEqual(len(provider.offered), 5)
+        self.assertFalse(provider.offered[-1], "last pass must withhold tools")
+        self.assertEqual(result.answer, "final answer")
+
+    def test_a_higher_step_limit_is_honoured(self):
+        provider = _ToolLoopProvider(cost=1)
+        self._run(provider, "steps-high", max_iterations=50)
+        self.assertEqual(len(provider.offered), 50)
+
+    def test_the_spend_cap_ends_with_an_answer(self):
+        provider = _ToolLoopProvider(cost=100)
+        result = self._run(provider, "spend", max_iterations=50, token_budget=250)
+        # Calls 1-3 spend 300 >= 250, so the 4th is the wrap-up pass.
+        self.assertEqual(len(provider.offered), 4)
+        self.assertFalse(provider.offered[-1])
+        self.assertEqual(result.answer, "final answer")
+
+    def test_the_time_limit_ends_with_an_answer(self):
+        from agents.budget import Deadline
+
+        provider = _ToolLoopProvider(cost=1)
+        # Already inside the wrap-up window: the first pass is the last.
+        result = self._run(provider, "time", max_iterations=50, deadline=Deadline.after(10))
+        self.assertEqual(provider.offered, [False])
+        self.assertEqual(result.answer, "final answer")

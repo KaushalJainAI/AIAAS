@@ -30,7 +30,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Check, Copy, FileArchive, FileWarning, Loader2, WrapText } from 'lucide-react';
 
 import { documentsService, type ArchiveListing, type Document } from '../../api/documents';
-import MarkdownMessage from '../chat/MarkdownMessage';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import { AuthenticatedMediaPreview } from '../documents/AuthenticatedMediaPreview';
 import CodeView from './CodeView';
 import OfficePreview from './OfficePreview';

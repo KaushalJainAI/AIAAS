@@ -1,8 +1,7 @@
 """
 Tests for the AI model registry endpoint.
 
-The `/api/nodes/models/` legacy alias was removed with BrowserOS
-(PRODUCTIVITY_SUITE_PLAN.md P0). Only the canonical `/api/llm/models/`
+The `/api/nodes/models/` legacy alias was removed. Only the canonical `/api/llm/models/`
 remains; the tests below pin that the alias is gone and that no catch-all
 has reappeared above it.
 """

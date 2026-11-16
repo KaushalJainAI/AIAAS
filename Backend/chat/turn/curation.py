@@ -68,6 +68,8 @@ from workflow_backend.thresholds import (
     CONTEXT_LOW_WATER_RATIO,
     CONTEXT_SUMMARY_INPUT_CHARS,
     CONTEXT_SUMMARY_TARGET_WORDS,
+    CONTEXT_TOOL_ARG_KEEP_CHARS,
+    CONTEXT_TOOL_ARGS_CHARS,
     CONTEXT_TOOL_RECORD_CHARS,
 )
 
@@ -81,6 +83,8 @@ RECORD_PREFIX = "[COMPACTED RESULT]"
 #: id we would have to carry in state: the note is regenerated on every fold, so
 #: a stored id would be one more thing that can go stale.
 SUMMARY_PREFIX = "[EARLIER WORK IN THIS RUN — SUMMARY]"
+#: Marks an argument value that was shrunk, so a later pass leaves it alone.
+ARGS_MARKER = "[COMPACTED ARGUMENT]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,9 +308,15 @@ async def curate(
     baseline_tokens: int = 0,
     context: dict[str, Any] | None = None,
     summarise=None,
+    force: bool = False,
 ) -> CurationResult:
     """
     Decide what to remove from this run's transcript, and return it as updates.
+
+    `force` is for after the provider has refused a request as too long: the
+    watermark is skipped (we already know the request does not fit) and only
+    the newest segment is protected, since the alternative is losing whole
+    steps at the wire.
 
     `baseline_tokens` is everything else already committed to the request — the
     system message and any conversation history outside the run — because the
@@ -324,7 +334,7 @@ async def curate(
 
     limit = await budget.input_budget_for(model, reserve_output=reserve_output)
     result.tokens_before = baseline_tokens + message_tokens(messages)
-    if result.tokens_before <= limit * CONTEXT_HIGH_WATER_RATIO:
+    if not force and result.tokens_before <= limit * CONTEXT_HIGH_WATER_RATIO:
         return result
 
     target = int(limit * CONTEXT_LOW_WATER_RATIO)
@@ -333,7 +343,7 @@ async def curate(
     # The tail is never curated: the model must be able to see what it just did,
     # or it does it again. Counted in segments rather than tokens so that one
     # oversized recent result cannot push three whole turns out of view.
-    keep = min(CONTEXT_KEEP_RECENT_SEGMENTS, len(grouped))
+    keep = min(1 if force else CONTEXT_KEEP_RECENT_SEGMENTS, len(grouped))
     head = grouped[:-keep] if keep else list(grouped)
     tail = grouped[-keep:] if keep else []
     if not head:
@@ -405,7 +415,7 @@ async def _compact(
     """
     from chat.tools import tool_output
 
-    replacements: list[ToolMessage] = []
+    replacements: list[BaseMessage] = []
     archived: list[str] = []
 
     for segment in head:
@@ -413,6 +423,17 @@ async def _compact(
             break
         if not segment.is_tool_turn:
             continue
+
+        # What the model *sent* can be as large as what came back — a written
+        # file, a deck spec, a page of code — and it stays in every later
+        # request just the same. Shrink oversized arguments before the results.
+        shrunk = await _compact_arguments(segment.head, policy, context)
+        if shrunk is not None:
+            new_head, archive_id = shrunk
+            segment.messages[0] = new_head
+            replacements.append(new_head)
+            if archive_id:
+                archived.append(archive_id)
 
         for index, message in enumerate(segment.messages):
             if not isinstance(message, ToolMessage) or _already_compacted(message):
@@ -444,6 +465,79 @@ async def _compact(
             replacements.append(replacement)
 
     return replacements, archived
+
+
+def _shrink_value(value: Any, note: str) -> tuple[Any, bool]:
+    """`value` with every long string replaced by a record. (copy, changed?)"""
+    if isinstance(value, str):
+        if len(value) <= CONTEXT_TOOL_ARG_KEEP_CHARS:
+            return value, False
+        head = value[:CONTEXT_TOOL_ARG_KEEP_CHARS]
+        return f"{head}\n[... {len(value) - len(head):,} characters removed. {note}]", True
+    if isinstance(value, dict):
+        out, changed = {}, False
+        for key, item in value.items():
+            out[key], hit = _shrink_value(item, note)
+            changed = changed or hit
+        return out, changed
+    if isinstance(value, list):
+        out_list, changed = [], False
+        for item in value:
+            new, hit = _shrink_value(item, note)
+            out_list.append(new)
+            changed = changed or hit
+        return out_list, changed
+    return value, False
+
+
+async def _compact_arguments(
+    turn: BaseMessage, policy: CurationPolicy, context: dict[str, Any],
+) -> tuple[AIMessage, str | None] | None:
+    """Shrink the oversized arguments of one old tool-calling turn.
+
+    Returns the replacement message (same id, so `add_messages` substitutes it)
+    and the archive id, or None when nothing in it is large. The call's name and
+    id stay exactly as they were — the results answering it still refer to that
+    id — and the replaced text is archived first when indexing is on.
+    """
+    if not isinstance(turn, AIMessage) or not turn.id or not turn.tool_calls:
+        return None
+    if _arguments_compacted(turn):
+        return None
+    size = sum(len(json.dumps(call.get("args") or {})) for call in turn.tool_calls)
+    if size <= CONTEXT_TOOL_ARGS_CHARS:
+        return None
+
+    from chat.tools import tool_output
+
+    archive_id = None
+    if policy.indexing:
+        names = ",".join(str(call.get("name") or "tool") for call in turn.tool_calls)
+        archive_id = await tool_output.archive(
+            f"arguments:{names}",
+            json.dumps([call.get("args") or {} for call in turn.tool_calls], indent=1),
+            context,
+        )
+    note = (
+        f"{ARGS_MARKER} archived as tool_output id '{archive_id}' — call "
+        "read_tool_output to read it"
+        if archive_id else
+        f"{ARGS_MARKER} not archived; the call already ran, so nothing is lost "
+        "but the text"
+    )
+
+    calls, changed = [], False
+    for call in turn.tool_calls:
+        args, hit = _shrink_value(call.get("args") or {}, note)
+        changed = changed or hit
+        calls.append({**call, "args": args})
+    if not changed:
+        return None
+    return turn.model_copy(update={"tool_calls": calls}), archive_id
+
+
+def _arguments_compacted(turn: AIMessage) -> bool:
+    return ARGS_MARKER in json.dumps([call.get("args") for call in turn.tool_calls])
 
 
 async def _fold(

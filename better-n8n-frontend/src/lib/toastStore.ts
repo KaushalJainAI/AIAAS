@@ -4,7 +4,7 @@
  * Split from `Toast.tsx` so that file exports only `ToastContainer`. A module
  * exporting both a component and plain values opts out of fast refresh, and
  * this one is imported by half the app — editing the container would have
- * remounted every importer. Same reasoning as BrowserOS's `osState.ts`.
+ * remounted every importer.
  */
 import { create } from 'zustand';
 

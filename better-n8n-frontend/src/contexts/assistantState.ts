@@ -4,7 +4,7 @@
  * Split from `AssistantContext.tsx` so that file exports the provider alone —
  * a module exporting both a component and a plain function opts out of fast
  * refresh, so editing the provider would remount the tree and close the open
- * assistant panel. Same reasoning as BrowserOS's `osState.ts` / `OSContext.tsx`.
+ * assistant panel.
  */
 import { createContext, useContext } from 'react';
 

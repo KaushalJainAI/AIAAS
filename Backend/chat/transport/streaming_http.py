@@ -68,26 +68,39 @@ async def authenticate(request):
     Resolve the user for a view DRF's decorators cannot wrap.
 
     `StreamingHttpResponse` bypasses DRF's authentication, so the bearer token
-    is verified here instead.
-    """
-    user = getattr(request, "user", None)
-    if user is not None and user.is_authenticated:
-        return user
+    is verified here instead — by the same rules as every other route.
 
+    Bearer token only. `request.user` is deliberately not consulted: these
+    views are `csrf_exempt`, and `AuthenticationMiddleware` fills
+    `request.user` from the session cookie (a Django admin login), so trusting
+    it would let a hostile page post to these routes as a signed-in staff user.
+    A token issued before the user's revocation cutoff (password or email
+    change) is refused, as `RevocableJWTAuthentication` refuses it elsewhere.
+    """
     header = request.META.get("HTTP_AUTHORIZATION", "")
     if not header.startswith("Bearer "):
         return None
 
+    from asgiref.sync import sync_to_async
     from django.contrib.auth import get_user_model
     from rest_framework_simplejwt.exceptions import TokenError
     from rest_framework_simplejwt.tokens import AccessToken
 
+    from core.auth.revocation import is_revoked
+
     try:
         token = AccessToken(header.removeprefix("Bearer ").strip())
-        return await get_user_model().objects.aget(id=token["user_id"])
+        user = await get_user_model().objects.aget(id=token["user_id"])
     except (TokenError, KeyError, get_user_model().DoesNotExist) as exc:
         logger.info("[Auth] Rejected streaming request: %s", exc)
         return None
+    if not user.is_active:
+        logger.info("[Auth] Rejected streaming request: user %s is inactive", user.pk)
+        return None
+    if await sync_to_async(is_revoked)(user.pk, token.payload):
+        logger.info("[Auth] Rejected streaming request: token revoked for user %s", user.pk)
+        return None
+    return user
 
 
 def stream_response(run: runs.ChatRun, from_index: int = 0) -> StreamingHttpResponse:

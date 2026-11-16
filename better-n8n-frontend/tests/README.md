@@ -1,6 +1,6 @@
 # Frontend Tests
 
-Two test layers, mirroring the backend split:
+Three test layers, mirroring the backend split:
 
 | Layer | Tool | Where | What it touches |
 |-------|------|-------|-----------------|
@@ -12,27 +12,15 @@ Two test layers, mirroring the backend split:
 
 ```bash
 cd better-n8n-frontend
-npm install -D vitest @vitest/ui jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event msw @playwright/test
+npm install
 npx playwright install --with-deps chromium
-```
-
-Add to `package.json` scripts:
-
-```json
-"scripts": {
-  "test:unit": "vitest run",
-  "test:unit:watch": "vitest",
-  "test:integration": "vitest run --config vitest.integration.config.ts",
-  "test:e2e": "playwright test",
-  "test:e2e:ui": "playwright test --ui"
-}
 ```
 
 ## Run
 
 ```bash
 # Unit (existing tests under src/**/__tests__/)
-npm run test:unit
+npm test
 
 # Integration (mocked API boundary, no backend)
 npm run test:integration
@@ -50,5 +38,5 @@ Every test file should pair the happy path with at least one **sad** (predictabl
 failure: 4xx response, empty list, missing field) and one **angry** (hostile
 input: huge payload, malformed JSON, race-condition simulation) case.
 
-See `tests/integration/Connectors.test.tsx` and `tests/e2e/auth.spec.ts` for
+See `tests/integration/Connections.test.tsx` and `tests/e2e/auth.spec.ts` for
 the canonical pattern.

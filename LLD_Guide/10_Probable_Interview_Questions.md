@@ -26,10 +26,10 @@ flowchart LR
 
 | Fact | Value |
 |---|---|
-| Production box | one EC2 instance, ~913 MB RAM, Postgres + app, Caddy for TLS |
-| Backend container memory limit | 384 MB |
+| Production box | one Google Cloud VM (e2-medium, 4 GB RAM) shared with another project; Postgres + app; Caddy for TLS |
+| Backend container memory limit | 768 MB (`docker-compose.prod.yml`) |
 | Restart time | ~11 s in the image (was ~44 s); ~20 s API downtime on a real deploy |
-| Built-in tools | 156, each declared once with `@tool` |
+| Built-in tools | 159 `@tool` declarations in `chat/tools/`, each declared once |
 | Memory in the prompt | 2,000 characters, categories take turns (`profile` first) |
 | Solution freshness | `principle` never stale · `procedure` 365 d · `versioned` 180 d · `config` 90 d · `time_sensitive` 30 d |
 | LLM providers | 5 (OpenRouter default, OpenAI, NVIDIA, Ollama, ChatGPT plan by sign-in) |
@@ -79,7 +79,7 @@ no component rendered it.
 **A5. How big is it?**
 One repository since 2026-09-27 (the backend and frontend histories were
 merged in). 22 Django apps plus a few plain Python packages (sandbox, office),
-grouped in layers; 156 built-in tools; ~250 backend test files plus frontend
+grouped in layers; 159 built-in tools; 291 backend test files plus frontend
 vitest and Playwright suites. Import rules between layers are enforced in CI
 with import-linter.
 
@@ -200,6 +200,42 @@ run a small repair function for near-misses → check required keys → fill
 defaults. Prose is an error, never silently wrapped, because wrapping would make
 every agent "satisfy" every contract. The registry is closed because the UI can
 only render shapes it has a panel for.
+
+**C8. Isn't a singleton an anti-pattern?**
+It's global state, so it hurts testing. I have one — the provider registry —
+and it's safe because it stores classes and returns a fresh handler per call.
+My credential cache singleton did bite me: ids restart per test DB, so cached
+entries leaked across tests. Now tests clear it in `setUp`.
+
+**C9. How do you prevent two workers doing the same job?**
+A lease row for leader election — one conditional UPDATE, "mine or expired".
+And per job a compare-and-swap claim: `UPDATE ... WHERE next_due_at = <what I
+read>`. Rowcount zero means I lost; no lock is held, so no deadlocks.
+
+**C10. How do you make a permission check impossible to bypass?**
+One door, checked at both points: filter what's offered, and re-check at
+dispatch. Defaults fail closed. And scopes intersect down a delegation tree so a
+child never exceeds its parent.
+
+**C11. How do you design for failure?**
+Decide per failure whether to degrade or fail loudly. Dev checkpointer
+degrades to memory; prod raises. Observers must never raise. Retry only
+transport failures before any output. Timeouts must actually kill the work. And
+fail before showing "thinking" if the call can't be paid for.
+
+**C12. What's the difference between HLD and LLD in your project?**
+HLD: a modular monolith on one small box — Django ASGI, Postgres pool,
+Redis for channels, a no-network sandbox sidecar, SSE for chat. LLD: how that
+box behaves inside — registries, the dispatch chain, the steering queue, leases,
+the file scope, and the admission controller that keeps connectors inside a
+memory budget.
+
+**C13. How did you keep a 22-app Django project from turning into spaghetti?**
+Apps are grouped by mechanism, not by page. Layers are declared in
+`.importlinter` and a test fails CI on a wrong-way import. Code other apps need
+(the grants table, the serializer, the office library) was moved *out* of views
+and tool modules into its own module so it can be imported without dragging the
+engine along.
 
 ---
 
@@ -426,6 +462,33 @@ Where both compute the same thing (cron descriptions, the effort ladder), both
 test suites check against one shared table of expected outputs. Presentation
 data (connector names, icons) comes from the backend.
 
+**G5. Design an autocomplete / command palette.**
+Keyboard model (up/down/enter/escape), ranking in a pure function
+(`lib/commands.ts` ranks and parses — vitest-covered), a catalogue loaded once
+(`useCommands`), 44 px rows for touch, a sheet on phones. The backend validates
+the command, so the client never has to be trusted.
+
+**G6. Design an infinite list / feed.**
+Server returns `{items, count}` so the UI can say "showing 20 of 312";
+keyset (not offset) pagination for stable pages; React Query keys per filter;
+never silently drop rows.
+
+**G7. Design a real-time chat UI.**
+Optimistic user bubble with a client id; SSE for the answer; pure reducer over
+frames; external run store so navigation doesn't lose it; steering while busy
+(the send button queues a steer when there's text, stops when empty); take the
+optimistic bubble back out if the server refuses the message (`code:
+SECURITY_VIOLATION`).
+
+**G8. Design undo/redo for an editor.**
+Two stacks, coalesce bursts, cap size, clear redo on a new edit, keep stacks in
+refs and only depth in state.
+
+**G9. How do you stop a big React page from being slow?**
+Split by route; lazy-load heavy editors; memo expensive leaves; isolate
+fast-changing state into leaf components; split context by rate of change;
+batch stream updates.
+
 ---
 
 ## H. Security 🔴
@@ -457,8 +520,7 @@ ownership oracle. Ownership is part of the query itself
 foreign id and a missing id look identical.
 
 **H5. How do you stop open redirects?**
-`?next=` after sign-in only accepts same-origin paths (a single leading `/`, no
-backslashes, no schemes), and hostile values are refused, not repaired.
+`?next=` after sign-in only accepts same-origin paths (a single leading `/`, not `//` and not `/` followed by a backslash), and hostile values are refused, not repaired.
 External links only open for `http`/`https`.
 
 ---
@@ -485,12 +547,22 @@ component rendered it. A test driving the real graph and asserting on the
 client's events found it, and on its first run also found a second bug (file
 writes pausing for approval in chat).
 
+**I4. How do you stop the architecture from decaying?**
+The rules are tests: import-linter layers, choke-point tests for tables that
+have a single read door, and tests that fail if a setting exists but nothing
+reads it.
+
+**I5. What would you improve?**
+Move CI to the repository root so it runs again, add Playwright and the
+smoke benchmark to the deploy pipeline, and widen the frontend integration
+tests beyond three pages.
+
 ---
 
 ## J. Deployment and operations 🟡
 
 **J1. How is it deployed?**
-Images are built locally and pushed to Docker Hub, then pulled on one EC2 box
+Images are built locally and pushed to Docker Hub, then pulled onto one Google Cloud VM
 running Postgres, the backend, the frontend (nginx) and Caddy for TLS via
 Docker Compose. A smoke-tier benchmark can gate deploys. Backups are
 `pg_dump` from the database container.
@@ -525,10 +597,8 @@ Single box and single web process; steering is in-process; a waiting mission
 wakes on its timeout, not on its event; chat messages get only the pattern
 content check (the model check runs on image prompts and published pages);
 MCP tool pinning is trust-on-first-use.
-Solution memory (2026-09-28) is built but not yet deployed; its search
-thresholds are first guesses waiting for an offline test set; and agent runs
-don't carry an organisation yet, so they only search their owner's personal
-library. Being able to list these is a strength.
+Solution memory and team knowledge are built but not yet deployed; its search
+thresholds are first guesses waiting for an offline test set. Being able to list these is a strength.
 
 **K3. Why not use LangChain agents or an agent framework end to end?**
 I use LangGraph for the state graph and checkpointing, but own the tool
@@ -581,12 +651,12 @@ message is often a model, so error text is a design surface.
 | Where does code run? | A no-network sandbox container |
 | Real-time? | SSE for answers, WebSockets for events |
 | Auth? | JWT + Google OAuth (allauth), revocable by timestamp |
-| How many tools? | 156 built-in, plus MCP connectors |
+| How many tools? | 159 built-in, plus MCP connectors |
 | Repository? | One monorepo (backend + frontend + docs) since 2026-09-27 |
 | Org isolation? | One read function, `solutions/access.py::visible`, enforced by a test |
 | Default model? | OpenRouter's free router, medium effort |
 | Eval judge? | A different model from the one under test |
-| Hosting? | One EC2 box, Docker Compose, Caddy TLS |
+| Hosting? | One Google Cloud VM, Docker Compose, Caddy TLS |
 
 ---
 
@@ -606,7 +676,7 @@ When someone in an organisation solves a problem (a failing deploy, a VPN
 reset), the fix is saved as a structured record: problem, symptoms, cause, fix,
 and a list of claims. The next person who asks something similar gets it back.
 It's saved automatically when the person gives a thumbs-up or says "that
-worked", or by the assistant when a problem is clearly solved. The point is
+worked". The point is
 that a junior shouldn't have to rediscover what a senior already fixed.
 *Follow-up:* "Why not just put it in the RAG knowledge base?" → a fix has a
 track record, an owner, a sharing scope and claims that go stale at different

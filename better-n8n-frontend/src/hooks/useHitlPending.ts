@@ -10,8 +10,8 @@
  *
  * When the socket is up it already pushes `new_request` and `reminder` frames
  * and invalidates this key (see useHITLReminders), so polling is only a safety
- * net for the transitions nothing pushes — a request answered on another device
- * or in BrowserOS, or one that expired. Every two minutes is enough for that.
+ * net for the transitions nothing pushes — a request answered on another device,
+ * or one that expired. Every two minutes is enough for that.
  * When the socket is down (no Redis locally, proxy dropped the upgrade, backend
  * restarting) polling is the only channel left, so it tightens to 20s.
  */

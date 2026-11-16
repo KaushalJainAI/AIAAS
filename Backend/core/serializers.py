@@ -45,6 +45,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'decision_provider', 'decision_model',
             'default_temperature', 'default_max_tokens',
             'default_autonomy', 'paused_until',
+            'chat_max_steps', 'chat_time_limit_seconds',
+            'chat_spend_cap_rupees', 'chat_summarise_long_turns',
             'theme_preference', 'accent_color',
             'created_at', 'updated_at'
         ]
@@ -62,6 +64,29 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'default_max_tokens',
             'created_at', 'updated_at'
         ]
+
+    # The orchestrator's limits are refused outside their range rather than
+    # clamped: someone typing 500 steps should be told the ceiling, not find
+    # 200 saved without a word.
+    def validate_chat_max_steps(self, value):
+        from workflow_backend.thresholds import MAX_MAX_STEPS, MIN_MAX_STEPS
+        if not MIN_MAX_STEPS <= value <= MAX_MAX_STEPS:
+            raise serializers.ValidationError(
+                f'Choose between {MIN_MAX_STEPS} and {MAX_MAX_STEPS} steps.')
+        return value
+
+    def validate_chat_time_limit_seconds(self, value):
+        from workflow_backend.thresholds import MAX_CHAT_TURN_SECONDS, MIN_CHAT_TURN_SECONDS
+        if not MIN_CHAT_TURN_SECONDS <= value <= MAX_CHAT_TURN_SECONDS:
+            raise serializers.ValidationError(
+                f'Choose between {MIN_CHAT_TURN_SECONDS // 60} minute and '
+                f'{MAX_CHAT_TURN_SECONDS // 3600} hours.')
+        return value
+
+    def validate_chat_spend_cap_rupees(self, value):
+        if value > 100_000:
+            raise serializers.ValidationError('Choose at most ₹100,000 (0 means no cap).')
+        return value
 
     def validate_default_autonomy(self, value):
         """ask | auto | plan. `full` is not a default anyone wakes up in."""

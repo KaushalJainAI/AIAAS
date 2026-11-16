@@ -4,7 +4,7 @@
  * Purpose: produce a 90s screen recording of a regular user connecting
  * Gmail/Drive/Calendar in one click, WITHOUT needing real Google creds to pass CI.
  *
- * What it records (mirrors instance/docs/GOOGLE_CONNECTORS_VIDEO.md storyboard):
+ * What it records:
  *   0 Login -> 1 /connections catalogue -> 2 Connect modal + initGoogleOAuth intercept
  *   -> 3 OAuthCallback postMessage (mocked) -> 4 Connected pill + tools -> 5 Agent builder grant
  *

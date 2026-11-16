@@ -23,7 +23,7 @@ Override the target with `BASE_URL=...` env var or `--base`.
 
 | Script | What it does |
 |--------|--------------|
-| `run_smoke.py` | Register → login → create workflow → execute → poll for completion |
+| `run_smoke.py` | Health → register → login. Its workflow steps call routes retired with the workflow canvas, so they fail until the script is rewritten |
 | `test_websocket.py` | Connect to streaming WS, validate at least one event arrives |
 | `run_chaos.py` | Sad/angry probes: malformed bodies, IDOR scans, slow-loris, oversized payloads |
 

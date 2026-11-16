@@ -2,15 +2,15 @@
 
 Three harnesses, same codebase (`instance/docs/USER_JOURNEY.md` + `instance/docs/SUSPICIOUS_USER.md`):
 
-| Harness | Entry point | Fidelity | Needs | Speed |
-|---------|-------------|----------|-------|-------|
-| **ORM seed** | `seed_instance.py` | Direct Django ORM — wipes ONLY instance personas | `Backend/.env` + migrated DB | ~2s |
-| **API happy** | `simulate_user_journey.py` | HTTP like a browser — 7 stages (auth→observe) | Backend `:8000` | ~10–40s |
-| **API adversarial** | `simulate_suspicious_user.py` | 40+ probes, 2 users (A/B) — XSS/IDOR/permissions/caps/SSRF | Backend `:8000` | ~15–30s |
-| **Browser happy** | `../interactive-tests/scenarios/001-003` | Playwright — real clicks, happy paths | Backend + Frontend `:5173` | ~60s |
-| **Browser adversarial** | `../interactive-tests/scenarios/004-006` | Playwright — XSS/IDOR/permission abuse in real UI | Backend + Frontend `:5173` | ~60s |
-| **Subagents** | `simulate_subagents.py` | Delegation: workers spawned, linked, bounded | Backend `:8000` | ~30s |
-| **Evaluation** | `simulate_eval.py` | Graded suite — did the agent answer *correctly*? | Backend `:8000` | ~2-5min |
+| Harness | Entry point | Fidelity | Needs |
+| --- | --- | --- | --- |
+| **ORM seed** | `seed_instance.py` | Direct Django ORM — wipes ONLY instance personas | `Backend/.env.local` + migrated DB |
+| **API happy** | `simulate_user_journey.py` | HTTP like a browser — 7 stages (auth→observe) | Backend `:8000` |
+| **API adversarial** | `simulate_suspicious_user.py` | probes, 2 users (A/B) — XSS/IDOR/permissions/caps/SSRF | Backend `:8000` |
+| **Browser happy** | `../interactive-tests/scenarios/001-003` | Playwright — real clicks, happy paths | Backend + Frontend `:5173` |
+| **Browser adversarial** | `../interactive-tests/scenarios/004-006` | Playwright — XSS/IDOR/permission abuse in real UI | Backend + Frontend `:5173` |
+| **Subagents** | `simulate_subagents.py` | Delegation: workers spawned, linked, bounded | Backend `:8000` |
+| **Evaluation** | `simulate_eval.py` | Graded suite — did the agent answer *correctly*? | Backend `:8000` |
 
 ### Subagents and evaluation — the two questions the others cannot answer
 
@@ -79,7 +79,7 @@ python instance/scripts/simulate_suspicious_user.py --json-out instance/report-a
 cd instance/interactive-tests
 npm install
 npx playwright install --with-deps
-npx playwright test                    # all 6 scenarios, serial
+npx playwright test                    # all scenarios, serial
 npx playwright test scenarios/001-regular-user-smoke.spec.ts --headed
 npx playwright test scenarios/004-suspicious-inputs.spec.ts --headed
 npx playwright test --trace on
@@ -133,11 +133,20 @@ Journey complete
 - `utils/api_client.py` — `InstanceClient` (auto-refresh, retry, SSE, `wait_for_execution`)
 - `utils/fixtures.py` — `PERSONAS`, `FINANCE_AGENT`, `KB_DEFS` … (single source of truth)
 - `utils/payloads.py` + `dummy-data/suspicious-payloads.json` — XSS / injection / traversal / prompt lists
+- `utils/console.py` — the print/style helpers the harnesses share
+- `utils/testenv.py` — loads `instance/test.env` (the throttle-bypass token both harnesses read)
+
+## Walkthrough recording
+
+`burn_subtitles_walkthrough.py`, `burn_interactive_walkthrough.py` and
+`process_walkthrough.py` turn the recorded walkthroughs into subtitled
+videos (inputs: the Playwright videos in `../interactive-tests/`, outputs:
+`../recordings/`).
 
 ## Adding a new scenario
 
 1. **Happy** — add persona/agent shape to `utils/fixtures.py` → `seed_instance.py` upserts → copy `001-*.spec.ts` for browser, add API check in `simulate_user_journey.py`.
-2. **Adversarial** — add payload to `dummy-data/suspicious-payloads.json` + `utils/payloads.py` → add probe in `simulate_suspicious_user.py:PROBES` (`method, path, body, expect 400/404/429`) → add browser step in `004/005/006` (type payload, assert error banner + no `dialog`).
+2. **Adversarial** — add payload to `dummy-data/suspicious-payloads.json` + `utils/payloads.py` → add a `_probe_*` function in `simulate_suspicious_user.py` → add browser step in `004/005/006` (type payload, assert error banner + no `dialog`).
 
    If the probe finds a `FAIL` that is by design (e.g. shared docs readable), move it to `WARN` with a comment pointing to `docs/SUSPICIOUS_USER.md:2.x`.
 

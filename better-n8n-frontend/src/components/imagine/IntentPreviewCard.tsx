@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { ImagineIntent } from '../../api/imagineAgent';
 import type { Capabilities } from '../../api/imagine';
 import { ModelPicker } from './ModelPicker';
-import MarkdownMessage from '../chat/MarkdownMessage';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import { cn } from '../../lib/utils';
 
 interface Props {

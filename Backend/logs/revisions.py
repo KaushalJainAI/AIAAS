@@ -52,6 +52,8 @@ _LABELS: dict[str, str] = {
     'skills': 'skills',
     'autonomy': 'autonomy',
     'spendCapRupees': 'spend cap',
+    'maxRunSeconds': 'time limit',
+    'maxIterations': 'step limit',
     'egress': 'egress',
     'allowUnattended': 'unattended',
     'schedule': 'schedule',

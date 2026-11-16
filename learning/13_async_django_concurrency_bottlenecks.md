@@ -30,8 +30,8 @@ Django ORM is **synchronous**, so every DB call is handed to a **thread** with
 |---|---|---|
 | The event loop | 1 per process | Any CPU work on it freezes *every* stream |
 | Threads for sync code | depends on `thread_sensitive` | Calls queue behind each other |
-| DB connections (pool) | `max_size` = 10 in prod | New queries wait up to the pool timeout (20 s) |
-| RAM / CPU of the box | 913 MB, 2 vCPU | Swap to disk, or CPU throttling |
+| DB connections (pool) | `max_size` = 10 when this was found (`DB_POOL_MAX_SIZE`; 16 in prod now) | New queries wait up to the pool timeout (20 s) |
+| RAM / CPU of the box | one small box at the time (913 MB, 2 vCPU) | Swap to disk, or CPU throttling |
 
 Every gap below is one of these four running out.
 
@@ -135,8 +135,10 @@ the shared pool leaks connections and breaks transactions.
 - One Daphne process runs Python on **one core** at a time (the GIL), even on a 2 vCPU box.
 - The containers' memory limits added up to **~1.3 GB on a 913 MB box**, so under load
   it swaps to an EBS disk, which is very slow.
-- A 913 MB / 2 vCPU EC2 instance is probably a burstable **t3.micro**: when its CPU
-  credits run out, it is throttled to a fraction of a core.
+- A 913 MB / 2 vCPU box that small is usually a burstable t3-class machine: when its
+  CPU credits run out, it is throttled to a fraction of a core.
+  (Production since moved to a GCP e2-medium, 2 vCPU / 4 GB, shared with another
+  project — see `DEPLOYMENT.md`.)
 
 Why not just add workers? Because some state lives **in the process's memory**: the live
 chat stream buffers, the steering mailbox, the coding-task registry. With two workers, a
@@ -161,32 +163,3 @@ second worker helps or quietly breaks things.
 5. **Measure before fixing.** Code-reading gives hypotheses. An event-loop-lag ticker
    and pool `get_stats()` turn them into numbers, and give each fix a before/after.
 
----
-
-## Interview Questions
-
-1. *In async Django, what's the difference between `thread_sensitive=True` and `False`?
-   When must you use each?*
-   → True runs on a per-context (or global) single thread; required for the ORM because
-   connections and transactions are per-thread. False uses a thread pool; for pure I/O/CPU.
-
-2. *Your async server slows down only when several requests run at once, and CPU is low.
-   Where do you look?*
-   → Shared, bounded resources: connection pools, locks, single-thread executors,
-   semaphores. Then check who holds them across a wait.
-
-3. *Why is "increase the pool size" usually the wrong fix for pool exhaustion?*
-   → It hides a hold-across-wait bug, costs DB memory per connection (Postgres ~5–10 MB
-   each), and just moves the ceiling.
-
-4. *What blocks an asyncio event loop even when all your I/O is `await`ed?*
-   → CPU work in coroutines (serialisation, parsing, rendering) and any sync call made
-   without `to_thread`/`sync_to_async`. Detect it with a loop-lag ticker.
-
-5. *Why can't you just run 4 uvicorn workers to scale this app?*
-   → In-process state (stream buffers, mailboxes, registries) means a request must reach
-   the worker that owns the run. Move the state to Redis or use sticky routing first.
-
-6. *Why did the SQLite checkpointer hurt more as conversations got longer?*
-   → It serialised and wrote the *full* state every step, so per-step cost grew with the
-   transcript, and a run's total cost grew roughly quadratically.

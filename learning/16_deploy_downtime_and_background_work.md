@@ -1,7 +1,7 @@
 # 16 — Deploy Downtime: What Happens to Users and Background Work During a Restart
 
 > Source: `Backend/Dockerfile` (the `CMD`), `docker-compose.prod.yml` (healthchecks,
-> `depends_on`), the host crontab on the EC2 box, `agents/scheduler.py` (the lease),
+> `depends_on`), the host crontab on the server, `agents/scheduler.py` (the lease),
 > `agents/recovery.py`, `notifications/scheduled.py`, `notifications/reminders.py`
 > Measured: 2026-09-26 (one deploy, one crash restart) · Related: `learning/12`, `learning/13`
 
@@ -95,18 +95,18 @@ backend is back. That is the model to copy elsewhere.
 
 Agent runs are also detached tasks in the backend process. Two things matter:
 
-- **Its state survives.** Production uses the SQLite checkpointer on a volume
-  (`AGENT_CHECKPOINTER=sqlite`, `/app/data/checkpoints.sqlite3`), so the graph's
+- **Its state survives.** Production uses the **Postgres** checkpointer
+  (`AGENT_CHECKPOINTER=postgres`, shared with the app DB), so the graph's
   progress is on disk.
 - **Nothing picks it back up.** `agents/recovery.py` exists to find `running` rows
-  whose process died and either resume or close them. But in production it is
+  whose process died and either resume or close them. But at the time of this incident it was
   **not scheduled anywhere**: no cron line, no Celery beat, and it is not in the
   in-process loop. So a run cut off by a deploy **stays "running" forever**. The
   deployment notes had already seen this ("10 orphaned running eval runs") without
   naming the cause.
 
 This is the most important gap in this document. The resume machinery was built
-and tested, but nothing runs it.
+and tested, but nothing ran it.
 
 ### 5. The in-process scheduler (the "heartbeat")
 
@@ -145,7 +145,8 @@ with nothing stopping them from overlapping. At 12:26 five were running (~350 MB
 and the kernel killed the web server. That was the 502, and the root cause of the
 September crash-restarts. The fix was one shared lock:
 `flock -w 50 /tmp/aiaas-cron.lock` on every line, so at most one extra process
-exists at a time. It is documented in `DEPLOYMENT.md` §5b.
+exists at a time. (Production since moved all of these jobs in-process; see
+DEPLOYMENT.md and the update below.)
 
 ---
 
@@ -194,7 +195,7 @@ general tools:
 
 ## Fixes, Ranked by Value for Effort
 
-Built for this box: one 913 MB server, and a backend with a 384 MB limit. That
+Built for this box: one small server, and a backend with a memory limit. That
 rules out the textbook answer (run two backends) for now. See Fix 6.
 
 ### Fix 1 — Hold the cron lock during a deploy (minutes, no code)
@@ -243,7 +244,7 @@ process.
 
 ### Fix 4 — Move the notification sweeps in-process too (small code change)
 
-`send_scheduled_notifications` and `send_hitl_reminders` could run on the same
+`notifications/scheduled.py::run_scheduled_sweep` and `notifications/reminders.py::run_reminder_sweep` could run on the same
 30-second loop, under the same lease, as the schedules. Then there are **no extra
 processes at all**, no cron, no locks, and no memory spikes. This is the long-term
 version of the flock fix.
@@ -271,9 +272,9 @@ The real fix for downtime is to **never have zero backends**:
 This is a *blue-green* or *rolling* deploy. Three things make it harder here than
 in a textbook:
 
-- **Memory.** Two backends (~130–150 MB each) plus one booting (~311 MB peak) do
-  not fit beside Postgres, Redis and the sandbox in 913 MB. **It needs the
-  t3.small resize first.**
+- **Memory.** Two backends plus one booting do not fit comfortably beside
+  Postgres, Redis and the sandbox on the shared 4 GB box. **It needs a bigger
+  host first.**
 - **In-process state.** Chat turns, steering mailboxes and detached runs live
   in the process that started them. During the overlap, a steer or a cancel must
   reach the *right* process. That needs sticky routing, or moving that state to
@@ -311,9 +312,9 @@ recovery closed **10 runs that had read "running" since earlier restarts**.
 - **Fixes 3 and 4:** `agents/scheduler.py::PERIODIC_JOBS` runs run recovery,
   both notification sweeps, the recycle-bin purge and checkpoint pruning on the
   lease-holding loop. A test fails if the beat schedule and this list drift.
-- **Still open:** the missions sweep waits for each run to finish, so it cannot
+- **Still open on 2026-09-26:** the missions sweep waits for each run to finish, so it cannot
   run on a web-server thread. Missions do not advance in production until it
-  launches runs detached. Fixes 5 and 6 are not built.
+  launches runs detached. Fixes 5 and 6 are not built. (Since 2026-09-28 missions run detached and in the loop too.)
 
 The scheduled-reminder sweep also became **claim-then-send**, because during
 the rollout the old cron job and the new loop would both sweep in the same
@@ -362,45 +363,3 @@ no side damage:
    remove the duplicate cron line. The box never had it removed. Docs describe
    intent; the server shows reality.
 
----
-
-## Interview Questions
-
-1. *Your service returns 502s for about a minute on every deploy. Where does the
-   time go, and how do you cut it?*
-   → Measure the boot from timestamped logs. Here, 36 of 44 seconds were one-off
-   work (static files, migrations, data seeding) repeated on every start. Move it
-   into the image build or a separate pre-deploy step, so the container starts
-   only the server.
-
-2. *Why can't you just run migrations in a separate step before switching versions?*
-   → You can, but then the old code runs against the new schema for a while. So
-   migrations must be backwards-compatible: expand first (add), migrate code, then
-   contract (remove) in a later release.
-
-3. *A process was OOM-killed but was using almost no memory. How?*
-   → The limit is per container (cgroup), not per process. The kernel kills by its
-   own scoring, and here it killed the web server while five short-lived jobs in
-   the same container held the memory. Read the process table in the kill record.
-
-4. *What's the difference between at-least-once and at-most-once, and how do you
-   choose?*
-   → Record-after-send can repeat after a crash; record-before-send can drop. Pick
-   by the cost of a duplicate versus the cost of a miss (a duplicate email is
-   worse than a duplicate in-app reminder), and use a conditional-update claim or
-   an idempotency key to narrow the window.
-
-5. *How does a leader lease behave when its holder is killed?*
-   → It cannot be released, so it must expire. Work pauses for up to one lease
-   length, then another process takes over. You trade a short delay for never
-   having two leaders.
-
-6. *Why is blue-green hard for this app specifically?*
-   → Memory (two backends plus a boot peak do not fit), and in-process state (chat
-   streams, steering, detached runs) that a request must reach in the right
-   process. It needs sticky routing or shared state first.
-
-7. *A long-running job's state is checkpointed to disk. Is it safe across restarts?*
-   → Only if something resumes it. Durable state with nothing scheduled to read it
-   back is a job that looks "running" for ever. Here, `recover_runs` existed and
-   was never scheduled in production.

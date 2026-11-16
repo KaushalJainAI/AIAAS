@@ -10,8 +10,7 @@ Everything here is synchronous and returns plain dicts/lists, ready to hand to
 `Response` as-is.
 
 **On vocabulary.** Responses keep the `workflow_id` / `workflow_name` keys even
-though the column is `subagent`, because the frontend and BrowserOS ship their
-own builds. The rename happens in `_execution_row`, in one place.
+though the column is `subagent`, because the frontend ships its own build. The rename happens in `_execution_row`, in one place.
 """
 from __future__ import annotations
 

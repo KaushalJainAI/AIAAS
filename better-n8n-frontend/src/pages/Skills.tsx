@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import skillsService, { type Skill, type SkillTab } from '../api/skills';
-import MarkdownMessage from '../components/chat/MarkdownMessage';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import PageHeader from '../components/layout/PageHeader';
 import SearchInput from '../components/ui/SearchInput';
 import Select from '../components/ui/Select';

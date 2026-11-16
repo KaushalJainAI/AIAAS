@@ -264,6 +264,45 @@ def _retry_after(body: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+_OVERFLOW_PHRASES = (
+    "context length", "context_length", "maximum context", "context window",
+    "too many tokens", "prompt is too long", "input is too long",
+    "reduce the length", "context_length_exceeded",
+)
+
+
+def is_context_overflow(status: int | None, body: str) -> bool:
+    """Whether a provider failure means "this request is longer than I accept".
+
+    The one provider failure we can repair ourselves: the turn is retried once
+    with the transcript compacted to fit (`chat/turn/agent.py`).
+    """
+    text = " ".join(_provider_texts(body)).lower() or (body or "").lower()
+    return status == 413 or any(p in text for p in _OVERFLOW_PHRASES)
+
+
+#: "maximum context length is 131072 tokens", "context length of 128000",
+#: "prompt is too long: 210000 tokens > 200000 maximum".
+_LIMIT_PATTERNS = (
+    # Requires "context"/"input", never bare "max ... tokens": an error that
+    # also mentions `max_tokens 4096` must not be read as a 4k window.
+    re.compile(r"maximum (?:context|input)(?: length| window)?[^0-9]{0,30}?(\d[\d,_]{3,})", re.I),
+    re.compile(r"context (?:length|window)[^0-9]{0,30}?(\d[\d,_]{3,})", re.I),
+    re.compile(r">\s*(\d[\d,_]{3,})\s*(?:maximum|max)", re.I),
+)
+
+
+def window_from_error(body: str) -> int | None:
+    """The context limit a provider named in its refusal, if it named one."""
+    for text in _provider_texts(body) or [body or ""]:
+        for pattern in _LIMIT_PATTERNS:
+            if match := pattern.search(text):
+                value = int(re.sub(r"[,_]", "", match.group(1)))
+                if 1_000 <= value <= 10_000_000:
+                    return value
+    return None
+
+
 def explain_provider_failure(
     status: int | None, body: str, *, model: str = "", provider: str = "",
 ) -> str:
@@ -291,9 +330,7 @@ def explain_provider_failure(
         return (f"{who} is getting more requests than {label} allows right now "
                 f"(rate limited). Wait {when} and send your message again, "
                 "or pick a different model.")
-    if any(p in text for p in ("context length", "context_length", "maximum context",
-                               "context window", "too many tokens", "prompt is too long",
-                               "input is too long", "reduce the length")) or status == 413:
+    if is_context_overflow(status, body):
         return (f"This conversation is now longer than {model or 'this model'} can read "
                 "at once. Start a new chat, or pick a model with a larger context "
                 "window, and ask again.")
@@ -425,6 +462,8 @@ def clamp_input(
     system_message: str,
     history: list[dict] | None,
     max_total_tokens: int = MAX_LLM_INPUT_TOKENS,
+    *,
+    reserved_tokens: int = 0,
 ) -> tuple[str, str, list[dict]]:
     """
     Final guard on the assembled request.
@@ -458,7 +497,11 @@ def clamp_input(
         if isinstance(content, str) and estimate_tokens(content) > MAX_SINGLE_MESSAGE_TOKENS:
             entry["content"] = truncate_middle(content, MAX_SINGLE_MESSAGE_TOKENS)
 
-    fixed_tokens = estimate_tokens(system_message) + estimate_tokens(prompt)
+    # `reserved_tokens` is what rides outside the messages — the tool
+    # definitions — and is spent before any history is.
+    fixed_tokens = (
+        estimate_tokens(system_message) + estimate_tokens(prompt) + reserved_tokens
+    )
 
     # 2. Drop history oldest-first, whole segments at a time, until it fits.
     segments = budget.split_segments(history)
@@ -525,6 +568,9 @@ class Completion:
     #: that failure. Chat shows the sentence; an agent run must record a failed
     #: run instead of a completed one whose answer is the error.
     error: str = ""
+    #: The provider refused the request as longer than the model accepts — the
+    #: one failure the turn repairs itself, by compacting and retrying once.
+    overflow: bool = False
     #: Sources the provider itself cited — Perplexity's `citations` array,
     #: OpenAI/Gemini annotations, Anthropic's citation blocks. Normalised by
     #: `llm.citations` to `{url, title, …}`. Empty for providers that cite
@@ -573,14 +619,9 @@ async def _build_request(
     #
     # The budget comes from the model rather than from a flat constant: 96k was
     # applied identically to a 200k model and an 8k one, so for the small ones
-    # the guard passed and the provider rejected the request anyway. A declared
-    # window can only lower the ceiling — `MAX_LLM_INPUT_TOKENS` is a cost
-    # control, not a capability claim.
-    # The budget comes from the model rather than from a flat constant: 96k was
-    # applied identically to a 200k model and an 8k one, so for the small ones
-    # the guard passed and the provider rejected the request anyway. A declared
-    # window can only lower the ceiling — `MAX_LLM_INPUT_TOKENS` is a cost
-    # control, not a capability claim.
+    # the guard passed and the provider rejected the request anyway. It is the
+    # model's own window (see `budget.input_budget_for`), lowered by anything a
+    # provider has refused past, and by `LLM_INPUT_TOKEN_CEILING` when set.
     #
     # Read from cache, never queried here: this function is on every model call,
     # and an await added inside it is a suspension point in the request path.
@@ -588,6 +629,7 @@ async def _build_request(
     prompt, system_message, history = clamp_input(
         prompt, system_message, history,
         budget.cached_input_budget(model, reserve_output=max_tokens),
+        reserved_tokens=budget.tools_tokens(tools),
     )
 
     credential_id: str | None = None

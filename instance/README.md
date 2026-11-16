@@ -18,16 +18,18 @@ instance/
 ├── scripts/                  # automation scripts (API + ORM)
 │   ├── seed_instance.py              # ORM seeder — wipes ONLY instance personas
 │   ├── simulate_user_journey.py      # happy-path API journey (7 stages via HTTP + SSE)
-│   ├── simulate_suspicious_user.py   # adversarial API harness (40+ probes, 2 users, IDOR)
+│   ├── simulate_suspicious_user.py   # adversarial API harness (probes, 2 users, IDOR)
+│   ├── simulate_eval.py              # eval-run simulation
+│   ├── simulate_subagents.py         # delegation simulation
 │   ├── setup.ps1 / setup.sh          # one-command bootstrap
-│   └── utils/ {api_client, fixtures, payloads}.py
+│   └── utils/ {api_client, console, fixtures, payloads, testenv}.py
 ├── dummy-data/
 │   ├── users|agents|knowledge-bases|documents|folders  # happy fixtures
 │   └── suspicious-payloads.json      # XSS / injection / traversal / prompt lists
 ├── dummy-permissions/        # permission matrices (tool overlay, autonomy, MCP, roles)
 └── interactive-tests/        # browser-automation (Playwright)
     ├── playwright.config.ts
-    ├── helpers/ {auth, seed, assertions}.ts
+    ├── helpers/ {auth, assertions, seed, testenv}.ts
     └── scenarios/
         ├── 001-smoke … 003-rag.spec.ts          # happy paths
         ├── 004-suspicious-inputs … 006-permission-abuse.spec.ts  # adversarial
@@ -45,17 +47,16 @@ Seed data that looks like production without being production.
 
 | File pattern | Purpose |
 |---|---|
-| `users.json` | Fake users (names, emails `@example.com`, roles) |
+| `users/*.json` | Fake users (names, emails `@example.com`, roles) |
 | `agents/*.json` | Fake `SubAgent` configs — prompt, model, `output_schema`, `fanout`, `allow_unattended` |
-| `knowledge-bases/*.json` | KB metadata + `documents/*.md|pdf` for RAG indexing |
-| `folders/*.json` | `Folder` / `Document` trees for `inference/filesystem.py` + `inference/vfs.py` |
-| `workflows/*.json` | Legacy `Workflow` JSON if testing the DAG surface |
-| `credentials/*.json` | Fake credential *shapes* (never real secrets; `CREDENTIAL_ENCRYPTION_KEY=test` only) |
+| `knowledge-bases/*.json` | KB metadata; `documents/*.md` feeds RAG indexing |
+| `folders/*.json` | `Folder` tree for `inference/filesystem.py` + `inference/vfs.py` |
+| `documents/*.md` | Documents seeded/uploaded for RAG and preview tests |
 
 **Rules:**
 - All emails end in `@example.com` / `@test.local`.
 - All secrets are `dummy-*` or `test-*` — greppable and never valid.
-- Each dataset has a `seed.py` or `seed.ts` that idempotently loads it via Django ORM / API.
+- `scripts/seed_instance.py` loads each dataset idempotently, through the Django ORM.
 - Documents that should be RAG-indexed go under `dummy-data/knowledge-bases/` and are ingested via the same path as user uploads (`inference/` pipeline).
 
 Example:
@@ -75,7 +76,7 @@ Example:
 
 Declarative permission states to test the two axes that actually gate behaviour:
 
-- **Per-agent grants** (`GRANT_TOOLS` / `SubAgent.grants`) — what one agent may reach.
+- **Per-agent grants** (`GRANT_TOOLS` / `SubAgent.tool_grants`) — what one agent may reach.
 - **Per-user tool overlay** (`tools_config.ToolConfig`) — what exists to be granted.
 - **Autonomy ladder** (`plan | review | ask | auto | full`) and `ToolPermission` remembers (`once | session | always`).
 - **MCP / credential injection** — which MCP servers are enabled and which credential maps resolve.
@@ -86,7 +87,6 @@ Declarative permission states to test the two axes that actually gate behaviour:
 | `tool-configs/*.json` | `ToolConfig` rows — enabled/disabled + knob values vs. `TOOL_SETTINGS` defaults |
 | `autonomy/*.json` | `guardrails.autonomy` per agent + `ToolPermission` fixtures |
 | `mcp/*.json` | `MCPServer` + `MCPServerPreference.effective_enabled` states |
-| `files/*.json` | `FileScope` / `write_prefix` expectations for `read_all_write_own` etc. |
 | `roles/*.json` | End-to-end role matrix (viewer / member / admin) |
 
 > **Invariant:** an absent `ToolConfig` row = code default. Fixtures must assert that, and a "reset" fixture is a DELETE.
@@ -119,15 +119,8 @@ Scenarios open the app **like a real user** and assert on what a human would see
 interactive-tests/
 ├── README.md
 ├── playwright.config.ts
-├── helpers/ {auth, seed, assertions}.ts
-├── scenarios/
-│   ├── 001-regular-user-smoke.spec.ts
-│   ├── 002-hitl-permission-flow.spec.ts
-│   ├── 003-rag-kb-scope.spec.ts
-│   ├── 004-suspicious-inputs.spec.ts
-│   ├── 005-idor-traversal.spec.ts
-│   └── 006-permission-abuse.spec.ts
-├── fixtures/trace/                # Playwright traces / videos (gitignored)
+├── helpers/ {auth, assertions, seed, testenv}.ts
+├── scenarios/  # 001-smoke … 008-normal-user-day, plus zz-debug
 └── .gitignore
 ```
 
@@ -245,7 +238,7 @@ Full guide: `scripts/README.md` + `docs/USER_JOURNEY.md`. CI needs `CREDENTIAL_E
 
 ## Adding new content
 
-1. **New dummy record** → add JSON under `dummy-data/` + update `dummy-data/seed.py` to load it. Keep `id` stable.
+1. **New dummy record** → add JSON under `dummy-data/` + teach `scripts/seed_instance.py` to load it. Keep `id` stable.
 2. **New permission case** → add JSON under `dummy-permissions/` + a test in `tools_config/tests/` or `chat/tests/test_permissions.py` that asserts enforcement via `chat/tools/disabled_tools_for`.
 3. **New scenario** → add `scenarios/NNN-*.spec.ts` under `interactive-tests/`; helpers in `helpers/` are shared, scenario-local fixtures stay in the file.
 

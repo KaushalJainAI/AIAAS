@@ -4,7 +4,7 @@
  * Split from `ImagineContext.tsx` so that file exports the provider alone — a
  * module exporting both a component and plain functions opts out of fast
  * refresh, so editing the provider would remount it and lose track of
- * generations already in flight. Same reasoning as BrowserOS's `osState.ts`.
+ * generations already in flight.
  */
 import { createContext, useContext } from 'react';
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import shutil
 import tempfile
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -195,12 +196,15 @@ class DocxImportTests(ImportCase):
 
     def test_a_stale_import_is_refused(self):
         doc = self.store('Report.docx', 'docx', _uploaded_docx())
-        before = Document.objects.get(id=doc.id).updated_at.isoformat()
+        before = Document.objects.get(id=doc.id).updated_at
         # A write after the caller opened it (a rename would not do: it
-        # keeps `updated_at`, the etag, on purpose).
-        Document.objects.get(id=doc.id).save()
+        # keeps `updated_at`, the etag, on purpose). Stamp the later time
+        # explicitly: `auto_now` reads the clock, which on Windows ticks every
+        # ~15 ms, so a save in the same tick leaves `updated_at` unchanged and
+        # the import is then correctly allowed.
+        Document.objects.filter(id=doc.id).update(updated_at=before + timedelta(seconds=1))
         resp = self.me.post(f'/api/inference/documents/{doc.id}/import/',
-                            {'expected_updated_at': before}, format='json')
+                            {'expected_updated_at': before.isoformat()}, format='json')
         self.assertEqual(resp.status_code, 412)
 
 

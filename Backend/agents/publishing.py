@@ -58,7 +58,7 @@ SHAREABLE_KEYS: frozenset[str] = frozenset({
     'outputContract', 'fanoutParallel',
     'schedule', 'allowUnattended',
     'autonomy', 'notifyOnHitl', 'spendCapRupees',
-    'maxRunSeconds',
+    'maxRunSeconds', 'maxIterations',
     'summaryModel', 'summaryProvider',
     'recursiveContext', 'compaction', 'indexing',
 })

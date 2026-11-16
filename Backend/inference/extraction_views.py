@@ -1,8 +1,7 @@
 """Extraction schemas and the rows they produce.
 
 Owned by `inference` since 2026-08-18 (was the standalone `extraction` app);
-the `/api/extraction/` surface is kept so the frontend and BrowserOS callers
-never moved. The review queue is the part that carries weight: a row below the
+the `/api/extraction/` surface is kept so the frontend's callers never moved. The review queue is the part that carries weight: a row below the
 schema's confidence threshold is held rather than accepted, and clearing it is
 an explicit act recorded against a user — "who said this ₹48,200 was right?"
 has to have an answer, or the table is not usable for accounting.

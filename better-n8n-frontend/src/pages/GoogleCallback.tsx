@@ -11,22 +11,27 @@ export default function GoogleCallback() {
   const { googleLogin } = useAuth();
   const processedRef = useRef(false);
   // Set when the sign-in started in the native app: the result goes back to the app, not here.
-  const [appLink, setAppLink] = useState<string | null>(null);
+  // Derived from the URL once, at first render (`appReturnUrl` is pure), rather
+  // than set from the effect, which would render the page twice.
+  const [appLink] = useState<string | null>(() =>
+    appReturnUrl('auth', {
+      code: searchParams.get('code'),
+      state: searchParams.get('state'),
+      error: searchParams.get('error'),
+    }),
+  );
 
   useEffect(() => {
     const code = searchParams.get('code');
     const error = searchParams.get('error');
-    const state = searchParams.get('state');
 
     if (processedRef.current) return;
     processedRef.current = true;
 
     // An app-started sign-in is returned to the app, which exchanges the code itself.
     // Nothing is exchanged here, and this tab keeps no session from it.
-    const toApp = appReturnUrl('auth', { code, state, error });
-    if (toApp) {
-      setAppLink(toApp);
-      window.location.replace(toApp);
+    if (appLink) {
+      window.location.replace(appLink);
       return;
     }
 
@@ -54,7 +59,7 @@ export default function GoogleCallback() {
     };
 
     handleLogin();
-  }, [searchParams, googleLogin, navigate]);
+  }, [searchParams, googleLogin, navigate, appLink]);
 
   if (appLink) {
     return (

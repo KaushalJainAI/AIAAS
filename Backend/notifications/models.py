@@ -48,7 +48,7 @@ class NotificationPreference(models.Model):
     * hourly      — optional standing nag while anything at all is pending
     * daily digest— one roll-up of everything open, at a time the user picks
 
-    Escalation and hourly are device-only (browser/BrowserOS notification).
+    Escalation and hourly are device-only (browser notification).
     Email is reserved for the digest and hard-capped at one per calendar day in
     the user's own timezone by `last_digest_sent_on` — see `reminders.py`.
     """
@@ -59,7 +59,7 @@ class NotificationPreference(models.Model):
         related_name='notification_preference',
     )
 
-    # Device notifications (browser Notifications API + BrowserOS shell)
+    # Device notifications (browser Notifications API)
     device_notifications_enabled = models.BooleanField(
         default=True,
         help_text='Raise an OS-level notification for HITL nudges',

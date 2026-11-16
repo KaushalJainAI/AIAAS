@@ -2,8 +2,7 @@
 The agent runtime: what actually executes a saved agent.
 
 Until this module existed an agent was a row — the builder saved a complete
-`AgentConfig` and nothing could run it, so every `runs` count was zero. See
-docs/AGENT_TEMPLATES.md §8, Phase 1.
+`AgentConfig` and nothing could run it, so every `runs` count was zero.
 
 **The one rule this module exists to keep.** The permissions screen an installer
 sees is rendered from `tool_grants` / `guardrails` / `agent_context`. If the
@@ -2015,7 +2014,7 @@ async def run_agent(agent, goal: str, *, user, sink=None,
     configured limit applies — which is what a top-level run wants.
     """
     from llm import access as llm
-    from chat.turn.agent import TurnContext, iteration_limit, run_turn
+    from chat.turn.agent import TurnContext, run_turn
     from chat.turn.curation import CurationPolicy
     from chat.turn.events import null_sink
 
@@ -2162,7 +2161,9 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             # Not clamped here: `llm.access` is the only place that knows which
             # rungs this model offers, and it snaps rather than refuses.
             effort=(agent.runtime_settings or {}).get('effort') or None,
-            max_iterations=iteration_limit('research'),
+            # The agent's own step limit (builder → Limits, `maxIterations`);
+            # 36 — the old fixed value — for an agent saved before it existed.
+            max_iterations=budget.steps_for(agent),
             sink=tee(sink or null_sink, stream.sink),
             tool_source=toolbox.descriptors,
             tool_dispatch=toolbox.dispatch,

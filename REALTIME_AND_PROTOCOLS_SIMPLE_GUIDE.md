@@ -1,71 +1,46 @@
-# Tunnelling, Webhooks, WebSocket, SSE, HTTP — Simple Guide
+# Live Connections and Protocols: Simple Guide
 
-> Plain-words guide to how parts of this app talk to each other live.
-> Not covered in the two earlier guides. Every section = what it is, why we need it, where it lives in this code.
-
----
-
-## 1. HTTP first — the base language
-
-**HTTP = one question, one answer.** Browser asks, server replies, connection closes.
-
-```
-POST /api/chat/sessions/123/message/stream/
-{ "message": "hi" }
-  -> 200 OK + reply
-```
-
-* **Methods:** `GET` = read, `POST` = do/send, `PATCH` = edit, `DELETE` = remove.
-* **Status codes we use:** `200` done, `202` accepted (run started, result later), `400` your mistake, `401/403` no entry, `404` not found (also used to hide secrets), `413` too big, `500` our mistake.
-* **Headers = sticky notes on the parcel:** `Authorization: Bearer <jwt>`, `Content-Type: application/json`, `Cache-Control: no-cache`.
-
-HTTP alone cannot do "keep telling me while the agent thinks for 10 minutes". That needs SSE or WebSocket below.
-
-```mermaid
-flowchart LR
-    B[Browser] -->|POST /api/...| S[Server]
-    S -->|200 JSON| B
-```
+> How the parts of AIAAS talk to each other while work is still running. For where the servers live, read [INFRASTRUCTURE_SIMPLE_GUIDE.md](./INFRASTRUCTURE_SIMPLE_GUIDE.md).
 
 ---
 
-## 2. Polling vs SSE vs WebSocket — pick the right phone
+## 1. HTTP: One Question, One Answer
 
-| Way | Looks like | Good for | Cost |
-|---|---|---|---|
-| **Polling** | Call every 5 sec: "done yet?" | Small status checks | Many wasted calls |
-| **Long-polling** | Call, server waits 30s then answers | Rare events | Hanging connections |
-| **SSE** | One call, server keeps talking | Chat tokens, run logs (server -> you) | One long connection |
-| **WebSocket** | One wire, both talk anytime | Steer/stop mid-run, live inbox (both ways) | Needs special server |
+The browser asks, the server answers, and the connection closes. Most of the API works this way.
 
-Think: polling = knocking on door again and again. SSE = radio station you listen to. WebSocket = phone call, both speak.
-
-```mermaid
-flowchart TB
-    subgraph Poll["Polling - wasteful"]
-        P1[ask] --> P2[nothing] --> P3[ask] --> P4[nothing] --> P5[ask] --> P6[done!]
-    end
-    subgraph SSE["SSE - one listen"]
-        S1[ask once] --> S2[token token token ... done]
-    end
-    subgraph WS["WebSocket - both talk"]
-        W1[you: steer!] <--> W2[server: progress...]
-    end
+```
+POST /api/chat/sessions/123/message/   { "message": "hi" }   ->  200 OK + JSON
 ```
 
-**This app uses all three, on purpose:**
-
-* Chat turns = **SSE over POST** (`text/event-stream`).
-* Execution panel + HITL pings = **WebSocket** (`ws/`).
-* Schedules page banner = **polling** (`triggers/health/`).
+- `GET` reads, `POST` does or sends, `PATCH` edits, `DELETE` removes.
+- Status codes: `200` done, `202` accepted (the run started, the result comes later), `400` bad input, `401`/`403` not signed in or not allowed, `404` not found, `413` too large, `429` slow down, `500` our fault.
+- HTTP cannot keep telling the browser things while an agent thinks for ten minutes. Two tools fill that gap.
 
 ---
 
-## 3. SSE — how chat streams here
+## 2. Which Tool, Where
 
-**File proof:** `Backend/chat/transport/sse.py` + `streaming_http.py`, frontend `src/api/sse.ts`.
+| Tool | Direction | Used for |
+|---|---|---|
+| **SSE** (server-sent events) over a `POST` | Server to browser | Chat turns: the answer streams in as it is written |
+| **WebSocket** | Both ways | Live run view, approval and reminder pings |
+| **Polling** | Browser asks again and again | Status checks, such as the scheduler banner |
+| **Plain HTTP POST** | Browser to server | Every control action: steer, stop, approve, answer |
 
-Server sends frames like:
+Stop and steer are **not** WebSocket messages. They are `POST`s. (The socket can also answer an approval, see §4.)
+
+- `POST /api/chat/sessions/<id>/message/stop/` stops the turn.
+- `POST /api/chat/sessions/<id>/message/steer/` queues an instruction for a running turn. The same call changes the autonomy mode, for example `{"autonomy": "auto"}`.
+
+Plan updates from a coding lead (`task_update`, `lease_update`, `code_change`) travel as SSE frames on the chat stream, not over the WebSocket.
+
+---
+
+## 3. SSE: How Chat Streams
+
+**Files:** backend `chat/transport/sse.py` and `chat/transport/streaming_http.py`. Frontend `better-n8n-frontend/src/api/sse.ts` (`streamSse`) and `src/lib/followTurn.ts`.
+
+The server sends lines like this:
 
 ```
 data: {"type": "token", "content": "hello"}
@@ -74,219 +49,105 @@ data: {"type": "done"}
 
 ```
 
-**Why POST SSE, not EventSource?**
+Why `POST` and not the browser's `EventSource`? `EventSource` can only send a `GET` with no headers. A chat turn needs a request body and a `Bearer` token. So the frontend reads the body with `fetch()`. Django authenticates the stream by hand, because DRF decorators cannot wrap a streaming response.
 
-`EventSource` (browser built-in) can only do `GET` with no headers. Our stream needs `POST` (message body) + `Authorization: Bearer <jwt>`. So `src/api/sse.ts::streamSse()` uses `fetch()` + `reader.read()` loop + `drainFrames()` that splits on `\n` and parses `data:` lines.
+**Three layers must not buffer**, or the stream freezes until it ends:
 
-**Three settings that must be right or streams freeze:**
+1. **Django** sends `Cache-Control: no-cache` and `X-Accel-Buffering: no`.
+2. **nginx** (`/api/`): `proxy_buffering off`, `proxy_read_timeout 300s`.
+3. **Caddy**: `flush_interval -1`.
 
-1. Django: `StreamingHttpResponse(..., content_type="text/event-stream")` + `Cache-Control: no-cache` + `X-Accel-Buffering: no`.
-2. Nginx (`nginx.conf /api/`): `proxy_buffering off; proxy_cache off; proxy_read_timeout 300s;` — else nginx holds tokens until turn ends.
-3. Caddy (`Caddyfile`): `flush_interval -1` — else Caddy does the same one level up.
+**Keep-alive.** A turn can be silent while a tool waits, for example on a delegated agent. Every 20 seconds of silence the server writes `: keep-alive`. It is an SSE comment, so the browser ignores it and it does not count as a frame.
 
-```mermaid
-sequenceDiagram
-    participant B as Browser sse.ts
-    participant N as Nginx
-    participant D as Django StreamingHttpResponse
-    B->>N: POST /message/stream/ + JWT
-    N->>D: forward, no buffering
-    D-->>B: data: token... (many frames)
-    D-->>B: data: done (close)
-```
-
-**Recruiter line:** "SSE is one-way server-to-client over HTTP. We use POST+fetch reader because we need body and auth headers. Buffering must be off at all three layers."
-
-Turn outlives the watcher: `runs.ChatRun` owns the work, `stream_response()` only subscribes from `from_index`. Refresh mid-turn = re-subscribe and replay, not restart.
+**Re-attach, don't resend.** A closed stream does not mean the turn ended. The client treats only a `done` or `error` frame as the end. Otherwise it asks for active runs and re-attaches from the last frame it saw. It never sends the message again. The run keeps going on the server (`chat/turn/runs.py`), so a refresh replays and does not restart the work.
 
 ---
 
-## 4. WebSocket — how live control works here
+## 4. WebSocket: Live View and Pings
 
-**File proof:** `streaming/` (executions stream/events), `core/realtime/`, frontend `lib/websocket.ts::useSocket`.
+**Files:** backend `streaming/routing.py` (routes) and `streaming/consumers.py`, plus `core/realtime/` (auth). Frontend `src/lib/websocket.ts` (`useSocket`).
 
-Handshake: normal HTTP asks `Upgrade: websocket`, server says `101 Switching Protocols`, then both send frames freely — no new HTTP requests.
+| Route | What it carries |
+|---|---|
+| `ws/execution/<execution_id>/` | Run progress, state sync on connect, approval requests |
+| `ws/hitl/` | Pending approvals and reminders for the signed-in user |
+| `ws/imagine-agent/` | Imagine's agent (media generation) |
 
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant N as Nginx /ws/
-    participant D as Daphne + Channels + Redis
-    B->>N: GET /ws/... Upgrade: websocket
-    N->>D: forward Upgrade
-    D-->>B: 101 - wire open
-    D-->>B: task_update, lease_update, code_change
-    B-->>D: steer, stop, autonomy change
-```
+**Auth.** A browser cannot set headers on a WebSocket, so the access token travels in the query string (`?token=`). `JWTAuthMiddleware` checks it. A user who is not signed in is closed with code `4001`. A user who may not see that execution is closed with `4003`.
 
-**What rides WS here (not SSE):**
+**Client messages.** Execution socket: `hitl_response`, `subscribe`, `unsubscribe`, `ping`. HITL socket: `respond`, `refresh`. Anything else gets an `error` frame.
 
-* `task_update / lease_update / code_change` to lead's sink + plan panel.
-* `ws/hitl/` device nudges, inbox live rows.
-* Steer/stop mid-run: with SSE you can only listen; with WS you can interrupt.
+**Nginx** sends `/ws/` with the `Upgrade` header and a 24-hour read timeout.
 
-Nginx needs: `proxy_set_header Upgrade $http_upgrade; Connection "Upgrade"; proxy_read_timeout 86400s;` — else the phone cuts after 60s.
-
-**Scaling trap (ask this in interview):** WS connections stick to one box. Two backends + dumb balancer = user on box-1, event fired on box-2 = silence. Fix = Redis channel layer (`USE_REDIS_CHANNEL_LAYER=True`) so any box can publish to any socket, plus sticky sessions on the balancer. We run one backend now, so lease + in-memory `runs.subscribe` is enough — but it must move to Redis pub/sub before horizontal scaling.
+**Scale rule.** A socket lives in one process. Messages reach it through the Redis channel layer, so any process can publish. Two backends still need sticky sessions at the balancer (see INFRASTRUCTURE §9).
 
 ---
 
-## 5. Webhooks — the doorbell from outside
+## 5. Webhooks: Doorbells from Outside
 
-**Webhook = outsider knocks, our agent starts.** No login, just a secret URL.
+A webhook is a call from another system into ours. Nobody logs in. The secret in the URL is the only key.
 
-Route: `POST /api/orchestrator/hooks/<secret>/` → `agents/views/triggers.py::webhook_receive`.
+**Agent triggers.** `POST /api/orchestrator/hooks/<secret>/` is handled by `webhook_receive` in `agents/views/triggers.py`.
 
-```mermaid
-flowchart LR
-    GitHub[Stripe / GitHub / anyone] -->|POST secret URL + JSON| Hook[hooks/abc123]
-    Hook --> Agent[Agent run starts - 202]
-```
+- Success returns a bare `202`, with no agent name and no run id.
+- Every refusal (wrong secret, disabled trigger, agent not allowed to run unattended) returns `404`. Otherwise an attacker could tell which secrets are live.
+- A body over 64 KB gets `413` before the secret is checked.
+- The body is **context, never the goal.** The goal comes from the trigger and its agent. The payload is appended as `Inbound webhook payload:`. Anyone holding the URL must not be able to direct the agent.
+- Rotate a secret without deleting the trigger.
 
-**Design rules in this code (good interview answers):**
+**Messaging channels.** `POST /api/messaging/hooks/<channel>/<secret>/` (in `messaging/views.py`) verifies the provider's signature and fails closed: Slack signing secret, Telegram secret token, WhatsApp `X-Hub-Signature-256`, Twilio `X-Twilio-Signature`. Teams is refused until Bot Framework token validation exists. A refusal is the same `404`. An accepted message is stored as data for its owner. It never becomes the goal.
 
-1. **Secret in path is the password.** No auth header. Rotatable via `triggers/<id>/rotate/` without losing the row.
-2. **Always 202 or 404, nothing else on success.** Success = bare `202`, no agent name, no execution id. Wrong secret, disabled trigger, no `allow_unattended` = all `404 Not found`. Else attackers can probe which secrets are live (oracle attack).
-3. **Body is context, never the goal.** Goal comes from trigger/agent row. Payload is appended as `Inbound webhook payload:`. Else anyone with the URL could make your agent do anything its grants allow.
-4. **Size cap** (`MAX_WEBHOOK_BODY_BYTES`, else `413`), failure counter disables flapping hooks, `last_fired_at` recorded.
+**Outbound.** The code has no sender that posts webhooks to other systems. If one is added, it needs an HMAC signature, retries with backoff, and an idempotency key.
 
-**Webhooks vs polling vs SSE:**
-
-| | Who calls | When |
-|---|---|---|
-| Polling | You ask them | Every minute (wasteful) |
-| Webhook | They call you | On event (instant, cheap) |
-| SSE/WS | You watch us | While our run goes |
-
-Outbound webhooks (we call others) follow mirror rules: sign payload (HMAC), retry with backoff, idempotency key so double-delivery does not double-charge.
+**Local testing.** A tunnel such as `cloudflared tunnel --url http://localhost:8000` gives a public URL to a laptop. Use a throwaway secret and never point a tunnel at the production database. Production has a public address and needs no tunnel.
 
 ---
 
-## 6. Tunnelling — show localhost to the internet
+## 6. Browser Security That Bites
 
-**Problem:** webhooks and Google OAuth need a public URL. Your code runs on `localhost:8000`. They cannot reach it.
-
-**Tunnel = temporary public wire to your laptop.** e.g. `cloudflared`, `ngrok`.
-
-```mermaid
-flowchart LR
-    Stripe[Stripe] -->|POST| PublicURL[https://abc.ngrok.io/hooks/secret]
-    PublicURL -->|encrypted tunnel| Laptop[localhost:8000]
-```
-
-Typical dev flow:
-
-```bash
-# terminal 1: backend
-python manage.py runserver 0.0.0.0:8000
-# terminal 2: tunnel
-cloudflared tunnel --url http://localhost:8000
-# use printed https URL as webhook URL / OAuth redirect
-```
-
-**Warnings:** tunnel URL is public — use a throwaway webhook secret, never prod DB. Latency is higher. Free URLs change on restart, so update the sender each time. Never tunnel Redis/DB ports.
-
-Production needs no tunnel: EC2 has a real public IP + DNS + Caddy.
+- **CORS** is an allow-list of the one production origin. Allowing every origin while credentials are on lets any site read signed-in responses.
+- **CSRF**: the API takes a `Bearer` token in a header, which a foreign site cannot set.
+- **Revocation**: a password or email change revokes every token issued before it (`tokens_valid_after`). REST calls, token refresh and WebSockets check it.
+- **Rate limits** (DRF throttles) return `429`. Retry later, not at once.
 
 ---
 
-## 7. Things recruiters ask that we had not written down
+## 7. How Schedules Fire: the Scheduler Loop
 
-**CORS:** browser blocks `frontend.com` reading `api.com` unless backend allows it. Here same-origin via Nginx (`/api` on same host), so almost no CORS. `CORS_ALLOWED_ORIGINS=https://aiaas.kaushaljain.com` only. `CORS_ALLOW_ALL + credentials` = echoes any site = hijack (fixed, see prod compose comment S5).
+Production has no cron and no Celery. The backend runs the scheduler itself. **Files:** `agents/scheduler.py`.
 
-**CSRF:** evil site auto-submits your logged-in form. Blocked by `CSRF_TRUSTED_ORIGINS` + SameSite cookies. JWT-in-header APIs are immune (evil site cannot know the token).
+1. **Lease.** One process at a time holds a row in `SchedulerLease`. The loop ticks every 30 seconds. A lease lasts 90 seconds. A dead holder loses it after that, and another process takes over.
+2. **Slot claim.** A schedule slot is claimed once. A second firing (a loop, a beat and a button press at the same moment) reports `busy`. "Run once now" is safe to double-click for the same reason.
+3. **Detached jobs.** Each periodic job runs in its own task. A slow job never delays schedules or loses the lease. If a job is still running when its next run is due, that run is skipped.
 
-**JWT auth on streams:** cookies don't flow to `fetch` streams cleanly + `EventSource` sends no headers, so `streaming_http.py::authenticate()` reads `Authorization: Bearer` manually (DRF decorators can't wrap `StreamingHttpResponse`). Short access + rotating refresh, revocation via `tokens_valid_after`.
+The jobs in `PERIODIC_JOBS`, with the setting that sets each interval in `workflow_backend/settings/base.py`:
 
-**Rate limiting / throttling:** DRF throttle + `429 Too Many Requests` + `Retry-After`. Protects login, webhooks, model calls from brute force and bill shock. Per-user + per-IP, stricter on unauthenticated `hooks/`.
+| Job | Interval setting |
+|---|---|
+| `orchestrator.sweep_triggers` (the loop itself) | 30 s tick |
+| `notifications.sweep_scheduled` | `SCHEDULED_SWEEP_SECONDS` |
+| `notifications.sweep_hitl_reminders` | `HITL_REMINDER_SWEEP_SECONDS` |
+| `inference.sweep_recycle_bin` | `RECYCLE_SWEEP_SECONDS` |
+| `orchestrator.recover_runs` | `RUN_RECOVERY_SWEEP_SECONDS` |
+| `orchestrator.prune_chat_checkpoints` | `RUN_RECOVERY_SWEEP_SECONDS` |
+| `missions.sweep_missions` | `MISSION_SWEEP_SECONDS` |
+| `logs.redact_old_run_detail` | `RUN_DETAIL_RETENTION_SWEEP_SECONDS` |
+| `solutions.sweep_stale` | `SOLUTION_STALE_SWEEP_SECONDS` |
 
-**Idempotency:** "Run once now" double-click must not start two runs. Per-slot claim in `sweep.prepare` makes second click report `busy`. Same idea for payments/webhooks: same key twice = one effect + replayed answer.
-
-**Retries + backoff:** provider 5xx/timeout = retry twice with wait (`STREAM_CONNECT_RETRY_DELAYS`); 401/402/429 = never blind-retry (not transient). Webhook sender retries on our 5xx, never on 404 (would probe forever).
-
-**Timeouts at every layer:** Nginx `300s` (API) / `86400s` (WS), Caddy flush, `AUTO_REVIEWER_TIMEOUT_S=3` (slow judge = ask, never auto-allow), sandbox kill on timeout (`killpg`, not just stop-waiting). No timeout = one stuck call holds workers forever.
-
-**Heartbeats / keepalive:** long SSE/WS send `: ping` or `{type: heartbeat}` every ~25s so proxies/NAT don't silently drop idle wires. Client reconnects with `from_index` / backoff + jitter (thundering herd fix).
-
-**Backpressure:** fast producer (model tokens) vs slow consumer (phone). Bounded in-memory queues, drop-oldest with counter for steers (`steering.py`), spill big tool outputs to `ToolOutput` + send preview + `read_tool_output` id. Never unbounded list (see `PAGE_SIZE`, `*_LIMIT` caps).
-
-**Sticky sessions + draining on deploy:** restart takes ~11s (`manage.py boot` then `exec daphne`). Open SSE/WS die. Client must reconnect + replay; sweep recovers orphaned `running` rows (resume if durable checkpoint + state, else fail loudly). Balancer should drain (stop new, wait old) before killing a box.
-
-**HTTP versions in one line:** `HTTP/1.1` = one request per turn (needs hacks for streams); `HTTP/2` = multiplexed, header-compressed (Caddy serves this); `HTTP/3/QUIC` = same over UDP, faster on lossy mobile. Our SSE/WS work on all three because they sit above them.
-
-**gRPC / MQTT in one line:** gRPC = binary contract calls between services (we use JSON+HTTP instead — simpler, debuggable). MQTT = tiny pub/sub for IoT buttons/sensors (would feed webhooks here, not replace WS).
+Production uses neither host cron nor Celery beat (beat runs locally only). Do not add host cron lines for these jobs: each one starts a whole Django process inside the backend's memory limit.
 
 ---
 
-## 8. Cron jobs and schedules — the alarm clock
+## 8. Rules That Bite
 
-**Problem:** "Send report every day at 9 AM" needs someone awake at 9 AM to press the button.
+1. **Turn buffering off at every hop** for any stream. A buffered stream looks broken.
+2. **Keep silent streams alive.** A 20-second keep-alive comment on SSE. Proxy timeouts of 300 s (API) and 24 h (WebSocket).
+3. **A closed stream is not a finished turn.** Re-attach from the last frame. Never resend the message.
+4. **Never retry `401`, `402` or `429` blindly.** They are not transient. Retry only connection failures and timeouts, and only before any output has been sent.
+5. **Time out the code, not just the wait.** A sandbox timeout kills the process group.
+6. **Queues are bounded.** A steer queue drops the oldest message and counts the loss. Large tool output is saved and previewed, with a `read_tool_output` id.
+7. **A restart drops streams.** Clients reconnect and re-attach. The recovery sweep resumes or closes runs whose process died.
+8. **Inbound refusals are silent.** Every refusal of a webhook is a `404` (or `413` for an oversized body). Do not add detail to the refusal.
+9. **Scale up first.** More than one backend needs sticky sessions, Redis pub/sub for chat-run subscriptions, one scheduler lease holder (already true), and a bigger Postgres connection budget.
 
-**Cron = alarm clock lines.** Five stars = minute hour day month weekday:
-
-```
-0 9 * * 1-5  =  9:00 AM, Monday to Friday
-* * * * *    =  every minute
-```
-
-Think: cron is a watchman with a list — "when clock matches, ring the bell".
-
-```mermaid
-flowchart LR
-    Clock[Clock ticks] --> Match{Time matches?}
-    Match -->|yes| Fire[Start agent run]
-    Match -->|no| Wait[Sleep till next tick]
-```
-
-**Three ways to ring the bell (we tried all three):**
-
-| Way | Looks like | Good | Bad |
-|---|---|---|---|
-| **Host cron** (`crontab -e`) | `* * * * * docker exec backend python manage.py run_due_triggers` | Simple, OS-level | Manual setup, boots a whole Django (~150 MB) every minute inside a 384 MB box = OOM kills; silently dead if someone forgets the line |
-| **Celery beat** (`CELERY_BEAT_SCHEDULE`) | `beat` process fires `orchestrator.sweep_triggers` | Retries, task log | Needs Redis + 2 extra processes; prod has no Celery (memory is full) |
-| **In-process loop (what prod runs)** (`agents/scheduler.py::run_forever`) | Backend itself ticks every `30s` | No cron, no broker, no extra RAM; starts on first HTTP request | Must stop two boxes firing twice (solved below) |
-
-**How our loop works — file proof `agents/scheduler.py`:**
-
-```mermaid
-flowchart TB
-    Start[First HTTP request -> ensure_started] --> Loop[Every 30s: TICK]
-    Loop --> Lease{Hold SchedulerLease?}
-    Lease -->|no| Sleep[Sleep - someone else sweeps]
-    Lease -->|yes| Sweep[sweep_once: fire due triggers detached]
-    Sweep --> Jobs[start_due_jobs: reminders, recycle, recovery, missions...]
-    Jobs --> Loop
-```
-
-1. **Lease = one microphone.** Row `SchedulerLease(name='triggers')`. Taker writes `holder = host:pid:random, expires_at = now + 90s` with one conditional UPDATE. Only holder sweeps. Dead holder stops owning after `90s`, another takes over. Health page polls `triggers/health/` (`running` = beat within 2× lease) — red banner if nobody sweeps.
-2. **Per-slot claim = no double ring.** Even if loop + beat + hand-run fire together, `sweep.prepare` claims one slot once; second caller gets `busy`. "Run once now" double-click is safe for the same reason.
-3. **Detached = slow agent never blocks others.** Old path waited for each run; loop starts each run and moves on. Other jobs (`PERIODIC_JOBS`) also `spawn()` detached — a slow purge never delays schedules or lets the lease lapse. A job still running when next due = skipped, not doubled.
-4. **Timezone stored right.** `Trigger.timezone` walks local wall-clock then saves UTC in indexed `next_due_at`. Spring-forward gap skips, autumn fold fires once. `describe()` shows words ("Every weekday at 9:00 AM") so `0 9 * * 1` vs `9 0 * * 1` mistakes are visible before saving.
-
-**What runs on the loop (`CELERY_BEAT_SCHEDULE` mirrors it, test fails if they drift):**
-
-| Job | Every | Does |
-|---|---|---|
-| `orchestrator.sweep_triggers` | 60s (the loop itself, 30s tick) | Fire due schedules |
-| `notifications.sweep_scheduled` | 60s | Minute-accurate user reminders |
-| `notifications.sweep_hitl_reminders` | 300s | Approval nudges + digest |
-| `missions.sweep_missions` | 120s | Settle finished mission runs, start due ones |
-| `inference.sweep_recycle_bin` | 3600s | Permanently delete 30-day trash |
-| `orchestrator.recover_runs` | slow | Resume/close runs whose process died (deploy/OOM) |
-| `orchestrator.prune_chat_checkpoints` | slow | Keep latest checkpoints per thread |
-| `logs.redact_old_run_detail` | daily | Drop old reasoning payloads after 180 days, keep the row |
-
-Debug by hand without waiting: `python manage.py run_due_triggers --dry-run`, Schedules page → Run once now (same gates, answers `202` + run id).
-
-**Recruiter line:** "Prod runs no Celery and no host cron — the backend sweeps itself every 30s under a DB lease, claims each slot atomically so two sweepers never double-fire, and runs slow jobs detached with skip-if-running. Cron/beat stay as debuggable equivalents."
-
----
-
-## 9. Cheat answers for interview
-
-* "SSE or WebSocket?" — one-way live view = SSE (`/message/stream/`); two-way control = WS (`/ws/`, steer/stop). SSE needs POST+fetch here for body+JWT, buffering off at Django+Nginx+Caddy.
-* "How do webhooks stay safe with no login?" — secret URL + always-404-on-refusal + body-is-context + size cap + rotate + throttle.
-* "How do you test webhooks locally?" — tunnel (`cloudflared --url localhost:8000`), throwaway secret, update sender URL.
-* "What breaks when you scale to 3 backends?" — WS stickiness, in-memory subscribe must become Redis pub/sub, scheduler needs single lease-holder, DB pool sum must stay under `max_connections`, volumes must become shared/S3.
-* "How does a stream survive deploy?" — it doesn't; client reconnects with resume index, server replays from run, sweep closes orphans.
-* "Cron vs beat vs your loop?" — cron boots a full Django per minute (OOM on small box) and needs hand-setup; beat needs Redis+processes prod doesn't have; loop ticks in-process every 30s under `SchedulerLease`, per-slot claim stops double-fire, slow jobs detached with skip-if-running.
+Open items for live connections are listed in [Backend/docs/OPEN_WORK.md](./Backend/docs/OPEN_WORK.md).

@@ -84,11 +84,11 @@ A good simulation asserts all three, not just that the API returned 200.
 | Identity (`Bot`) | `input[placeholder="Finance agent"]` name, `textarea` brief | `name` (required, unique per user, dedup `(1)`), `brief → description + prompt` |
 | Model (`Brain`) | `Select` provider + model, `range 0-1 step0.1` temperature | `provider`, `model`, `temperature` 0-2 default 0.2 |
 | Files (`FolderLock`) | `Choice` fileAccess | `fileAccess: none\|readonly\|scoped\|read_all_write_own\|full` (scoped = `/Agents/<name>/`) |
-| Run limit (`Timer`) | `number 1-120` mins + quick 5/15/30/60, `Toggle venv` | `maxRunSeconds`, `venv` |
-| Tools (`Wrench`) | 7 toggles | `tools: {codeExecution, shell, webSearch, scrape, fileOps, rag, mcp}` gated by `GRANT_TOOLS` |
-| Context (`Plug`) | `MultiSelect` connectors/skills, toggles `useOrgContext/useEnvironment` | `connectors[]` (validated via `visible_server_ids_sync`), `skills[]`, `knowledgeBases[]` |
+| Run limit (`Timer`) | `number 1-120` mins + quick 5/15/30/60 | `maxRunSeconds` |
+| Tools (`Wrench`) | the grant toggles | `tools: {codeExecution, shell, webSearch, scrape, fileOps, office, media, rag, mcp, …}` gated by `GRANT_TOOLS` |
+| Context (`Plug`) | `MultiSelect` connectors/skills, toggles `useEnvironment` | `connectors[]` (validated via `visible_server_ids_sync`), `skills[]`, `knowledgeBases[]` |
 | When it runs (`Clock`) | `Choice TriggerMode`, `ScheduleEditor` cron+timezone | `trigger, schedule, scheduleTimezone, allowUnattended, extraSchedules` |
-| Safety (`ShieldCheck`) | `Choice Autonomy`, `Choice Egress`, toggles `notifyOnHitl/reviewAgent`, `₹ spendCap` | `autonomy: plan\|review\|ask\|auto\|full`, `egress: none\|allowlist\|full` (shell+full → 400), `spendCapRupees`, `notifyOnHitl` |
+| Safety (`ShieldCheck`) | `Choice Autonomy`, toggles `notifyOnHitl`, `₹ spendCap` | `autonomy: plan\|review\|ask\|auto\|full`, `spendCapRupees`, `notifyOnHitl` |
 | Lifecycle (`Layers`) | Toggles + `Select summaryModel` | `compaction, recursiveContext, indexing, summaryModel` |
 | History (`History`) | read-only | `GET /api/logs/agents/{id}/revisions/` → `v{n} diff` 6 fields |
 
@@ -133,9 +133,9 @@ A good simulation asserts all three, not just that the API returned 200.
 | Step | Input | API | UI |
 |------|-------|-----|----|
 | Start run | Goal text `1..8000` chars, optional `thread_id` (resume) | `POST /api/orchestrator/agents/{id}/execute/ {goal, thread_id?}` → checks `_check_unattended` + `check_guardrails` (spend via `spend.rupees_for(tokens)`) + `llm.preflight` → `202 {execution_id, status: running, unserved_grants}` via `background.spawn()` or `402/400` refusal | `Agents.tsx` card `Execute`, list shows `running` `Loader2` + `pending HITL Hand` badge |
-| Stream | Open WS/SSE | `GET /api/streaming/executions/{id}/stream/?token=<jwt>` or `ws/execution/{id}/` frames `run_started, tool_result, curation, run_finished` | `Runs.tsx` row expands → `RunDetail` with `Turn[]` (reasoning, `AgentStep` tool, duration bar, `error_message`, `delegated_runs CornerDownRight`) poll `10s` if running |
+| Stream | Open WS | `ws/execution/{id}/` frames `run_started, tool_result, curation, run_finished` | `Runs.tsx` row expands → `RunDetail` with `Turn[]` (reasoning, `AgentStep` tool, duration bar, `error_message`, `delegated_runs CornerDownRight`) poll `10s` if running |
 | Approve / Reject | Click Approve with `scope once|session|always` | `POST /api/orchestrator/agents/{id}/approve/ {thread_id, call_id, scope}` → `approve_tool_call` + `resume_agent_run`, or `POST …/reject/ {reason}` | `Overview` HITL queue (`Hand` list `request_id`, `timeAgo`, `timeLeft`, `stage`, Approve/Reject with scope radios). `ws/hitl/` raises OS notifications for escalation/hourly/digest |
-| Steer | Send new instruction mid-run | `POST /api/orchestrator/agents/{id}/steer/ {message 1..4000}` → `steering.post(thread_id)` mailbox (last-write-wins, drained on `tools→steering→agent` edge) | Banner "Steered" |
+| Steer | Send new instruction mid-run | `POST /api/orchestrator/agents/{id}/steer/ {message 1..4000}` → `steering.post(thread_id)` — a bounded FIFO queue per run (max 8), merged into one trailing user message before the model reads it | Banner "Steered" |
 | Switch autonomy mid-run | Select `review|ask|auto|full` | `POST /api/orchestrator/agents/{id}/autonomy/ {level}` → `steering.set_autonomy` (not retroactive, `plan` not switchable) | Autonomy chip updates |
 | Observe | Poll logs | `GET /api/logs/executions/?limit=20&cursor&workflow_id&status`, `GET /api/logs/executions/{id}/` → `{revision, turns, delegation}`, `GET /api/logs/agents/{id}/revisions/`, `GET /api/logs/insights/stats/?days=7` | `Overview` four questions: HITL queue, `% handled without you`, stats `PlayCircle/Hand/XCircle/CheckCircle2`, `ActivityChart/Table`, `Most used tools`, `Repeat failures` |
 
@@ -152,7 +152,7 @@ A good simulation asserts all three, not just that the API returned 200.
 
 | Input | API | UI |
 |-------|-----|----|
-| Picks agent, cron `* * * * *`, timezone IANA, overlap `skip|queue|cancel`, window `starts_at/ends_at` | `POST /api/orchestrator/triggers/ {subagent, mode:schedule, cron, timezone, name, goal, enabled, overlap, starts_at, ends_at}` origin `manual`, `_arm()` via `next_run_after(cron, after, tz)` walks local minutes → UTC, `GET /api/orchestrator/triggers/` capped 200 + `truncated`, `POST /api/orchestrator/triggers/preview/ {cron, timezone}` → `{valid, description, upcoming[3]}` (200 even when `valid:false`), `POST /api/orchestrator/triggers/{id}/run_now/`, `POST /api/orchestrator/hooks/<secret>/` (AllowAny 404 on refusal, 64KB cap) | `Schedules.tsx` card with `CalendarClock/Webhook/Zap`, cron `mono`, `goal` line-clamp-2, `enabled` toggle `sr-only peer`, `next_due_at` relative + absolute, `last_outcome/last_error`, `timezone Globe`, `queued_for` banner, webhook `Copy→Check`, failures + self-disable after 5 |
+| Picks agent, cron `* * * * *`, timezone IANA, overlap `skip|queue|cancel`, window `starts_at/ends_at` | `POST /api/orchestrator/triggers/ {subagent, mode:schedule, cron, timezone, name, goal, enabled, overlap, starts_at, ends_at}` origin `manual`, `_arm()` via `next_run_after(cron, after, tz)` walks local minutes → UTC, `GET /api/orchestrator/triggers/` capped 200 + `truncated`, `POST /api/orchestrator/triggers/preview/ {cron, timezone}` → `{valid, description, upcoming[3]}` (200 even when `valid:false`), `POST /api/orchestrator/triggers/{id}/run/`, `POST /api/orchestrator/hooks/<secret>/` (AllowAny 404 on refusal, 64KB cap) | `Schedules.tsx` card with `CalendarClock/Webhook/Zap`, cron `mono`, `goal` line-clamp-2, `enabled` toggle `sr-only peer`, `next_due_at` relative + absolute, `last_outcome/last_error`, `timezone Globe`, `queued_for` banner, webhook `Copy→Check`, failures + self-disable after 5 |
 
 **UX invariants:**
 - Local wall-clock walk + UTC storage — `0 9 * * *` is 09:00 in `Trigger.timezone`
@@ -165,7 +165,7 @@ A good simulation asserts all three, not just that the API returned 200.
 ### Stage 7 — Observe & Iterate (Runs + Overview + Settings)
 
 - **Runs (`/runs`)** filter `all|completed|failed|running` persisted `runs.filter`, `limit 50`, `execution_id` expand → revision, delegation banner, turns, steps. Poll 10s.
-- **Overview (`/overview`)** window `7|30|90` days → `GET /api/logs/statistics/?days=`, cost breakdown, HITL queue, autonomy %, charts.
+- **Overview (`/overview`, now redirects to `/runs`)** window `7|30|90` days → `GET /api/logs/insights/stats/?days=`, cost breakdown, HITL queue, autonomy %, charts.
 - **Settings (`/settings`)** tabs `general|account|insights|billing|notifications|appearance|api` — timezone, language, theme `light|dark|system`, `PATCH /api/auth/profile/`, avatar `POST …/avatar/` multipart, API key `GET/POST /api/auth/api-keys/`.
 - **Profile (`/profile`)**, **Skills (`/skills`)**, **Evals (`/evals`)**, **Imagine (`/imagine`)** — read their specific docs.
 
@@ -202,7 +202,7 @@ POST /api/orchestrator/agents/{id}/autonomy/ {level: review|ask|auto|full}
 # Triggers / Schedules / Webhooks
 POST /api/orchestrator/triggers/ {subagent, mode, cron, timezone, ...}
 POST /api/orchestrator/triggers/preview/ {cron, timezone} → {valid, description, upcoming}
-POST /api/orchestrator/triggers/{id}/run_now/ → {outcome}
+POST /api/orchestrator/triggers/{id}/run/ → {outcome}
 POST /api/orchestrator/hooks/<secret>/  (no auth, 64KB cap) → 202 or 404 oracle-safe
 
 # Credentials / MCP / Tools / Logs
@@ -215,7 +215,7 @@ GET  /api/logs/executions/{id}/ → {revision, turns: [{reasoning, steps}]}
 GET  /api/llm/models/ → {providers: [{slug, has_credentials, models}]}
 ```
 
-All protected routes: `Authorization: Bearer <access>` or `X-API-Key: <key>` or `?token=<jwt>` for SSE/WS. Throttles: anon `100/hr`, user `1000/hr`, login `5/min`, register `3/min`, chat `20/hr`.
+All protected routes: `Authorization: Bearer <access>` or `X-API-Key: <key>`. WebSocket URLs carry `?token=<jwt>` instead (browsers can't set WS headers); HTTP `?token=` is not accepted. Throttles: anon `100/hr`, user `1000/hr`, login `5/min`, register `3/min`, chat `20/hr`.
 
 ---
 

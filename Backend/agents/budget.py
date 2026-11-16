@@ -33,8 +33,11 @@ import time
 from dataclasses import dataclass
 
 from workflow_backend.thresholds import (
+    DEFAULT_MAX_STEPS,
     DEFAULT_RUN_SECONDS,
+    MAX_MAX_STEPS,
     MAX_RUN_SECONDS,
+    MIN_MAX_STEPS,
     MIN_RUN_SECONDS,
     MIN_WORKER_SECONDS,
     RUN_WRAPUP_SECONDS,
@@ -66,6 +69,24 @@ def limit_for(agent) -> int:
     if 'maxRunSeconds' not in guards:
         return DEFAULT_RUN_SECONDS
     return clamp_run_seconds(guards.get('maxRunSeconds'))
+
+
+def clamp_steps(value) -> int:
+    """A step limit coerced into range; unparseable means the default, for the
+    reason `clamp_run_seconds` gives — rows predate the field."""
+    try:
+        steps = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_STEPS
+    return max(MIN_MAX_STEPS, min(steps, MAX_MAX_STEPS))
+
+
+def steps_for(agent) -> int:
+    """Model calls one run of `agent` may make (`guardrails['maxIterations']`)."""
+    guards = getattr(agent, 'guardrails', None) or {}
+    if 'maxIterations' not in guards:
+        return DEFAULT_MAX_STEPS
+    return clamp_steps(guards.get('maxIterations'))
 
 
 @dataclass(frozen=True, slots=True)

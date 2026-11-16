@@ -10,8 +10,8 @@ cleans up the old app's residue:
 - clears the old app's permissions and orphaned `django_content_type` rows.
 
 The old tables only ever held seed data (`seed_improve.py`), so dropping is the
-default; a deployment with real extraction data must use the data-move branch
-instead (see docs/EXTRACTION_MERGE.md §3.2).
+default; a deployment with real extraction data had to take the data-move
+branch instead (see git history for the merge write-up).
 """
 from django.db import migrations, models
 import django.db.models.deletion

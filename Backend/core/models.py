@@ -195,6 +195,20 @@ class UserProfile(models.Model):
     #: (look, don't touch). Set in Settings; `full` is not a default anyone
     #: should wake up in.
     default_autonomy = models.CharField(max_length=10, default='ask')
+
+    # The chat orchestrator's limits (2026-11-16), set in Settings → Orchestrator.
+    # Sub-agents carry these in their own config; chat had none of them and
+    # ran on fixed constants. Read through `chat/turn/limits.py`, which clamps
+    # each into its range, so a row written before a range changed still runs.
+    #: Model calls one chat turn may make (the `deep` pace's cap).
+    chat_max_steps = models.PositiveSmallIntegerField(default=36)
+    #: Wall-clock limit for one chat turn; it wraps up 45 s before the end.
+    chat_time_limit_seconds = models.PositiveIntegerField(default=30 * 60)
+    #: Rupees one chat turn's own model calls may spend; 0 = no cap.
+    chat_spend_cap_rupees = models.PositiveIntegerField(default=500)
+    #: Fold a long turn's earlier steps into a running summary (a paid call
+    #: on a cheap model) instead of only compacting them.
+    chat_summarise_long_turns = models.BooleanField(default=False)
     #: "Pause all my runs" until this time. Checked in `check_guardrails` and
     #: honoured by cancelling in-flight runs — auto mode plus schedules plus
     #: missions needs one button that stops everything. Null means not paused.

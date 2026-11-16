@@ -1,142 +1,55 @@
-# WebSocket Overuse & Polling Anti-Patterns
+# Too many backend calls: capture on demand, poll only while busy
 
-> Source: `better-n8n-frontend/src/hooks/useBuddy.ts`, `src/pages/Orchestrator.tsx`
-> Fixed: April 2026
+## What happened
 
----
+The chat and orchestration pages sent far more requests than the work needed.
+Three patterns caused most of it:
 
-## The Problem: Too Many Backend Calls
+- **A `MutationObserver` on the whole page.** It watched `document.body` with
+  `subtree: true`, so every React re-render, spinner and dropdown animation fired it.
+  Even with a one-second debounce, the backend took dozens of cache writes a minute
+  for context that was read once per message.
+- **Polling that never stopped.** A page polled for active tasks every 20 seconds
+  whether or not anything was running. Socket events already announced completion.
+- **A socket used as an upload channel.** Screen context was pushed over a
+  WebSocket continuously, although it was only needed when the user sent a message.
 
-The Buddy and chat pages were hammering the backend with unnecessary requests. Understanding *why* and *how to fix* each pattern is a common system design / frontend architecture question.
+A hardcoded WebSocket URL with a port number also broke behind the proxy, which is
+a separate fault with the same root: the URL must come from configuration.
 
----
+## The fix
 
-## Anti-Pattern 1: MutationObserver for Context Sync
+- **Capture on demand.** The frontend reads the context once, when the user sends
+  a message, and puts it in the POST body. Nothing is captured in between.
+- **Poll only while busy.** The task list polls only while a task is `running` or
+  `pending`. Otherwise it fetches once on mount.
+- **Use the socket only for server push.** Events the server must send without a
+  request use the WebSocket. Anything the browser sends once per action goes in
+  the request.
+- **Configure URLs.** The WebSocket base follows the app's API origin (`lib/origins.ts`), never
+  a port in the code.
 
-**What was happening:**
-```typescript
-//  BAD — fires on every React re-render that touches the DOM
-const observer = new MutationObserver(() => {
-  clearTimeout(timeout);
-  timeout = setTimeout(() => sendContextUpdate(), 1000); // 1s debounce
-});
-observer.observe(document.body, { childList: true, subtree: true });
-```
+Earlier, the context was a list of visible controls, each given a stable id at
+capture time. That lesson carried over: when the model must act on something on
+screen, give each item a stable id in the captured context. The model can then name
+the item it means, and the code can find it again. Ids that only exist for one
+render are not enough.
 
-With `subtree: true` on `document.body`, this fires for every DOM change in the entire app — typing a character, a spinner ticking, a dropdown animating. A 1s debounce still results in dozens of `cache.set()` calls per minute on the backend.
+## The lesson
 
-**Why it was wrong:** The backend only needs screen context *when the user sends a message*, not continuously.
+- **If data is read once per action, write it once per action.** Continuous capture
+  is a cost paid on every change, whether anyone reads it or not.
+- **Polling should follow urgency.** When nothing is happening, do not poll. Push
+  events are the main channel, and polling is the fallback while work is active.
+- **A socket is a persistent channel.** Use it for server push or real bidirectional
+  streams. A continuous upload over a socket is almost always a POST in disguise.
+- **Make the model's references stable.** An id that the model can cite and the
+  code can resolve is what makes a model's action on the UI checkable.
+- **Measure request counts per page load** before and after a change. A page that
+  looks fine can make dozens of calls it does not need.
 
-**The fix — lazy capture at send time:**
-```typescript
-//  GOOD — capture once, right when it's needed
-const handleSend = async () => {
-  const screenContext = screenContextEnabled ? captureContext() : undefined;
-  await orchestratorService.sendMessage(text, ..., screenContext);
-};
-```
+## Code
 
-**Rule:** If a piece of data is only *read* once per user action, don't *write* it continuously. Capture on demand.
-
----
-
-## Anti-Pattern 2: Always-On Polling Interval
-
-**What was happening:**
-```typescript
-//  BAD — polls every 20s whether or not anything is running
-useEffect(() => {
-  fetchActiveTasks();
-  const interval = setInterval(fetchActiveTasks, 20000);
-  return () => clearInterval(interval);
-}, [fetchActiveTasks]);
-```
-
-The Orchestrator page polled for active tasks unconditionally — even when the user had no workflows running. WebSocket events already call `fetchActiveTasks` on workflow completion/cancellation, so this polling was largely redundant.
-
-**The fix — conditional interval:**
-```typescript
-//  GOOD — only poll while there's actually something to watch
-const hasActiveTasks = backgroundTasks.some(
-  t => t.status === 'running' || t.status === 'pending'
-);
-
-useEffect(() => {
-  fetchActiveTasks(); // single fetch on mount
-}, [fetchActiveTasks]);
-
-useEffect(() => {
-  if (!hasActiveTasks) return; // exit early when idle
-  const interval = setInterval(fetchActiveTasks, 20000);
-  return () => clearInterval(interval);
-}, [hasActiveTasks, fetchActiveTasks]);
-```
-
-**Rule:** Polling should be proportional to urgency. When nothing is happening, don't poll. Use WebSocket push events as the primary update mechanism and polling only as a fallback while active.
-
----
-
-## Anti-Pattern 3: Hardcoded WebSocket URL
-
-**What was happening:**
-```typescript
-//  BAD — breaks behind any proxy, Docker port mapping, or non-8000 deployment
-const wsUrl = `ws://${window.location.host.split(':')[0]}:8000/ws/buddy/?token=${token}`;
-```
-
-**The fix:**
-```typescript
-//  GOOD — respects deployment config, matches the pattern used by other WS hooks
-const WS_BASE = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws';
-const wsUrl = `${WS_BASE}/buddy/?token=${token}`;
-```
-
-**Rule:** Any URL that differs between dev and production must come from an environment variable. Never embed port numbers or hostnames in frontend code.
-
----
-
-## Anti-Pattern 4: Using WebSocket for the Wrong Direction
-
-The buddy WS had **two directions of data**, but only one of them belongs on a WebSocket:
-
-| Direction | Content | Right transport |
-|-----------|---------|----------------|
-| Frontend → Backend | Screen context (url, title, interactable elements) | **POST body** — only needed at message send time |
-| Backend → Frontend | `trigger_action` events (click, fill, navigate) | **WebSocket** — needs to arrive without a request |
-
-The persistent WebSocket is the right tool for backend-initiated pushes (like `trigger_action`). For frontend-initiated data that only matters at one point in time, include it in the request body.
-
-**Rule:** A WebSocket is a persistent bidirectional channel. Use it for: server-push events, subscriptions, or truly bidirectional real-time data. Don't use it as a continuous upload channel for data that only needs to arrive once per user action.
-
----
-
-## Dead Code: Duplicate Route Registration
-
-`Backend/buddy/routing.py` defined WebSocket URL patterns for the buddy consumer but was never imported by `asgi.py`. The route actually worked because `streaming/routing.py` separately imported `BuddyConsumer` and registered the same route. The orphaned file was a maintenance hazard — deleted April 2026.
-
-**Lesson:** When a file is not imported anywhere, it is dead code. Django's routing system is explicit — if a routing file isn't imported in the ASGI application, its patterns don't exist regardless of what's in it. Always trace the import chain from `asgi.py` → `routing.py` → consumers.
-
----
-
-## Summary: When to Use Each Transport
-
-| Need | Use |
-|------|-----|
-| Request-response, user-initiated | REST (POST/GET) |
-| Server pushes events to client | WebSocket |
-| Large one-shot data stream from server | SSE (Server-Sent Events) |
-| Frequent client→server data, any trigger | Batch it or rethink the design |
-| Context needed at message send time | Include in POST body, not a WS push |
-
----
-
-## Interview Questions
-
-**Q: The chat page is making too many backend calls. How would you diagnose and fix it?**
-Check for: (1) MutationObserver or scroll listeners firing on every DOM change, (2) polling intervals that run unconditionally, (3) WebSocket push loops where each message triggers another. Fix by making data capture lazy (on demand at action time), gating polling on active state, and using WebSocket only for genuine server-push events.
-
-**Q: When would you choose WebSocket over REST for sending data to the backend?**
-When the server needs to initiate communication without a client request, or when you need truly bidirectional low-latency streams. For client-initiated, one-shot data (like context at message send time), a POST is simpler, more reliable, and doesn't require a persistent connection.
-
-**Q: Why does hardcoding a port in a WebSocket URL break production?**
-In production, traffic typically goes through a reverse proxy (nginx, ALB) that listens on 80/443 and forwards internally. The browser can't reach the backend port directly. The WS URL must use the same host and port the browser sees, which is the proxy — not the internal Django port.
+- `better-n8n-frontend/src/lib/websocket.ts`: the one socket primitive
+- `better-n8n-frontend/src/api/`: request layer (the POST body carries per-send context)
+- Transport choice in detail: `../REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md`

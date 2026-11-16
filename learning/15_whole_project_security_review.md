@@ -178,7 +178,7 @@ thing. Validate the one you actually connect to."
 
 `.docx`, `.xlsx` and `.pptx` are zip files. The code did
 `zipfile.ZipFile(f).read('word/document.xml')` — which inflates the whole part.
-A 1 MB upload can declare 1 GB of zeros. On a 913 MB server, one upload kills the
+A 1 MB upload can declare 1 GB of zeros. On a small server, one upload kills the
 backend.
 
 **Fix:** read the zip's index first (cheap) and add up `file_size` of every
@@ -210,41 +210,3 @@ limit, find out what it was protecting.
 - **SQLite `PRAGMA`** slipped past a keyword scan because the SQL parser labels
   it a *name*, not a keyword. Test the parser's view, not your assumption.
 
----
-
-## Interview Questions
-
-1. *What is a pre-account takeover and how do you prevent it?*
-   → Attacker registers the victim's email before the victim does; a later social
-   login links into the attacker's account. Prevent by verifying email before an
-   account is usable, or by evicting unverified credentials when the real owner
-   proves the inbox.
-
-2. *JWTs are stateless. How do you "log out everywhere"?*
-   → A per-user `tokens_valid_after` compared against the token's `iat`, checked at
-   every door (API, refresh, WebSocket). Cheaper than a per-token blacklist when the
-   only revocation is "all".
-
-3. *Why is putting a token in a query string risky?*
-   → URLs are logged, stored in history and leaked through `Referer`.
-
-4. *Should API keys be hashed with bcrypt?*
-   → No need: they're high-entropy random. SHA-256 is enough and keeps lookup O(1).
-   Passwords are different.
-
-5. *Why did your diff review miss all of these?*
-   → Each bug is an interaction between old pieces (signup + Google login; a comment
-   + a missing app; a global auth class + URLs in logs). You only see it by tracing
-   what a stranger can do across the whole system.
-
-6. *You validate a URL before fetching it. How can SSRF still happen?*
-   → Redirects (validate every hop) and DNS rebinding (the name resolves
-   differently at connect time; pin the IP to fully close it).
-
-7. *What is a zip bomb and how do you defend against one?*
-   → A small archive that inflates hugely. Read the central directory and cap the
-   total declared uncompressed size before extracting anything.
-
-8. *Is a secret in a webhook URL enough authentication?*
-   → No — URLs leak through logs and sharing. Verify the provider's HMAC signature
-   and fail closed if the signing secret isn't configured.

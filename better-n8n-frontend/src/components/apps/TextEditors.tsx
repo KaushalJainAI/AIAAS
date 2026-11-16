@@ -32,7 +32,7 @@ import {
 } from '../../lib/textTools';
 import { toast } from '../../lib/toastStore';
 import { cn } from '../../lib/utils';
-import MarkdownMessage from '../chat/MarkdownMessage';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import type { CodeMirrorApi } from './CodeMirrorView';
 import { copyText, useFontSize } from './editorTools';
 import {

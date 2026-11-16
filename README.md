@@ -1,58 +1,59 @@
 # AIAAS: Agentic AI Automation System
 
-A web app for building **AI agents that do real work for you**, and that stop
-to ask before doing anything risky.
+A web app for building **AI agents that do real work**, and that stop to ask
+before doing anything risky.
 
-- **Chat** with an assistant that searches the web, reads your files, runs
-  Python and makes charts. It acts as a manager: it plans the work and hands
-  anything that writes, sends or spends to an agent.
-- **Save agents**: a prompt, a model and a set of allowed tools, run on demand,
-  on a schedule, or from a webhook. Agents can make real slide decks,
-  spreadsheets and documents, which open in the built-in Docs, Sheets and
-  Slides apps.
-- **Stay in control**: five autonomy levels, from "read only" to "never ask".
-  Risky actions (sending an email, spending money) pause for your approval,
-  and an agent can pause to ask you a question.
-- **See everything**: every run is recorded turn by turn, with the model's
-  reasoning and every tool call.
-- **Connect your accounts**: Gmail, Drive, Sheets, Calendar, Notion, Slack, and
-  any MCP server, with keys encrypted at rest.
+- **Chat**: an assistant that searches the web, reads your files, runs Python and
+  makes charts. It plans the work and hands anything that writes, sends or spends
+  to an agent.
+- **Agents**: a saved prompt, model and set of allowed tools. Run them on demand,
+  on a schedule, or from a webhook. They make decks, spreadsheets and documents
+  that open in the built-in Docs, Sheets and Slides apps.
+- **Control**: five autonomy levels, from read-only to never-ask. Risky actions
+  pause for your approval, and an agent can pause to ask you a question.
+- **Record**: every run is kept turn by turn, with the model's reasoning and each
+  tool call.
+- **Connections**: Gmail, Drive, Sheets, Calendar, Notion, Slack and MCP servers.
+  Keys are encrypted at rest.
 
-## New here?
-
-Read **[START_HERE.md](START_HERE.md)**. It explains the whole codebase in plain
-words, shows how a chat message travels through the system, and tells you
-which file to open for common jobs.
+**New here?** Read **[START_HERE.md](START_HERE.md)** first. It explains the
+codebase, shows how a chat message travels, and gives the run recipe.
 
 ## Folders
 
 | Folder | What it is |
 |---|---|
-| [`Backend/`](Backend/README.md) | Django (ASGI) server, LangGraph agent loop, tools, storage |
-| [`better-n8n-frontend/`](better-n8n-frontend/README.md) | React + TypeScript web app |
-| [`instance/`](instance/README.md) | Seed data, user-journey simulations and Playwright tests |
-| [`LLD_Guide/`](LLD_Guide/README.md) | Design walkthrough and interview kit |
-| [`learning/`](learning/00_INDEX.md) | Write-ups of real problems hit while building this |
+| [`Backend/`](Backend/README.md) | Django (ASGI) server: agent runtime, tools, storage |
+| [`better-n8n-frontend/`](better-n8n-frontend/README.md) | Web app: React + TypeScript |
+| [`mobile-native/`](mobile-native/README.md) | Android and iOS app: Expo (React Native) |
+| [`instance/`](instance/README.md) | Seed data, user-journey simulations, Playwright tests |
+| [`LLD_Guide/`](LLD_Guide/README.md) | Low-level design study guide, with diagrams and interview questions |
+| `learning/` | Write-ups of problems hit while building this |
 
 ## Quick start
 
 ```bash
-# Backend
-cd Backend && python -m venv venv && source venv/Scripts/activate
-pip install -r requirements.txt && cp .env.example .env.local   # add OPENROUTER_API_KEY
+cd Backend && python -m venv venv && source venv/Scripts/activate   # Mac/Linux: venv/bin/activate
+pip install -r requirements.txt && cp .env.example .env.local      # then set CREDENTIAL_ENCRYPTION_KEY and OPENROUTER_API_KEY
 python manage.py migrate && python manage.py runserver 0.0.0.0:8000
-
-# Frontend (second terminal)
-cd better-n8n-frontend && npm install && npm run dev    # http://localhost:5173
+cd ../better-n8n-frontend && npm install                            # second terminal
+npm run dev                                                         # http://localhost:5173
 ```
 
-Docker: `docker compose up --build` (local) or see [DEPLOYMENT.md](DEPLOYMENT.md)
-for production.
+Windows and Linux details are in [START_HERE.md](START_HERE.md), section 3. The Docker setup is in [DEPLOYMENT.md](DEPLOYMENT.md), section 10.
+Production: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Docs
 
-- [START_HERE.md](START_HERE.md): beginner tour
-- [Backend/docs/README.md](Backend/docs/README.md): index of design docs
+- [START_HERE.md](START_HERE.md): the beginner tour and the run recipe
+- [FEATURE_MAP.md](FEATURE_MAP.md): code-level map of each feature
+- [DEPLOYMENT.md](DEPLOYMENT.md): deploying to production
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to send a change, and which checks to run
+- [INFRASTRUCTURE_SIMPLE_GUIDE.md](INFRASTRUCTURE_SIMPLE_GUIDE.md): how it is hosted (containers, proxies, databases, networking), in plain words
+- [REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md](REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md): HTTP, streaming, WebSockets and webhooks, in plain words
+- [Backend/docs/README.md](Backend/docs/README.md): index of the design docs
 - [Backend/docs/API.md](Backend/docs/API.md): every HTTP route
+- [Backend/docs/OPEN_WORK.md](Backend/docs/OPEN_WORK.md): every open item across the plans
 - [better-n8n-frontend/BEGINNER_GUIDE.md](better-n8n-frontend/BEGINNER_GUIDE.md): frontend tour
-- [CLAUDE.md](CLAUDE.md): detailed rules and design history (for AI assistants)
+- [mobile-native/README.md](mobile-native/README.md): mobile app, with its design and parity notes
+- [LLD_Guide/README.md](LLD_Guide/README.md): low-level design guide

@@ -1,25 +1,38 @@
 # `datasources/`: your own databases and APIs as tools
 
-Lets the AI query **your** database or call **your** API through one generic
-tool each (`query_sql` in `chat/tools/data.py`, `call_api` in
-`chat/tools/apicaller.py`), instead of one connector per system. The web app
-calls these "Custom tools".
+The user sees this as "Custom tools" on the Connections page. It lets the AI
+query **your** database or call **your** API through one generic tool each,
+instead of one connector per system:
+
+- `query_sql` (`chat/tools/data.py`) for a database
+- `call_api` (`chat/tools/apicaller.py`) for an HTTP API
+
+Nothing is off until you add a connection.
 
 ## Data (`models.py`)
 
 | Model | What it is |
 |---|---|
-| `DataConnection` | A database (SQLite file or PostgreSQL). The password is a secret reference, not stored here |
+| `DataConnection` | A database: SQLite file or PostgreSQL. The password is a secret reference, never stored here |
 | `ApiConnection` | An HTTP API: base URL, auth, operations |
-| `SharedTool` | A published copy others can install (without credentials) |
+| `SharedTool` | A published copy others can install, without credentials |
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `drivers.py` | Running SQL against each database kind, with host checks and a row cap |
-| `sqlcheck.py` | Deciding which SQL is allowed by *parsing* it, not by pattern matching |
-| `sharing.py` | Publishing and installing shared tools |
-| `views.py`, `serializers.py`, `urls.py` | `/api/datasources/...` |
+| `sqlcheck.py` | Decides which SQL is allowed by **parsing** it, not by pattern matching. Raises `SqlRefused` |
+| `drivers.py` | Runs a checked statement against each database kind. Checks the host against the scope, and caps rows (`ROW_CAP`) |
+| `sharing.py` | Publishes a connection as a `SharedTool` (credentials stripped) and installs copies |
+| `models.py`, `serializers.py` | The three models and their API shape |
+| `views.py`, `urls.py` | `/api/datasources/...` |
 
-Tests: `datasources/tests/`.
+## Rules
+
+- Statements are read-only unless the call says `write`. SQLite files are opened read-only for reads.
+- Inline results stop at the row cap (`query_sql.maxRows`) and say `more`. A full export refuses past `MAX_SPILL_ROWS`.
+- A shared tool carries no secret. The installer must link their own credential (`sharing._needs`).
+
+## Tests
+
+`datasources/tests/`: `test_api.py`, `test_data.py`, `test_sharing.py`.

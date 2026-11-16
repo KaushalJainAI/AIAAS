@@ -27,7 +27,6 @@ Notes on accuracy:
 - `Class.method` means a method on that class. `name()` means a module-level function.
 - The app in `Backend/agents/` has the Django label `orchestrator`, so its URLs start with `/api/orchestrator/`.
 - Exact URL paths, permissions and serializers for every route are in [Backend/docs/API.md](Backend/docs/API.md). The design reasons behind each feature are in [CLAUDE.md](CLAUDE.md).
-- BrowserOS is parked and is not covered here.
 
 ---
 
@@ -182,14 +181,14 @@ flowchart TD
 
 **What it is.** The user types a message and the answer streams in word by word. This is the main pipeline of the product. A3 describes the loop inside it.
 
-**Screen.** `/ai-chat` — [AIChat.tsx](better-n8n-frontend/src/pages/AIChat.tsx) → [StandaloneChat.tsx](better-n8n-frontend/src/components/chat/StandaloneChat.tsx). Endpoint: `POST /api/chat/sessions/<id>/message/stream/`.
+**Screen.** `/ai-chat` — [AIChat.tsx](better-n8n-frontend/src/features/chat/AIChat.tsx) → [StandaloneChat.tsx](better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx). Endpoint: `POST /api/chat/sessions/<id>/message/stream/`.
 
 | What happens | Function or class | File |
 |---|---|---|
 | Send the request, follow the stream | `chatService.sendMessageStream` | [better-n8n-frontend/src/api/chat.ts](better-n8n-frontend/src/api/chat.ts) |
 | Keep following until a real end | `followTurn` | [better-n8n-frontend/src/lib/followTurn.ts](better-n8n-frontend/src/lib/followTurn.ts) |
 | Read `data:` frames | `streamSse` | [better-n8n-frontend/src/api/sse.ts](better-n8n-frontend/src/api/sse.ts) |
-| Fold frames into screen state | `useChatStream` | [better-n8n-frontend/src/hooks/useChatStream.ts](better-n8n-frontend/src/hooks/useChatStream.ts) |
+| Fold frames into screen state | `useChatStream` | [better-n8n-frontend/src/features/chat/hooks/useChatStream.ts](better-n8n-frontend/src/features/chat/hooks/useChatStream.ts) |
 | The view | `send_message_stream` | [Backend/chat/views.py](Backend/chat/views.py) |
 | Sign-in and the HTTP stream | `authenticate`, `stream_response` | [Backend/chat/transport/streaming_http.py](Backend/chat/transport/streaming_http.py) |
 | Start a run that outlives the request | `start`, `_drive`, `finish`, `subscribe`, `ChatRun` | [Backend/chat/turn/runs.py](Backend/chat/turn/runs.py) |
@@ -233,7 +232,7 @@ flowchart TD
 
 **What it is.** The model thinks, asks for tools, reads the results, and thinks again until it has an answer. Chat turns and agent runs use the same loop.
 
-**Screen.** Tool activity, thinking timer and results in the transcript — [ChatMessageItem.tsx](better-n8n-frontend/src/components/chat/ChatMessageItem.tsx), [ThinkingTimer.tsx](better-n8n-frontend/src/components/chat/ThinkingTimer.tsx).
+**Screen.** Tool activity, thinking timer and results in the transcript — [ChatMessageItem.tsx](better-n8n-frontend/src/features/chat/components/ChatMessageItem.tsx), [ThinkingTimer.tsx](better-n8n-frontend/src/features/chat/components/ThinkingTimer.tsx).
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -279,7 +278,7 @@ flowchart TD
 
 **What it is.** Before a risky tool runs, the user sees a card that says in a sentence what the tool wants to do. They can approve once, for this conversation, or always, or deny.
 
-**Screen.** [ToolApprovalCard.tsx](better-n8n-frontend/src/components/chat/ToolApprovalCard.tsx) in the transcript.
+**Screen.** [ToolApprovalCard.tsx](better-n8n-frontend/src/features/chat/components/ToolApprovalCard.tsx) in the transcript.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -317,7 +316,7 @@ flowchart TD
 
 **What it is.** The user chooses how much the assistant may do without asking. Ask checks every risky step. Auto runs what can be undone and has a second model review the rest. Plan only reads. Full auto never asks.
 
-**Screen.** Mode picker in the composer, Shift+Tab to cycle — [StandaloneChat.tsx](better-n8n-frontend/src/components/chat/StandaloneChat.tsx), rules in [lib/chatMode.ts](better-n8n-frontend/src/lib/chatMode.ts).
+**Screen.** Mode picker in the composer, Shift+Tab to cycle — [StandaloneChat.tsx](better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx), rules in [features/chat/lib/chatMode.ts](better-n8n-frontend/src/features/chat/lib/chatMode.ts).
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -353,7 +352,7 @@ flowchart TD
     N --> O["_live_autonomy() on the next batch"]
 ```
 
-**Debug first.** Auto asking about everything: grep `[Latency] reviewer` and check `AUTO_REVIEWER_MODEL`. Tests: `Backend/chat/tests/test_auto_mode.py`, `test_auto_reviewer.py`, `better-n8n-frontend/src/lib/__tests__/chatMode.test.ts`.
+**Debug first.** Auto asking about everything: grep `[Latency] reviewer` and check `AUTO_REVIEWER_MODEL`. Tests: `Backend/chat/tests/test_auto_mode.py`, `test_auto_reviewer.py`, `better-n8n-frontend/src/features/chat/lib/__tests__/chatMode.test.ts`.
 
 ---
 
@@ -361,7 +360,7 @@ flowchart TD
 
 **What it is.** While a turn is running the user can send another instruction, stop it, or reload the page and pick the stream back up.
 
-**Screen.** The send button in [StandaloneChat.tsx](better-n8n-frontend/src/components/chat/StandaloneChat.tsx). With text it steers. Empty it stops.
+**Screen.** The send button in [StandaloneChat.tsx](better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx). With text it steers. Empty it stops.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -445,7 +444,7 @@ flowchart TD
 
 **What it is.** The assistant can stop and ask the user a question with choices, a number or free text. The answer comes back to it as the tool's result.
 
-**Screen.** [QuestionCard.tsx](better-n8n-frontend/src/components/chat/QuestionCard.tsx) in chat and in the Inbox. Answer checking mirrors [lib/question.ts](better-n8n-frontend/src/lib/question.ts).
+**Screen.** [QuestionCard.tsx](better-n8n-frontend/src/components/content/QuestionCard.tsx) in chat and in the Inbox. Answer checking mirrors [lib/question.ts](better-n8n-frontend/src/lib/question.ts).
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -478,7 +477,7 @@ flowchart TD
 
 **What it is.** Typing `/` opens a palette of commands such as `/agent`, `/goal`, `/mode`, `/memory`, `/code-review`. A command is structured input resolved by the backend, not a prompt template.
 
-**Screen.** [CommandPalette.tsx](better-n8n-frontend/src/components/chat/CommandPalette.tsx), [CommandCard.tsx](better-n8n-frontend/src/components/chat/CommandCard.tsx), [lib/commands.ts](better-n8n-frontend/src/lib/commands.ts), [hooks/useCommands.ts](better-n8n-frontend/src/hooks/useCommands.ts). Endpoints under `/api/chat/commands/`.
+**Screen.** [CommandPalette.tsx](better-n8n-frontend/src/features/chat/components/CommandPalette.tsx), [CommandCard.tsx](better-n8n-frontend/src/features/chat/components/CommandCard.tsx), [lib/commands.ts](better-n8n-frontend/src/lib/commands.ts), [features/chat/hooks/useCommands.ts](better-n8n-frontend/src/features/chat/hooks/useCommands.ts). Endpoints under `/api/chat/commands/`.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -519,7 +518,7 @@ flowchart TD
 
 **What it is.** The user attaches files and images to a message. A model that reads images gets them directly. A text-only model can question a second, image-reading model through the `ask_vision` tool.
 
-**Screen.** Attach button in [StandaloneChat.tsx](better-n8n-frontend/src/components/chat/StandaloneChat.tsx). Endpoint: `POST /api/chat/sessions/<id>/upload/`.
+**Screen.** Attach button in [StandaloneChat.tsx](better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx). Endpoint: `POST /api/chat/sessions/<id>/upload/`.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -561,7 +560,7 @@ flowchart TD
 
 **What it is.** The assistant searches the web, reads a page, runs a multi-source research pass, or downloads a file the user named. Sources appear as cards.
 
-**Screen.** Source cards and media in [ChatMessageItem.tsx](better-n8n-frontend/src/components/chat/ChatMessageItem.tsx) and [MediaPreview.tsx](better-n8n-frontend/src/components/chat/MediaPreview.tsx).
+**Screen.** Source cards and media in [ChatMessageItem.tsx](better-n8n-frontend/src/features/chat/components/ChatMessageItem.tsx) and [MediaPreview.tsx](better-n8n-frontend/src/components/content/MediaPreview.tsx).
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -600,7 +599,7 @@ flowchart TD
 
 **What it is.** The assistant can draw a chart from data, render a small HTML page, draw a box-and-arrow diagram, and save a dashboard of charts the user can reopen.
 
-**Screen.** [ChartArtifact.tsx](better-n8n-frontend/src/components/chat/ChartArtifact.tsx), [HtmlArtifact.tsx](better-n8n-frontend/src/components/chat/HtmlArtifact.tsx), `/dashboards` — [Dashboards.tsx](better-n8n-frontend/src/pages/Dashboards.tsx). Scales are in [lib/chartScale.ts](better-n8n-frontend/src/lib/chartScale.ts).
+**Screen.** [ChartArtifact.tsx](better-n8n-frontend/src/components/content/ChartArtifact.tsx), [HtmlArtifact.tsx](better-n8n-frontend/src/features/chat/components/HtmlArtifact.tsx), `/dashboards` — [Dashboards.tsx](better-n8n-frontend/src/pages/Dashboards.tsx). Scales are in [lib/chartScale.ts](better-n8n-frontend/src/lib/chartScale.ts).
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -635,7 +634,7 @@ flowchart TD
 
 **What it is.** The user can speak a message instead of typing, and have an answer read aloud. Agents can transcribe audio files and produce speech files.
 
-**Screen.** [VoiceInputButton.tsx](better-n8n-frontend/src/components/chat/VoiceInputButton.tsx), [hooks/useVoiceInput.ts](better-n8n-frontend/src/hooks/useVoiceInput.ts), [hooks/useSpeech.ts](better-n8n-frontend/src/hooks/useSpeech.ts). Endpoints: `POST /api/chat/transcribe/`, `POST /api/chat/speak/`.
+**Screen.** [VoiceInputButton.tsx](better-n8n-frontend/src/features/chat/components/VoiceInputButton.tsx), [hooks/useVoiceInput.ts](better-n8n-frontend/src/hooks/useVoiceInput.ts), [hooks/useSpeech.ts](better-n8n-frontend/src/hooks/useSpeech.ts). Endpoints: `POST /api/chat/transcribe/`, `POST /api/chat/speak/`.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -666,7 +665,7 @@ flowchart TD
 
 **What it is.** A visitor can try the chat without an account. Guest chat has no tools, a small token budget and strict rate limits.
 
-**Screen.** The landing chat with [GuestBanner.tsx](better-n8n-frontend/src/components/chat/GuestBanner.tsx). Endpoints under `/api/chat/guest/`.
+**Screen.** The landing chat with [GuestBanner.tsx](better-n8n-frontend/src/features/chat/components/GuestBanner.tsx). Endpoints under `/api/chat/guest/`.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -732,7 +731,7 @@ flowchart TD
 
 **What it is.** The user picks which model answers and how hard it should think. On a self-hosted install they can sign in with their ChatGPT plan and use it as a provider.
 
-**Screen.** [ChatHeader.tsx](better-n8n-frontend/src/components/chat/ChatHeader.tsx), [EffortPicker.tsx](better-n8n-frontend/src/components/chat/EffortPicker.tsx), [ChatGPTPlanPanel.tsx](better-n8n-frontend/src/components/chat/ChatGPTPlanPanel.tsx), [hooks/useAIModels.ts](better-n8n-frontend/src/hooks/useAIModels.ts), [hooks/useChatModelSelection.ts](better-n8n-frontend/src/hooks/useChatModelSelection.ts), [hooks/useEffortSelection.ts](better-n8n-frontend/src/hooks/useEffortSelection.ts).
+**Screen.** [ChatHeader.tsx](better-n8n-frontend/src/features/chat/components/ChatHeader.tsx), [EffortPicker.tsx](better-n8n-frontend/src/features/chat/components/EffortPicker.tsx), [ChatGPTPlanPanel.tsx](better-n8n-frontend/src/features/chat/components/ChatGPTPlanPanel.tsx), [hooks/useAIModels.ts](better-n8n-frontend/src/hooks/useAIModels.ts), [hooks/useChatModelSelection.ts](better-n8n-frontend/src/hooks/useChatModelSelection.ts), [hooks/useEffortSelection.ts](better-n8n-frontend/src/hooks/useEffortSelection.ts).
 
 | What happens | Function or class | File |
 |---|---|---|

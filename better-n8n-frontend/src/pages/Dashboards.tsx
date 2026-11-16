@@ -10,8 +10,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LayoutDashboard, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 
 import dashboardsService, { type Dashboard } from '../api/dashboards';
-import ChartArtifact from '../components/chat/ChartArtifact';
-import MarkdownMessage from '../components/chat/MarkdownMessage';
+import ChartArtifact from '@/components/content/ChartArtifact';
+import MarkdownMessage from '@/components/content/MarkdownMessage';
 import PageHeader from '../components/layout/PageHeader';
 import { toast } from '../lib/toastStore';
 import { cn } from '../lib/utils';

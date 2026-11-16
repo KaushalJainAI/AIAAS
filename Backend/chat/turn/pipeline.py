@@ -25,8 +25,6 @@ from django.conf import settings
 from workflow_backend.thresholds import (
     ASSISTANT_SUMMARY_WORD_LIMIT,
     FOLLOW_UPS_SLOW_TURN_SECONDS,
-    MAX_CONTEXT_TOKENS,
-    PACE_ITERATIONS,
 )
 
 from chat import vision
@@ -950,8 +948,15 @@ async def run_chat_turn(
         past = await history.load_history(
             session, exclude_id=user_message.id, supports_docs=supports_docs
         )
+        # Sized to *this* model: a conversation switched to a model with a
+        # smaller window replays less (`history.history_budget`).
+        from llm import budget as llm_budget
+
         wire_history = history.to_wire_history(
-            past, max_tokens=MAX_CONTEXT_TOKENS - 4_000
+            past,
+            max_tokens=history.history_budget(
+                await llm_budget.input_budget_for(model)
+            ),
         )
         history_dropped = max(0, sum(
             1 for m in past if m.role in ("user", "assistant")
@@ -1087,6 +1092,14 @@ async def run_chat_turn(
     # manager answering its workers — never got a say.
     _session_gate = _approval_modes.get(session_autonomy)
 
+    # The orchestrator's own limits: steps, time, spend and whether a long turn
+    # is summarised — account settings (Settings → Orchestrator), the chat
+    # counterpart of an agent's run limits.
+    from agents.budget import Deadline
+    from chat.turn import limits as _limits
+
+    orchestrator = await _limits.for_user(user.id)
+
     turn = TurnContext(
         file_scope=file_scope,
         provider=provider,
@@ -1100,12 +1113,19 @@ async def run_chat_turn(
         attachments=attachments,
         memory_enabled=session.memory_enabled,
         # The hard ceiling, which is `deep` for every chat turn because any of
-        # them may be promoted to it. The cap actually applied each pass comes
-        # from the turn's pace in `metadata`.
-        max_iterations=PACE_ITERATIONS[pace.DEEP],
+        # them may be promoted to it — the account's own step limit. The cap
+        # actually applied each pass comes from the turn's pace in `metadata`.
+        max_iterations=orchestrator.max_steps,
+        deadline=Deadline.after(orchestrator.time_limit_seconds),
+        token_budget=orchestrator.token_budget,
         effort=effort or None,
         sink=sink,
-        curation=_curation.CHAT_POLICY,
+        # Compaction always; the paid summary fold only when the account asked
+        # for it, with the same cheap summary model agents default to.
+        curation=(
+            _curation.CurationPolicy.from_settings({})
+            if orchestrator.summarise_long_turns else _curation.CHAT_POLICY
+        ),
         org_id=session.org_id,
         share_solutions=bool(session.org_id and session.share_solutions),
         **({'tool_source': _reviewer.read_only_source(

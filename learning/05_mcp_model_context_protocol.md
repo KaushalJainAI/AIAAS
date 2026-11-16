@@ -1,167 +1,72 @@
-# Model Context Protocol (MCP)
+# MCP connectors: a subprocess per user was the wrong unit
 
-> Source: `Backend/mcp_integration/`, `Frontend/src/api/mcp.ts`, `Frontend/src/pages/MCPServers.tsx`
-> Commits: `4ca3cf0` (frontend), `93281ba`, `bca505f` (backend)
+## What happened
 
----
+The MCP integration started as the obvious design. Each connector is a server
+process we spawn (stdio) or a URL we call. The client keeps a pool of live
+sessions, lists each connector's tools, and passes them to the agent. Five faults
+came out of it, each showing up as a different symptom:
 
-## What is MCP?
+- **Secrets leaked to third-party code.** A stdio connector was started with
+  `{**os.environ, ...}`. Under docker-compose that is the whole of `Backend/.env`,
+  including the key that encrypts every user's credentials. Every npm package we ran
+  could read it.
+- **The pool had no size limit.** Sessions expired by age only, so the number of
+  live subprocesses depended on how many connectors people had touched. That is the
+  shape of an out-of-memory crash.
+- **Listing tools started connectors.** One chat turn asked all eight connectors
+  for their tools. Each answer was a cold `npx` start (two Node processes), inside a
+  384 MB container. The kernel killed the web server.
+- **The catalogue claimed packages that do not exist.** Six curated rows named npm
+  packages that were never published. The page timed out at 5 seconds, shorter than
+  a cold `npx` needs, so a broken connector and a healthy one looked the same.
+- **A session was closed by the wrong task.** The transport is an anyio task group,
+  which must be exited by the task that entered it. Closing it from another request
+  orphaned a subprocess each time.
 
-Model Context Protocol is an open standard (by Anthropic) for connecting LLMs to external tools and data sources. Think of it as USB-C for AI — a single protocol so any AI model can talk to any tool server.
+## The fix
 
-Before MCP: every AI product implemented its own tool format. After MCP: tools are described and invoked the same way, regardless of which model or framework is using them.
+- **Env is an allowlist.** `Backend/mcp_integration/client.py::_build_subprocess_env`
+  passes only a short list of names, plus `NODE_`, `NPM_` and `UV_` prefixes. `PATH`
+  and `NPM_CONFIG_CACHE` must stay on the list, or `npx` cannot be found or runs cold.
+  Matching is case-insensitive, because Windows spells these differently.
+- **Pool with a cap and LRU.** `MCP_MAX_POOLED_SESSIONS` bounds live sessions, and
+  a session in use is never evicted.
+- **A session lives in its own task.** `_SessionWorker` opens and closes the
+  transport in the same task.
+- **Listing never starts a process.** `list_tools(cached_only=True)` answers from the
+  stored catalogue (`tool_cache.py`). Refreshes run through one serial queue.
+- **Starting a connector needs memory.** `mcp_integration/supervisor.py` reserves an
+  estimate before the spawn, evicts idle sessions to make room, and refuses if it
+  cannot.
+- **Google connectors are not processes.** Gmail, Drive, Sheets, Calendar and Docs are
+  native rows (`type='native'`) whose tools are REST calls in
+  `Backend/chat/tools/google/`. Stdio connectors are off in production
+  (`MCP_ALLOW_STDIO`).
+- **Catalogue rows are checked.** `test_fresh_install.py::CuratedPackageTests` pins
+  each enabled package to one that was started and listed.
 
-**Official repo:** [github.com/modelcontextprotocol](https://github.com/modelcontextprotocol)
+## The lesson
 
----
+- **A connector is third-party code.** Give it an allowlisted environment, never
+  the process's own.
+- **Bound every pool by what it costs, not by age alone.** Age decides how long an
+  idle session lives. A cap decides how many can exist.
+- **Reading a catalogue must not start work.** A question about what exists should
+  never spawn the thing it asks about.
+- **Check a claim by running it.** A package name in a config file is a claim.
+  Starting it and reading back its tool list is evidence.
+- **Async resources have an owner.** Open and close an anyio task group in the same
+  task, or it leaks.
+- **Prefer code you own over a process you spawn.** Native connectors removed a whole
+  class of memory and isolation problems for the connectors that matter most.
 
-## Two Transport Types
+## Code
 
-```typescript
-export type MCPServerType = 'stdio' | 'sse';
-```
-
-| Type | How it works | Use case |
-|------|-------------|----------|
-| `stdio` | Child process; communicate via stdin/stdout | Local tools (CLI scripts, local databases) |
-| `sse` | HTTP Server-Sent Events to a URL | Remote tools, cloud services, hosted servers |
-
-**stdio example:** `command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem"]`
-**sse example:** `url: "https://mcp.example.com/sse"`
-
----
-
-## The MCP Server Model (What Gets Stored)
-
-```typescript
-export interface MCPServer {
-  id: number;
-  name: string;
-  type: MCPServerType;         // 'stdio' | 'sse'
-  
-  // Stdio fields
-  command?: string;            // e.g., 'npx'
-  args?: string[];             // e.g., ['-y', '@mcp/server-github']
-  
-  // SSE fields
-  url?: string;                // e.g., 'https://api.example.com/mcp'
-  
-  // Environment + credentials
-  env?: Record<string, string>;
-  credential_env_map?: Record<string, string>;  // credentialId → env var name
-  credential_header_map?: Record<string, string>; // credentialId → HTTP header name
-  
-  required_credential_types?: string[];  // what the user must configure
-  enabled: boolean;
-}
-```
-
-**Credential injection:** When the backend starts an MCP server, it reads the user's stored credentials (AES-decrypted from the DB), maps them to env vars or HTTP headers, and passes them to the MCP client. The user never writes API keys into the MCP config directly.
-
----
-
-## How MCP Tools Are Called (in this codebase)
-
-```python
-# In chat/tools.py and buddy/views.py
-from mcp_integration.client import MCPClientManager, get_all_tools_from_all_servers
-
-# Get all available tools from all enabled MCP servers
-tools = await get_all_tools_from_all_servers(user)
-# tools is a list of: {"name": "...", "description": "...", "inputSchema": {...}, "server_name": "..."}
-
-# Invoke a specific tool
-result = await client_manager.call_tool(server_name, tool_name, arguments)
-```
-
-The chat agent includes these tools in its tool list alongside built-in tools (Python sandbox, HTTP requests, etc.). The LLM selects which tool to call based on the user's question.
-
----
-
-## Tool Caching (Performance Pattern)
-
-MCP server tool lists are fetched once and cached:
-
-```python
-# From commit 93281ba — mcp: add credential injection, tool caching
-_tool_cache = {}  # {user_id: {"tools": [...], "cached_at": datetime}}
-
-async def get_all_tools_from_all_servers(user):
-    cache_key = user.id
-    if cache_key in _tool_cache:
-        cached = _tool_cache[cache_key]
-        if (datetime.now() - cached["cached_at"]).seconds < 300:  # 5-min TTL
-            return cached["tools"]
-    
-    tools = await _fetch_tools_from_all_servers(user)
-    _tool_cache[cache_key] = {"tools": tools, "cached_at": datetime.now()}
-    return tools
-```
-
-Why cache: connecting to MCP servers (especially stdio) is slow — it spawns a subprocess. Tool schemas rarely change. 5-minute TTL balances freshness vs latency.
-
----
-
-## Frontend: MCP Service Layer
-
-```typescript
-export const mcpService = {
-  async list(): Promise<{ servers: MCPServer[] }> {
-    const response = await apiClient.get<{ servers: MCPServer[] }>('/mcp/servers/');
-    return response.data;
-  },
-  async create(data: CreateMCPServerData): Promise<MCPServer> {
-    const response = await apiClient.post<MCPServer>('/mcp/servers/', data);
-    return response.data;
-  },
-  async update(id: number, data: Partial<CreateMCPServerData>): Promise<MCPServer> {
-    const response = await apiClient.patch<MCPServer>(`/mcp/servers/${id}/`, data);
-    return response.data;
-  },
-  async delete(id: number): Promise<void> {
-    await apiClient.delete(`/mcp/servers/${id}/`);
-  },
-  async test(id: number): Promise<{ success: boolean; tools: string[]; error?: string }> {
-    const response = await apiClient.post(`/mcp/servers/${id}/test/`);
-    return response.data;
-  },
-};
-```
-
-`Partial<CreateMCPServerData>` for `update` — only send changed fields. This maps to `PATCH` (partial update) rather than `PUT` (full replacement). Always prefer `PATCH` for edit forms.
-
----
-
-## User-Scoped Access Control
-
-```python
-# From commit bca505f — mcp: implement user-scoped access control
-class MCPServerViewSet(viewsets.ModelViewSet):
-    def get_queryset(self):
-        # User sees their own servers + platform-wide servers (user=null)
-        return MCPServer.objects.filter(
-            Q(user=self.request.user) | Q(user__isnull=True)
-        )
-    
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-```
-
-`user=null` servers are platform-wide defaults (like Puppeteer, Filesystem). User-created servers are private. The `Q` object lets you compose OR conditions in Django ORM.
-
----
-
-## Interview Questions
-
-**Q: What is MCP and why does it matter?**
-MCP is a standard protocol for AI-tool integration. Before MCP, connecting an LLM to a database or API required custom integration per model. With MCP, you write one server that works with Claude, GPT, Gemini, etc.
-
-**Q: What's the difference between stdio and SSE MCP servers?**
-stdio spawns a local subprocess and communicates via pipes — good for local tools, no network needed. SSE uses HTTP streaming from a remote URL — good for hosted/cloud tools.
-
-**Q: How do you securely pass API keys to MCP servers?**
-Store credentials encrypted in the DB. At runtime, decrypt them and inject as environment variables (for stdio) or headers (for SSE). The user configures credentials separately from the MCP server config — they never put raw keys in the MCP config.
-
-**Q: What's `Q` in Django ORM?**
-`Q` objects let you compose complex WHERE clauses with OR (`|`), AND (`&`), and NOT (`~`).
-`Q(user=request.user) | Q(user__isnull=True)` → `WHERE user_id = ? OR user_id IS NULL`
+- `Backend/mcp_integration/client.py`: `_build_subprocess_env`, `_SessionWorker`, pool
+- `Backend/mcp_integration/supervisor.py`: memory admission
+- `Backend/mcp_integration/tool_cache.py`: Redis and database catalogue
+- `Backend/mcp_integration/native.py`: live native connectors
+- `Backend/mcp_integration/pinning.py`: tool-definition pins
+- `Backend/chat/tools/google/`: Gmail, Drive, Sheets, Calendar, Docs tools
+- `Backend/mcp_integration/tests/test_fresh_install.py`

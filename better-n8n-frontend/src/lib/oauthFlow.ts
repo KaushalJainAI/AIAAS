@@ -90,6 +90,15 @@ export function decodePending(raw: string | null, now: number): PendingOAuth | n
   return null;
 }
 
+/** Read the pending flow without clearing it (for render-time decisions). */
+export function peekPendingOAuth(now = Date.now()): PendingOAuth | null {
+  try {
+    return decodePending(window.localStorage.getItem(PENDING_OAUTH_KEY), now);
+  } catch {
+    return null;
+  }
+}
+
 /** Read and clear the pending flow. Cleared even when invalid, so it is never reused. */
 export function takePendingOAuth(now = Date.now()): PendingOAuth | null {
   try {

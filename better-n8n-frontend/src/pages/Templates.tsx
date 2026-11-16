@@ -10,8 +10,8 @@
  * The install dialog is the part worth caring about. Installing someone else's
  * agent means letting a recipe you cannot read touch your files and act on
  * your behalf, and unlike a workflow there is no graph to inspect: the
- * permission envelope *is* the safety mechanism (`docs/AGENT_TEMPLATES.md`
- * §5). So the dialog is an app-store permission prompt, and every line of it
+ * permission envelope *is* the safety mechanism. So the dialog is an
+ * app-store permission prompt, and every line of it
  * is rendered from `template.config` — the same keys the backend stores and
  * the runtime enforces. There is no second vocabulary here that could drift
  * from the first, which is the one failure this screen cannot tolerate.
