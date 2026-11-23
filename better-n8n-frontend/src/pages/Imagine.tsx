@@ -44,6 +44,7 @@ import { PillSelect } from '../components/imagine/PillSelect';
 import { ResultCard } from '../components/imagine/ResultCard';
 import { StyleGallery } from '../components/imagine/StyleGallery';
 import { SendButton } from '../components/ui/SendButton';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { cn } from '../lib/utils';
 
@@ -110,6 +111,7 @@ export default function Imagine() {
   const [showAgentHistory, setShowAgentHistory] = useState(false);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [deletingConversation, setDeletingConversation] = useState<number | null>(null);
 
   const {
     capabilities,
@@ -156,7 +158,7 @@ export default function Imagine() {
           </button>
         )}
         <Palette size={18} className="text-primary shrink-0" />
-        <h1 className="text-lg font-semibold truncate">Imagine</h1>
+        <h1 className="text-lg font-semibold truncate">Studio</h1>
         {viewMode === 'agent' && agent.conversations.length > 0 && (
           <span className="inline-flex items-center rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
             {agent.conversations.length} chats
@@ -279,8 +281,7 @@ export default function Imagine() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!confirm('Delete this conversation?')) return;
-                      void agent.deleteConversation(c.id);
+                      setDeletingConversation(c.id);
                     }}
                     aria-label="Delete conversation"
                     className="rounded-md p-1 opacity-0 transition-[opacity,background-color] duration-normal group-hover:opacity-100 hover:bg-destructive hover:text-white"
@@ -314,6 +315,18 @@ export default function Imagine() {
             />
           </div>
         </div>
+        {deletingConversation !== null && (
+          <ConfirmDialog
+            title="Delete this conversation?"
+            body="Generations inside stay in Documents."
+            onConfirm={() => {
+              const id = deletingConversation;
+              setDeletingConversation(null);
+              void agent.deleteConversation(id);
+            }}
+            onCancel={() => setDeletingConversation(null)}
+          />
+        )}
       </div>
     );
   }

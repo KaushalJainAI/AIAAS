@@ -45,7 +45,11 @@ export function Modal({ onClose, children, size = 'md', label, open = true }: Mo
   const { present, state } = usePresence(open, EXIT_MS);
   const exiting = state === 'exit';
 
+  // Only while open: a caller that keeps the Modal mounted with `open={false}`
+  // (to get the exit animation) must not keep the page scroll-locked or have
+  // Escape fire its onClose.
   useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -56,14 +60,14 @@ export function Modal({ onClose, children, size = 'md', label, open = true }: Mo
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [open, onClose]);
 
   if (!present) return null;
 
   return (
     <div
       className={cn(
-        'overlay z-50 flex items-center justify-center p-4',
+        'overlay z-50 flex items-end justify-center p-0 md:items-center md:p-4',
         exiting ? 'animate-fade-out' : 'entrance-overlay',
       )}
       onClick={onClose}
@@ -78,10 +82,14 @@ export function Modal({ onClose, children, size = 'md', label, open = true }: Mo
         onClick={(e) => e.stopPropagation()}
         className={cn(
           'modal w-full flex flex-col max-h-[90vh] max-h-[90dvh]',
+          // Phones (below md): a bottom sheet. `.modal` carries a fixed 6px
+          // radius, so the sheet's top corners are set with !important.
+          'max-md:max-h-[92dvh] max-md:!rounded-t-xl max-md:!rounded-b-none max-md:pb-[env(safe-area-inset-bottom)]',
           SIZES[size],
-          exiting ? 'animate-scale-out' : 'entrance-modal',
+          exiting ? 'animate-scale-out' : 'max-md:animate-slide-in-bottom md:entrance-modal',
         )}
       >
+        <div aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border md:hidden" />
         {children}
       </div>
     </div>
@@ -112,7 +120,10 @@ export function ModalFooter({
   return (
     <div
       className={cn(
-        'flex items-center justify-end gap-2 px-5 py-4 border-t border-border shrink-0',
+        // Phones: buttons stack full width, 44px tall, and the last one in the
+        // markup (the primary action) sits on top.
+        'flex flex-col-reverse items-stretch gap-2 px-5 py-4 border-t border-border shrink-0',
+        'max-md:[&>*]:min-h-11 [&>*]:w-full md:flex-row md:items-center md:justify-end md:[&>*]:w-auto',
         className,
       )}
     >

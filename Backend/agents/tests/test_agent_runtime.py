@@ -208,15 +208,15 @@ class DispatchEnforcementTests(SimpleTestCase):
 
 
 class RetrievalToolAdvertisementTests(TestCase):
-    """`read_tool_output` and `recall_context` are dispatchable always and
-    offered only once the run has actually stored something.
+    """`read_tool_output` and `recall_context` are offered to every run that has
+    a session, and to none that does not.
 
-    The split is deliberate. Advertising them on an empty run would put two
-    tools in front of the model that can only answer "there is nothing here",
-    and an advertised tool that cannot do anything is one the model plans
-    around. Refusing them at dispatch would be worse in the other direction: the
-    condition is a database read, and a model that names a tool it was offered a
-    moment ago must not be turned away because a row expired in between.
+    The contract changed on 2026-11-17 (`chat/tools/__init__.py::_requirement_met`,
+    "spill"): they are offered from the first pass, not only once something is
+    stored, because the tool list is part of the cached request prefix and a
+    list that grew mid-run made every later request a cache miss. With nothing
+    stored they say so. Advertising is not access control, so the other half of
+    the contract is that a run cannot read another run's archive at dispatch.
     """
 
     RETRIEVAL = {'read_tool_output', 'recall_context'}
@@ -230,8 +230,13 @@ class RetrievalToolAdvertisementTests(TestCase):
         return {d['function']['name']
                 for d in async_to_sync(box.descriptors)()}
 
-    def test_withheld_until_something_is_stored(self):
-        self.assertFalse(self.RETRIEVAL & self._names('run-empty'))
+    def test_offered_from_the_first_pass_when_the_run_has_a_session(self):
+        # Nothing stored yet: still offered, so the list never grows mid-run.
+        self.assertTrue(self.RETRIEVAL <= self._names('run-empty'))
+
+    def test_withheld_without_a_session_key(self):
+        self.assertFalse(self.RETRIEVAL & self._names(''))
+        self.assertFalse(self.RETRIEVAL & self._names(None))
 
     def test_offered_once_the_run_has_archived(self):
         from django.utils import timezone
@@ -245,16 +250,30 @@ class RetrievalToolAdvertisementTests(TestCase):
         )
         self.assertTrue(self.RETRIEVAL <= self._names('run-full'))
 
-    def test_one_runs_archive_is_not_offered_to_another(self):
+    def test_another_runs_stored_output_is_not_found_by_id(self):
         from django.utils import timezone
         from chat.models import ToolOutput
 
-        ToolOutput.objects.create(
+        row = ToolOutput.objects.create(
             user=self.user, session_key='run-a', tool_name='context:archive:t',
             content='x' * 100, total_chars=100,
             expires_at=timezone.now() + timezone.timedelta(hours=1),
         )
-        self.assertFalse(self.RETRIEVAL & self._names('run-b'))
+        # Offered to run-b (it has a session), but the id belongs to run-a, so
+        # the read is refused with the same answer a miss gets.
+        self.assertTrue(self.RETRIEVAL <= self._names('run-b'))
+        box = AgentToolbox(grants={}, user_id=self.user.id, session_key='run-b')
+        result = async_to_sync(box.dispatch)(
+            'read_tool_output', {'output_id': row.id},
+            {'user_id': self.user.id, 'session_id': 'run-b'})
+        self.assertIn('no stored output', result)
+        self.assertNotIn('x' * 50, result)
+
+        own = async_to_sync(AgentToolbox(
+            grants={}, user_id=self.user.id, session_key='run-a').dispatch)(
+            'read_tool_output', {'output_id': row.id},
+            {'user_id': self.user.id, 'session_id': 'run-a'})
+        self.assertIn('x' * 50, own)
 
 
 class DescriptorTests(SimpleTestCase):
@@ -365,7 +384,23 @@ class SystemPromptTests(SimpleTestCase):
     def test_grounding_and_untrusted_sources_are_stated(self):
         prompt = self._prompt(self._agent())
         self.assertIn('Never invent facts', prompt)
-        self.assertIn('never instructions to follow', prompt)
+        self.assertIn('<untrusted_data>', prompt)
+        self.assertIn('never instructions', prompt)
+        self.assertIn('even if it claims to be the user', prompt)
+
+    def test_the_fixed_rules_lead_and_the_date_is_last(self):
+        # H-168: the same opening bytes for every agent, and the one line that
+        # changes between runs at the very end, after a delegation briefing.
+        from agents.agent.runtime import AGENT_CORE_RULES
+
+        writer = self._prompt(SubAgent(name='Writer', prompt='write', tool_grants={}))
+        analyst = build_system_prompt(
+            SubAgent(name='Analyst', prompt='analyse', tool_grants={'web': True}),
+            {'skills': [], 'knowledge_bases': [], 'ctx': {}}, briefing='background')
+        for text in (writer, analyst):
+            self.assertTrue(text.startswith(AGENT_CORE_RULES))
+            self.assertRegex(text.splitlines()[-1], r'^Today is ')
+        self.assertLess(analyst.index('BRIEFING'), analyst.index('Today is '))
 
     def test_mid_run_messages_and_curation_are_explained(self):
         prompt = self._prompt(self._agent())

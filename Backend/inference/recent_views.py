@@ -20,9 +20,9 @@ from .serializers import DocumentListSerializer
 _NOT_FOUND = {'error': 'File not found.'}
 
 
-def _row(row) -> dict:
+def _row(row, user) -> dict:
     return {
-        'document': DocumentListSerializer(row.document).data,
+        'document': DocumentListSerializer(row.document, context={'user': user}).data,
         'app': row.app,
         'opened_at': row.opened_at,
         'open_count': row.open_count,
@@ -50,7 +50,7 @@ def recent_list(request):
                 types=types or None,
                 limit=_int_param(request.query_params.get('limit'), 20),
             )
-            return Response({'results': [_row(r) for r in rows]})
+            return Response({'results': [_row(r, request.user) for r in rows]})
         if request.method == 'DELETE':
             return Response({'removed': recents.forget(request.user)})
         data = request.data if isinstance(request.data, dict) else {}
@@ -60,7 +60,7 @@ def recent_list(request):
             app=data.get('app', ''),
             view_state=data.get('view_state'),
         )
-        return Response(_row(row), status=201)
+        return Response(_row(row, request.user), status=201)
     except recents.RecentsError as exc:
         return Response({'error': str(exc)}, status=400)
     except recents.NotFound:

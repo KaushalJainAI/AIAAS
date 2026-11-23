@@ -4,6 +4,9 @@ import { followTurn } from '../lib/followTurn';
 
 import type { CostSource } from './logs';
 import type { Payer } from '../lib/cost';
+import type { BrowserView } from './browser';
+
+export type { BrowserView } from './browser';
 
 export interface ChatSession {
   id: string;
@@ -322,6 +325,8 @@ export interface ChatMessageMetadata {
   /** Plans of the agents this turn handed work to, keyed by execution id. */
   worker_plans?: Record<string, { agent_name?: string; todos?: TodoItem[] }>;
   files?: FileCardData[];
+  /** The agent's browser calls this turn, newest last (`browser_update`). Absent when it did not browse. */
+  browser?: BrowserView[];
   follow_ups?: string[];
   /** Wall-clock time the turn took, in milliseconds. Absent on older messages. */
   elapsed_ms?: number;
@@ -457,6 +462,7 @@ export const chatService = {
    * Event types: the `Event` enum in `Backend/chat/events.py` — status,
    * thinking_chunk, content_chunk, content_reset, agent_trace, sources_update,
    * images_update, videos_update, html_artifact, chart, todos_update, files_update,
+   * browser_update (`{browser: BrowserView[]}`, the whole list every time),
    * attachments_blocked,
    * ask_permission, done, error.
    */

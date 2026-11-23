@@ -4,12 +4,9 @@ A turn that ends with no text is asked once more, then reported for what it was.
 Every such turn used to be saved as "I wasn't able to produce an answer for
 that. Please try rephrasing" — whether the model had run out of steps, had
 returned an empty reply, or had only paused for an approval. Rephrasing fixes
-none of the three. Drives the real graph with a stubbed model.
+none of the three. Drives the real graph with a scripted model (llm/testing.py).
 """
 from __future__ import annotations
-
-import json
-from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth.models import User
@@ -17,38 +14,13 @@ from django.test import SimpleTestCase, TestCase
 
 from chat.turn import pipeline, prompts
 from chat.turn.agent import TurnContext, TurnResult, run_turn
+from llm.testing import DEFAULT_MODEL, DEFAULT_PROVIDER, scripted_model, text, tool_call
 
 
-def _tool_call(index: int) -> dict:
-    return {'type': 'tool_calls', 'tool_calls': [{
-        'index': 0, 'id': f'call-{index}',
-        'function': {'name': 'update_todos', 'arguments': json.dumps(
-            {'todos': [{'text': f'step {index}', 'status': 'in_progress'}]})},
-    }]}
-
-
-class _Scripted:
-    """Replies from a script, one entry per model call; records each prompt."""
-
-    def __init__(self, *replies):
-        self.replies = list(replies)
-        self.prompts: list[str] = []
-        self.tools: list[bool] = []
-
-    def __call__(self, **kwargs):
-        self.prompts.append(kwargs.get('prompt') or '')
-        self.tools.append(bool(kwargs.get('tools')))
-        index = len(self.prompts)
-        reply = self.replies[min(index, len(self.replies)) - 1]
-
-        async def chunks():
-            if reply == 'TOOL':
-                yield _tool_call(index)
-            elif reply:
-                yield {'type': 'content', 'content': reply}
-            yield {'type': 'metadata', 'usage': {'total_tokens': 3}}
-
-        return chunks()
+def _plan(index: int):
+    """A model asking to update its plan: one tool call, one plan step in progress."""
+    return tool_call('update_todos', {'todos': [{'text': f'step {index}', 'status': 'in_progress'}]},
+                     id=f'call-{index}')
 
 
 async def _never(*_args, **_kwargs) -> bool:
@@ -64,52 +36,52 @@ class EmptyFinalReplyTests(TestCase):
     def setUpTestData(cls):
         cls.user = User.objects.create_user('empty', 'empty@example.com', 'x')
 
-    def run_with(self, model, thread: str, iterations: int = 6):
+    def run_with(self, steps, thread: str, iterations: int = 6):
+        """Run one turn against a scripted model. Returns the result and the model."""
         turn = TurnContext(
-            provider='stub', model='stub-model', system_message='test',
+            provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message='test',
             user_id=self.user.id, session_id=thread, intent='chat', user_text='go',
             memory_enabled=False, max_iterations=iterations,
             approval_policy=_never, sink=_sink,
         )
-        with patch('llm.access.stream', new=model):
-            return async_to_sync(run_turn)(turn, prompt='go', thread_id=thread)
+        with scripted_model(steps) as model:
+            result = async_to_sync(run_turn)(turn, prompt='go', thread_id=thread)
+        return result, model
 
     def test_an_empty_reply_is_asked_once_more(self):
-        model = _Scripted('', 'Here is the answer.')
-        result = self.run_with(model, 'empty-retry')
+        result, model = self.run_with([text(''), text('Here is the answer.')], 'empty-retry')
         self.assertEqual(result.answer, 'Here is the answer.')
         self.assertEqual(result.empty_reason, '')
-        self.assertEqual(model.prompts[1], prompts.ANSWER_AFTER_EMPTY)
+        self.assertEqual(model.requests[1].last_user_text(), prompts.ANSWER_AFTER_EMPTY)
         # The retry never offers tools: it exists to get text.
-        self.assertFalse(model.tools[1])
+        self.assertFalse(model.requests[1].tools_offered)
         # Both calls are paid for, so both are counted.
         self.assertEqual(result.tokens, 6)
 
     def test_a_reply_that_stays_empty_says_so(self):
-        model = _Scripted('')
-        result = self.run_with(model, 'empty-twice')
+        result, model = self.run_with([text(''), text('')], 'empty-twice')
         self.assertEqual(result.answer, '')
         self.assertEqual(result.empty_reason, 'empty')
-        self.assertEqual(len(model.prompts), 2)  # one retry, not a loop
+        self.assertEqual(len(model.requests), 2)  # one retry, not a loop
 
     def test_a_tool_call_at_the_step_limit_gets_a_last_answer(self):
         # Two passes: a tool call, then (tools withheld) another tool call,
         # which is dropped. The retry is what turns that into an answer.
-        model = _Scripted('TOOL', 'TOOL', 'What I found so far.')
-        result = self.run_with(model, 'empty-limit', iterations=2)
+        result, _ = self.run_with(
+            [_plan(1), _plan(2), text('What I found so far.')], 'empty-limit', iterations=2)
         self.assertEqual(result.answer, 'What I found so far.')
         self.assertEqual(result.empty_reason, '')
 
     def test_running_out_of_steps_is_reported_as_that(self):
-        result = self.run_with(_Scripted('TOOL'), 'empty-limit-only', iterations=2)
+        # Every call asks for a tool, so the run never reaches an answer.
+        result, _ = self.run_with([_plan(1), _plan(2), _plan(3)], 'empty-limit-only', iterations=2)
         self.assertEqual(result.answer, '')
         self.assertEqual(result.empty_reason, 'limit')
 
     def test_a_normal_answer_is_not_asked_twice(self):
-        model = _Scripted('Straight answer.')
-        result = self.run_with(model, 'empty-normal')
+        result, model = self.run_with([text('Straight answer.')], 'empty-normal')
         self.assertEqual(result.answer, 'Straight answer.')
-        self.assertEqual(len(model.prompts), 1)
+        self.assertEqual(len(model.requests), 1)
 
 
 class FallbackWordingTests(SimpleTestCase):

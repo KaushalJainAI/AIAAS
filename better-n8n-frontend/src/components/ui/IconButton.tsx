@@ -13,6 +13,9 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * focus ring present about half the time. This one always has both, and
  * never hides on hover-only (pair with `focus-visible:opacity-100` at the
  * call site when the button lives in a hover-reveal).
+ *
+ * On phones (below md) the hit area is 44 × 44 px; the icon keeps its size.
+ * Desktop keeps the compact box.
  */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
   ({ label, className, ...props }, ref) => (
@@ -22,6 +25,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       aria-label={label}
       title={label}
       className={cn(
+        'inline-flex items-center justify-center min-h-11 min-w-11 md:min-h-0 md:min-w-0',
         'p-1.5 rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground',
         'transition-colors duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',

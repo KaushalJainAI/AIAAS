@@ -211,6 +211,12 @@ async def _prune_chat_checkpoints():
     return await prune_chat_checkpoints()
 
 
+async def _purge_tool_outputs():
+    # Stored tool output past its expiry; before this nothing deleted it.
+    from chat.tools.tool_output import purge_expired
+    return {'purged': await sync_to_async(purge_expired)()}
+
+
 async def _missions():
     # Detached: settles finished mission runs and starts the due ones without
     # waiting for them (`missions/sweep.py`).
@@ -240,6 +246,8 @@ PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
     PeriodicJob('orchestrator.recover_runs', 'RUN_RECOVERY_SWEEP_SECONDS', _recover_runs),
     PeriodicJob('orchestrator.prune_chat_checkpoints', 'RUN_RECOVERY_SWEEP_SECONDS',
                 _prune_chat_checkpoints),
+    PeriodicJob('chat.purge_tool_outputs', 'TOOL_OUTPUT_PURGE_SECONDS',
+                _purge_tool_outputs),
     PeriodicJob('missions.sweep_missions', 'MISSION_SWEEP_SECONDS', _missions),
     PeriodicJob('logs.redact_old_run_detail', 'RUN_DETAIL_RETENTION_SWEEP_SECONDS',
                 _run_detail_retention),

@@ -15,9 +15,11 @@ import { radius, spacing, typography, useTheme } from '../../theme';
 import { ChartView } from './ChartView';
 import { HtmlArtifactView } from './HtmlArtifactView';
 import { PlanList } from './PlanList';
+import { hostOf, rememberBrowserViews } from './browserViews';
 import type {
   AgentRunCardData,
   BlockedAttachment,
+  BrowserView,
   ChartSpec,
   ChatImage,
   ChatSource,
@@ -129,6 +131,31 @@ export function FilesBlock({ files }: { files: FileCard[] }) {
         </Pressable>
       ))}
     </View>
+  );
+}
+
+/** "Browser · <host>": the browser calls the answer made. Opens the Browser screen with all of them. */
+export function BrowserChip({ views }: { views: BrowserView[] }) {
+  const { colors } = useTheme();
+  if (views.length === 0) return null;
+  const host = hostOf(views[views.length - 1].url) || 'browser';
+  const label = `Browser · ${host}`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. Open`}
+      onPress={() => router.push({ pathname: '/chat/browser/[key]', params: { key: rememberBrowserViews(views) } })}
+      style={({ pressed }) => [
+        styles.fileRow,
+        { borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      <Icon name="globe-outline" size={18} color={colors.primary} />
+      <Text numberOfLines={1} style={[typography.label, { color: colors.text, flex: 1 }]}>
+        {label}
+      </Text>
+      <Icon name="chevron-forward" size={16} color={colors.mutedText} />
+    </Pressable>
   );
 }
 
@@ -299,11 +326,12 @@ export function BlockedNotice({
   );
 }
 
-/** The extras of one answer, in the web's order: sources, images, charts, previews, files, plans, solutions. */
+/** The extras of one answer, in the web's order: sources, images, charts, previews, files, browser, plans, solutions. */
 export function AnswerExtras({
   sources = [],
   images = [],
   files = [],
+  browser = [],
   charts = [],
   htmlArtifacts = [],
   workerPlans = [],
@@ -313,6 +341,7 @@ export function AnswerExtras({
   sources?: ChatSource[];
   images?: ChatImage[];
   files?: FileCard[];
+  browser?: BrowserView[];
   charts?: ChartSpec[];
   htmlArtifacts?: HtmlArtifact[];
   workerPlans?: WorkerPlan[];
@@ -327,6 +356,7 @@ export function AnswerExtras({
       <ChartsBlock charts={charts} />
       <HtmlBlock artifacts={htmlArtifacts} />
       <FilesBlock files={files} />
+      <BrowserChip views={browser} />
       <WorkerPlansBlock plans={workerPlans} />
       {onReviewSolution ? <SolutionsChip solutions={solutions} onReview={onReviewSolution} /> : null}
     </View>

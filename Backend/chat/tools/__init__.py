@@ -300,7 +300,12 @@ async def _requirement_met(
     if requirement == "memory":
         return memory_enabled
     if requirement == "spill":
-        return await conversation.has_spilled_output(user_id, session_key)
+        # Offered whenever there is a session to read from — not, as before,
+        # only once something had been stored. The tool list is part of the
+        # request prefix the provider caches, so a list that grew mid-run made
+        # every request after the first spill a full cache miss. With nothing
+        # stored the tools simply say so (2026-11-17).
+        return bool(session_key)
     if requirement == "files":
         # Met when the caller brought a scope. Chat now does — `chat_scope`
         # gives every turn the whole tree to read and `/Chat/` to write into —

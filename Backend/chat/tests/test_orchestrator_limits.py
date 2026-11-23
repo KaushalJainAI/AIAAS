@@ -144,10 +144,16 @@ class _ToolLoopProvider:
     def __init__(self, cost: int) -> None:
         self.cost = cost
         self.offered: list[bool] = []
+        self.tool_lists: list[list] = []
+        self.choices: list = []
 
     def __call__(self, **kwargs):
-        offered = bool(kwargs.get("tools"))
+        # Callable tools: offered and not `tool_choice='none'` (the last pass).
+        offered = bool(kwargs.get("tools")) and kwargs.get("tool_choice") != "none"
         self.offered.append(offered)
+        self.tool_lists.append(
+            [(t.get("function") or {}).get("name") for t in kwargs.get("tools") or []])
+        self.choices.append(kwargs.get("tool_choice"))
         step = len(self.offered)
 
         async def chunks():
@@ -159,6 +165,37 @@ class _ToolLoopProvider:
             else:
                 yield {"type": "content", "content": "final answer"}
             yield {"type": "metadata", "usage": {"total_tokens": self.cost}}
+
+        return chunks()
+
+
+class _PlanningProvider:
+    """Writes a plan on its first call (which promotes the pace), then keeps
+    calling a tool until tool calls are forbidden."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, **kwargs):
+        self.calls += 1
+        step = self.calls
+        callable_ = bool(kwargs.get("tools")) and kwargs.get("tool_choice") != "none"
+
+        async def chunks():
+            if not callable_:
+                yield {"type": "content", "content": "done"}
+            elif step == 1:
+                yield {"type": "tool_calls", "tool_calls": [{
+                    "index": 0, "id": "plan",
+                    "function": {"name": "update_todos", "arguments": json.dumps(
+                        {"todos": [{"text": "the job", "status": "in_progress"}]})},
+                }]}
+            else:
+                yield {"type": "tool_calls", "tool_calls": [{
+                    "index": 0, "id": f"c{step}",
+                    "function": {"name": "read_file", "arguments": json.dumps({"path": "/x"})},
+                }]}
+            yield {"type": "metadata", "usage": {"total_tokens": 1}}
 
         return chunks()
 
@@ -192,8 +229,57 @@ class TurnObeysTheLimitsTests(TestCase):
         provider = _ToolLoopProvider(cost=1)
         result = self._run(provider, "steps", max_iterations=5)
         self.assertEqual(len(provider.offered), 5)
-        self.assertFalse(provider.offered[-1], "last pass must withhold tools")
+        self.assertFalse(provider.offered[-1], "last pass must forbid tool calls")
         self.assertEqual(result.answer, "final answer")
+
+    def test_every_pass_sends_the_same_tools_for_the_prompt_cache(self):
+        """The tool list is part of the prefix a provider caches. The last pass
+        used to send none, so it re-read the whole transcript uncached; now it
+        sends the same list and forbids calling one with tool_choice."""
+        provider = _ToolLoopProvider(cost=1)
+        self._run(provider, "cache-stable", max_iterations=5)
+        self.assertTrue(provider.tool_lists[0])
+        self.assertTrue(all(names == provider.tool_lists[0] for names in provider.tool_lists))
+        self.assertEqual(provider.choices[:-1], [None] * 4)
+        self.assertEqual(provider.choices[-1], "none")
+
+    def test_an_agent_run_that_never_plans_stays_at_standard(self):
+        """Agent runs start at `standard`: a 30-step limit is not spent on a
+        job the model never treated as one with several steps."""
+        from agents.agent.runtime import _starting_pace
+
+        provider = _ToolLoopProvider(cost=1)
+        with patch("llm.access.stream", new=provider):
+            turn = TurnContext(
+                provider="stub", model="stub", system_message="test", user_id=self.user.id,
+                session_id="agent-pace", intent="research", user_text="go",
+                memory_enabled=False, tool_dispatch=_ok, approval_policy=_never,
+                max_iterations=30,
+            )
+            async_to_sync(run_turn)(turn, prompt="go", thread_id="agent-pace",
+                                    metadata=_starting_pace(30))
+        self.assertEqual(len(provider.offered), 12)
+
+    def test_an_agent_run_that_plans_gets_its_whole_limit(self):
+        from agents.agent.runtime import _starting_pace
+
+        provider = _PlanningProvider()
+        with patch("llm.access.stream", new=provider):
+            turn = TurnContext(
+                provider="stub", model="stub", system_message="test", user_id=self.user.id,
+                session_id="agent-plan", intent="research", user_text="go",
+                memory_enabled=False, tool_dispatch=_ok, approval_policy=_never,
+                max_iterations=30,
+            )
+            async_to_sync(run_turn)(turn, prompt="go", thread_id="agent-plan",
+                                    metadata=_starting_pace(30))
+        self.assertEqual(provider.calls, 30)
+
+    def test_no_pace_when_the_limit_is_already_small(self):
+        from agents.agent.runtime import _starting_pace
+
+        self.assertEqual(_starting_pace(12), {})
+        self.assertEqual(_starting_pace(36), {'pace': {'tier': 'standard', 'started': 'standard'}})
 
     def test_a_higher_step_limit_is_honoured(self):
         provider = _ToolLoopProvider(cost=1)

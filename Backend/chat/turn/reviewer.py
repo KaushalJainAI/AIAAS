@@ -208,6 +208,17 @@ def static_check(
             f'{source} this turn contained text addressed to an AI, so auto mode '
             'asks before anything irreversible for the rest of the turn.'
         )
+    from agents.grants import GRANT_TOOLS
+
+    if tool_name in GRANT_TOOLS['kbWrite']:
+        # A floor, not a judgement: what a knowledge base holds is what every
+        # later run will search, so a write into one always asks, and no model
+        # verdict or manager answer below it may downgrade that. Both
+        # `auto_policy` and `subagent_floor` pass through here.
+        return False, (
+            f'{tool_name} changes a knowledge base that later runs will search, '
+            'so auto mode asks before it.'
+        )
     if tool_name in SPENDY_TOOLS:
         return False, f'{tool_name} spends money per call; the user approves each one.'
     if tool_name == 'publish_page':

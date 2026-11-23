@@ -13,15 +13,17 @@ import base64
 import json
 import logging
 import re
+import secrets
 import time
 from decimal import Decimal
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 from uuid import uuid4
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
 
+from core.safety import provenance
 from workflow_backend.thresholds import (
     ASSISTANT_SUMMARY_WORD_LIMIT,
     FOLLOW_UPS_SLOW_TURN_SECONDS,
@@ -570,7 +572,10 @@ async def _seed_intent_tool(
     await turn.sink(Event.STATUS, {
         "phase": "analyzing", "message": "Synthesising results...",
     })
-    return f"\n\n[RESULTS FROM {tool_name.upper()}]\n{text}", [trace]
+    # Search results are third-party text, enclosed like any other tool result.
+    enclosed = provenance.wrap_untrusted(
+        str(text), source=tool_name, tag=turn.untrusted_tag)
+    return f"\n\n[RESULTS FROM {tool_name.upper()}]\n{enclosed}", [trace]
 
 
 def _now_string(prefs=None) -> str:
@@ -944,6 +949,7 @@ async def run_chat_turn(
     past: list[ChatMessage] = []
     wire_history: list[dict[str, str]] = []
     history_dropped = 0
+    notes_block = ""
     if session.memory_enabled:
         past = await history.load_history(
             session, exclude_id=user_message.id, supports_docs=supports_docs
@@ -960,23 +966,30 @@ async def run_chat_turn(
         )
         history_dropped = max(0, sum(
             1 for m in past if m.role in ("user", "assistant")
-        ) - len(wire_history))
-        # The conversation's notes file, read before any of it: the summary,
-        # the decisions, the task index and how to fetch what is not shown.
-        # A message of its own rather than part of the system prompt, which
-        # must stay session-stable (the notes change after every reply).
+        ) - sum(  # upload pointers are `system` entries, not kept turns
+            1 for entry in wire_history if entry["role"] in ("user", "assistant")
+        ))
+        # The conversation's notes file: the summary, the decisions, the task
+        # index and how to fetch what is not shown. Read here, placed after the
+        # replayed history below (see the comment there).
         try:
             notes_block = await session_notes.for_prompt(session)
         except Exception:  # noqa: BLE001 — no notes is the old behaviour
             logger.exception("[Turn] reading conversation notes failed")
             notes_block = ""
-        if notes_block:
-            wire_history.insert(0, {"role": "system", "content": notes_block})
     else:
         await sink(Event.STATUS, {
             "phase": "memory_off",
             "message": "Memory is off — answering from this message only.",
         })
+    # The notes are a message of their own, not part of the system prompt,
+    # which must stay session-stable. They sit AFTER the replayed history, not
+    # before it: the notes are rewritten after every reply, so a block at the
+    # head of the list would change the request prefix on every turn and leave
+    # each replayed message after it uncached. Volatile content goes last, so
+    # the history stays a cacheable prefix.
+    if notes_block:
+        wire_history.append({"role": "system", "content": notes_block})
     phases.mark("history")
 
     # Read once per turn and folded into the baseline, not the per-turn update:
@@ -1039,8 +1052,12 @@ async def run_chat_turn(
     if context_update:
         wire_history.append({"role": "system", "content": context_update})
 
+    # One tag for the whole run, made before any third-party text is placed in
+    # the prompt, so every envelope this turn carries the same tag.
+    untrusted_tag = secrets.token_hex(6)
     attachments, extracted_text = await agent.prepare_attachments(
-        sendable, model=model, provider=provider, user_id=user.id
+        sendable, model=model, provider=provider, user_id=user.id,
+        untrusted_tag=untrusted_tag,
     )
     phases.mark("attachments")
 
@@ -1100,6 +1117,13 @@ async def run_chat_turn(
 
     orchestrator = await _limits.for_user(user.id)
 
+    # An uploaded file the model reads as text is third-party data in the
+    # user's prompt. If it reads like orders to an AI, the turn starts tainted,
+    # as a tainted tool result would make it.
+    initial_taint = (
+        "upload" if provenance.instruction_shaped(extracted_text) else None
+    )
+
     turn = TurnContext(
         file_scope=file_scope,
         provider=provider,
@@ -1112,6 +1136,8 @@ async def run_chat_turn(
         history=tuple(wire_history),
         attachments=attachments,
         memory_enabled=session.memory_enabled,
+        untrusted_tag=untrusted_tag,
+        initial_taint=initial_taint,
         # The hard ceiling, which is `deep` for every chat turn because any of
         # them may be promoted to it — the account's own step limit. The cap
         # actually applied each pass comes from the turn's pace in `metadata`.
@@ -1157,6 +1183,18 @@ async def run_chat_turn(
     seed_text, seed_trace = await _seed_intent_tool(intent, question, turn, metadata)
     phases.mark("intent_seed")
     phases.log(intent, tier)
+    if turn.initial_taint is None and provenance.instruction_shaped(seed_text):
+        turn = replace(turn, initial_taint=_INTENT_SEED_TOOL[intent][0])
+    # The model check behind the patterns, for the two kinds of third-party
+    # text that enter before `tools_node` ever runs. Only in auto/full, as in
+    # `tools_node`: ask/review already ask before anything sensitive.
+    if turn.initial_taint is None and session_autonomy in ("auto", "full"):
+        from core.safety import moderation
+
+        if seed_text and await moderation.injection_check(seed_text):
+            turn = replace(turn, initial_taint=_INTENT_SEED_TOOL[intent][0])
+        elif extracted_text and await moderation.injection_check(extracted_text):
+            turn = replace(turn, initial_taint="upload")
 
     turn_started = time.monotonic()
     try:

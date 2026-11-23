@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
                 "additionalProperties": False
             }
         }
-    }, parallel=True, effect="read")
+    }, parallel=True, effect="read", trusted_output=True)
 async def get_current_time(args: Dict, context: Dict) -> str:
     import datetime
     try:

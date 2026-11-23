@@ -48,6 +48,10 @@ class Event(StrEnum):
     #: Whole list every time, like FILES_UPDATE. What the model *read*, not what
     #: it cited: the chip says "Checked", never "Based on".
     SOLUTIONS_UPDATE = "solutions_update"
+    #: The browser calls the turn made, for the Browser tab: `{browser: [view]}`,
+    #: at most 10, newest last. Whole list every time, like FILES_UPDATE. A view
+    #: is `browser_view` from the tool result (see `chat/tools/browser.py`).
+    BROWSER_UPDATE = "browser_update"
     ASK_PERMISSION = "ask_permission"
     #: The run paused on `ask_user`: a structured question (choice, number,
     #: text) the chat draws as a card. Answered by a resumed turn carrying

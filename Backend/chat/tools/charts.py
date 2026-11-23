@@ -107,7 +107,7 @@ from .registry import tool
             "additionalProperties": False,
         },
     },
-}, effect="read", parallel=True)
+}, effect="read", parallel=True, trusted_output=True)
 async def render_chart(args: Dict, context: Dict) -> str:
     """Validate a chart spec and hand it to the client to draw.
 

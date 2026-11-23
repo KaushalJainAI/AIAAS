@@ -328,6 +328,11 @@ TOOL_HELP = {
         'unattended run may only publish link pages'
     ),
     'rag': "search the user's knowledge bases (and read scanned documents)",
+    'kbWrite': (
+        'create knowledge bases bound to a folder in its files, and add '
+        'documents to them for later runs to search. Needs `fileAccess` other '
+        'than none. Asks before each write unless the autonomy is full'
+    ),
     'decisions': (
         'classify, route, triage or rate with a fast decision model that '
         'answers typed questions with probabilities (the model is the one '

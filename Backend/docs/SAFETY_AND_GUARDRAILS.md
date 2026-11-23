@@ -38,6 +38,7 @@ configures tool by tool.
 | Scopes | Within a grant, *which* things: knowledge bases, file folders (`fileAccess`), connections and per-connection mode, agents it may delegate to, browser domains, API/DB hosts, file paths, command classes. | `agents/connector_scope.py`, `agents/agent/runtime.py` |
 | Tool scope and permissions | Narrow to named tools; set each tool allow / ask / deny. Flows parent → worker, most-restrictive-wins. | `agent_context['toolScope']`, `['toolPermissions']` |
 | Team knowledge bases | An owner may share a KB read-only with one of their organisations; only a chat reads it; membership checked on every read; hidden eval corpora never pass. | `inference/kb_access.py`, `chat/tools/knowledge.py` |
+| Knowledge-base writes | The `kbWrite` grant lets an agent add documents to a knowledge base that later runs search. Writes need a writable folder in the run's file scope, and a KB is bound to a folder. A run with no writable scope is not offered the two write tools. | `agents/grants.py::GRANT_TOOLS`, `agents/agent/runtime.py` (`allowed_names`, `build_file_scope`), `inference/kb_folders.py` |
 | Team solutions, unattended | Schedules, triggers, missions and delegated workers can search and read team solutions, never save or review one. | `chat/tools/solutions.py::_refuse_if_unattended` |
 | Egress guard | Every outbound request passes the SSRF guard (no private IPs, metadata endpoints, redirects re-checked), then the per-scope host allowlist. | `core/safety/net.py` |
 
@@ -55,6 +56,7 @@ configures tool by tool.
 | Worker requests | A subagent's approval comes to the chat. In `ask` the person decides on a card; in `auto` the manager decides, under the same floor. | `chat/tools/agents.py::answer_subagent` |
 | Approval scopes | once / this chat / always; worker requests have no "always". | `chat/turn/agent.py::approve_tool_call` |
 | Readable cards | A call is described in words on the server, secrets redacted by key. | `chat/tools/describe.py` |
+| Knowledge-base writes ask | `create_knowledge_base` and `add_to_knowledge_base` are `irreversible`, so they ask in `ask`, `review` and `auto` and run unasked only in `full`. In chat's `auto`, the reviewer always asks for them, before any judge runs, and a manager's answer cannot lower that. | `agents/agent/runtime.py::sensitive_tools_for`, `chat/turn/reviewer.py::static_check` |
 | Questions | Agents ask structured questions instead of guessing; unattended runs proceed on a stated assumption. | `chat/tools/ask.py` |
 
 ### Layer 3 — Prompt injection
@@ -62,13 +64,16 @@ configures tool by tool.
 | Control | Threat | Code |
 |---|---|---|
 | Input sanitizer | *Direct* attempts — read through disguises (look-alike letters, invisible characters, leetspeak, spacing, base64). Refuses the whole message; never rewrites it. | `core/safety/security.py`, `core/http/middleware.py` |
-| Taint flag | A tool result that addresses an AI marks the turn; `auto` then asks before anything irreversible, and memory becomes read-only. | `core/safety/provenance.py::instruction_shaped` |
+| Taint flag | A tool result that addresses an AI marks the turn; `auto` then asks before anything irreversible, and memory becomes read-only. Patterns first; then, in an `auto`/`full` turn with no pattern hit, a model is asked about each new untrusted result (plain prose passes the patterns). A hit taints the turn; the model fails open, verdicts are cached in memory (512, LRU), and `ask`/`review` never ask. | `core/safety/provenance.py::instruction_shaped`, `core/safety/moderation.py::injection_check` / `first_injection`, `chat/turn/agent.py::_model_taint` |
+| Enclosed third-party text | Every tool result and uploaded file reaches the model inside `<untrusted_data source="…" tag="…">`. The tag is random per request, and any envelope marker inside the text is neutralised, so a page cannot close its own envelope. A tool whose output is only ours declares `trusted_output=True` (clock, planning, charts, ask) and is not enclosed. Refusals are our own sentences and are never enclosed. | `core/safety/provenance.py::wrap_untrusted`, `chat/turn/agent.py::enclose_result`, `chat/tools/registry.py` (`trusted_output`) |
+| Uploads and search seeds | An uploaded file's text, and the result of a `/search` or `/research` seed that runs before the first model call, are enclosed and scanned like a tool result. Patterns run in every mode; in `auto`/`full` the model is asked when they find nothing. A hit taints the turn as `upload`, or as the seed's tool name. | `chat/turn/pipeline.py` (`initial_taint`), `chat/turn/agent.py::_describe_attachment_for_text_model` |
+| Taint carried by workers | A worker started from a tainted turn starts tainted. A delegation whose own brief reads like orders starts tainted as `delegated task`. The taint is stored on the run's log, so a worker resumed after an approval comes back tainted. It only widens: a later clean result does not clear it. | `agents/agent/runtime.py::run_agent` (`inherited_taint`), `_remember_taint`, `chat/tools/agents.py`, `chat/tools/tasks.py` |
 | URL provenance | Stops the "open `evil.example/?d=<your data>`" leak: a composed URL carrying data is refused unless the user or a tool result supplied it. | `provenance.check_fetch` |
 | No auto-loading images | A remote image in a reply is a link, never an `<img>`. | `MarkdownMessage.tsx` |
 | Memory guard | No memory writes in a tainted turn; a "fact" that is an instruction is refused. | `chat/tools/memory.py` |
 | Solution library guard | No saves or reviews in a tainted turn; an exchange that read instruction-shaped text is never auto-captured; "fixes" addressed to an AI are refused; secrets and contact details are scrubbed; results are framed as a colleague's evidence, never instructions. | `solutions/api.py`, `solutions/capture.py`, `solutions/access.py` |
 | MCP tool pinning | Third parties write MCP tool descriptions. New tools that address an AI are quarantined; tools changed after connection are withheld until the user approves them (tool poisoning, rug pull). Refused at dispatch too. | `mcp_integration/pinning.py`, `MCPToolPin` |
-| Data, not instructions | Both system prompts say it for *every* tool result: only the user gives instructions. Defence in depth behind the taint flag — a prompt rule is not a control. | `chat/turn/prompts.py::CORE_RULES`, `agents/agent/runtime.py::build_system_prompt` |
+| Data, not instructions | Both system prompts say it for *every* tool result and uploaded file: only the user gives instructions. Defence in depth behind the taint flag — a prompt rule is not a control. | `chat/turn/prompts.py::CORE_RULES`, `agents/agent/runtime.py::build_system_prompt` |
 
 ### Layer 4 — Containment
 
@@ -78,6 +83,7 @@ configures tool by tool.
 | Virtual filesystem | Agents see paths but they are database rows; nothing reaches the host disk. Deletes go to the recycle bin. | `inference/vfs.py` |
 | Secrets never reach the model | Tools take `secret_ref`s, resolved after approval and scrubbed from results. MCP subprocesses get an allow-listed environment. | `credentials/refs.py`, `mcp_integration/client.py` |
 | Sandboxed rendering | HTML artifacts and published pages render in iframes without same-origin access, under a no-network CSP. File responses carry `CSP: sandbox`. | frontend `HtmlArtifact`, `/p/:slug` |
+| HTML files in the preview pane: scripts are opt-in, owner only | An HTML file opens with an empty `sandbox` and a CSP that blocks all network. Its owner (`is_owner`, computed server-side; a file shared to someone else is never theirs) may press "Run scripts", which sets `sandbox="allow-scripts"` under a CSP that allows inline script and still no network. Never `allow-same-origin`, so the page has no access to our cookies or storage. The choice is not remembered between opens. A missing request context fails closed (`is_owner` false). | frontend `components/files/FilePreview.tsx::HtmlFrame`, `inference/serializers.py::DocumentSerializer.get_is_owner` |
 | App-wide CSP | `connect-src 'self'` refuses fetch/XHR/WebSocket to other hosts; no remote scripts; `object-src 'none'`; `frame-ancestors 'none'`. `script-src` keeps `'unsafe-inline'` because artifacts run inline scripts in `srcdoc` frames; removing it needs artifacts on a separate origin. | `better-n8n-frontend/nginx.conf` |
 
 ### Layer 5 — Limits and the kill switch
@@ -102,11 +108,15 @@ configures tool by tool.
 | Control | What it does | Code |
 |---|---|---|
 | Content policy | The platform's floor for three categories where **we** carry the legal duty: sexual content involving minors, sexual deepfakes of real people, mass-casualty (CBRN) weapon instructions. Runs on chat and agent requests, image prompts, outbound messages and published pages. Deterministic, disguise-aware, logged by category, never quotes the request back. | `core/safety/content_policy.py` |
-| Model moderation | A second opinion on image prompts and published pages only (not chat). `openai/gpt-oss-safeguard-20b` classifies against our own three-category policy. Can only refuse more; fails open; verdicts cached 10 min. `CONTENT_MODERATION_MODEL` blank = off. | `core/safety/moderation.py` |
+| Model moderation | A second opinion on image prompts and published pages, and on third-party text in `auto`/`full` turns: tool results, search seeds and uploads (the injection check, Layer 3). Not on chat messages. `openai/gpt-oss-safeguard-20b` classifies against our own three-category policy. Can only refuse more; fails open; verdicts cached 10 min. `CONTENT_MODERATION_MODEL` blank = off. | `core/safety/moderation.py` |
 | AI labels on images | Every generated image gets a visible "AI-generated" tag and metadata. | `core/safety/labels.py` |
 | AI notices | Published pages say they may be AI-generated; unreviewed messages end with "Sent by an AI assistant on behalf of the account owner." | `PublishedPageView.tsx`, `outbound.disclose` |
 | Team search log | Searches in a team are logged, scrubbed and cut to 300 chars; insights show counts only, curators only, never who searched; rows deleted after 90 days. Personal searches not logged. | `solutions/search.py`, `solutions/insights.py`, `solutions/stale.py` |
 | No CAPTCHA bypass | Browser steps may not touch a CAPTCHA; a person solves it through `ask_user`. | `chat/tools/browser.py` |
+| Browser pictures are owner-only and short-lived | Every browser call keeps the last picture of the page in the cache, not on disk, under the owner's id, for `BROWSER_FRAME_TTL_SECONDS` (default 1 hour). Another user's id, a made-up id and an expired id all get the same 404. A picture is saved to the user's files only when the call asks (`screenshot: true`). A picture over 600 KB is not kept. | `browsing/frames.py`, `browsing/views.py` |
+| Browser views carry no typed text | `browser_view` lists `action`, `selector` and `ok` only. Step results and the element list pass through `clean_steps` and `clean_elements`, which drop every other key, so a typed value, a `fill_secret` value or an input's `value` never reaches a result, an event or the element list. | `browsing/engine.py`, `chat/tools/browser.py::_view_steps` |
+| Browser steps stay data, and navigation is checked | No step runs model-written JavaScript: `navigate`, `back`, `hover`, `check` and `uncheck` are fixed verbs in the one fixed script. `navigate` is checked like a start URL: the agent's `browserDomains` first (empty means no navigation), then `core.safety.net`. `browser_act` stays `sensitive` and `irreversible`, and `looks_submitting` still reads only `click` and `press` steps. | `browsing/engine.py` (`ACTIONS`, `check_steps`), `chat/tools/browser.py` |
+| Link preview is read only and limited | `POST /api/browser/preview/` opens a link with no steps, checks the address before anything is sent, is throttled at 20 an hour per user, records one browser minute on the ledger, and keeps its picture owner-only. | `browsing/views.py::browser_preview`, `workflow_backend/settings/base.py` (`browser_preview`) |
 | Retention | After 180 days a finished run's reasoning and tool payloads are cleared; the run record stays. Runs daily. | `logs/retention.py`, `agents/scheduler.py` |
 | Audit trail | Every run records turns (with reasoning), every tool call, every approval and who decided, and the exact agent configuration it ran under. | `logs/models.py`, `logs/revisions.py` |
 
@@ -159,10 +169,12 @@ configures tool by tool.
 
 Stated plainly, so nobody reads this as "solved":
 
-1. **Chat messages get only the pattern check.** Image prompts and published
-   pages also get the model check; chat does not (a second model call on
-   every turn costs latency where users wait most). The model check fails
-   open, so a moderation outage falls back to patterns.
+1. **The user's own chat message gets only the pattern check.** Third-party
+   text in a chat turn (tool results, `/search` and `/research` results,
+   uploads) gets the model check in `auto` and `full`. `ask` and `review` never
+   ask, because they stop before anything irreversible. Image prompts and
+   published pages also get the model check. The model check fails open, so a
+   moderation outage falls back to patterns.
 2. **Chat holds two legs of the trifecta** (it reads the user's data and the
    web). The third (sending) is closed by URL provenance and chat having no
    send tools, but a few bits can leak via a short composed URL or which
@@ -178,6 +190,14 @@ Stated plainly, so nobody reads this as "solved":
 8. **A wrong solution can spread in an org.** An honest mistake saved as a
    fix is offered to colleagues until flagged. Ranking demotes failures;
    owners/admins/curators can retract.
+9. **Raw images and PDFs are not scanned.** A document or picture the model
+   reads directly (sent as an image or file block, not extracted to text) never
+   reaches the pattern check or the model check. Text written into it is seen
+   only by the model itself.
+10. **The envelope tag changes on a human-in-the-loop resume.** Each request
+    makes a new tag, so envelopes written before a pause and after it carry
+    different tags. Nothing compares the two, and the tag's job (a page cannot
+    close its own envelope) holds for both.
 
 ## 6. Settings
 
@@ -217,6 +237,7 @@ Stated plainly, so nobody reads this as "solved":
 |---|---|
 | Sanitizer | `core/tests/test_sanitizer.py` |
 | Provenance, taint, URLs | `core/tests/test_provenance.py`, `chat/tests/test_injection_defences.py` |
+| Model injection check (tool results, seeds, uploads) | `chat/tests/test_injection_model_check.py` |
 | Content policy, labels, outbound | `core/tests/test_content_policy.py` |
 | Memory, image prompts, CAPTCHA, publishing | `chat/tests/test_safety_guards.py` |
 | MCP pinning | `mcp_integration/tests/test_tool_pins.py` |

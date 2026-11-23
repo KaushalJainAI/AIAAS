@@ -7,6 +7,12 @@ from waiting: `start_tasks` returns handles immediately, and `wait_tasks`
 returns on the first *event* (a finish, a failure, a pause for approval, or a
 refusal), the pattern P7's `wait_for` uses for missions.
 
+Reports do not need a loop. Each finish, failure or pause is delivered to the
+lead by itself at its next step (`take_reports`, from the steering node), and a
+lead that answers while a worker still runs waits for it (`wait_on_lead`, from
+the `await_reports` node). Both waits, and `wait_tasks`, share one helper
+(`wait_for_news`), so they agree on what counts as news.
+
 Offered only with the `subAgents` grant, like the delegation tools — and
 workers never hold that grant, so depth stays 1 for code: a debugger that
 wants help says so in its `patch` followups and the lead decides.
@@ -17,6 +23,7 @@ import asyncio
 import json
 import logging
 import shlex
+import time
 from typing import Any, Dict
 
 from .agents import worker_caller
@@ -33,6 +40,14 @@ _WRITING_TOOLS = ('ws_write', 'ws_edit', 'ws_apply_patch')
 
 #: The longest one `wait_tasks` call may wait, as its schema tells the model.
 WAIT_TASKS_MAX_SECONDS = 300
+
+#: While a lead waits on its workers, how often the user is told what they are
+#: waiting for. Read at call time, so a test can patch it short.
+WAIT_HEARTBEAT_SECONDS = 15.0
+
+#: How often a worker paused for an approval checks whether the approval came
+#: through. Slow on purpose: a paused worker can wait for hours.
+APPROVAL_POLL_SECONDS = 10.0
 
 
 def _task_list(args: Dict) -> list[dict]:
@@ -286,6 +301,77 @@ def _batch_clash(claims: list[str],
     return None
 
 
+async def _read_run(execution_id: str) -> dict | None:
+    """A worker's run row, as the lead needs it. None when it cannot be read this
+    time (the caller tries again); `{'status': 'missing'}` when there is no row."""
+    from asgiref.sync import sync_to_async
+
+    from logs.models import ExecutionLog
+
+    def _row():
+        row = ExecutionLog.objects.filter(execution_id=execution_id).values(
+            'status', 'output_data', 'tokens_used', 'error_message').first()
+        return row if row is not None else {'status': 'missing'}
+
+    try:
+        return await sync_to_async(_row)()
+    except Exception:  # noqa: BLE001 — a failed read is a skipped lap, not a failed worker
+        logger.warning('[Tasks] Could not read run %s', execution_id, exc_info=True)
+        return None
+
+
+async def _follow_approval(record, parent_thread: str, *, read_run=None) -> dict | None:
+    """Stay with a worker that paused for approval until its run ends.
+
+    The approval is given in the Inbox, which resumes the run on the same
+    execution id (`agents/agent/runtime.py::resume_agent_run`). Meanwhile the
+    record is live: this polls the run row, marks the record running again when
+    the run runs, and paused again if it pauses again. Returns the row the run
+    ended with, or None when someone else finished the record first (a stop
+    over HTTP), in which case there is nothing left to report.
+    """
+    from agents.agent import tasks as _tasks
+
+    read = read_run or _read_run
+    while not record.done.is_set():
+        await asyncio.sleep(APPROVAL_POLL_SECONDS)
+        if record.done.is_set():
+            return None
+        row = await read(record.execution_id)
+        if row is None:
+            continue
+        status = row.get('status')
+        if status in ('running', 'pending', 'paused'):
+            want = 'paused' if status == 'paused' else 'running'
+            if record.status != want:
+                if want == 'paused':
+                    _tasks.set_paused(record)
+                else:
+                    _tasks.set_resumed(record)
+                await _emit_task(parent_thread, record, force=True)
+            continue
+        return row
+    return None
+
+
+async def _finish_from_run(record, row: dict, context: Dict) -> None:
+    """Close a record from the run row its approval-follow ended on."""
+    from agents.agent import tasks as _tasks
+
+    status = row.get('status')
+    if status == 'completed':
+        output = row.get('output_data') or {}
+        raw = output.get('answer') if isinstance(output, dict) else ''
+        answer = await _bound_answer(str(raw or ''), context, record.handle)
+        _tasks.finish(record, status='done', answer=answer,
+                      tokens=int(row.get('tokens_used') or 0))
+    elif status == 'cancelled':
+        _tasks.finish(record, status='cancelled', error='Stopped.')
+    else:
+        _tasks.finish(record, status='failed', error=str(
+            row.get('error_message') or f'The run ended as {status}.'))
+
+
 async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
                       project, claims, briefing, context, user, depth,
                       parent_paths, parent_commands,
@@ -428,10 +514,22 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
                 # library the conversation does (`runtime._remember_org`).
                 org_id=context.get('org_id'),
                 share_solutions=bool(context.get('share_solutions')),
+                # A worker started from a tainted turn starts tainted too.
+                inherited_taint=context.get('tainted_by') or None,
             )
-            answer = await _bound_answer(run.answer or '', context, handle)
-            _tasks.finish(record, status='paused' if run.awaiting_approval else 'done',
-                          answer=answer, tokens=run.tokens)
+            if run.awaiting_approval:
+                # Still live: the lead keeps waiting for this worker, and the
+                # approval is followed to the run's end rather than reported as
+                # the end. Without that, nothing would ever tell the lead the
+                # work resumed or finished.
+                _tasks.set_paused(record)
+                await _emit_task(parent_thread, record, force=True)
+                row = await _follow_approval(record, parent_thread)
+                if row is not None:
+                    await _finish_from_run(record, row, context)
+            else:
+                answer = await _bound_answer(run.answer or '', context, handle)
+                _tasks.finish(record, status='done', answer=answer, tokens=run.tokens)
         except asyncio.CancelledError:
             # `cancel_agent_run` closes the log; the record just marks it.
             _tasks.finish(record, status='cancelled', error='Stopped.')
@@ -559,12 +657,14 @@ async def _bound_answer(answer: str, context: Dict, handle: str) -> str:
     'function': {
         'name': 'wait_tasks',
         'description': (
-            'Wait until something happens on the given tasks (or all of them): '
-            'a task finished, failed, or paused for approval. Returns one line '
-            'per event plus progress for the rest. Also returns on timeout '
-            '(at most 300s), reporting progress. Call in a loop: update your '
-            'todos from the events, start newly-ready tasks, steer or stop '
-            'the ones going wrong.'
+            'Block until something happens on the given tasks (or all of them): '
+            'a task finished, failed, or paused for approval, or the user wrote '
+            'a message. Returns one line per event plus progress for the rest. '
+            'Also returns on timeout (at most 300s), reporting progress. You do '
+            'not need to call this in a loop: each finish, failure or pause is '
+            'reported to you by itself at your next step, as a <task-reports> '
+            'block. Call this only to wait on purpose, for example before '
+            'starting a task that depends on one still running.'
         ),
         'parameters': {
             'type': 'object',
@@ -617,45 +717,227 @@ async def wait_tasks(args: Dict, context: Dict) -> str:
         return json.dumps({'error': '`timeout_s` must be a number.'})
 
     _tasks.prune(parent_thread)
-    try:
-        async with asyncio.timeout(timeout):
-            while True:
-                await _refresh_statuses(records)
-                for r in records:
-                    # Lanes move while the lead waits: throttled to one frame
-                    # per second per task, so waiting does not flood the panel.
-                    await _emit_task(parent_thread, r)
-                events = _collect_events(records)
-                # File changes touching another task's reads (C3): the lead
-                # may re-steer a worker whose target just changed shape.
-                events.extend(_tasks.drain_events(parent_thread))
-                if until == 'any' and events:
-                    return json.dumps(_report(records, events))
-                if until == 'all' and all(r.done.is_set() for r in records):
-                    return json.dumps(_report(records, events or _collect_events(records)))
-                if all(r.done.is_set() for r in records):
-                    return json.dumps(_report(records, _collect_events(records)))
-                # The wait below is on worker events, not the database. Hand
-                # the lead's pooled connection back each lap, or a lead waiting
-                # on workers pins one for the whole delegation (G1). The status
-                # refresh above re-takes one per lap in microseconds.
-                await release_db()
-                try:
-                    await asyncio.wait(
-                        [asyncio.ensure_future(r.done.wait()) for r in records
-                         if not r.done.is_set()],
-                        timeout=_tasks.WAIT_POLL_SECONDS,
-                        return_when=asyncio.FIRST_COMPLETED)
-                except (asyncio.TimeoutError, TimeoutError):
-                    pass
-    except (asyncio.TimeoutError, TimeoutError):
-        await _refresh_statuses(records)
-        events = _collect_events(records)
-        events.extend(_tasks.drain_events(parent_thread))
+    reason = await wait_for_news(
+        parent_thread, records, until=until, timeout=timeout,
+        steer_key=parent_thread)
+    events = _take_events(records, parent_thread)
+    if reason == 'timeout':
         lines = [f'{r.handle} ({r.title}): still {r.status}' for r in records
                  if not r.done.is_set()]
         return json.dumps(_report(records, events, note=(
             f'Timed out after {timeout}s. ' + (' '.join(lines) or 'Everything finished.'))))
+    if reason == 'steer':
+        return json.dumps(_report(records, events, note=STEER_WAITING_NOTE))
+    return json.dumps(_report(records, events))
+
+
+#: What `wait_tasks` says when it returns because the user has written.
+STEER_WAITING_NOTE = 'A message from the user is waiting.'
+
+
+def _settled(record, until: str) -> bool:
+    """Whether a record has stopped being work the lead waits on for `until`.
+
+    A paused worker is still live, so `any` keeps the lead waiting on it (its
+    pause is news once, and its approval resumes it). `all` returns on a pause,
+    as `wait_tasks` promises: "every task done, failed or paused".
+    """
+    return record.done.is_set() or (until == 'all' and record.status == 'paused')
+
+
+async def wait_for_news(parent_thread: str, records: list, *, until: str = 'any',
+                        timeout: float, steer_key: str = '', progress=None,
+                        heartbeat_seconds: float | None = None) -> str:
+    """Block until something on this lead's work needs its attention.
+
+    The one wait behind both `wait_tasks` and the `await_reports` graph node,
+    so the two cannot disagree about what counts as news. Returns:
+
+    - `'steer'`: a user steer or change notice is waiting for `steer_key`.
+      Checked first, and on every lap, so a message from the user never waits
+      out the rest of a window (the mailbox is read by the graph, not here).
+    - `'news'`: an unreported task event or a queued lead event. Only when
+      `until='any'`; `until='all'` waits for every record to finish instead.
+    - `'done'`: every record has finished (or, for `until='all'`, is paused).
+    - `'timeout'`: none of the above within `timeout` seconds.
+
+    `progress`, when given, is `async (records) -> None`, called on entry and
+    then every `heartbeat_seconds` (default `WAIT_HEARTBEAT_SECONDS`) while the
+    wait lasts, so a silent wait can still say what it is waiting for. It rides
+    the same lap as the status refresh: there is no second loop.
+
+    Reads the events without consuming them; the caller takes them.
+    """
+    from chat.turn import steering
+
+    from agents.agent import tasks as _tasks
+
+    beat_every = WAIT_HEARTBEAT_SECONDS if heartbeat_seconds is None else heartbeat_seconds
+    next_beat: float | None = None  # None: beat on the first lap, i.e. on entry
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+        await _refresh_statuses(records)
+        for r in records:
+            # Lanes move while the lead waits: throttled to one frame per
+            # second per task, so waiting does not flood the panel.
+            await _emit_task(parent_thread, r)
+        if progress is not None and (next_beat is None or time.monotonic() >= next_beat):
+            next_beat = time.monotonic() + beat_every
+            await progress(records)
+        if steer_key and (steering.pending(steer_key) or steering.has_notices(steer_key)):
+            return 'steer'
+        if until == 'any' and (_has_unreported(records) or _tasks.pending_events(parent_thread)):
+            return 'news'
+        if records and all(_settled(r, until) for r in records):
+            return 'done'
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return 'timeout'
+        # The wait below is on worker events, not the database. Hand the
+        # lead's pooled connection back each lap, or a lead waiting on workers
+        # pins one for the whole delegation (G1). The status refresh above
+        # re-takes one per lap in microseconds.
+        await release_db()
+        waiters = [asyncio.ensure_future(r.done.wait()) for r in records
+                   if not r.done.is_set()]
+        lap = min(_tasks.WAIT_POLL_SECONDS, remaining)
+        if not waiters:
+            # No record to wait on (none started): only a steer or the window ends this.
+            await asyncio.sleep(lap)
+            continue
+        try:
+            await asyncio.wait(waiters, timeout=lap, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for waiter in waiters:
+                waiter.cancel()
+
+
+async def wait_on_lead(parent_thread: str, *, progress=None) -> str:
+    """The lead's wait at a final answer: all of its tasks, any news, a steer,
+    or one window of `WAIT_TASKS_MAX_SECONDS`. Returns `wait_for_news`'s reason.
+    `progress` is passed through to `wait_for_news` (see there)."""
+    from agents.agent import tasks as _tasks
+
+    return await wait_for_news(
+        parent_thread, _tasks.records_for(parent_thread), until='any',
+        timeout=WAIT_TASKS_MAX_SECONDS, steer_key=parent_thread, progress=progress)
+
+
+def _elapsed(record, now_ms: int) -> str:
+    """How long a worker has been on the job, as a short word: `45s`, `3m`, `1h 5m`."""
+    seconds = max(0, now_ms - record.started_at_ms) // 1000
+    if seconds < 60:
+        return f'{seconds}s'
+    minutes = seconds // 60
+    if minutes < 60:
+        return f'{minutes}m'
+    return f'{minutes // 60}h {minutes % 60}m'
+
+
+def _lanes(records: list, now_ms: int, state: str) -> str:
+    """`label (state elapsed)` for up to four workers, then `+N more`."""
+    shown = records[:4]
+    parts = [f'{r.label or r.title} ({state + " " if state else ""}{_elapsed(r, now_ms)})'
+             for r in shown]
+    if len(records) > len(shown):
+        parts.append(f'+{len(records) - len(shown)} more')
+    return ', '.join(parts)
+
+
+def wait_status_message(records: list, now_ms: int | None = None) -> str:
+    """What the user reads while a lead waits on its workers. '' when none is live.
+
+    Paused workers come first, because they are the ones that need the user:
+    `Waiting for your approval in the Inbox: implementer (paused 4m). Running:
+    tester (2m)`. Without any paused worker: `Waiting on 2 workers: implementer
+    (running 3m), tester (running 1m)`.
+    """
+    import time as _time
+
+    now = int(_time.time() * 1000) if now_ms is None else now_ms
+    live = [r for r in records if not r.done.is_set()]
+    if not live:
+        return ''
+    paused = [r for r in live if r.status == 'paused']
+    running = [r for r in live if r.status != 'paused']
+    if paused and running:
+        return (f'Waiting for your approval in the Inbox: {_lanes(paused, now, "paused")}. '
+                f'Running: {_lanes(running, now, "")}')
+    if paused:
+        return f'Waiting for your approval in the Inbox: {_lanes(paused, now, "paused")}'
+    noun = 'worker' if len(running) == 1 else 'workers'
+    return f'Waiting on {len(running)} {noun}: {_lanes(running, now, "running")}'
+
+
+def _take_events(records: list, parent_thread: str) -> list[str]:
+    """Consume what a `wait_tasks` return is about, and mark it reported.
+
+    Marking happens here, at the return, and not in `_collect_events`: a lap
+    that collects lines and then keeps waiting must not lose them.
+    """
+    from agents.agent import tasks as _tasks
+
+    events = _collect_events(records)
+    # File changes touching another task's reads (C3): the lead may re-steer
+    # a worker whose target just changed shape.
+    events.extend(_tasks.drain_events(parent_thread))
+    _mark_reported(records)
+    return events
+
+
+def _has_unreported(records: list) -> bool:
+    from agents.agent import tasks as _tasks
+
+    return any(r.status in _tasks.REPORTED_STATUSES and r.status != r.reported_status
+               for r in records)
+
+
+def _mark_reported(records: list) -> None:
+    from agents.agent import tasks as _tasks
+
+    for r in records:
+        if r.status in _tasks.REPORTED_STATUSES:
+            r.reported_status = r.status
+
+
+async def take_reports(parent_thread: str) -> str:
+    """The `<task-reports>` block for this lead, or '' when nothing is new.
+
+    The steering boundary's delivery. Each status change is reported once:
+    whatever is returned here is marked, so a later `wait_tasks` does not
+    repeat it. The database is read (to notice a pause) only when a task is
+    still live, so a run with no tasks pays two dict lookups.
+    """
+    from agents.agent import tasks as _tasks
+
+    records = _tasks.records_for(parent_thread)
+    if not records and not _tasks.pending_events(parent_thread):
+        return ''
+    if any(not r.done.is_set() for r in records):
+        await _refresh_statuses(records)
+    lines = _collect_events(records)
+    lines.extend(_tasks.drain_events(parent_thread))
+    if not lines:
+        return ''
+    _mark_reported(records)
+    return '<task-reports>\n' + '\n'.join(lines) + '\n</task-reports>'
+
+
+def has_news(parent_thread: str) -> bool:
+    """Whether this lead has anything it has not been told (no DB, no wait)."""
+    from agents.agent import tasks as _tasks
+
+    return (_has_unreported(_tasks.records_for(parent_thread))
+            or _tasks.pending_events(parent_thread))
+
+
+def has_running(parent_thread: str) -> bool:
+    """Whether a worker is still live: running, or paused for an approval. A paused
+    worker is still the lead's work, so the lead waits for it; its approval
+    resumes it and its report comes back to the lead like any other."""
+    from agents.agent import tasks as _tasks
+
+    return any(not r.done.is_set() for r in _tasks.records_for(parent_thread))
 
 
 async def _refresh_statuses(records: list) -> None:
@@ -684,19 +966,28 @@ async def _refresh_statuses(records: list) -> None:
 
 
 def _collect_events(records: list) -> list[str]:
-    events = []
-    for r in records:
-        if r.status == 'done':
-            events.append(f'{r.handle} ({r.title}): done by {r.label}'
-                          + (f' — {r.answer[-500:]}' if r.answer else ''))
-        elif r.status == 'failed':
-            events.append(f'{r.handle} ({r.title}): failed — {r.error[:500]}')
-        elif r.status == 'paused':
-            events.append(f'{r.handle} ({r.title}): paused for approval — '
-                          f'answer it in the Inbox, then steer or wait again.')
-        elif r.status == 'cancelled':
-            events.append(f'{r.handle} ({r.title}): stopped.')
-    return events
+    """One line per status change the lead has not been told about.
+
+    Pure: nothing is marked here. `_take_events` and `take_reports` mark what
+    they return, so a collection that is looked at and then discarded loses
+    nothing.
+    """
+    from agents.agent import tasks as _tasks
+
+    return [_event_line(r) for r in records
+            if r.status in _tasks.REPORTED_STATUSES and r.status != r.reported_status]
+
+
+def _event_line(r) -> str:
+    if r.status == 'done':
+        return (f'{r.handle} ({r.title}): done by {r.label}'
+                + (f' — {r.answer[-500:]}' if r.answer else ''))
+    if r.status == 'failed':
+        return f'{r.handle} ({r.title}): failed — {r.error[:500]}'
+    if r.status == 'paused':
+        return (f'{r.handle} ({r.title}): paused for approval — '
+                f'answer it in the Inbox and the run goes on from there.')
+    return f'{r.handle} ({r.title}): stopped.'
 
 
 def _report(records: list, events: list[str], note: str = '') -> dict:
@@ -877,9 +1168,26 @@ async def _cancel_detached(log) -> str:
 
     from agents.agent.runtime import CANCEL_WAIT_SECONDS
 
+    from agents.agent import tasks as _tasks
+
     execution_id = str(log.execution_id)
     if log.status not in ('running', 'pending', 'paused'):
         return log.status
+    if log.status == 'paused':
+        # A worker waiting on an approval has a live wrapper, but nothing running
+        # to cancel: close the run here, then finish the record now, so the lead
+        # hears of the stop at once rather than at the wrapper's next poll.
+        from agents.agent.runtime import _cancel_pending_hitl, _close_log
+        from chat.turn.agent import forget_thread
+
+        await _cancel_pending_hitl(log)
+        thread_id = (log.input_data or {}).get('thread_id')
+        if thread_id:
+            await forget_thread(thread_id)
+        await _close_log(log, status='cancelled', result={}, tokens=0,
+                         error='Run cancelled while waiting for approval.')
+        _tasks.finish_execution(execution_id, status='cancelled', error='Stopped.')
+        return 'cancelled'
     try:
         live = [t for t in _asyncio.all_tasks()
                 if t.get_name() == f'code-task:{execution_id}' and not t.done()]
@@ -897,19 +1205,6 @@ async def _cancel_detached(log) -> str:
             pass
         await sync_to_async(log.refresh_from_db)()
         return log.status
-    if log.status == 'paused':
-        from django.utils import timezone
-
-        from agents.agent.runtime import _cancel_pending_hitl, _close_log
-        from chat.turn.agent import forget_thread
-
-        await _cancel_pending_hitl(log)
-        thread_id = (log.input_data or {}).get('thread_id')
-        if thread_id:
-            await forget_thread(thread_id)
-        await _close_log(log, status='cancelled', result={}, tokens=0,
-                         error='Run cancelled while waiting for approval.')
-        return 'cancelled'
     raise RuntimeError(
         'This worker is not running in this server process. If it has stopped '
         'responding it will be closed automatically.')

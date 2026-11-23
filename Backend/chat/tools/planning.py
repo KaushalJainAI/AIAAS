@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
             "additionalProperties": False,
         },
     },
-}, effect="read")
+}, effect="read", trusted_output=True)
 async def update_todos(args: Dict, context: Dict) -> str:
     """Validate and echo the plan back.
 

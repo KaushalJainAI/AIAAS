@@ -59,8 +59,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
+from django.db.models import Q
+from django.db.models.functions import Substr
+
 from workflow_backend.thresholds import (
     AGENT_FILE_BINARY_BYTES,
+    AGENT_FILE_DESCRIBE_LIMIT,
+    AGENT_FILE_DESCRIBE_SCAN_CHARS,
+    AGENT_FILE_DESCRIPTION_CHARS,
+    AGENT_FILE_INDEX_LIMIT,
     AGENT_FILE_LIST_LIMIT,
     AGENT_FILE_READ_CHARS,
     AGENT_FILE_WRITE_CHARS,
@@ -633,13 +640,59 @@ def _split_leaf(scope: FileScope, path: str) -> tuple[list[str], str]:
 # Operations
 # ---------------------------------------------------------------------------
 
+_MD_LINE_MARKS = re.compile(r'^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d{1,3}[.)]\s+|\|\s*)+')
+_MD_EMPHASIS = re.compile(r'\*+|`+|~~')
+
+
+def _first_meaningful_line(text: str) -> str:
+    """The first line of `text` that says something, with markdown stripped.
+
+    Blank lines, everything inside a code fence, rules (`---`), table dividers
+    and bare symbols say nothing and are skipped. Block markers (`#`, `>`,
+    bullets, `1.`) and emphasis are removed, so what is left reads as prose.
+    """
+    in_fence = False
+    for raw in (text or '').splitlines():
+        if raw.lstrip().startswith(('```', '~~~')):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        line = _MD_EMPHASIS.sub('', _MD_LINE_MARKS.sub('', raw))
+        line = ' '.join(line.split()).strip('|: ')
+        if re.search(r'\w', line):
+            return line
+    return ''
+
+
+def describe_text(head: str | None) -> str | None:
+    """A one-line description drawn from the head of a file's extracted text.
+
+    None when there is nothing a person would read as a description (an image,
+    an empty file). Capped at `AGENT_FILE_DESCRIPTION_CHARS`, with an ellipsis
+    when cut.
+    """
+    line = _first_meaningful_line(head or '')
+    if not line:
+        return None
+    cap = AGENT_FILE_DESCRIPTION_CHARS
+    if len(line) > cap:
+        line = line[:cap - 3].rstrip() + '...'
+    return line
+
+
+def _iso(stamp) -> str | None:
+    return stamp.isoformat() if stamp else None
+
+
 #: Deepest `list_dir(depth=...)` goes. Each level is two queries per folder,
 #: and the entry budget bounds the total, so this bounds the query count.
 MAX_LIST_DEPTH = 3
 
 
 def list_dir(scope: FileScope, path: str = '/',
-               limit: int = AGENT_FILE_LIST_LIMIT, depth: int = 1) -> dict:
+               limit: int = AGENT_FILE_LIST_LIMIT, depth: int = 1,
+               describe: bool = False) -> dict:
     """Directories and files directly inside `path`.
 
     `limit` is the caller's workspace knob, clamped to never exceed the
@@ -648,18 +701,26 @@ def list_dir(scope: FileScope, path: str = '/',
     `depth` > 1 adds `tree`: every entry up to that many levels down, as
     paths relative to `path`, sharing one budget of `limit` entries. The
     direct listing is unchanged, so depth 1 is exactly the old answer.
+
+    `describe` adds a one-line `description` to every file, drawn from its own
+    text, and makes `tree` entries objects with size and time rather than bare
+    paths. It is capped lower than a plain listing, because the description is
+    the expensive part. Each file's text comes back on the row that names it,
+    so the cost does not grow with the number of files.
     """
     limit = max(1, min(int(limit), AGENT_FILE_LIST_LIMIT))
+    if describe:
+        limit = min(limit, AGENT_FILE_DESCRIBE_LIMIT)
     try:
         depth = max(1, min(int(depth or 1), MAX_LIST_DEPTH))
     except (TypeError, ValueError):
         depth = 1
-    result = _list_one(scope, path, limit)
+    result = _list_one(scope, path, limit, describe)
     if depth > 1:
         folder = _folder_at(scope, _scope_parts(scope, path))
-        tree: list[str] = []
-        complete = _walk_tree(scope, folder, '', depth, limit, tree)
-        result['tree'] = tree
+        entries: list[dict] = []
+        complete = _walk_tree(scope, folder, '', depth, limit, entries, describe)
+        result['tree'] = entries if describe else [e['path'] for e in entries]
         if not complete:
             result['tree_truncated'] = True
             result['tree_note'] = (
@@ -667,41 +728,135 @@ def list_dir(scope: FileScope, path: str = '/',
     return result
 
 
+def _file_rows(scope: FileScope, folder: Folder | None, n: int, describe: bool) -> list[dict]:
+    """Up to `n` live files directly in `folder`, by name, in one query.
+
+    With `describe`, each row also carries `head`: the first characters of the
+    extracted text, which is all a description is drawn from.
+    """
+    qs = Document.objects.filter(user=scope.user, folder=folder).order_by('name')
+    fields = ['id', 'name', 'file_type', 'file_size', 'updated_at']
+    if describe:
+        qs = qs.annotate(head=Substr('content_text', 1, AGENT_FILE_DESCRIBE_SCAN_CHARS))
+        fields.append('head')
+    return list(qs.values(*fields)[:n])
+
+
+def _file_entry(path: str, row: dict, describe: bool) -> dict:
+    entry = {'path': path, 'kind': 'file', 'bytes': row['file_size'],
+             'modified': _iso(row['updated_at'])}
+    if describe:
+        entry['description'] = describe_text(row['head'])
+    return entry
+
+
 def _walk_tree(scope: FileScope, folder: Folder | None, prefix: str,
-               levels: int, budget: int, out: list[str]) -> bool:
-    """Append `prefix`-relative entries to `out`; False when the budget ran out."""
+               levels: int, budget: int, out: list[dict], describe: bool) -> bool:
+    """Append `prefix`-relative entries to `out`; False when the budget ran out.
+
+    Each entry is a dict. `list_dir` decides whether a caller sees the bare
+    path (plain) or the whole entry (described).
+    """
     for d in fs.children(scope.user, folder):
         if len(out) >= budget:
             return False
-        out.append(f'{prefix}{d.name}/')
+        out.append({'path': f'{prefix}{d.name}/', 'kind': 'directory'})
         if levels > 1 and not _walk_tree(
-                scope, d, f'{prefix}{d.name}/', levels - 1, budget, out):
+                scope, d, f'{prefix}{d.name}/', levels - 1, budget, out, describe):
             return False
-    names = (Document.objects.filter(user=scope.user, folder=folder)
-             .order_by('name').values_list('name', flat=True)[: budget - len(out) + 1])
-    for name in names:
+    for row in _file_rows(scope, folder, budget - len(out) + 1, describe):
         if len(out) >= budget:
             return False
-        out.append(f'{prefix}{name}')
+        out.append(_file_entry(f"{prefix}{row['name']}", row, describe))
     return True
 
 
-def _list_one(scope: FileScope, path: str, limit: int) -> dict:
+def catalogue(scope: FileScope, limit: int = AGENT_FILE_INDEX_LIMIT) -> list[dict]:
+    """The most recently updated files under the scope's writable folder.
+
+    This is the run's "YOUR FILES" index. It is built once at run start, so it
+    stays put in the session-stable system prompt. It covers the writable folder
+    and everything beneath it, newest first, capped at `limit`. Each entry is
+    `{path, bytes, modified, description}`, and its path is one `read_file`
+    accepts. Returns [] when nothing is writable.
+
+    The query count is constant however many files there are. The newest rows
+    come back in one query, carrying their folder's path. The names of the
+    folders on those paths come back in one more. Nothing is read per file.
+    """
+    if scope.write_prefix is None:
+        return []
+    limit = max(1, min(int(limit), AGENT_FILE_INDEX_LIMIT))
+    base = _folder_at(scope, list(scope.write_prefix))
+    base_id = base.pk if base is not None else None
+
+    # `folders_beneath` is the choke point for "folders this user may see": it
+    # already leaves out the hidden eval tree and trashed folders.
+    beneath = fs.folders_beneath(scope.user, base).values('pk')
+    rows = list(
+        Document.objects.filter(user=scope.user)
+        .filter(Q(folder=base) | Q(folder__in=beneath))
+        .annotate(head=Substr('content_text', 1, AGENT_FILE_DESCRIBE_SCAN_CHARS))
+        .order_by('-updated_at', '-id')
+        .values('id', 'name', 'file_size', 'updated_at', 'head',
+                'folder_id', 'folder__path')[:limit]
+    )
+
+    # A folder's `path` is its id chain from the root, itself last. Keep the part
+    # below the writable folder; that is what a path under it spells out.
+    placed: list[tuple[dict, list[int]]] = []
+    needed: set[int] = set()
+    for row in rows:
+        chain = ([int(p) for p in (row['folder__path'] or '').strip('/').split('/') if p]
+                 if row['folder_id'] is not None else [])
+        if base_id is not None:
+            if base_id not in chain:
+                continue
+            chain = chain[chain.index(base_id) + 1:]
+        placed.append((row, chain))
+        needed.update(chain)
+
+    names = (dict(fs.folders_beneath(scope.user, base)
+                  .filter(pk__in=needed).values_list('pk', 'name'))
+             if needed else {})
+
+    prefix = list(scope.write_prefix)
+    out: list[dict] = []
+    for row, chain in placed:
+        if any(fid not in names for fid in chain):
+            continue  # a folder on the path is no longer visible: not listed
+        parts = prefix + [names[fid] for fid in chain] + [row['name']]
+        out.append({
+            'path': render(scope, parts),
+            'bytes': row['file_size'],
+            'modified': _iso(row['updated_at']),
+            'description': describe_text(row['head']),
+        })
+    return out
+
+
+def _list_one(scope: FileScope, path: str, limit: int, describe: bool = False) -> dict:
     parts = _scope_parts(scope, path)
     folder = _folder_at(scope, parts)
 
     dirs = list(fs.children(scope.user, folder)[: limit + 1])
-    docs = list(
-        Document.objects
-        .filter(user=scope.user, folder=folder)
-        .order_by('name')
-        .values('id', 'name', 'file_type', 'file_size', 'updated_at')
-        [: limit + 1]
-    )
+    docs = _file_rows(scope, folder, limit + 1, describe)
 
     truncated = len(dirs) > limit or len(docs) > limit
     dirs = dirs[:limit]
     docs = docs[:limit]
+
+    files = []
+    for d in docs:
+        entry = {
+            'name': d['name'],
+            'type': d['file_type'],
+            'bytes': d['file_size'],
+            'modified': _iso(d['updated_at']),
+        }
+        if describe:
+            entry['description'] = describe_text(d['head'])
+        files.append(entry)
 
     return {
         'path': render(scope, parts),
@@ -711,15 +866,7 @@ def _list_one(scope: FileScope, path: str, limit: int) -> dict:
         # believe, and plan around, right up until the write was refused.
         'writable': scope.may_write_at(parts),
         'directories': [f'{d.name}/' for d in dirs],
-        'files': [
-            {
-                'name': d['name'],
-                'type': d['file_type'],
-                'bytes': d['file_size'],
-                'modified': d['updated_at'].isoformat() if d['updated_at'] else None,
-            }
-            for d in docs
-        ],
+        'files': files,
         # A capped listing and a complete one must not look alike — the same
         # rule the HTTP list endpoints follow.
         'truncated': truncated,
@@ -1715,6 +1862,35 @@ def make_dir(scope: FileScope, path: str) -> dict:
     walked: list[str] = []
     _make_dirs(scope, parts, walked)
     return {'path': render(scope, walked), 'created': True}
+
+
+def folder_parts_in_scope(scope: FileScope, folder: Folder | None) -> list[str] | None:
+    """A folder's names relative to the scope root, or None outside the readable subtree.
+
+    The public face of `_folder_parts` for a caller that holds a `Folder` rather
+    than a path (`inference/kb_folders.py`, for knowledge bases bound to a
+    folder). Containment is an id-prefix test on `Folder.path`, so no name can
+    make a folder outside the scope look inside it.
+    """
+    if scope.root is not None and (folder is None or not folder.path.startswith(scope.root.path)):
+        return None
+    return _folder_parts(scope, folder)
+
+
+def folder_for_write(scope: FileScope, path: str) -> tuple[Folder, list[str]]:
+    """Create or reuse the folder at `path`, inside the writable subtree.
+
+    Refused the way `make_dir` is refused: outside the write prefix, or in a
+    read-only scope, before anything is created. Returns the folder and its
+    scope-relative names.
+    """
+    parts = _scope_parts(scope, path)
+    if not parts:
+        raise VfsError('Give a folder path to create.')
+    _require_write_at(scope, parts, 'create folders')
+    walked: list[str] = []
+    folder = _make_dirs(scope, parts, walked)
+    return folder, walked
 
 
 def delete(scope: FileScope, path: str) -> dict:

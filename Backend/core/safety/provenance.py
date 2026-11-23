@@ -167,3 +167,57 @@ def refusal_for(url: str, context: dict | None) -> str | None:
     known = (context or {}).get('known_urls')
     ok, reason = check_fetch(url, known)
     return None if ok else reason
+
+
+# -- untrusted envelope --------------------------------------------------------
+
+#: Third-party text (a tool result, an uploaded file) reaches the model inside
+#: this envelope, so the model can tell material it must read from the orders
+#: of the person it is working for. The tag is random per run
+#: (`TurnContext.untrusted_tag`): text written before the run cannot know it, so
+#: it cannot forge a closing marker that matches.
+_MARKER = re.compile(r'<(/?)\s*untrusted[_-]data', re.IGNORECASE)
+_ENVELOPE = re.compile(
+    r'\A<untrusted_data source="(?P<source>[^"\n]*)" tag="(?P<tag>[0-9a-zA-Z]+)">\n'
+    r'(?P<body>.*)\n</untrusted_data tag="(?P=tag)">\Z',
+    re.DOTALL,
+)
+
+
+def neutralise(text: str) -> str:
+    """`text` with no envelope marker of its own, so it cannot close or nest one."""
+    return _MARKER.sub(lambda m: f'<{m.group(1)}untrusted-data', text)
+
+
+def _source_attr(source: str) -> str:
+    """A source name safe to put inside the quoted attribute."""
+    cleaned = re.sub(r'[\s"<>]+', '_', source or '').strip('_')
+    return cleaned[:120] or 'tool'
+
+
+def wrap_untrusted(content: str, *, source: str, tag: str) -> str:
+    """`content` enclosed as third-party data from `source`, under `tag`."""
+    return (
+        f'<untrusted_data source="{_source_attr(source)}" tag="{tag}">\n'
+        f'{neutralise(content)}\n</untrusted_data tag="{tag}">'
+    )
+
+
+def parse_untrusted(text: object) -> tuple[str, str, str] | None:
+    """(source, tag, body) when `text` is exactly one envelope, else None."""
+    if not isinstance(text, str):
+        return None
+    match = _ENVELOPE.match(text)
+    if match is None:
+        return None
+    return match.group('source'), match.group('tag'), match.group('body')
+
+
+def unwrap_untrusted(text: str) -> str:
+    """The body of an envelope, or `text` unchanged when it is not one.
+
+    Round-trips with `wrap_untrusted` for any content that holds no envelope
+    marker; a marker in the content comes back neutralised, which is the point.
+    """
+    parsed = parse_untrusted(text)
+    return parsed[2] if parsed is not None else text

@@ -7,6 +7,8 @@
 import type { SseEvent } from '../../api/sse';
 import type {
   BlockedAttachment,
+  BrowserStep,
+  BrowserView,
   ChartKind,
   ChartPoint,
   ChartSeries,
@@ -191,6 +193,47 @@ export function parseSolutions(raw: unknown): SolutionUsed[] {
       doubtful: s.doubtful === true,
     }];
   });
+}
+
+/** The server caps a browser list at 10 calls and a call at 15 steps. The phone caps it again. */
+const MAX_BROWSER_VIEWS = 10;
+const MAX_BROWSER_STEPS = 15;
+
+function parseBrowserSteps(raw: unknown): BrowserStep[] {
+  return arr(raw).slice(0, MAX_BROWSER_STEPS).flatMap((item) => {
+    const s = obj(item);
+    const action = str(s.action).trim();
+    const selector = str(s.selector).trim();
+    if (!action && !selector) return [];
+    return [{ action, selector, ok: s.ok === true }];
+  });
+}
+
+/** One browser call. A call with neither a URL nor a title has nothing to show, so it is dropped. */
+function parseBrowserView(item: unknown): BrowserView[] {
+  const v = obj(item);
+  const url = str(v.url).trim();
+  const title = str(v.title).trim();
+  if (!url && !title) return [];
+  const live = str(v.live_url).trim();
+  const needs = str(v.needs_user).trim();
+  return [{
+    frame_id: str(v.frame_id).trim(),
+    url,
+    title,
+    session: str(v.session).trim(),
+    live_url: /^https?:\/\//i.test(live) ? live : '',
+    steps: parseBrowserSteps(v.steps),
+    needs_user: needs || null,
+  }];
+}
+
+/**
+ * The browser calls of a turn. The frame sends the whole list every time, so this
+ * replaces, never appends. Unreadable items are dropped, and the newest ten are kept.
+ */
+export function parseBrowser(raw: unknown): BrowserView[] {
+  return arr(raw).flatMap(parseBrowserView).slice(-MAX_BROWSER_VIEWS);
 }
 
 export function parseBlocked(raw: unknown): BlockedAttachment[] {

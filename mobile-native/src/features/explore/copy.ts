@@ -17,6 +17,7 @@ export const GRANT_COPY: Record<string, string> = {
   shell: 'Run shell commands',
   fileOps: 'Read and write your files',
   office: 'Create PowerPoint, Excel and Word files',
+  kbWrite: 'Create knowledge bases in your folders and add notes to them',
   media: 'Generate images on your OpenRouter account',
   publish: 'Publish pages shareable by link',
   browser: 'Use a web browser on allowed sites',

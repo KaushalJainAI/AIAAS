@@ -28,7 +28,9 @@ const PHONE = { width: 390, height: 844 };
 
 /** Every authenticated route that renders inside the app shell. */
 const ROUTES = [
-  '/overview',
+  // Ask is the home. `/overview` is only a redirect to `/runs` now, so it no
+  // longer tests a page of its own.
+  '/ai-chat',
   '/runs',
   '/agents',
   '/agents/new',
@@ -181,6 +183,8 @@ test.describe('mobile layout', () => {
             (n) => n.nodeType === Node.TEXT_NODE && (n.textContent || '').trim().length > 0,
           );
         if (!paints) return false;
+        // A closed drawer keeps its layout box but paints nothing.
+        if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false;
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) return false;
         return r.left < b.x + b.width && r.right > b.x && r.top < b.y + b.height && r.bottom > b.y;
@@ -207,9 +211,11 @@ test.describe('mobile layout', () => {
     await page.waitForTimeout(600);
 
     await page.getByRole('button', { name: /open menu/i }).click();
-    const runs = page.getByRole('link', { name: 'Runs', exact: true });
-    await expect(runs).toBeVisible();
-    await runs.click();
+    // Scoped to the drawer: the phone bottom bar has its own "Activity" link.
+    // A pending count can sit in the name ("Activity 2"), so match the start only.
+    const activity = page.locator('#app-sidebar').getByRole('link', { name: /^Activity\b/ });
+    await expect(activity).toBeVisible();
+    await activity.click();
 
     await expect(page).toHaveURL(/\/runs/);
     // The drawer auto-closes on navigation, which is what puts the hamburger back.
@@ -217,14 +223,69 @@ test.describe('mobile layout', () => {
   });
 
   test('the agent builder exposes its settings on a phone', async ({ page }) => {
+    // `/agents/new` is now the creation wizard, not the builder, and it has no
+    // settings switch. The builder is `/agents/:id`, so make an agent first.
+    const ctx = await request.newContext();
+    const made = await ctx.post(`${API}/api/orchestrator/agents/`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+      data: { name: 'E2E phone agent' },
+    });
+    expect(made.ok(), `creating an agent failed: ${made.status()}`).toBe(true);
+    const { id } = (await made.json()) as { id: number };
+    await ctx.dispose();
+
     await signedIn(page);
-    await page.goto('/agents/new');
+    await page.goto(`/agents/${id}`);
     await page.waitForTimeout(800);
 
-    // The knob board is `hidden lg:block`; below `lg` it is reached through the
-    // pane switch. Without that switch the builder is a chat box with no way to
-    // set a single field — not even the agent's name.
-    await page.getByRole('button', { name: /^settings$/i }).click();
+    // The builder opens on "Essentials" with the agent's name on it. Phones
+    // switch between the two views with a labelled group, not a hidden pane.
+    await expect(page.getByRole('group', { name: 'Settings view' })).toBeVisible();
     await expect(page.getByPlaceholder('Finance agent')).toBeVisible();
   });
+});
+
+/** Routes whose every control must be a 44 px touch target with a name. */
+const TOUCH_ROUTES = ['/ai-chat', '/runs', '/agents', '/documents', '/settings'];
+
+test.describe('touch targets', () => {
+  test.use({ viewport: PHONE });
+
+  for (const route of TOUCH_ROUTES) {
+    test(`${route}: every control is 44 px and has a name on a phone`, async ({ page }) => {
+      await signedIn(page);
+      await page.goto(route);
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(600);
+
+      // Visible controls only. Hidden ones (display: none) have no box, and
+      // the closed drawer is aria-hidden. A link inside running prose is text,
+      // not a control, so `.prose` is skipped; `data-touch-exempt` marks the
+      // same kind of inline link anywhere else.
+      const offenders = await page.evaluate(() => {
+        const selector = 'button, [role="button"], [role="tab"], [role="menuitem"], a[href]';
+        const out: string[] = [];
+        for (const el of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+          if (el.closest('.prose, [data-touch-exempt], [aria-hidden="true"], [inert]')) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const style = getComputedStyle(el);
+          if (style.visibility === 'hidden' || style.display === 'none') continue;
+
+          const name =
+            el.getAttribute('aria-label') ||
+            (el.textContent || '').trim() ||
+            el.getAttribute('title') ||
+            '';
+          const small = r.width < 44 || r.height < 44;
+          if (!small && name) continue;
+          const label = name ? name.slice(0, 40) : '(no name)';
+          out.push(`${el.tagName.toLowerCase()}.${label} (${Math.round(r.width)}x${Math.round(r.height)})`);
+        }
+        return out;
+      });
+
+      expect(offenders, `${route}: controls under 44x44 px or without a name:\n${offenders.join('\n')}`).toEqual([]);
+    });
+  }
 });

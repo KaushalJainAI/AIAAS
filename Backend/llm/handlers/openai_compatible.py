@@ -44,7 +44,12 @@ from workflow_backend.httpclient import shared_client
 
 from .base import BaseNodeHandler, NodeExecutionResult
 from ..usage import DEFAULT_CONVENTION
-from .llm_base import ChatChunkParser, iter_sse_chunks
+from .llm_base import (
+    DEFAULT_REASONING_KEYS,
+    ChatChunkParser,
+    coerce_reasoning_text,
+    iter_sse_chunks,
+)
 
 if TYPE_CHECKING:
     from llm.context import ExecutionContext
@@ -399,6 +404,8 @@ class OpenAICompatibleLLMNode(BaseNodeHandler):
         payload.update(self.reasoning_payload(config.get("effort")))
         if tools := self._tools_for(config):
             payload["tools"] = tools
+            if config.get("tool_choice"):
+                payload["tool_choice"] = config["tool_choice"]
         if (fmt := config.get("response_format")) in ("json_object", "json_code"):
             payload["response_format"] = {"type": "json_object"}
         return payload
@@ -587,6 +594,7 @@ class OpenAICompatibleLLMNode(BaseNodeHandler):
             )
 
         media_url = None
+        reasoning_field = ""
         if is_image:
             content, media_url = self.parse_image_response(data)
             result: dict[str, Any] = {}
@@ -596,9 +604,17 @@ class OpenAICompatibleLLMNode(BaseNodeHandler):
             result = {}
             if tool_calls := message.get("tool_calls"):
                 result["tool_calls"] = tool_calls
+            # The same reasoning keys the stream reads, so a model's reasoning
+            # is captured whether or not the call streams.
+            reasoning_field = next(
+                (coerce_reasoning_text(message[key])
+                 for key in DEFAULT_REASONING_KEYS if message.get(key)),
+                "",
+            )
 
         if config.get("thinking"):
-            content, thinking = extract_think_tags(content)
+            content, tagged = extract_think_tags(content)
+            thinking = "\n\n".join(part for part in (reasoning_field, tagged or "") if part)
             if thinking:
                 result["thinking"] = thinking
 

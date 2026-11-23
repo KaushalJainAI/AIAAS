@@ -208,6 +208,21 @@ old behaviour minus the 400, not an unbounded window.
 The ratios and char limits live in `workflow_backend/thresholds.py`; the two
 model settings in `workflow_backend/settings/base.py`.
 
+## Across turns: what is cached
+
+A chat turn's request is cached by the provider only as far as its bytes stay
+the same from one turn to the next, so the order is fixed:
+
+1. **Stable first**: the system prompt, the replayed history (its start moves
+   only in steps of `HISTORY_WINDOW_STEP`, 10), and the upload pointers.
+2. **Volatile last**: the conversation notes, the current state, the plan and
+   the budget. These change every turn, so they go after everything cached.
+
+Raw attachments ride on the user's question inside history after the first
+pass (`agent.py::_seat_attachments`, for openrouter, openai and nvidia), so
+their bytes sit in the cached prefix. Nothing volatile may be inserted before
+the history.
+
 ## Tests
 
 `chat/tests/test_curation.py`, grouped by the mistake each pins:

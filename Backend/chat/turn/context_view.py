@@ -160,8 +160,11 @@ def describe(session) -> dict[str, Any]:
     focus = session_notes.focus(session.notes_state)
     replayed = []
     # `to_wire_history` keeps the newest that fit; map them back to rows.
+    # Upload pointers ride the wire as `system` entries, so count only the
+    # conversational ones or the mapping shifts by one per pointer.
     conversational = [m for m in past if m.role in ('user', 'assistant')]
-    for message in conversational[len(conversational) - len(wire):]:
+    kept = sum(1 for entry in wire if entry.get('role') in ('user', 'assistant'))
+    for message in conversational[len(conversational) - kept:]:
         summary = (message.metadata or {}).get('summary')
         shown = summary if (message.role == 'assistant' and summary) else message.content
         replayed.append({
@@ -173,10 +176,12 @@ def describe(session) -> dict[str, Any]:
         session=session, role__in=('user', 'assistant')).count()
 
     tools = _tool_estimate()
+    # In the order the model reads them: the replayed messages, then the notes
+    # (`pipeline.run_chat_turn` appends the notes after the history).
     parts = {
         'system': _tokens(system),
-        'notes': _tokens(notes_text),
         'history': sum(r['tokens'] for r in replayed),
+        'notes': _tokens(notes_text),
         'tools': tools['tokens'],
     }
     window = _context_window(session.llm_model)

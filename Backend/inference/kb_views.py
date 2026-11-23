@@ -20,8 +20,13 @@ from core import orgs
 from core.orgs import OrgError
 
 from . import kb_access
+from . import filesystem as fs
 from .models import KnowledgeBase
-from .serializers import KnowledgeBaseSerializer, KnowledgeBaseShareSerializer
+from .serializers import (
+    KnowledgeBaseFolderSerializer,
+    KnowledgeBaseSerializer,
+    KnowledgeBaseShareSerializer,
+)
 
 #: Cap for the list (function views have no automatic pagination).
 KB_LIST_CAP = 200
@@ -39,6 +44,9 @@ def _row(kb: KnowledgeBase, me_id: int) -> dict:
     data.update({
         'org': kb.org_id,
         'shared_with_org': kb.shared_with_org,
+        # The bound folder's id, for the folder tree. Its path is not sent here:
+        # resolving it is a query per row, and the list is capped at 200.
+        'folder': kb.folder_id,
         'is_mine': kb.user_id == me_id,
         'owner_name': kb.user.get_full_name() or kb.user.username,
     })
@@ -107,7 +115,8 @@ def knowledge_base_detail(request, kb_id: int):
                 {'error': 'Only the owner can change how this knowledge base is shared.'},
                 status=403,
             )
-        if set(data) != {'shared_with_org'} or data['shared_with_org'] is not False:
+        if (set(data) != {'shared_with_org'} or data['shared_with_org'] is not False
+                or 'folder' in request.data):
             return Response(
                 {'error': 'A curator can only stop sharing this knowledge base.'},
                 status=403,
@@ -115,6 +124,20 @@ def knowledge_base_detail(request, kb_id: int):
         kb.shared_with_org = False
         kb.save(update_fields=['shared_with_org', 'updated_at'])
         return Response(_row(kb, me.id))
+
+    folder_changed = False
+    if 'folder' in request.data:
+        # The folder tree is the hierarchy, so binding a KB to a folder is an
+        # owner decision. Resolved through the one door: unknown and foreign
+        # ids are the same 404.
+        folder_body = KnowledgeBaseFolderSerializer(data=request.data)
+        folder_body.is_valid(raise_exception=True)
+        try:
+            folder = fs.resolve_folder(me, folder_body.validated_data['folder'])
+        except fs.FolderNotFound:
+            return Response({'error': 'Folder not found.'}, status=404)
+        folder_changed = (folder.id if folder else None) != kb.folder_id
+        kb.folder = folder
 
     org_id, shared = kb.org_id, kb.shared_with_org
     switching_org = False
@@ -142,5 +165,8 @@ def knowledge_base_detail(request, kb_id: int):
 
     kb.org_id = org_id
     kb.shared_with_org = shared
-    kb.save(update_fields=['org', 'shared_with_org', 'updated_at'])
+    fields = ['org', 'shared_with_org', 'updated_at']
+    if folder_changed:
+        fields.append('folder')
+    kb.save(update_fields=fields)
     return Response(_row(kb, me.id))

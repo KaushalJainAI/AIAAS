@@ -22,6 +22,8 @@ GRANT_SCOPES: dict[str, str | None] = {
     'webSearch': None,
     'scrape': None,
     'rag': 'knowledgeBases',
+    # Writes need a writable folder in the file scope, so the scope is the file one.
+    'kbWrite': 'fileAccess',
     'codeExecution': None,
     'fileOps': 'fileAccess',
     'office': 'fileAccess',
@@ -45,6 +47,7 @@ GRANT_RISKS: dict[str, str] = {
     'webSearch': 'Reads public web pages.',
     'scrape': 'Fetches URLs the run names.',
     'rag': 'Reads the selected knowledge bases.',
+    'kbWrite': 'Adds documents to knowledge bases later runs will search; asks first unless full auto.',
     'codeExecution': 'Runs Python in the sandbox; no network, no files.',
     'fileOps': 'Reads and writes your files within the access level.',
     'office': 'Creates documents in your files.',

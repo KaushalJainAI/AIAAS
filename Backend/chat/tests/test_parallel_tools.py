@@ -18,7 +18,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from langchain_core.messages import AIMessage
 
 from chat.turn.agent import TurnContext, tools_node
@@ -375,6 +375,7 @@ class ReadOnlyNamePredicateTests(SimpleTestCase):
         self.assertTrue(permissions.mcp_reads_only("mcp__7__list_and_purge_4a4eb864"))
 
 
+@override_settings(CHAT_COMPANION_IMAGES=True)
 class CompanionImageOverlapTests(SimpleTestCase):
     """The image strip for a web search starts with the search, not after it.
 

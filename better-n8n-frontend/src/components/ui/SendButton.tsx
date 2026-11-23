@@ -41,9 +41,10 @@ interface SendButtonProps {
   className?: string;
 }
 
+// 44 px on phones (the touch target); the desktop sizes are unchanged.
 const SIZES: Record<SendButtonSize, { button: string; icon: string; stop: string }> = {
-  sm: { button: 'w-8 h-8', icon: 'w-3.5 h-3.5', stop: 'w-2.5 h-2.5' },
-  md: { button: 'w-9 h-9', icon: 'w-4 h-4', stop: 'w-3 h-3' },
+  sm: { button: 'w-11 h-11 md:w-8 md:h-8', icon: 'w-3.5 h-3.5', stop: 'w-2.5 h-2.5' },
+  md: { button: 'w-11 h-11 md:w-9 md:h-9', icon: 'w-4 h-4', stop: 'w-3 h-3' },
 };
 
 export function SendButton({

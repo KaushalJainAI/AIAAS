@@ -31,6 +31,7 @@ import {
   parseApproval,
   parseArtifacts,
   parseBlocked,
+  parseBrowser,
   parseChart,
   parseCommandCard,
   parseFiles,
@@ -45,6 +46,7 @@ import {
 import type {
   AgentRunCardData,
   BlockedAttachment,
+  BrowserView,
   ChartSpec,
   ChatImage,
   ChatMessage,
@@ -77,6 +79,8 @@ export interface TurnState {
   sources: ChatSource[];
   images: ChatImage[];
   files: FileCard[];
+  /** The browser calls so far this turn, newest last. Whole list, replaced per frame. */
+  browser: BrowserView[];
   charts: ChartSpec[];
   htmlArtifacts: HtmlArtifact[];
   workerPlans: WorkerPlan[];
@@ -99,6 +103,7 @@ export const idleTurn: TurnState = {
   sources: [],
   images: [],
   files: [],
+  browser: [],
   charts: [],
   htmlArtifacts: [],
   workerPlans: [],
@@ -140,6 +145,9 @@ export function reduceFrame(state: TurnState, event: SseEvent): TurnState {
     case 'files_update':
       // Whole list: a second write to one file updates its entry on the server.
       return { ...state, files: parseFiles(event.files) };
+    case 'browser_update':
+      // Whole list, newest last: each call replaces the list, so never append.
+      return { ...state, browser: parseBrowser(event.browser) };
     case 'chart': {
       // The spec is appended as sent: two charts in a turn meant two charts.
       const chart = parseChart(event);
@@ -241,6 +249,7 @@ export function hasLiveContent(state: TurnState): boolean {
     state.sources.length > 0 ||
     state.images.length > 0 ||
     state.files.length > 0 ||
+    state.browser.length > 0 ||
     state.charts.length > 0 ||
     state.htmlArtifacts.length > 0 ||
     state.workerPlans.length > 0 ||

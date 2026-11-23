@@ -17,6 +17,8 @@ import { historyFrom } from '../../lib/planView';
 import PlanPanel from '../orchestration/PlanPanel';
 import { planFromOutput } from '../../lib/planStream';
 import FileCards from '../files/FileCards';
+import BrowserChip from '../pane/BrowserChip';
+import { parseBrowserViews } from '../../lib/browserView';
 import type { AgentStep, AgentTurn, ExecutionDetail } from '../../api';
 import type { ChartSpec, FileCardData, TodoItem } from '../../api/chat';
 import FeedbackControl from '../runs/FeedbackControl';
@@ -279,6 +281,13 @@ export default function RunDetail({ detail }: { detail: ExecutionDetail }) {
 
       {Array.isArray(detail.output_data?.files) && (
         <FileCards files={detail.output_data.files as FileCardData[]} />
+      )}
+
+      {/* The agent's browser calls in this run: the chip opens the run's Browser tab. */}
+      {Array.isArray(detail.output_data?.browser) && (
+        <div className="flex flex-wrap gap-2">
+          <BrowserChip runKey={`run:${detail.execution_id}`} views={parseBrowserViews(detail.output_data.browser)} />
+        </div>
       )}
 
       {Array.isArray(detail.output_data?.charts) &&

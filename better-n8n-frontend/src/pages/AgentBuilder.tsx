@@ -39,6 +39,8 @@ import {
   Share2,
   Gauge,
   Tag,
+  Plus,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import nodeService from '../api/nodeService';
@@ -59,6 +61,11 @@ import {
   type OutputContract, type ConnectorChoice, type ConnectorMode,
   type ToolPermissionMode,
 } from '../types/agentConfig';
+import { Modal, ModalBody, ModalFooter } from '../components/ui/Modal';
+import {
+  changedAdvancedFields, isEssentialField, readBuilderView, writeBuilderView,
+  type BuilderView,
+} from '../lib/agentAdvanced';
 import RevisionEntry from '../components/agents/RevisionEntry';
 import RunAgentDialog from '../components/agents/RunAgentDialog';
 import ShareAgentDialog from '../components/agents/ShareAgentDialog';
@@ -195,7 +202,7 @@ function RevisionHistory({ agentId, onRestored }: {
   /** The board shows the saved config; after a restore it must show the new one. */
   onRestored: (agent: Agent) => void;
 }) {
-  const { restore, pending } = useRestoreRevision(agentId, onRestored);
+  const { restore, pending, dialog } = useRestoreRevision(agentId, onRestored);
   const { data, isLoading } = useQuery({
     queryKey: ['agent-revisions', agentId, INLINE_REVISIONS],
     queryFn: () => logsService.listRevisions(agentId, { limit: INLINE_REVISIONS }),
@@ -226,6 +233,7 @@ function RevisionHistory({ agentId, onRestored }: {
             restoring={pending === rev.number} />
         ))}
       </ol>
+      {dialog}
       <Link
         to={`/agents/${agentId}/history`}
         className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-medium text-primary hover:underline"
@@ -396,6 +404,32 @@ function Toggle({ on, onChange, label, hint }: {
 /** Grants the runtime does not serve (`runtime.UNSERVED_GRANTS`). Empty since
  *  P6 served `shell` — kept so the next unserved grant has a named place. */
 const UNSERVED_TOOLS = new Set<string>([]);
+
+/** Every tool grant the board offers: key, label, hint. One list for All
+ *  settings and for Essentials' "Add a tool", so the two cannot drift. */
+const TOOL_SWITCHES = [
+  ['codeExecution', 'Run Python', 'Sandboxed interpreter for calculation and parsing.'],
+  ['webSearch', 'Web search', 'Look things up it was not given.'],
+  ['scrape', 'Read web pages', 'Fetch and extract from a URL.'],
+  ['fileOps', 'Read and write files', 'Your own files, within the access level set above.'],
+  ['office', 'Make decks, sheets and docs', 'PowerPoint, Excel and Word files, saved where file access allows.'],
+  ['kbWrite', 'Write to knowledge bases', 'Create knowledge bases in your folders and add notes to them. Each write asks first unless the agent runs in Full auto.'],
+  ['media', 'Generate images', 'Billed to your OpenRouter account; saved where file access allows.'],
+  ['publish', 'Publish pages', 'Share a report, page or file by link. Pauses before anything goes public.'],
+  ['browser', 'Use a browser', 'Read JavaScript pages; click and type only on the sites listed below.'],
+  ['rag', 'Knowledge base search', 'Retrieve from your indexed documents.'],
+  ['decisions', 'Decisions', 'Classify, route or rate with a fast decision model (the one picked in Settings). Answers with probabilities.'],
+  ['mcp', 'MCP servers (Plugins)', 'The tools from your connected plugins (MCP servers), using your connectors.'],
+  ['voice', 'Transcribe and speak', 'Transcripts from recordings; audio files from text. Needs file access.'],
+  ['esign', 'E-signatures', 'Send documents out for signature. Pauses before anything goes out.'],
+  ['talk', 'Messaging', 'Read, draft and send on Slack, WhatsApp, Teams, SMS and Telegram.'],
+  ['data', 'Databases', 'Query SQL databases; write only where allowed.'],
+  ['api', 'API calls', 'Call HTTP APIs through one generic caller.'],
+  ['compute', 'Compute', 'Run commands and long jobs on your workspace machine.'],
+  ['shell', 'Code in projects', 'Read, test, commit, open a PR — in its projects below.'],
+  ['subAgents', 'Delegate to other agents', 'Hand whole tasks to agents you have built. Narrow which ones below.'],
+] as const;
+type ToolKey = (typeof TOOL_SWITCHES)[number][0];
 
 /** Why another agent cannot run this one, or null if it can. */
 function delegationBlocker(a: { status?: string; allowUnattended?: boolean }): string | null {
@@ -614,6 +648,15 @@ export default function AgentBuilder() {
   }
   const [running, setRunning] = useState(false);
   const [sharing, setSharing] = useState(false);
+  /* Essentials (the default) or All settings. Remembered per viewer. Both views
+     share `cfg`, so nothing is copied between them and Save sends the same
+     full config either way. */
+  const [view, setView] = useState<BuilderView>(readBuilderView);
+  const [addingTool, setAddingTool] = useState(false);
+  const chooseView = (next: BuilderView) => {
+    setView(next);
+    writeBuilderView(next);
+  };
   if (existing && loadedId !== existing.id) {
     setLoadedId(existing.id);
     setCfg({ ...DEFAULT_AGENT, ...existing });
@@ -650,6 +693,10 @@ export default function AgentBuilder() {
       const first = data && Object.entries(data)[0];
       const errorTab = first && FIELD_TAB[first[0]];
       if (errorTab) setTab(errorTab);
+      // An error on a field Essentials does not show would have nothing on
+      // screen to point at, so the board opens All settings to show it. Not
+      // written to storage: this is the board reacting, not the viewer choosing.
+      if (first && errorTab && !isEssentialField(first[0])) setView('all');
       toast.error(
         first ? `${first[0]}: ${String(Array.isArray(first[1]) ? first[1][0] : first[1])}`
               : 'Could not save this agent.'
@@ -794,6 +841,180 @@ export default function AgentBuilder() {
     return `${existing.runs} runs · ${pct}% handled without you · ₹${existing.spend}`;
   };
 
+  /* ---------- blocks both views draw ----------
+   * Each is written once here and placed in both Essentials and All settings,
+   * so a control cannot exist in one view and drift in the other. */
+
+  // How many hidden settings differ, counted against what a fresh board starts
+  // at (the account's own defaults for a new agent, the shipped ones otherwise).
+  const hiddenChanged = changedAdvancedFields(
+    cfg,
+    isNew ? { ...DEFAULT_AGENT, ...accountDefaults() } : DEFAULT_AGENT,
+  );
+
+  const modelPickers = (
+    <>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Knob path="provider" label="Provider">
+          <Select
+            value={displayProvider}
+            onChange={(slug) => {
+              const p = providers.find((x) => x.slug === slug);
+              setCfg((c) => ({ ...c, provider: slug, model: p?.models?.[0]?.value ?? '' }));
+            }}
+            placeholder="Choose a provider"
+            icon={<Layers className="w-4 h-4" />}
+            options={providers.map((p) => ({ value: p.slug, label: p.name }))}
+          />
+        </Knob>
+        <Knob path="model" label="Model">
+          <Select
+            value={effectiveModel}
+            onChange={(v) => set('model', v)}
+            placeholder="Choose a model"
+            icon={<Cpu className="w-4 h-4" />}
+            showSearch={(activeProvider?.models?.length ?? 0) > 8}
+            options={(activeProvider?.models ?? []).map((mo) => ({
+              value: mo.value,
+              label: mo.is_free ? `${mo.name} · free` : mo.name,
+              is_free: mo.is_free,
+            }))}
+          />
+        </Knob>
+      </div>
+      {existing?.model_status === 'retired' && existing.model === effectiveModel && (
+        <p role="alert" className="text-[12px] text-destructive">
+          This model has been retired, so runs use the platform fallback
+          {fallbackModel ? ` (${fallbackModel})` : ''} until you pick another.
+          Pick another model and save.
+        </p>
+      )}
+    </>
+  );
+
+  const connectionsKnob = (
+    <Knob path="connectors" label="Connections"
+          hint={cfg.connectors.length ? `${cfg.connectors.length} selected` : undefined}>
+      <MultiSelect
+        options={connectorOptions.map((c) => ({ id: String(c.id), label: c.label }))}
+        value={cfg.connectors.map((c) => String(connectorId(c)))}
+        onChange={(v) => set('connectors', reconcileConnectors(cfg.connectors, v))}
+        placeholder="Every connection — narrow it to what this agent needs"
+        searchPlaceholder="Search connections…"
+        emptyText="None yet — add one on Connections first."
+      />
+      {/* The second half of the choice, and the one that was missing:
+          picking a mailbox used to hand over sending and deleting
+          along with reading, because the connection was the finest
+          thing there was to pick. */}
+      {cfg.connectors.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {cfg.connectors.map((choice) => {
+            const id = connectorId(choice);
+            const label = connectorOptions.find((c) => c.id === id)?.label
+              ?? `Connection ${id}`;
+            return (
+              <div key={id}
+                className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-card">
+                <span className="text-[12px] font-medium mr-auto">{label}</span>
+                {(['all', 'read', 'selected'] as ConnectorMode[]).map((mode) => (
+                  <button key={mode} type="button"
+                    onClick={() => set('connectors', setConnectorMode(cfg.connectors, id, mode))}
+                    title={CONNECTOR_MODE_COPY[mode].hint}
+                    className={`h-6 px-2 rounded border text-[11px] transition-colors ${
+                      connectorMode(choice) === mode
+                        ? 'border-primary text-primary bg-primary/10'
+                        : 'border-input text-muted-foreground hover:text-foreground'
+                    }`}>
+                    {CONNECTOR_MODE_COPY[mode].label}
+                  </button>
+                ))}
+                {connectorMode(choice) === 'selected' && (
+                  <div className="basis-full">
+                    <ConnectorToolPicker
+                      serverId={id}
+                      value={typeof choice === 'number' ? [] : choice.tools}
+                      onChange={(tools) => set('connectors', setConnectorTools(cfg.connectors, id, tools))}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <p className="px-2 text-[11px] text-muted-foreground">
+            {CONNECTOR_MODE_COPY.read.hint} {CONNECTOR_MODE_COPY.selected.hint}
+          </p>
+        </div>
+      )}
+    </Knob>
+  );
+
+  const approvalKnob = (
+    <Knob path="autonomy" label="Approval">
+      <Choice<Autonomy>
+        value={cfg.autonomy} onChange={(v) => set('autonomy', v)}
+        options={(Object.keys(AUTONOMY_COPY) as Autonomy[]).map((id) => ({
+          id, label: AUTONOMY_COPY[id].label, hint: AUTONOMY_COPY[id].hint,
+        }))} />
+    </Knob>
+  );
+
+  const spendCapKnob = (
+    <Knob path="spendCapRupees" label="Spend cap" hint="per month">
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">₹</span>
+        <input type="number" min={0} step={50} value={cfg.spendCapRupees}
+          onChange={(e) => set('spendCapRupees', Number(e.target.value))}
+          className="w-full h-11 md:h-9 px-2 rounded-md border border-input bg-background text-sm" />
+      </div>
+    </Knob>
+  );
+
+  // Schedules and "can run automatically", the same in both views.
+  const scheduleBlock = (
+    <>
+      {/* Schedules live on rows the Schedules page owns, listed here
+          through the same modal — not a second editor writing back a
+          single cron field, which is what used to delete rows added
+          anywhere else on every save. */}
+      {isNew || agentId == null ? (
+        <p className="px-2 text-[12px] text-muted-foreground">
+          Save the agent first to add a schedule.
+        </p>
+      ) : (
+        <AgentSchedules
+          agentId={agentId}
+          allowUnattended={cfg.allowUnattended}
+          hasPrompt={Boolean((cfg.brief || '').trim())}
+        />
+      )}
+      <Knob path="allowUnattended" label="">
+        <Toggle on={cfg.allowUnattended} onChange={(v) => set('allowUnattended', v)}
+          label="Can run automatically"
+          hint="Needed for schedules and when another agent calls it." />
+      </Knob>
+    </>
+  );
+
+  /** One tool's switch: a toggle, or (for a grant nothing serves yet) a row
+   *  shown but off, so an agent that already has it on can turn it off. */
+  const toolSwitch = (k: ToolKey, label: string, hint: string) =>
+    UNSERVED_TOOLS.has(k) ? (
+      // Nothing serves this grant yet (`runtime.UNSERVED_GRANTS`),
+      // so a working switch would promise a tool no run is handed.
+      // Shown, not hidden, so an agent that already has it on can
+      // see it and turn it off.
+      <div className="flex items-start gap-2.5 py-1 opacity-60">
+        <Switch checked={cfg.tools[k]} onChange={(v) => { if (!v) setTool(k, false); }} label={label} />
+        <span>
+          <span className="block text-[13px]">{label}</span>
+          <span className="block text-[12px] text-muted-foreground">Not available yet — runs are never given this tool.</span>
+        </span>
+      </div>
+    ) : (
+      <Toggle on={cfg.tools[k]} onChange={(v) => setTool(k, v)} label={label} hint={hint} />
+    );
+
   return (
     <div className="h-full flex flex-col">
       {/* Menu button is in-flow (same 40px slot as every title bar) so it
@@ -883,30 +1104,127 @@ export default function AgentBuilder() {
         </div>
       </header>
 
+      {/* Essentials is the default: the few things most agents need, on one
+          page. All settings is the full board, grouped into tabs. Both share
+          the same state and the same Save. */}
+      <div className="shrink-0 px-4 md:px-6 pt-3">
+        <div role="group" aria-label="Settings view"
+          className="inline-flex rounded-md border border-border bg-card p-0.5">
+          {([
+            ['essentials', 'Essentials'],
+            ['all', 'All settings'],
+          ] as const).map(([id, label]) => (
+            <button key={id} type="button"
+              aria-pressed={view === id}
+              onClick={() => chooseView(id)}
+              className={cn(
+                'min-h-[44px] md:min-h-0 md:h-8 px-3.5 rounded text-[13px] font-medium transition-colors',
+                view === id
+                  ? 'bg-primary-subtle text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Creation lives in the /agents/new wizard; this page is the full
           settings board, grouped into a few tabs so a long list of sections
           doesn't have to be scrolled through in one pass. */}
-      <div className="flex gap-4 overflow-x-auto border-b border-border px-4 md:px-6 shrink-0">
-        {TABS.filter((t) => t.id !== 'history' || (!isNew && agentId != null)).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'shrink-0 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors',
-              tab === t.id
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {view === 'all' && (
+        <div className="flex gap-4 overflow-x-auto border-b border-border px-4 md:px-6 shrink-0 mt-3">
+          {TABS.filter((t) => t.id !== 'history' || (!isNew && agentId != null)).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'shrink-0 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors',
+                tab === t.id
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-muted">
-        {/* Single column on phones; two across on desktop so the board uses
+        {view === 'essentials' ? (
+          // One column at every width: the form is short on purpose.
+          <div className="max-w-2xl mx-auto space-y-4">
+            {hiddenChanged.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border bg-card px-4 py-3 text-[13px] text-muted-foreground">
+                <span>
+                  {hiddenChanged.length} other {hiddenChanged.length === 1 ? 'setting is' : 'settings are'} changed.
+                </span>
+                <button type="button" onClick={() => chooseView('all')}
+                  className="min-h-[44px] md:min-h-0 md:h-7 px-3 rounded-md border border-border text-[13px] font-medium text-foreground hover:bg-secondary">
+                  Show all settings
+                </button>
+              </div>
+            )}
+
+            <Section icon={Tag} title="Name and brief">
+              <Knob path="name" label="Name">
+                <input value={cfg.name} onChange={(e) => set('name', e.target.value)}
+                  placeholder="Finance agent"
+                  className="w-full h-11 md:h-9 px-3 rounded-md border border-input bg-background text-sm" />
+              </Knob>
+              <Knob path="brief" label="What should it do?" hint="one or two sentences">
+                <textarea value={cfg.brief} onChange={(e) => set('brief', e.target.value)}
+                  rows={3} placeholder="Reads invoices from Gmail and chases anything overdue…"
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none" />
+              </Knob>
+            </Section>
+
+            <Section icon={Cpu} title="Model">
+              {modelPickers}
+            </Section>
+
+            <Section icon={Wrench} title="What it can use"
+              hint="Tools and connections">
+              <div className="flex flex-wrap gap-1.5">
+                {TOOL_SWITCHES.filter(([k]) => cfg.tools[k]).map(([k, label]) => (
+                  <span key={k}
+                    className="inline-flex items-center gap-1 min-h-[44px] md:min-h-7 pl-3 pr-1 rounded-md border border-border bg-card text-[13px]">
+                    {label}
+                    <button type="button" onClick={() => setTool(k, false)}
+                      aria-label={`Remove ${label}`}
+                      className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] md:min-h-6 md:min-w-6 rounded-sm text-muted-foreground hover:text-foreground">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+                {!TOOL_SWITCHES.some(([k]) => cfg.tools[k]) && (
+                  <span className="text-[12px] text-muted-foreground py-2">
+                    No tools turned on. It can only write replies.
+                  </span>
+                )}
+              </div>
+              <button type="button" onClick={() => setAddingTool(true)}
+                className="inline-flex items-center gap-1.5 min-h-[44px] md:min-h-8 px-3 rounded-md border border-border text-[13px] font-medium hover:bg-secondary">
+                <Plus className="w-4 h-4" />
+                Add a tool
+              </button>
+              {connectionsKnob}
+            </Section>
+
+            <Section icon={ShieldCheck} title="Safety">
+              {approvalKnob}
+              {spendCapKnob}
+            </Section>
+
+            <Section icon={Clock} title="When it runs">
+              {scheduleBlock}
+            </Section>
+          </div>
+        ) : (
+        /* Single column on phones; two across on desktop so the board uses
             the width instead of centering a narrow strip in it. Fragments
-            flatten, so each Section below is a grid item directly. */}
+            flatten, so each Section below is a grid item directly. */
         <div className="max-w-6xl mx-auto space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
 
             {tab === 'basics' && <>
@@ -914,7 +1232,7 @@ export default function AgentBuilder() {
               <Knob path="name" label="Name">
                 <input value={cfg.name} onChange={(e) => set('name', e.target.value)}
                   placeholder="Finance agent"
-                  className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm" />
+                  className="w-full h-11 md:h-9 px-3 rounded-md border border-input bg-background text-sm" />
               </Knob>
               <Knob path="brief" label="Brief" hint="What it is for, in one or two sentences">
                 <textarea value={cfg.brief} onChange={(e) => set('brief', e.target.value)}
@@ -947,41 +1265,7 @@ export default function AgentBuilder() {
             </Section>
 
             <Section icon={Cpu} title="Model">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <Knob path="provider" label="Provider">
-                  <Select
-                    value={displayProvider}
-                    onChange={(slug) => {
-                      const p = providers.find((x) => x.slug === slug);
-                      setCfg((c) => ({ ...c, provider: slug, model: p?.models?.[0]?.value ?? '' }));
-                    }}
-                    placeholder="Choose a provider"
-                    icon={<Layers className="w-4 h-4" />}
-                    options={providers.map((p) => ({ value: p.slug, label: p.name }))}
-                  />
-                </Knob>
-                <Knob path="model" label="Model">
-                  <Select
-                    value={effectiveModel}
-                    onChange={(v) => set('model', v)}
-                    placeholder="Choose a model"
-                    icon={<Cpu className="w-4 h-4" />}
-                    showSearch={(activeProvider?.models?.length ?? 0) > 8}
-                    options={(activeProvider?.models ?? []).map((mo) => ({
-                      value: mo.value,
-                      label: mo.is_free ? `${mo.name} · free` : mo.name,
-                      is_free: mo.is_free,
-                    }))}
-                  />
-                </Knob>
-              </div>
-              {existing?.model_status === 'retired' && existing.model === effectiveModel && (
-                <p role="alert" className="text-[12px] text-destructive">
-                  This model has been retired, so runs use the platform fallback
-                  {fallbackModel ? ` (${fallbackModel})` : ''} until you pick another.
-                  Pick another model and save.
-                </p>
-              )}
+              {modelPickers}
               {/* Always rendered, including for a model with no effort
                   control — see `EffortPicker`. Hiding it meant an existing
                   agent on a non-reasoning model showed no sign the setting
@@ -1066,16 +1350,16 @@ export default function AgentBuilder() {
               <Knob path="maxRunSeconds" label="Time limit" hint="per run">
                 <div className="flex items-center gap-2">
                   <Timer className="w-4 h-4 text-muted-foreground" />
-                  <input type="number" min={1} max={120} step={1}
+                  <input type="number" min={1} max={480} step={1}
                     value={Math.round(cfg.maxRunSeconds / 60)}
                     onChange={(e) => set('maxRunSeconds',
-                      Math.max(1, Math.min(120, Number(e.target.value))) * 60)}
+                      Math.max(1, Math.min(480, Number(e.target.value))) * 60)}
                     className="w-full h-9 px-2 rounded-md border border-input bg-background text-sm" />
                   <span className="text-sm text-muted-foreground shrink-0">minutes</span>
                 </div>
               </Knob>
               <div className="flex flex-wrap gap-1.5">
-                {[5, 15, 30, 60].map((m) => (
+                {[5, 15, 30, 60, 120, 480].map((m) => (
                   <button key={m} type="button"
                     onClick={() => set('maxRunSeconds', m * 60)}
                     className={`h-7 px-2.5 rounded-md border text-[12px] transition-colors ${
@@ -1083,7 +1367,7 @@ export default function AgentBuilder() {
                         ? 'border-primary text-primary bg-primary/10'
                         : 'border-input text-muted-foreground hover:text-foreground'
                     }`}>
-                    {m} min
+                    {m >= 60 ? `${m / 60} h` : `${m} min`}
                   </button>
                 ))}
               </div>
@@ -1171,43 +1455,9 @@ export default function AgentBuilder() {
                 <Link to="/tools" className="underline text-primary">Tools library</Link> for details — same groups as below. Add-on tools appear after you connect them on{' '}
                 <Link to="/connections" className="underline text-primary">Connections</Link>.
               </p>
-              {([
-                ['codeExecution', 'Run Python', 'Sandboxed interpreter for calculation and parsing.'],
-                ['webSearch', 'Web search', 'Look things up it was not given.'],
-                ['scrape', 'Read web pages', 'Fetch and extract from a URL.'],
-                ['fileOps', 'Read and write files', 'Your own files, within the access level set above.'],
-                ['office', 'Make decks, sheets and docs', 'PowerPoint, Excel and Word files, saved where file access allows.'],
-                ['media', 'Generate images', 'Billed to your OpenRouter account; saved where file access allows.'],
-                ['publish', 'Publish pages', 'Share a report, page or file by link. Pauses before anything goes public.'],
-                ['browser', 'Use a browser', 'Read JavaScript pages; click and type only on the sites listed below.'],
-                ['rag', 'Knowledge base search', 'Retrieve from your indexed documents.'],
-                ['decisions', 'Decisions', 'Classify, route or rate with a fast decision model (the one picked in Settings). Answers with probabilities.'],
-                ['mcp', 'MCP servers (Plugins)', 'The tools from your connected plugins (MCP servers), using your connectors.'],
-                ['voice', 'Transcribe and speak', 'Transcripts from recordings; audio files from text. Needs file access.'],
-                ['esign', 'E-signatures', 'Send documents out for signature. Pauses before anything goes out.'],
-                ['talk', 'Messaging', 'Read, draft and send on Slack, WhatsApp, Teams, SMS and Telegram.'],
-                ['data', 'Databases', 'Query SQL databases; write only where allowed.'],
-                ['api', 'API calls', 'Call HTTP APIs through one generic caller.'],
-                ['compute', 'Compute', 'Run commands and long jobs on your workspace machine.'],
-                ['shell', 'Code in projects', 'Read, test, commit, open a PR — in its projects below.'],
-                ['subAgents', 'Delegate to other agents', 'Hand whole tasks to agents you have built. Narrow which ones below.'],
-              ] as const).map(([k, label, hint]) => (
+              {TOOL_SWITCHES.map(([k, label, hint]) => (
                 <Knob key={k} path={`tools.${k}`} label="">
-                  {UNSERVED_TOOLS.has(k) ? (
-                    // Nothing serves this grant yet (`runtime.UNSERVED_GRANTS`),
-                    // so a working switch would promise a tool no run is handed.
-                    // Shown, not hidden, so an agent that already has it on can
-                    // see it and turn it off.
-                    <div className="flex items-start gap-2.5 py-1 opacity-60">
-                      <Switch checked={cfg.tools[k]} onChange={(v) => { if (!v) setTool(k, false); }} label={label} />
-                      <span>
-                        <span className="block text-[13px]">{label}</span>
-                        <span className="block text-[12px] text-muted-foreground">Not available yet — runs are never given this tool.</span>
-                      </span>
-                    </div>
-                  ) : (
-                    <Toggle on={cfg.tools[k]} onChange={(v) => setTool(k, v)} label={label} hint={hint} />
-                  )}
+                  {toolSwitch(k, label, hint)}
                 </Knob>
               ))}
               <p className="px-2 text-[11px] text-muted-foreground">
@@ -1216,60 +1466,7 @@ export default function AgentBuilder() {
             </Section>
 
             <Section icon={Plug} title="Context it is given">
-              <Knob path="connectors" label="Connections"
-                    hint={cfg.connectors.length ? `${cfg.connectors.length} selected` : undefined}>
-                <MultiSelect
-                  options={connectorOptions.map((c) => ({ id: String(c.id), label: c.label }))}
-                  value={cfg.connectors.map((c) => String(connectorId(c)))}
-                  onChange={(v) => set('connectors', reconcileConnectors(cfg.connectors, v))}
-                  placeholder="Every connection — narrow it to what this agent needs"
-                  searchPlaceholder="Search connections…"
-                  emptyText="None yet — add one on Connections first."
-                />
-                {/* The second half of the choice, and the one that was missing:
-                    picking a mailbox used to hand over sending and deleting
-                    along with reading, because the connection was the finest
-                    thing there was to pick. */}
-                {cfg.connectors.length > 0 && (
-                  <div className="mt-2 space-y-1.5">
-                    {cfg.connectors.map((choice) => {
-                      const id = connectorId(choice);
-                      const label = connectorOptions.find((c) => c.id === id)?.label
-                        ?? `Connection ${id}`;
-                      return (
-                        <div key={id}
-                          className="flex flex-wrap items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-card">
-                          <span className="text-[12px] font-medium mr-auto">{label}</span>
-                          {(['all', 'read', 'selected'] as ConnectorMode[]).map((mode) => (
-                            <button key={mode} type="button"
-                              onClick={() => set('connectors', setConnectorMode(cfg.connectors, id, mode))}
-                              title={CONNECTOR_MODE_COPY[mode].hint}
-                              className={`h-6 px-2 rounded border text-[11px] transition-colors ${
-                                connectorMode(choice) === mode
-                                  ? 'border-primary text-primary bg-primary/10'
-                                  : 'border-input text-muted-foreground hover:text-foreground'
-                              }`}>
-                              {CONNECTOR_MODE_COPY[mode].label}
-                            </button>
-                          ))}
-                          {connectorMode(choice) === 'selected' && (
-                            <div className="basis-full">
-                              <ConnectorToolPicker
-                                serverId={id}
-                                value={typeof choice === 'number' ? [] : choice.tools}
-                                onChange={(tools) => set('connectors', setConnectorTools(cfg.connectors, id, tools))}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <p className="px-2 text-[11px] text-muted-foreground">
-                      {CONNECTOR_MODE_COPY.read.hint} {CONNECTOR_MODE_COPY.selected.hint}
-                    </p>
-                  </div>
-                )}
-              </Knob>
+              {connectionsKnob}
               {grantedTools.length > 0 && (
                 <Knob path="toolScope" label="Which tools"
                       hint={cfg.toolScope.length ? `${cfg.toolScope.length} of ${grantedTools.length}` : 'all of them'}>
@@ -1406,36 +1603,11 @@ export default function AgentBuilder() {
 
             {tab === 'automation' && <>
             <Section icon={Clock} title="When it runs">
-              {/* Schedules live on rows the Schedules page owns, listed here
-                  through the same modal — not a second editor writing back a
-                  single cron field, which is what used to delete rows added
-                  anywhere else on every save. */}
-              {isNew || agentId == null ? (
-                <p className="px-2 text-[12px] text-muted-foreground">
-                  Save the agent first to add a schedule.
-                </p>
-              ) : (
-                <AgentSchedules
-                  agentId={agentId}
-                  allowUnattended={cfg.allowUnattended}
-                  hasPrompt={Boolean((cfg.brief || '').trim())}
-                />
-              )}
-              <Knob path="allowUnattended" label="">
-                <Toggle on={cfg.allowUnattended} onChange={(v) => set('allowUnattended', v)}
-                  label="Can run automatically"
-                  hint="Needed for schedules and when another agent calls it." />
-              </Knob>
+              {scheduleBlock}
             </Section>
 
             <Section icon={ShieldCheck} title="Safety">
-              <Knob path="autonomy" label="Autonomy">
-                <Choice<Autonomy>
-                  value={cfg.autonomy} onChange={(v) => set('autonomy', v)}
-                  options={(Object.keys(AUTONOMY_COPY) as Autonomy[]).map((id) => ({
-                    id, label: AUTONOMY_COPY[id].label, hint: AUTONOMY_COPY[id].hint,
-                  }))} />
-              </Knob>
+              {approvalKnob}
               {/* A fact, not a setting. This was a three-way choice whose two
                   wider values the sandbox could never have honoured — it runs
                   as a sidecar container on an internal-only network — so the
@@ -1459,14 +1631,7 @@ export default function AgentBuilder() {
                     ? 'Pings you when it pauses, then again after an hour and a day.'
                     : "No pings for this agent — it still waits in your Inbox and in the daily summary."} />
               </Knob>
-              <Knob path="spendCapRupees" label="Spend cap" hint="per month">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">₹</span>
-                  <input type="number" min={0} step={50} value={cfg.spendCapRupees}
-                    onChange={(e) => set('spendCapRupees', Number(e.target.value))}
-                    className="w-full h-9 px-2 rounded-md border border-input bg-background text-sm" />
-                </div>
-              </Knob>
+              {spendCapKnob}
             </Section>
             </>}
 
@@ -1545,6 +1710,7 @@ export default function AgentBuilder() {
             </>}
 
         </div>
+        )}
       </div>
 
       <div className="border-t border-border bg-muted px-4 md:px-6 py-3 flex items-center gap-2 shrink-0">
@@ -1559,6 +1725,29 @@ export default function AgentBuilder() {
           Cancel
         </button>
       </div>
+      {addingTool && (
+        <Modal onClose={() => setAddingTool(false)} label="Add a tool">
+          <ModalBody>
+            <p className="mb-3 text-[12px] text-muted-foreground">
+              Turn on the tools this agent may use. These are the same switches as
+              All settings, under Tools &amp; access.
+            </p>
+            <div className="space-y-1">
+              {TOOL_SWITCHES.map(([k, label, hint]) => (
+                <div key={k} className="px-2">
+                  {toolSwitch(k, label, hint)}
+                </div>
+              ))}
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <button type="button" onClick={() => setAddingTool(false)}
+              className="min-h-[44px] md:min-h-0 md:h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90">
+              Done
+            </button>
+          </ModalFooter>
+        </Modal>
+      )}
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete ${cfg.name}?`}

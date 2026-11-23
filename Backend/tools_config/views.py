@@ -48,6 +48,11 @@ GRANT_META: dict[str, dict[str, str]] = {
         'description': 'Retrieve from your indexed documents and knowledge bases.',
         'icon': 'book',
     },
+    'kbWrite': {
+        'label': 'Knowledge writes',
+        'description': 'Create knowledge bases in your files and add documents to them. Asks first unless full auto.',
+        'icon': 'book',
+    },
     'codeExecution': {
         'label': 'Code Execution',
         'description': 'Run Python in the sandboxed interpreter.',
@@ -187,6 +192,7 @@ LIBRARY_GROUPS: dict[str, tuple[str, ...]] = {
     'scrape': ('scrape_webpage', 'read_url', 'download_file'),
     'rag': ('list_knowledge_bases', 'knowledge_base_search', 'keyword_search',
             'list_documents', 'read_document', 'extract_data', 'ocr_document'),
+    'kbWrite': ('create_knowledge_base', 'add_to_knowledge_base'),
     'codeExecution': ('execute_python', 'run_python_on_files'),
     'office': ('render_deck', 'render_workbook', 'render_document', 'render_pdf',
                'edit_workbook', 'render_diagram'),
@@ -239,7 +245,7 @@ LIBRARY_GROUPS: dict[str, tuple[str, ...]] = {
 #: permissions screen mirrors; chat-only groups (delegation/authoring/memory)
 #: and everything always-on below them.
 CATEGORY_ORDER = [
-    'webSearch', 'scrape', 'rag', 'codeExecution', 'fileOps', 'office', 'media',
+    'webSearch', 'scrape', 'rag', 'kbWrite', 'codeExecution', 'fileOps', 'office', 'media',
     'publish', 'browser', 'voice', 'esign', 'talk', 'data', 'api', 'compute',
     'decisions', 'subAgents', 'mcp', 'shell',
     'delegation', 'authoring', 'memory',
@@ -249,7 +255,7 @@ CATEGORY_ORDER = [
 #: Grants that mirror a toggle in the agent builder. Sent to the client so the
 #: split between "granted per agent" and "always on" is decided here, next to
 #: GRANT_TOOLS, rather than by a literal array in the page.
-GRANT_CATEGORIES = ['webSearch', 'scrape', 'rag', 'codeExecution', 'fileOps',
+GRANT_CATEGORIES = ['webSearch', 'scrape', 'rag', 'kbWrite', 'codeExecution', 'fileOps',
                     'office', 'media', 'publish', 'browser', 'voice', 'esign',
                     'talk', 'data', 'api', 'compute', 'decisions', 'shell', 'subAgents',
                     'mcp']

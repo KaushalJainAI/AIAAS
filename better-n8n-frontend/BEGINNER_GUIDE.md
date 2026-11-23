@@ -11,13 +11,28 @@ drag-and-drop canvas, which is gone. The app is about **chat** and **agents**.
 
 ## What the app does
 
-You sign in and land on **Ask** (the chat). From the menu you can reach:
+You sign in and land on **Ask** (the chat). The menu has five places. Three of
+them are hubs: a strip of tabs above the page (`components/layout/HubTabs.tsx`)
+switches between their sections. Every section still has its own address.
 
-| Menu | Route | Page file | What it is |
+| Menu | Sections (tabs) |
+|---|---|
+| Ask | none |
+| Activity | none |
+| Agents | My agents, Explore, Schedules, Evals |
+| Library | Files, Apps, Team knowledge, Studio |
+| Connect | Connections, Keys, Tools, Skills |
+
+Settings and Profile sit at the foot of the sidebar (and in the phone's More
+drawer). **Ctrl+K** (⌘K on a Mac), or the Search button, opens one search over
+every place, setting, recent chat and agent (`components/command/CommandMenu.tsx`).
+The bell opens your notifications (`components/notifications/NotificationsPanel.tsx`).
+
+| Page | Route | Page file | What it is |
 |---|---|---|---|
 | Ask | `/ai-chat` | `features/chat/AIChat.tsx` → `features/chat/components/StandaloneChat.tsx` | Chat with the assistant |
 | Activity | `/runs` | `pages/Runs.tsx` | Every agent run, and runs waiting for your approval |
-| Automations | `/agents`, `/agents/:id` | `pages/Agents.tsx`, `pages/AgentBuilder.tsx` | Your saved agents, and the editor for one |
+| Agents | `/agents`, `/agents/:id` | `pages/Agents.tsx`, `pages/AgentBuilder.tsx` | Your saved agents, and the editor for one |
 | Explore | `/templates` | `pages/Templates.tsx` | Ready-made agents and packs to install |
 | Tools | `/tools` | `pages/Tools.tsx` | Switch tools on and off |
 | Schedules | `/schedules` | `pages/Schedules.tsx` | When agents run automatically |
@@ -25,9 +40,9 @@ You sign in and land on **Ask** (the chat). From the menu you can reach:
 | Skills | `/skills` | `pages/Skills.tsx` | Reusable instruction snippets |
 | Evals | `/evals` | `pages/Evals.tsx` | Testing how good an agent is |
 | Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack, MCP servers |
-| Credentials | `/credentials` | `pages/Credentials.tsx` | Saved API keys |
+| Keys | `/credentials` | `pages/Credentials.tsx` | Saved API keys |
 | Apps | `/apps`, `/apps/:appId` | `pages/Apps.tsx`, `components/apps/AppFrame.tsx` | The launcher, and the full-screen Docs, Sheets, Slides, code and PDF apps |
-| Documents | `/documents` | `pages/Documents.tsx` | Your files, folders and knowledge bases |
+| Files | `/documents` | `pages/Documents.tsx` | Your files, folders and knowledge bases |
 | Team knowledge | `/team` (also `/solutions`) | `pages/Solutions.tsx`, `components/solutions/` | What your team has solved. See below |
 | Dashboards | `/dashboards` | `pages/Dashboards.tsx` | Live tiles an agent saved |
 | Pages | `/pages` | `pages/Pages.tsx` | Pages you published by link |
@@ -65,12 +80,15 @@ src/
 │   └── chat/             AIChat.tsx, components/, hooks/, lib/
 ├── components/           pieces of screens, grouped by feature
 │   ├── ui/               shared building blocks: Button, Modal, Switch, Select, EmptyState...
-│   ├── layout/           Sidebar, MobileTopBar, MobileBottomNav, PageHeader
-│   │                     (menu items: lib/navigation.ts)
+│   ├── layout/           Sidebar, MobileTopBar, MobileBottomNav, PageHeader, HubTabs
+│   │                     (menu items and hub tabs: lib/navigation.ts)
+│   ├── command/          the Ctrl+K search (CommandMenu; rules in lib/commandMenu.ts)
+│   ├── notifications/    the bell's panel (NotificationsPanel)
 │   ├── content/          markdown, charts, question cards, media previews
 │   ├── plan/             the assistant's plan (PlanView, PlanDock)
 │   ├── orchestration/    the team lanes when several agents work at once (PlanPanel)
 │   ├── files/            file cards and the shared file preview (PreviewFrame)
+│   ├── pane/             the side pane with tabs (SidePane, PaneTabStrip, paneTabs in lib/)
 │   ├── apps/             the document apps: AppFrame, AppBar, FileMenu, one editor per file type.
 │   │                     Heavy editors (Univer, TipTap, CodeMirror, pdf.js) load lazily.
 │   │                     Edits save by themselves. There is no Save button.
@@ -160,6 +178,69 @@ handlers. Smaller pieces draw the screen from the data and callbacks they are gi
 | `features/chat/components/CommandPalette.tsx`, `CommandCard.tsx` | The `/` command menu and its results |
 | `features/chat/components/ThinkingTimer.tsx` | The ticking timer, kept apart so it does not redraw everything |
 
+## The side pane (`components/pane/`)
+
+The side pane shows a file next to the chat. It can hold several things at once,
+as tabs. Opening something that is already open switches to its tab.
+
+A tab can be one of these kinds:
+
+| Kind | What it shows | How it gets there |
+|---|---|---|
+| `file` | A file from your library (PDF, Word, sheet, code, and so on) | A file path or a file card in a reply, or a file the assistant just created |
+| `html` | An HTML artifact the assistant wrote. Scripts run, but the page has no access to your account and no network | The **Open in pane** button on the artifact |
+| `media` | A picture or a video from this app's own server, at full size (pinch to zoom on a phone) | Clicking a picture or video in a reply. Remote pictures from the web still open in a new browser tab, as links |
+| `browser` | What the assistant's browser did in one run: the address, a picture of the page, each call with its steps (✓ or ✗). When the page needs you (a code, a login), a card says so, with **Open the live page** and **I'm done** | The **Browser · <host>** chip under a reply that browsed, or the same chip on the runs page. While a reply is still being written, the tab says "The assistant is using this page" |
+| `link` | A link previewed before you open it: its title, a picture, and the start of its text, with **Open in new tab** | The **Preview** icon beside an outside link in a reply. Shown on a desktop, and only when the server has a browser |
+
+The Browser tab's picture is the latest call's. Tap a call in the list to see its
+picture instead. A picture is kept for a while, so an old one may say "This
+picture has expired." **Watch live / take over** opens the provider's live view
+in a new browser tab. It is never shown inside this app. A browser tab is not
+kept across a reload. The chip under the reply opens it again, from the calls saved with that reply.
+
+A new file the assistant creates, or the assistant's first browser call in a reply,
+can open in the pane by itself. It only does this for the first such item of a
+reply, only on a desktop (never on a phone), and not after you have closed the
+pane during that reply. Turn it off under **Chat settings**, "Open new files
+beside the chat" (on by default, saved in this browser).
+
+On a wide desktop, the team's plan rail on the right folds into its small
+pill when the pane leaves the chat less than 420px of room. The pill still opens
+the team.
+
+| File | What it is |
+|---|---|
+| `components/pane/SidePane.tsx` | The pane itself: width, drag handle, Escape, the phone Back button. Exports `MIN_PAGE_WIDTH` |
+| `components/pane/PaneTabStrip.tsx` | The row of tabs. It draws what it is given and reports clicks. Keeps the active tab in view, and takes Left and Right arrows, Delete, and a phone swipe down |
+| `components/pane/PaneTabMenu.tsx` | The ⋯ menu: close, close others, close to the right, reopen |
+| `components/pane/PaneBody.tsx` | The body of the active tab only (file, html, media, browser or link). Inactive tabs hold no live view |
+| `components/pane/BodyHeader.tsx` | The title row and hide button every body shares |
+| `components/pane/BrowserTabBody.tsx` | The Browser tab: address row, the hand-off card, Watch live, the picture, and the list of calls. Takes its data as props and calls back |
+| `components/pane/BrowserPicture.tsx` | One browser picture, loaded with the login token, with a plain word for each way it can be missing |
+| `components/pane/NeedsUserCard.tsx` | The "The assistant needs you on <host>" card. Shared by the Browser tab and the chat reply |
+| `components/pane/BrowserChip.tsx` | The "Browser · <host>" chip. It opens a run's Browser tab, and draws nothing outside a pane |
+| `components/pane/LinkTabBody.tsx` | The Link tab: the previewed page's title, picture and text. Each link is previewed once per session |
+| `components/pane/LinkPreviewButton.tsx` | The Preview icon beside an outside link. Draws nothing unless the pane is open, the screen is desktop-sized and the server has a browser |
+| `components/pane/paneState.ts` | The React context (`usePane()`) and the sessionStorage copy. Only file tabs are saved |
+| `lib/paneTabs.ts` | The tab rules as a plain reducer, with no React. Tested in `lib/__tests__/` |
+| `lib/browserView.ts` | Reads a browser call from the stream or a saved message, and names its host, chip and hand-off. Plain functions, tested |
+| `lib/browserPreview.ts` | The plain sentence for each way a link preview can fail (429, 404, 400, 502) |
+| `api/browser.ts` | The browser's calls: status, link preview, and a picture. The only file that talks to `/api/browser/` |
+| `hooks/useBrowserAvailable.ts` | Asks once per session whether the server has a browser. A yes is kept; a failed check is asked again next time |
+| `features/chat/lib/autoOpen.ts` | The rule for opening a new file, or the first browser call, by itself. A plain function, tested |
+| `features/chat/lib/browserRuns.ts` | The names a turn's browser tab is kept under, so the same tab comes back when it is opened again |
+| `features/chat/components/AutoOpenFiles.tsx` | Wires that rule to the chat's file and browser lists, and keeps the live Browser tab up to date. It draws nothing |
+
+`components/files/FilePreviewProvider.tsx` only re-exports `SidePane`, so older
+imports still work. `useFilePreview()` still opens a file, now as a tab.
+
+Tabs are kept per conversation in `sessionStorage`. They come back hidden, so a
+reload never covers the chat. Escape and the header × hide the pane but keep the
+tabs. The tab × closes one tab. On a phone the pane is a full-screen page, and
+the Back button closes it. On a desktop, **Pop out** opens the file's own page in
+a new browser tab.
+
 ## Team knowledge (`/team`)
 
 `/team` (also `/solutions`) is where a team keeps the problems it has already
@@ -199,8 +280,9 @@ and `components/solutions/`.
 1. Create `src/pages/MyPage.tsx`.
 2. In `App.tsx`, add `const MyPage = lazyPage(() => import('./pages/MyPage'));` and
    `<Route path="/my-page" element={<MyPage />} />`.
-3. Add it to `lib/navigation.ts`. That one list feeds the sidebar, the desktop top
-   bar and the mobile tab bar.
+3. Add it to `lib/navigation.ts`, usually as a new tab of a hub (`tabs`), not a new
+   menu item. That one file feeds the sidebar, the hub tab strip, the phone bar and
+   Ctrl+K, and `src/lib/__tests__/navigation.test.ts` fails if a page is unreachable.
 
 **Call a new backend endpoint**
 
@@ -211,6 +293,16 @@ Add a function to the matching file in `src/api/`, then use it from the page wit
 
 Check `components/ui/` first. There is already one `Button`, one `Modal`, one
 `Switch` and one `Select`. Reuse them, so every screen looks the same.
+
+**Make it work on a phone**
+
+Below 768 px every button or link must be at least 44 x 44 px and have a name.
+`h-11` / `min-h-11` is exactly 44 px here (pinned in `tailwind.config.js`).
+`Button`, `IconButton` and `Modal` already do the right thing: a `Modal` is a
+bottom sheet on a phone. Never hide an action behind hover or right-click alone;
+`hooks/useLongPress.ts` is a shortcut to a visible "More actions" button, not a
+replacement for it. Never use `window.confirm`: use `ConfirmDialog`.
+`tests/e2e/mobile-layout.spec.ts` measures every control on five pages.
 
 ## Checks before you push
 

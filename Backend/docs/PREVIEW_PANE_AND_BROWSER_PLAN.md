@@ -1,8 +1,30 @@
 # Preview pane and agent browser plan
 
-**Status:** proposed 2026-11-17. Nothing built. Phase 0 needs no code. Phase 6
-spends money on the remote browser provider, so its proof run needs the user's
-go-ahead (CLAUDE.md, "Paid runs").
+**Status:** built 2026-11-17 (Phases 0–10), undeployed, not committed by this
+work. Open: Phase 6's paid proof run against a real browser provider (needs the
+user's go-ahead, CLAUDE.md "Paid runs"). **Production has no browser engine**
+(the user, 2026-11-17), so in production the browser tools, the Browser tab,
+the chip and the link Preview button stay hidden; the tabbed pane, every file
+preview and "Run scripts" work everywhere. The proof run waits until a
+provider is signed up for and `BROWSER_ENGINE=remote`, `BROWSER_REMOTE_URL`
+and `BROWSER_API_TOKEN` are set.
+
+**Progress** (newest last; update this table as each phase moves):
+
+| Phase | State | Notes |
+|---|---|---|
+| 0 Facts | **done** 2026-11-17 | §3 holds. No browser engine locally (`Backend/.env` absent, so `none`); production unknown. See "Phase 0 results" |
+| 1 Tabbed pane | **built** 2026-11-17 | `lib/paneTabs.ts` + `components/pane/`; `FilePreviewProvider` is a re-export. tsc, lint (0) and vitest (670) green. Not yet checked by hand at 390×844 / 1440×900. Decisions: header × and Escape hide (tabs kept), a tab's × closes it; `retitle` action; eviction = leftmost inactive tab; phone Back via a `pane: true` history entry |
+| 2 Everything opens in the pane | **built** 2026-11-17 | Tab kind `image` became `media` (`mediaType`); `html` tabs carry their `srcDoc` and are not persisted. Media tabs open only for own-origin, non-blob URLs, so web-search pictures still open outside (no caller yet). Auto-open lives in `features/chat/components/AutoOpenFiles.tsx` + `lib/autoOpen.ts`, setting `chat.autoOpenPane`; "first file of the turn" is literal (an edit first means no auto-open). `isOwnOrigin` moved to `lib/ownOrigin.ts`, the artifact `srcDoc` builder to `features/chat/lib/htmlArtifact.ts` |
+| 3 Run scripts in own HTML files | **built** 2026-11-17 | User decision: read-only `is_owner` on `DocumentSerializer`/`DocumentListSerializer`, fails closed without context. Every document view now passes the request (or `{'user': user}` for the page helpers and recents). `HtmlFrame` is a named export with `isOwner`. Tests: `inference/tests/test_document_is_owner.py` (incl. the owner gets `true` through the API), `components/files/__tests__/htmlFrame.test.tsx`. H-154 |
+| 4 Phone and desktop polish | **built** 2026-11-17 | Swipe-down on the strip hides; arrows/Delete on tabs; plan rail collapses when the chat row would drop under 420px (ResizeObserver); "Pop out" on desktop; active tab scrolls into view. HtmlArtifact header buttons are now always visible and 44px on phones (they were hover-only, unreachable on touch) |
+| — By-hand checks | **done** 2026-11-17 (local, seeded chat, no real browser engine) | Desktop (1440×900): file cards open the docked pane; four tabs (3 files + Browser) switch correctly; markdown table renders; "Run scripts" appears for the owner and the page's script runs only after the click; the Browser tab shows host, URL, "No picture was kept", the steps ✓/✗ and the hand-off card; no console errors. Phone (390×844, the app in a same-origin frame of that size): cards, hand-off card and chip fit with 44px targets; the pane opens full-height between the app header and the bottom tab bar, with earlier tabs restored hidden; Back closes the pane and stays on the chat. Not checked: a real `browser_update` stream (needs an engine) and the phone keyboard |
+| 5 Show the agent's browser | **built** 2026-11-17 (backend + web) | Web: `api/browser.ts`, `lib/browserView.ts`, `components/pane/BrowserTabBody.tsx`, `BrowserChip.tsx`, `BrowserPicture.tsx` (frames fetched with the token by `hooks/useBrowserFrameUrl.ts`). The browser tab lives in the reducer as `{runKey, views, running}` and is never persisted; run keys are `live<turnSeq>`, `m<messageId>`, `run:<execution_id>` (the runs page shows the chip too). The first `browser_update` of a turn auto-opens the tab under the files rule. Backend: | `browsing/frames.py` (cache, owner-keyed, 600 KB cap, TTL read at call time), `GET /api/browser/frames/<id>/`, `Event.BROWSER_UPDATE` + `_on_browser` (10 views, newest last), `output_data.browser` on runs. `browse_page` now always takes a picture; saving it to files stays opt-in. Tests: `chat/tests/test_browser_view.py`, `browsing/tests/test_frames.py`, an e2e case in `test_turn_output_e2e.py` |
+| 6 Better browser control | **built** 2026-11-17 (fake-engine tests only) | `elements` (80, ref/role/name/selector, never values), verbs `navigate`/`back`/`hover`/`check`/`uncheck`, `viewport: desktop|phone`, `BrowserSession.last_url` (migration 0002) to resume a session without a url, step error `code`s (`not_found`, `not_visible`, `timeout`, `navigated_away`, `failed`; `blocked` at call level). The fixed script passes `node --check`. **Paid proof run not done: needs the user's go-ahead** |
+| 7 Take over and hand back | **built** 2026-11-17 | `components/pane/NeedsUserCard.tsx`, in the Browser tab and under the **newest** saved answer only (`isLatest`). "I'm done" sends "Done on <host>. Continue." through `sendHandOff` and restores the composer draft. Not shown while the answer is still streaming |
+| 8 Link previews | **built** 2026-11-17 | Backend `POST /api/browser/preview/` (20/hour, billed as one browser minute) and `GET /api/browser/status/`. Web: a Preview button after external links on desktop only when the engine is on (`hooks/useBrowserAvailable.ts`, asked only when signed in), `LinkTabBody.tsx`; previews cached per URL for the session (20) so switching tabs does not bill twice |
+| 9 Phone app | **built** 2026-11-17 (not run on a device) | `browser_update` in `useChatTurn.ts` (`frames.ts::parseBrowser`, replace not append), `BrowserScreen.tsx` at `app/(tabs)/chat/browser/[key].tsx` (views passed by an in-memory key; gone after an app restart), "Browser · host" chip in `AnswerExtras.tsx`, live view via `Linking.openURL` (the system browser). No "I'm done" button: a screen cannot send a chat message, so the notice says to reply in the chat (recorded in `PARITY.md`). tsc + lint green; the app has no test runner |
+| 10 Docs | with each phase | |
 
 **Who runs this plan:** smaller models, one phase at a time. Every phase says
 which files to touch, what to build, which tests to write and how to know it is
@@ -686,9 +708,32 @@ soon as Phase 1 is in.
 
 ---
 
+## Found along the way (not part of a phase)
+
+- **2026-11-17, pre-existing:** `components/content/MediaPreview.tsx` renders
+  `<img src={url}>` for an image with no thumbnail, and the live media strip in
+  `StandaloneChat` and the image grid in `ChatMessageItem` pass it remote
+  web-search URLs. The browser fetches them with no click, which breaks the
+  "a remote image in model output is a link" rule
+  (`MarkdownMessage.tsx::RemoteImage`). **The user accepted this as it is
+  (2026-11-17):** image search results keep loading their pictures. Do not
+  "fix" it without asking.
+
 ## Phase 0 results
 
-_(fill in)_
+- 2026-11-17 Kinds: `PreviewKind` has 16 kinds, and all 16 appear in the §3 table. `FilePreview.tsx` draws each one as the table says. Two details the table leaves out: `legacy_office` also shows any recovered text under its notice, and `html` also has a Preview/Source toggle. §3 is not wrong, so it is unchanged.
+- 2026-11-17 `AuthenticatedMediaPreview.tsx` lives in `components/documents/`, not `components/files/`. The table names no folder, so nothing to fix.
+- 2026-11-17 `browser_live`: no hits in `better-n8n-frontend/src` or `mobile-native/src`. Phase 5 has not started. Only one backend line produces it: `Backend/chat/tools/browser.py:295` (the plan said :294). `live_url` is stored on `BrowserSession` at `chat/tools/browser.py:380`.
+- 2026-11-17 Browser, local: `Backend/.env` does not exist. `BROWSER_ENGINE` is absent there and in this shell. The code default is `none` (`workflow_backend/settings/base.py:340`), so the browser is off. `BROWSER_REMOTE_URL`: absent. `BROWSER_API_TOKEN`: absent. Nothing was called.
+- 2026-11-17 Browser, production: unknown, ask the user.
+- 2026-11-17 H-067: the browser is a remote Chromium behind `BROWSER_ENGINE`, and the tools are not offered when it is `none`. Steps are data, never JavaScript. An empty `browserDomains` means read-only. Phases 5 and 6 must keep all three.
+- 2026-11-17 H-068: a feature that no component reads passes every unit test. `chat/tests/test_turn_output_e2e.py` drives the real graph and checks the events and metadata a client reads. `browser_live` is this exact gap, so Phase 5 needs that kind of test, not only unit tests.
+- 2026-11-17 H-069: every file surface previews through one body, `FilePreview.tsx`. HTML files use an empty `sandbox` and a CSP that blocks all network, because a file may be another user's upload. A plain click inside a `FilePreviewProvider` opens the drawer. Phase 3 (scripts on request) must not turn this frame into a scripted one.
+- 2026-11-17 Facts: `useFilePreview()` is called only from `MarkdownMessage.tsx` (`FilePathLink`) and `FileCards.tsx`. Correct.
+- 2026-11-17 Facts: `FilePreviewProvider` is used by `StandaloneChat.tsx` (`docked`, line 1946) and `components/activity/HistoryList.tsx` (not docked, line 214). Correct.
+- 2026-11-17 Facts: `pages/Runs.tsx` has no provider of its own. It imports `HistoryList`, which wraps its content in the provider, so `/runs` does get the pane. Correct in effect, but the wrapper is in `HistoryList`. `FileCards` is also used by `RunDetail.tsx` and `ChatMessageItem.tsx`.
+- 2026-11-17 Difference: the `open()` target type is `FileTarget = {documentId, path?} | {path}`, not `{documentId} | {path}` as §3 says. Minor.
+- 2026-11-17 Note: this file had 16 more lines when I re-read it (Phase 0 at line 705, not 689). I changed nothing outside this section.
 
 ## Phase 6 results
 

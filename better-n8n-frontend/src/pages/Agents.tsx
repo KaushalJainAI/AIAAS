@@ -40,6 +40,7 @@ const TOOL_NAMES: Record<string, string> = {
   scrape: 'Read pages',
   fileOps: 'Files',
   office: 'Office files',
+  kbWrite: 'Knowledge bases',
   media: 'Images',
   publish: 'Publishing',
   browser: 'Browser',
@@ -274,7 +275,7 @@ function AgentCard({
           onClick={() => onShare(agent)}
           aria-label={`Share ${agent.name}`}
           title="Share"
-          className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          className="h-9 w-9 max-md:h-11 max-md:w-11 shrink-0 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
         >
           <Share2 className="w-4 h-4" />
         </button>
@@ -285,7 +286,7 @@ function AgentCard({
             type="button"
             onClick={() => onRestore(agent.id)}
             disabled={restorePending}
-            className="h-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-md border border-border text-[13px] font-medium hover:bg-secondary transition-colors disabled:opacity-50"
+            className="h-9 max-md:h-11 shrink-0 inline-flex items-center justify-center gap-1.5 px-3 rounded-md border border-border text-[13px] font-medium hover:bg-secondary transition-colors disabled:opacity-50"
           >
             <ArchiveRestore className="w-3.5 h-3.5" />
             Restore
@@ -294,7 +295,7 @@ function AgentCard({
           <button
             type="button"
             onClick={() => onRun(agent)}
-            className="h-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-md bg-agent text-agent-foreground text-[13px] font-medium hover:bg-agent/90 transition-colors"
+            className="h-9 max-md:h-11 shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-md bg-agent text-agent-foreground text-[13px] font-medium hover:bg-agent/90 transition-colors"
           >
             <Play className="w-3.5 h-3.5" />
             Run
@@ -313,19 +314,20 @@ function EmptyStateView() {  return (
       body="An agent combines instructions and tools. Describe the job in plain language and the builder handles setup — you can change anything."
       action={
         <>
-          <Link to="/agents/new">
-            <Button size="md">
-              <Plus className="w-4 h-4" />
-              New agent
-            </Button>
-          </Link>
-          {/* The likelier first move of the two: starting from a template means
-              approving a permission envelope somebody already thought about,
-              rather than choosing every dial from scratch. */}
+          {/* The likelier first move: starting from a template means approving
+              a permission envelope somebody already thought about, rather than
+              choosing every dial from scratch. Both are 44px on every width so
+              they are easy to tap on a phone. */}
           <Link to="/templates">
-            <Button variant="secondary" size="md">
+            <Button size="lg">
               <LayoutGrid className="w-4 h-4" />
               Start from a template
+            </Button>
+          </Link>
+          <Link to="/agents/new">
+            <Button variant="secondary" size="lg">
+              <Plus className="w-4 h-4" />
+              Describe one
             </Button>
           </Link>
         </>
@@ -427,12 +429,8 @@ export default function Agents() {
               {showArchived ? 'Back to agents' : `Archived (${archivedCount})`}
             </Button>
           )}
-          <Link to="/templates">
-            <Button variant="secondary" size="md">
-              <LayoutGrid className="w-4 h-4" />
-              Explore
-            </Button>
-          </Link>
+          {/* No Explore button: the Agents tab strip above the page already
+              has Explore, one tap away on both widths. */}
           <Link to="/agents/new">
             <Button size="md">
               <Plus className="w-4 h-4" />

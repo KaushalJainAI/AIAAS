@@ -18,7 +18,7 @@ export default function SidebarMenuButton({ className }: SidebarMenuButtonProps)
       onClick={openSidebar}
       aria-label="Open menu"
       className={cn(
-        'md:hidden -ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+        'md:hidden -ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg',
         'text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
         className,
       )}

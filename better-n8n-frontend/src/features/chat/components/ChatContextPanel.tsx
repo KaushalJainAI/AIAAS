@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils';
 /** The four parts of the prompt, in the order they are sent. */
 const PARTS = [
   { key: 'system', label: 'System prompt + memory', swatch: 'bg-primary' },
-  { key: 'notes', label: 'Conversation notes', swatch: 'bg-success' },
   { key: 'history', label: 'Messages replayed', swatch: 'bg-warning' },
+  { key: 'notes', label: 'Conversation notes', swatch: 'bg-success' },
   { key: 'tools', label: 'Tool definitions (est.)', swatch: 'bg-muted-foreground/60' },
 ] as const;
 

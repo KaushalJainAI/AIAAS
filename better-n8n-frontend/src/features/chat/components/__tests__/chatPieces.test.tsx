@@ -73,9 +73,33 @@ describe('ChatHistorySidebar', () => {
   it('delete passes the event and the id, and does not open the chat', () => {
     const p = props();
     render(<ChatHistorySidebar {...p} />);
+    // Delete sits behind the row's More button (Rename / Delete).
+    fireEvent.click(screen.getByLabelText('More actions for Second chat'));
     // The parent's handler stops propagation; here we only check what it is given.
-    fireEvent.click(screen.getAllByLabelText('Delete conversation')[1]);
+    fireEvent.click(screen.getByLabelText('Delete conversation'));
     expect(p.onDeleteConversation).toHaveBeenCalledWith(expect.anything(), 'b');
+  });
+
+  it('rename saves the trimmed title by id, and an empty or unchanged title saves nothing', () => {
+    const onRenameConversation = vi.fn();
+    render(<ChatHistorySidebar {...props()} onRenameConversation={onRenameConversation} />);
+
+    fireEvent.click(screen.getByLabelText('More actions for First chat'));
+    fireEvent.click(screen.getByText('Rename'));
+    const input = screen.getByLabelText('Conversation title') as HTMLInputElement;
+    expect(input.value).toBe('First chat');
+    fireEvent.change(input, { target: { value: '  Trip plan  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onRenameConversation).toHaveBeenCalledWith('a', 'Trip plan');
+    expect(onRenameConversation).toHaveBeenCalledTimes(1);
+
+    // Blank after trimming: the edit closes and nothing is saved.
+    fireEvent.click(screen.getByLabelText('More actions for First chat'));
+    fireEvent.click(screen.getByText('Rename'));
+    fireEvent.change(screen.getByLabelText('Conversation title'), { target: { value: '   ' } });
+    fireEvent.keyDown(screen.getByLabelText('Conversation title'), { key: 'Enter' });
+    expect(onRenameConversation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Conversation title')).toBeNull();
   });
 });
 
@@ -83,7 +107,7 @@ describe('ChatHeader', () => {
   it('names the conversation, not a status it never checked', () => {
     const props = {
       isGuest: false, historyOpen: false, onOpenHistory: vi.fn(),
-      onShowSettings: vi.fn(), onEditSettings: vi.fn(),
+      onEditSettings: vi.fn(),
     };
     const { rerender } = render(<ChatHeader {...props} session={session()} />);
     expect(screen.getByText('Trip plan')).toBeTruthy();
@@ -92,8 +116,8 @@ describe('ChatHeader', () => {
     expect(screen.getByText('New conversation')).toBeTruthy();
   });
 
-  it('shows the memory-off chip, which opens settings without resetting the draft', () => {
-    const onShow = vi.fn();
+  it('a memory-off chat shows a dot on "This chat", and its switch saves the change', () => {
+    const onSave = vi.fn();
     const onEdit = vi.fn();
     render(
       <ChatHeader
@@ -101,16 +125,20 @@ describe('ChatHeader', () => {
         historyOpen={false}
         onOpenHistory={vi.fn()}
         session={session({ memory_enabled: false })}
-        onShowSettings={onShow}
         onEditSettings={onEdit}
+        onSaveSettings={onSave}
       />,
     );
-    fireEvent.click(screen.getByText('Memory off'));
-    expect(onShow).toHaveBeenCalled();
+    expect(screen.getByLabelText('This chat').getAttribute('title')).toBe('This chat — memory is off');
+    fireEvent.click(screen.getByLabelText('This chat'));
+    const memory = screen.getByRole('switch', { name: /Memory/ });
+    expect(memory.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(memory);
+    expect(onSave).toHaveBeenCalledWith({ memory_enabled: true });
     expect(onEdit).not.toHaveBeenCalled();
   });
 
-  it('the gear edits settings; the history button hides while history is open', () => {
+  it('"This chat" opens its menu; Chat settings… opens the full settings; history hides while open', () => {
     const onEdit = vi.fn();
     const { rerender } = render(
       <ChatHeader
@@ -118,11 +146,11 @@ describe('ChatHeader', () => {
         historyOpen={false}
         onOpenHistory={vi.fn()}
         session={session()}
-        onShowSettings={vi.fn()}
         onEditSettings={onEdit}
       />,
     );
-    fireEvent.click(screen.getByTitle('Chat settings'));
+    fireEvent.click(screen.getByLabelText('This chat'));
+    fireEvent.click(screen.getByText('Chat settings…'));
     expect(onEdit).toHaveBeenCalled();
     expect(screen.queryByLabelText('Conversation history')).toBeTruthy();
 
@@ -132,7 +160,6 @@ describe('ChatHeader', () => {
         historyOpen
         onOpenHistory={vi.fn()}
         session={session()}
-        onShowSettings={vi.fn()}
         onEditSettings={onEdit}
       />,
     );
@@ -154,6 +181,8 @@ describe('ChatSettingsDialog', () => {
         onClose={vi.fn()}
         readAloud={false}
         onToggleReadAloud={vi.fn()}
+        autoOpenPane={true}
+        onToggleAutoOpenPane={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByText('Save'));
@@ -175,6 +204,8 @@ describe('ChatSettingsDialog', () => {
         onClose={vi.fn()}
         readAloud={false}
         onToggleReadAloud={onToggle}
+        autoOpenPane={true}
+        onToggleAutoOpenPane={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByLabelText('Read replies aloud'));
@@ -193,6 +224,8 @@ describe('ChatSettingsDialog', () => {
         onClose={vi.fn()}
         readAloud={false}
         onToggleReadAloud={vi.fn()}
+        autoOpenPane={true}
+        onToggleAutoOpenPane={vi.fn()}
       />,
     );
     expect(screen.getByText('Login required')).toBeTruthy();

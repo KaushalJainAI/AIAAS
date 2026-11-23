@@ -40,6 +40,11 @@ from .base import *  # noqa: F401, F403
 STT_ENGINE = 'none'
 TTS_ENGINE = 'none'
 
+# The image strip a web search fetches beside its results. Tests stub
+# `web_search`, but this side effect still went to DuckDuckGo and Bing from
+# every test that drove a turn through one. No test may reach the internet.
+CHAT_COMPANION_IMAGES = False
+
 # In-memory SQLite — fastest possible test DB
 DATABASES = {
     'default': {

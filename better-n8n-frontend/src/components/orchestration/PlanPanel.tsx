@@ -22,6 +22,9 @@ import { toast } from 'sonner';
  * of repeating the list.
  */
 
+/** The desktop rail's width. Keep in step with the `w-[300px]` on its aside. */
+export const PLAN_RAIL_WIDTH = 300;
+
 interface Props {
   todos: TodoItem[];
   /** Every revision of the plan, so the panel can show what changed. */
@@ -31,6 +34,12 @@ interface Props {
   changes: PlanChange[];
   /** Replay mode (`/runs`): lanes render without action buttons. */
   readOnly?: boolean;
+  /**
+   * Desktop: no rail, only the pill (the same one phones use), which opens the
+   * team as a sheet. The chat sets this while the side pane leaves it too
+   * little room.
+   */
+  collapsed?: boolean;
 }
 
 /** A clock that ticks without re-rendering anything above it. */
@@ -203,7 +212,8 @@ function WorkerLane({ task, readOnly }: { task: PlanTask; readOnly: boolean }) {
           </button>
           {task.execution_id && (
             <a
-              href={`/runs/${task.execution_id}`}
+              // `/runs` opens a run by `?run=`; there is no `/runs/:id` route.
+              href={`/runs?run=${task.execution_id}`}
               target="_blank"
               rel="noreferrer"
               className={BUTTON}
@@ -368,27 +378,30 @@ function PanelBody({ todos, todoHistory, tasks, leases, changes, readOnly }: Pro
 }
 
 function PlanPanel(props: Props) {
-  const { tasks } = props;
+  const { tasks, collapsed = false } = props;
   const { done, total, running } = planProgress(tasks);
   const [sheetOpen, setSheetOpen] = useState(false);
   const hasTeam = tasks.length > 0;
 
   return (
     <>
-      {/* Desktop: a sticky right rail beside the transcript. */}
-      <aside className="hidden w-[300px] shrink-0 animate-slide-in-right md:block">
-        <div className="sticky top-0 flex max-h-[100dvh] flex-col overflow-hidden border-l border-border bg-muted/30">
-          <PanelHeader tasks={tasks} />
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <PanelBody {...props} />
+      {/* Desktop: a sticky right rail beside the transcript. Collapsed, the rail
+          goes and the pill below stays on every width. */}
+      {!collapsed && (
+        <aside className="hidden w-[300px] shrink-0 animate-slide-in-right md:block">
+          <div className="sticky top-0 flex max-h-[100dvh] flex-col overflow-hidden border-l border-border bg-muted/30">
+            <PanelHeader tasks={tasks} />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <PanelBody {...props} />
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
+      )}
 
       {/* Phones: a progress pill opening a bottom sheet. The shell is
           overflow-hidden, so the sheet owns its own scroller. */}
       {hasTeam && (
-        <div className="md:hidden">
+        <div className={collapsed ? undefined : 'md:hidden'}>
           <button
             type="button"
             onClick={() => setSheetOpen((v) => !v)}

@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, Awaitable, Callable, Sequence, TypedDict
@@ -41,6 +42,7 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
 from langgraph.types import interrupt
 
 from workflow_backend.background import release_db
+from core.safety import provenance
 from workflow_backend.thresholds import CHAT_RAW_FILE_MAX_BYTES, MAX_TOOL_ITERATIONS
 
 from asgiref.sync import sync_to_async
@@ -49,7 +51,7 @@ from decimal import Decimal
 from llm import access as llm
 from llm.citations import merge_sources, resolve_citation_spans
 from llm.usage import EMPTY_USAGE, TokenUsage
-from . import checkpoints, pace, prompts, todos
+from . import checkpoints, pace, prompts, reasoning_note, todos
 from .events import Event, EventSink, null_sink
 from llm.access import (
     Completion,
@@ -259,6 +261,19 @@ class TurnContext:
     #: worse than one never offered.
     file_scope: Any = None
 
+    #: The tag every third-party text in this run is enclosed under
+    #: (`<untrusted_data tag="...">`, see `core/safety/provenance.py`). Generated
+    #: once per run, so the envelope is byte-identical on every pass of the loop
+    #: and stays inside the provider's cached prefix. Nothing written before the
+    #: run can know it, so a page or file cannot forge a matching closing marker.
+    untrusted_tag: str = field(default_factory=lambda: secrets.token_hex(6))
+
+    #: Set when the run starts already tainted: an uploaded file or a search
+    #: result put into the prompt read like orders to an AI. Named the way a
+    #: tool name names a tainted tool result (`tainted_by`), and used only when
+    #: no tool result of this turn is tainted.
+    initial_taint: str | None = None
+
     #: How many agents deep this turn already is. 0 is a run the user started;
     #: a worker spawned by `invoke_subagent` gets its parent's depth plus one.
     #: Delegation is refused past `MAX_DELEGATION_DEPTH` — without a counter,
@@ -464,6 +479,12 @@ class AgentState(TypedDict):
     #: retry: `limit` (out of steps), `time` (out of clock) or `empty` (the
     #: model returned nothing). "" when it answered or asked for tools.
     empty_reason: str
+    #: Visits to `await_reports` this run: the lead waiting on detached workers
+    #: instead of ending the turn over them. Bounded by `MAX_AWAIT_ROUNDS`.
+    await_rounds: int
+    #: Whether the latest `await_reports` visit heard nothing for its whole
+    #: window, so the router waits again rather than waking the model.
+    await_idle: bool
 
 
 def _context(config: RunnableConfig | None) -> TurnContext:
@@ -488,9 +509,12 @@ def to_wire(messages: Sequence[BaseMessage]) -> list[dict[str, Any]]:
             case HumanMessage():
                 wire.append({"role": "user", "content": message.content})
             case AIMessage():
+                # The note is fixed when the message is created, so this renders
+                # the same bytes on every later call (the prompt cache relies on it).
+                note = message.additional_kwargs.get(reasoning_note.NOTE_KEY, "")
                 entry: dict[str, Any] = {
                     "role": "assistant",
-                    "content": message.content or None,
+                    "content": reasoning_note.render(note, message.content) or None,
                 }
                 if message.tool_calls:
                     entry["tool_calls"] = [
@@ -561,6 +585,14 @@ _RAW_CAPABLE_TYPES = frozenset({"pdf", "pptx", "docx", "xlsx", "text"})
 #: extracted-text fallback whatever the catalogue claims.
 _RAW_FILE_PROVIDERS = frozenset({"openrouter", "openai", "nvidia"})
 
+#: Providers whose handler passes a history message's list `content` through
+#: unchanged (the OpenAI-compatible chat handler and its subclasses), so a raw
+#: file can ride on the question inside `history` and sit in the cached prefix.
+#: Ollama copies history through but has no list shape for a message's content,
+#: and the Responses route (chatgpt) rebuilds history as its own input items;
+#: neither is confirmed here, so both keep the attachments on the prompt.
+_ATTACHMENTS_IN_HISTORY_PROVIDERS = frozenset({"openrouter", "openai", "nvidia"})
+
 
 async def _model_caps(model: str) -> tuple[bool, bool]:
     """(supports_image, supports_document) for `model` from the registry.
@@ -595,8 +627,15 @@ def _attachment_bytes(att) -> int | None:
         return None
 
 
-async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> str:
+async def _describe_attachment_for_text_model(
+    attachment, *, witness: bool, untrusted_tag: str | None = None,
+) -> str:
     """Render one attachment as text for a model that cannot see it.
+
+    The extracted text is the file's content, so it is enclosed as third-party
+    data from `upload:<filename>`. Our own lines around it (the name, the
+    working-file path, the witness pointer) are not enclosed. With no tag
+    given, a fresh one is made: the enclosure is never skipped for want of one.
 
     With a witness available this is a pointer rather than an apology. The
     difference matters: the old text ended the matter, so the model said "I
@@ -641,6 +680,11 @@ async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> s
             text = ""
 
     body = text[:20_000] if text else "[Content could not be extracted.]"
+    body = provenance.wrap_untrusted(
+        body,
+        source=f"upload:{getattr(attachment, 'filename', None) or 'file'}",
+        tag=untrusted_tag or secrets.token_hex(6),
+    )
     return (
         f"### Attachment: {attachment.filename} (id {attachment.id})\n"
         f"Working file: `{vfs_path}` — open it with `read_file`, locate it with "
@@ -651,7 +695,7 @@ async def _describe_attachment_for_text_model(attachment, *, witness: bool) -> s
 
 async def prepare_attachments(
     attachments: Sequence[Any], *, model: str, provider: str,
-    user_id: int | None = None,
+    user_id: int | None = None, untrusted_tag: str | None = None,
 ) -> tuple[tuple[Any, ...], str]:
     """
     Split attachments into (files sent raw, text appended to prompt).
@@ -685,14 +729,57 @@ async def prepare_attachments(
         elif kind in _RAW_CAPABLE_TYPES and raw_docs_allowed and not too_big:
             raw.append(att)
         else:
-            described.append(
-                await _describe_attachment_for_text_model(att, witness=witness)
-            )
+            described.append(await _describe_attachment_for_text_model(
+                att, witness=witness, untrusted_tag=untrusted_tag,
+            ))
 
     text = ""
     if described:
         text = "\n\n## Uploaded files\n" + "\n\n".join(described)
     return tuple(raw), text
+
+
+def _seat_attachments(
+    turn: TurnContext,
+    messages: Sequence[BaseMessage],
+    history: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Where this pass's raw attachments ride: `(history, attachments_for_prompt)`.
+
+    The question is the turn's first HumanMessage. On the pass that peels it as
+    the prompt its files stay on the prompt, as they always did. On a later pass
+    the question sits in the transcript, and its files go on that wire entry
+    instead: the same position and the same bytes on every pass, so they fall
+    inside the provider's cached prefix rather than after the growing
+    transcript. `messages` is graph state and is never touched; only the copy
+    of `history` handed to the provider changes.
+    """
+    attachments = list(turn.attachments)
+    if not attachments or turn.provider not in _ATTACHMENTS_IN_HISTORY_PROVIDERS:
+        return history, attachments
+    first = next(
+        (i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), None,
+    )
+    if first is None or first == len(messages) - 1:
+        return history, attachments
+    at = len(turn.history) + len(to_wire(messages[:first]))
+    if at >= len(history):
+        return history, attachments
+    entry = history[at]
+    if entry.get("role") != "user" or not isinstance(entry.get("content"), str):
+        return history, attachments
+
+    from llm.handlers.openai_compatible import encode_image_attachments
+
+    content = encode_image_attachments(
+        attachments, provider=turn.provider, prompt=entry["content"],
+    )
+    if isinstance(content, str):
+        # Nothing could be encoded; the prompt would have carried nothing either.
+        return history, []
+    seated = list(history)
+    seated[at] = {**entry, "content": content}
+    return seated, []
 
 
 # ── Agent node ───────────────────────────────────────────────────────────────
@@ -703,10 +790,15 @@ async def _run_model(
     prompt: str,
     history: list[dict[str, Any]],
     tools: list[dict] | None,
+    attachments: Sequence[Any],
     timings: dict[str, int] | None = None,
+    tool_choice: str | None = None,
 ) -> Completion:
     """
     Call the model, streaming content to the sink as it arrives.
+
+    `attachments` are the raw files for the trailing prompt only. The caller
+    decides where they ride (`_seat_attachments`), so they are never sent twice.
 
     Content is emitted live and retracted with CONTENT_RESET if the response
     turns out to be a preamble to a tool call. Streaming optimistically and
@@ -721,6 +813,7 @@ async def _run_model(
     everything before the first chunk is not.
     """
     accumulator = StreamAccumulator()
+    echo = reasoning_note.EchoFilter()
     call_started = time.monotonic()
     try:
         async with asyncio.timeout(LLM_CALL_TIMEOUT):
@@ -734,8 +827,9 @@ async def _run_model(
                 max_tokens=turn.max_tokens,
                 effort=turn.effort,
                 tools=tools,
+                tool_choice=tool_choice,
                 history=history,
-                attachments=list(turn.attachments),
+                attachments=list(attachments),
             ):
                 # Any chunk counts, not only a content one: a turn that opens
                 # with reasoning or with a tool call has already proved the
@@ -746,9 +840,10 @@ async def _run_model(
 
                 match accumulator.add(chunk):
                     case "content" if not accumulator.has_tool_calls:
-                        await turn.sink(
-                            Event.CONTENT_CHUNK, {"content": chunk.get("content", "")}
-                        )
+                        # A copied `<reasoning-summary>` block is never shown.
+                        shown = echo.feed(chunk.get("content", ""))
+                        if shown:
+                            await turn.sink(Event.CONTENT_CHUNK, {"content": shown})
                     case "thinking":
                         await turn.sink(
                             Event.THINKING_CHUNK, {"content": chunk.get("content", "")}
@@ -761,7 +856,15 @@ async def _run_model(
         if not accumulator.content:
             accumulator.error = "The model took too long to respond."
 
+    if not accumulator.has_tool_calls and (tail := echo.flush()):
+        await turn.sink(Event.CONTENT_CHUNK, {"content": tail})
+
+    # Stripped here, once, for every call: the streamed text above and the reply
+    # kept below are then the same text, and nothing downstream sees the tag.
     completion = accumulator.finish()
+    completion = replace(
+        completion, content=reasoning_note.strip_echo(completion.content),
+    )
 
     if completion.tool_calls and completion.content:
         # What we streamed was preamble, not the answer. Retract it and keep it
@@ -934,6 +1037,9 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     # Where the transcript ends and this pass's trailing notes begin, so an
     # overflow retry can rebuild the transcript and keep the notes.
     transcript_end = len(history)
+    # Raw files go on the question inside the transcript from the second pass
+    # on, so they stay in the cached prefix; see `_seat_attachments`.
+    history, prompt_attachments = _seat_attachments(turn, state["messages"], history)
 
     # The plan, re-read rather than merely written. A list the model records and
     # never sees again is theatre: it writes one, feels organised, and proceeds
@@ -955,27 +1061,29 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         if budget:
             history.append({"role": "system", "content": budget})
 
-    # Withholding tools on the last permitted iteration is what forces an answer
-    # instead of a loop that runs out of budget mid-tool-call.
-    tools = None
-    tools_ms = 0
-    if not at_limit:
-        from chat import tools as tool_registry
+    # The last permitted iteration must answer, not call a tool. It used to say
+    # so by sending no tools at all — but the tool list is part of the request
+    # prefix a provider caches, so the final pass of every long run re-read the
+    # whole transcript uncached. Now it sends the same list with
+    # `tool_choice="none"` (handlers that cannot express that still drop the
+    # tools), and a call made anyway is dropped below (2026-11-17).
+    from chat import tools as tool_registry
 
-        tools_started = time.monotonic()
-        tools = await (
-            turn.tool_source()
-            if turn.tool_source is not None
-            else tool_registry.get_available_tools(
-                turn.user_id,
-                memory_enabled=turn.memory_enabled,
-                session_key=turn.session_id,
-                mcp_memo=turn.memo,
-                file_scope=turn.file_scope,
-            )
+    tools_started = time.monotonic()
+    tools = await (
+        turn.tool_source()
+        if turn.tool_source is not None
+        else tool_registry.get_available_tools(
+            turn.user_id,
+            memory_enabled=turn.memory_enabled,
+            session_key=turn.session_id,
+            mcp_memo=turn.memo,
+            file_scope=turn.file_scope,
         )
-        tools_ms = int((time.monotonic() - tools_started) * 1000)
-
+    )
+    tools_ms = int((time.monotonic() - tools_started) * 1000)
+    tool_choice = "none" if at_limit and tools else None
+    if not at_limit:
         # A long run with nothing on screen. Asked of every model in the
         # prompt; this is the half that does not depend on the model having
         # listened. Only when the tool is actually on offer this pass.
@@ -1004,7 +1112,8 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
     turn.memo["context:tools_tokens"] = llm_budget.tools_tokens(tools)
     await release_db()
     completion = await _call_model(
-        effective, prompt=prompt, history=history, tools=tools, timings=timings
+        effective, prompt=prompt, history=history, tools=tools, timings=timings,
+        tool_choice=tool_choice, attachments=prompt_attachments,
     )
 
     # The provider refused the request as too long. `_run_model` has already
@@ -1028,9 +1137,11 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
             messages, at_limit=at_limit, out_of_time=out_of_time,
         )
         history = list(turn.history) + prior + history[transcript_end:]
+        history, prompt_attachments = _seat_attachments(turn, messages, history)
         failed = completion
         completion = await _call_model(
-            effective, prompt=prompt, history=history, tools=tools, timings=timings
+            effective, prompt=prompt, history=history, tools=tools, timings=timings,
+            tool_choice=tool_choice, attachments=prompt_attachments,
         )
         completion = replace(
             completion,
@@ -1068,7 +1179,9 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         empty_reason = "time" if out_of_time else "limit" if at_limit else "empty"
         logger.warning("[Agent] Empty final reply (%s) from %s/%s; asking once more",
                        empty_reason, turn.provider, turn.model)
-        again = await _answer_again(effective, prompt=prompt, history=history)
+        again = await _answer_again(
+            effective, prompt=prompt, history=history, attachments=prompt_attachments,
+        )
         if again is not None:
             content = again.content or ""
             completion = Completion(
@@ -1102,11 +1215,15 @@ async def agent_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
             meta["sources"] = merged
             await turn.sink(Event.SOURCES_UPDATE, {"sources": merged})
 
+    # Why this turn made its calls, for the calls that come next. Only a turn
+    # that calls tools gets one: the answer is the user's reply, not a step.
+    note = reasoning_note.make_note(completion.thinking) if calls else ""
     message = AIMessage(
         content=content,
         tool_calls=[
             {"name": c.name, "args": c.arguments, "id": c.id} for c in calls
         ],
+        additional_kwargs={reasoning_note.NOTE_KEY: note} if note else {},
     )
 
     thinking = state.get("thinking", "")
@@ -1160,11 +1277,14 @@ async def _call_model(
     history: list[dict[str, Any]],
     tools: list[dict] | None,
     timings: dict[str, int],
+    attachments: Sequence[Any],
+    tool_choice: str | None = None,
 ) -> Completion:
     """`_run_model` with the failures a turn survives turned into replies."""
     try:
         return await _run_model(
-            turn, prompt=prompt, history=history, tools=tools, timings=timings
+            turn, prompt=prompt, history=history, tools=tools, timings=timings,
+            attachments=attachments, tool_choice=tool_choice,
         )
     except LLMUserActionable:
         # Deliberately not caught: no credential, no credit, or a model that no
@@ -1232,6 +1352,7 @@ async def _compact_after_overflow(
 
 async def _answer_again(
     turn: TurnContext, *, prompt: str, history: list[dict[str, Any]],
+    attachments: Sequence[Any],
 ) -> Completion | None:
     """One more model call, without tools, after a final reply came back empty.
 
@@ -1245,6 +1366,7 @@ async def _answer_again(
             prompt=prompts.ANSWER_AFTER_EMPTY,
             history=[*history, {"role": "user", "content": prompt}],
             tools=None,
+            attachments=attachments,
         )
     except LLMUserActionable:
         raise
@@ -1314,6 +1436,13 @@ async def _fetch_companion_images(query: str) -> list:
     network round trips, and awaiting one after the other added +1–2s after
     the tool the model actually needed, before the next model iteration.
     """
+    from django.conf import settings
+
+    # Off in the test settings: tests stub `web_search` itself, and this side
+    # effect still reached DuckDuckGo and Bing from every test that drove a
+    # turn through one (2026-11-17).
+    if not getattr(settings, "CHAT_COMPANION_IMAGES", True):
+        return []
     try:
         from chat.sources.search import image_search
 
@@ -1633,6 +1762,32 @@ async def _on_solutions(
     await sink(Event.SOLUTIONS_UPDATE, {"solutions": used})
 
 
+#: Browser calls kept per turn. The tab shows the latest few; a turn that
+#: browses twenty pages keeps the last ten, not all twenty.
+BROWSER_VIEWS_KEPT = 10
+
+
+async def _on_browser(
+    parsed: dict, args: dict, meta: dict, sink: EventSink
+) -> None:
+    """A browser call the turn made, so the Browser tab can show it.
+
+    One view per call, newest last, whole list every time (the same rule as
+    FILES_UPDATE). A refused call has no `browser_view` and adds nothing. The
+    view holds no typed text and no vault value; see `_view_steps`. Kept on
+    `meta['browser']`, which is also what an agent run copies onto its record.
+    """
+    view = parsed.get("browser_view")
+    if parsed.get("error") or not isinstance(view, dict):
+        return
+
+    views: list = meta.setdefault("browser", [])
+    views.append(view)
+    del views[:-BROWSER_VIEWS_KEPT]
+
+    await sink(Event.BROWSER_UPDATE, {"browser": views})
+
+
 async def _on_generated(
     parsed: dict, args: dict, meta: dict, sink: EventSink
 ) -> None:
@@ -1696,6 +1851,8 @@ _SIDE_EFFECTS = {
     "ws_read": _on_ws_read,
     "search_solutions": _on_solutions,
     "get_solution": _on_solutions,
+    "browse_page": _on_browser,
+    "browser_act": _on_browser,
 }
 
 
@@ -2023,11 +2180,12 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
     # orders to an AI; the `auto` reviewer then stops allowing irreversible
     # calls without a human. Only third-party text is scanned for that — the
     # user's own message is the principal, not an injection.
-    from core.safety import provenance
-
+    # Scanned on the body of each envelope, so the check sees the third-party
+    # text itself rather than our framing around it.
     tool_texts = [
-        (message.name or "tool", message.content if isinstance(message.content, str)
-         else str(message.content))
+        (message.name or "tool", provenance.unwrap_untrusted(
+            message.content if isinstance(message.content, str)
+            else str(message.content)))
         for message in state["messages"] if isinstance(message, ToolMessage)
     ]
     tool_context["known_urls"] = frozenset(provenance.urls_in(
@@ -2039,8 +2197,27 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
     tool_context["tainted_by"] = next(
         (name for name, text in tool_texts if provenance.instruction_shaped(text)),
         None,
-    )
+    ) or turn.initial_taint
     return tool_context
+
+
+async def _model_taint(state: AgentState) -> str | None:
+    """The newest untrusted tool result a model reads as orders to an AI, or None.
+
+    Only results inside an envelope are asked: that is third-party text. The
+    user's own message and our refusals are never sent. Fails open
+    (`core/safety/moderation.py::first_injection`).
+    """
+    from core.safety import moderation
+
+    results: list[tuple[str, str]] = []
+    for message in reversed(state["messages"]):
+        if not isinstance(message, ToolMessage) or not isinstance(message.content, str):
+            continue
+        parsed = provenance.parse_untrusted(message.content)
+        if parsed is not None:
+            results.append((message.name or "tool", parsed[2]))
+    return await moderation.first_injection(results)
 
 
 def _live_autonomy(turn: TurnContext) -> str:
@@ -2127,6 +2304,13 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
 
     meta = dict(state.get("metadata", {}))
     sensitive, policy = _approval_rules(turn)
+    tool_context = _tool_context(turn, state)
+    # The model second opinion on tool results, only where it can change a
+    # decision: no pattern hit yet, and an `auto`/`full` turn. `ask` and `review`
+    # already stop before anything irreversible, so a verdict would buy nothing.
+    # A hit taints the turn exactly as a pattern hit does.
+    if tool_context["tainted_by"] is None and tool_context["autonomy"] in ("auto", "full"):
+        tool_context["tainted_by"] = await _model_taint(state)
     batch = _Batch(
         turn=turn,
         calls=[
@@ -2137,7 +2321,7 @@ async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
         trace=list(state.get("tool_trace", [])),
         iteration=_turn_number(state["messages"]),
         reasoning=(state.get("thinking") or "").strip()[-150:],
-        tool_context=_tool_context(turn, state),
+        tool_context=tool_context,
         sensitive=sensitive,
         policy=policy,
         dispatch=turn.tool_dispatch or tool_registry.execute_chat_tool,
@@ -2480,10 +2664,25 @@ async def _record_results(batch: _Batch) -> list[ToolMessage]:
         # character. Anything trimmed is stored and named in what comes back.
         model_output = await tool_output.bound(
             call.name, output, {**batch.tool_context, "call_id": call.id})
-        results.append(
-            ToolMessage(content=model_output, tool_call_id=call.id, name=call.name)
-        )
+        results.append(ToolMessage(
+            content=enclose_result(turn, call.name, model_output),
+            tool_call_id=call.id, name=call.name,
+        ))
     return results
+
+
+def enclose_result(turn: TurnContext, name: str, text: str) -> str:
+    """A tool result as the model will read it: enclosed unless the tool is trusted.
+
+    Wrapped after `tool_output.bound`, so a spilled result is enclosed as the
+    bounded text that names its archive id. Refusals never come through here;
+    they are our own sentences and reach the model as they are.
+    """
+    from chat.tools.registry import trusted_output_of
+
+    if trusted_output_of(name):
+        return text
+    return provenance.wrap_untrusted(text, source=name, tag=turn.untrusted_tag)
 
 
 async def steering_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -2495,29 +2694,40 @@ async def steering_node(state: AgentState, config: RunnableConfig) -> dict[str, 
     give `run_turn`'s pause detection a second reason to fire that it would
     then have to tell apart from an approval.
 
-    Costs two dict lookups per tool round when nobody is steering.
+    Costs a few dict lookups per tool round when nobody is steering and no
+    task is running.
 
-    Steers drain as a `HumanMessage` (the user talking); change notices drain
-    as a `system` context message (information, not instruction). The notice
-    goes first so a trailing steer is still peeled as the turn's prompt by
-    `_split_transcript` — a notice must never read as a user turn.
+    Steers drain as a `HumanMessage` (the user talking); change notices and
+    task reports drain as `system` context messages (information, not
+    instruction). Notices, then reports, then the steer: a trailing steer is
+    still peeled as the turn's prompt by `_split_transcript`, and nothing in
+    front of it may read as a user turn.
+
+    Task reports are the finishes, failures and pauses of this run's detached
+    workers, each reported once (`chat/tools/tasks.py::take_reports`), so the
+    lead hears about background work at the next step without polling.
 
     Returns nothing (not even passthrough state): like `curate_node`, it
     rewrites `messages` and nothing else, so the plan parked in `metadata`
     stays immune by construction (`test_todos.py` pins this shape).
     """
     from . import steering
+    from chat.tools import tasks as task_tools
 
     turn = _context(config)
     message = steering.take(turn.session_id)
     notices = steering.take_notices(turn.session_id)
-    if not message and not notices:
+    reports = await task_tools.take_reports(turn.session_id)
+    if not message and not notices and not reports:
         return {}
 
     out_messages: list = []
     if notices:
         logger.info("[Steer] Delivering %s into %s", 'a change notice', turn.session_id)
         out_messages.append(SystemMessage(content=notices))
+    if reports:
+        logger.info("[Steer] Delivering task reports into %s", turn.session_id)
+        out_messages.append(SystemMessage(content=reports))
     if message:
         logger.info("[Steer] Delivering a steer into %s", turn.session_id)
         await turn.sink(Event.STATUS, {
@@ -2708,12 +2918,100 @@ async def curate_node(state: AgentState, config: RunnableConfig) -> dict[str, An
 #: Graph nodes visited per tool iteration: agent, tools, curate, steering. Keep
 #: in step with `_build_graph`; `run_turn` sizes the recursion limit from it and
 #: `chat/tests/test_iteration_limit.py` fails if a node is added without it.
+#: `await_reports` is not counted here: it is visited per wait, not per
+#: iteration, and `_AWAIT_STEPS` budgets for it.
 STEPS_PER_ITERATION = 4
 
+#: How many times one run may wait on its detached workers at a final answer.
+#: Each visit waits up to `WAIT_TASKS_MAX_SECONDS`; a visit that hears nothing
+#: waits again without waking the model, so this bounds model calls and wall
+#: time alike.
+MAX_AWAIT_ROUNDS = 30
 
-def _next_step(state: AgentState) -> str:
+#: Steps a run may spend on waiting beyond its iteration budget: per round, the
+#: `await_reports` visit, the steering visit that delivers what it heard, and
+#: the answer after that. `run_turn` adds this to the recursion limit.
+_AWAIT_STEPS = 3 * MAX_AWAIT_ROUNDS
+
+
+def _out_of_time(turn: TurnContext) -> bool:
+    return turn.deadline is not None and turn.deadline.wrapping_up
+
+
+def _next_step(state: AgentState, config: RunnableConfig) -> str:
+    """After a model turn: tools, or the end, unless something is still owed to the run.
+
+    A final answer ends the run only when nothing is waiting on it. A steer that
+    arrived while the model was writing is read here (`steering`), not handed
+    back at END. A report the run has not heard yet goes to the model the same
+    way. A worker still going holds the answer open (`await_reports`), so a lead
+    never ends a turn over work it started. A run that has failed, or is out of
+    time, does not wait.
+    """
     last = state["messages"][-1]
-    return "tools" if isinstance(last, AIMessage) and last.tool_calls else END
+    if isinstance(last, AIMessage) and last.tool_calls:
+        return "tools"
+    if state.get("provider_error"):
+        return END
+    from . import steering
+    from chat.tools import tasks as task_tools
+
+    turn = _context(config)
+    if steering.queued(turn.session_id) or task_tools.has_news(turn.session_id):
+        return "steering"
+    if int(state.get("await_rounds") or 0) >= MAX_AWAIT_ROUNDS or _out_of_time(turn):
+        return END
+    if task_tools.has_running(turn.session_id):
+        return "await_reports"
+    return END
+
+
+async def await_reports_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Wait for detached work to report, rather than end the turn over it.
+
+    Entered only when the model has answered, nothing is queued for it and a
+    worker is still running. The wait is `chat/tools/tasks.py::wait_for_news`,
+    the one `wait_tasks` uses, so the two agree on what is news. It wakes on a
+    worker's finish, failure or pause, or on a steer or notice; it writes
+    nothing to the transcript, because the report is delivered by `steering`,
+    on the edge after this one.
+    """
+    from chat.tools import tasks as task_tools
+
+    turn = _context(config)
+
+    async def _announce(records) -> None:
+        # The wait is silent otherwise: the user sees the same frame for minutes.
+        message = task_tools.wait_status_message(records)
+        if message:
+            await turn.sink(Event.STATUS, {
+                "phase": "waiting_on_workers",
+                "message": message,
+            })
+
+    reason = await task_tools.wait_on_lead(turn.session_id, progress=_announce)
+    return {
+        "await_rounds": int(state.get("await_rounds") or 0) + 1,
+        "await_idle": reason == "timeout",
+    }
+
+
+def _after_await(state: AgentState, config: RunnableConfig) -> str:
+    """Hand what the wait heard to `steering`; if the window was silent, wait again.
+
+    A silent window does not wake the model: that would be a model call per
+    window saying "still waiting". It waits again, until the round budget, the
+    run's clock or the workers themselves run out.
+    """
+    if not state.get("await_idle"):
+        return "steering"
+    from chat.tools import tasks as task_tools
+
+    turn = _context(config)
+    if (int(state.get("await_rounds") or 0) < MAX_AWAIT_ROUNDS
+            and not _out_of_time(turn) and task_tools.has_running(turn.session_id)):
+        return "await_reports"
+    return END
 
 
 def _build_graph():
@@ -2722,8 +3020,17 @@ def _build_graph():
     graph.add_node("tools", tools_node)
     graph.add_node("steering", steering_node)
     graph.add_node("curate", curate_node)
+    graph.add_node("await_reports", await_reports_node)
     graph.set_entry_point("agent")
-    graph.add_conditional_edges("agent", _next_step, {"tools": "tools", END: END})
+    graph.add_conditional_edges(
+        "agent", _next_step,
+        {"tools": "tools", "steering": "steering",
+         "await_reports": "await_reports", END: END},
+    )
+    graph.add_conditional_edges(
+        "await_reports", _after_await,
+        {"steering": "steering", "await_reports": "await_reports", END: END},
+    )
     # tools -> steering -> agent, rather than tools -> agent. The steer lands
     # *after* the tool results are threaded and *before* the model reads them,
     # which is the only boundary where a new user message cannot separate an
@@ -3125,6 +3432,25 @@ async def reject_tool_call(
     return True
 
 
+async def _settle_curation(turn: TurnContext):
+    """Bill the curation spend a run left behind: a prepared fold still in flight,
+    or spend from folds that were discarded. Never raises: a failure to settle
+    must not fail a run that already has its answer, so it is logged and the
+    run is billed for what it knows about."""
+    from . import curation
+
+    # Agent runs own the `agent-` thread prefix (see `chat/turn/prune.py`); their
+    # key dies with the run. A chat session's key lives on into its next turn.
+    is_agent_run = str(turn.session_id or "").startswith("agent-")
+    try:
+        return await curation.settle(curation.run_key(
+            {"user_id": turn.user_id, "session_id": turn.session_id}),
+            keep_prepared=not is_agent_run)
+    except Exception:  # noqa: BLE001
+        logger.exception("[Agent] Settling curation spend failed on thread %s", turn.session_id)
+        return curation.Spend()
+
+
 async def run_turn(
     turn: TurnContext,
     *,
@@ -3168,7 +3494,7 @@ async def run_turn(
         # withhold tools and force an answer. Found by the work-tier stress
         # benchmark (2026-09-17). The final answer visit and the margin are the
         # `+ 10`.
-        "recursion_limit": turn.max_iterations * STEPS_PER_ITERATION + 10,
+        "recursion_limit": turn.max_iterations * STEPS_PER_ITERATION + 10 + _AWAIT_STEPS,
     }
     initial: AgentState = {
         "messages": [HumanMessage(content=prompt)],
@@ -3179,6 +3505,8 @@ async def run_turn(
         "usage": EMPTY_USAGE,
         "provider_error": "",
         "empty_reason": "",
+        "await_rounds": 0,
+        "await_idle": False,
     }
 
     # Resume only when the graph is genuinely paused mid-run. `.values` alone is
@@ -3194,37 +3522,60 @@ async def run_turn(
         initial["messages"] = [
             RemoveMessage(id=REMOVE_ALL_MESSAGES), *initial["messages"],
         ]
+    if resuming:
+        # A run paused for approval may have waited longer than saved tool
+        # output is kept. Its transcript still names those ids, so resuming
+        # restarts their clock; otherwise "fetch id X" points at nothing.
+        from chat.tools.tool_output import keep_alive
+
+        await keep_alive(turn.user_id, turn.session_id)
 
     awaiting_approval = False
+    failure: TurnResult | None = None
+    settled_tokens, settled_usage = 0, EMPTY_USAGE
     try:
-        final = await get_graph().ainvoke(None if resuming else initial, config=config)
-    except LLMUserActionable:
-        # No credential, rejected key, no credit, or a retired model. The caller
-        # turns this into an error the user sees as an error; swallowing it into
-        # "I hit an internal error" below would hide the one thing they can act
-        # on.
-        raise
-    except GraphInterrupt:
-        # Pre-1.0 LangGraph surfaced a pause by raising out of `ainvoke`. Kept
-        # so the pause is detected under either version.
-        awaiting_approval = True
-        final = (await get_graph().aget_state(config)).values
-    except Exception as exc:
-        logger.exception("[Agent] Run failed on thread %s", thread_id)
-        return TurnResult(
-            answer="I hit an internal error on that turn. Please try again.",
-            metadata=dict(metadata or {}),
-            error=f"{type(exc).__name__}: {exc}",
-        )
-    else:
-        # LangGraph 1.x does *not* raise: it returns the state with the pending
-        # pause reported in `__interrupt__`. Detecting the pause by matching
-        # "Permission required" against an exception message therefore stopped
-        # working at the 1.0 upgrade, silently — the graph paused correctly and
-        # `run_turn` reported the turn complete, so `run_agent` closed the log
-        # as `completed`, `_find_paused_log` found nothing, and approving did
-        # nothing at all. Read it from the result, which is where it now lives.
-        awaiting_approval = bool(final.get("__interrupt__"))
+        try:
+            final = await get_graph().ainvoke(None if resuming else initial, config=config)
+        except LLMUserActionable:
+            # No credential, rejected key, no credit, or a retired model. The caller
+            # turns this into an error the user sees as an error; swallowing it into
+            # "I hit an internal error" below would hide the one thing they can act
+            # on.
+            raise
+        except GraphInterrupt:
+            # Pre-1.0 LangGraph surfaced a pause by raising out of `ainvoke`. Kept
+            # so the pause is detected under either version.
+            awaiting_approval = True
+            final = (await get_graph().aget_state(config)).values
+        except Exception as exc:
+            logger.exception("[Agent] Run failed on thread %s", thread_id)
+            failure = TurnResult(
+                answer="I hit an internal error on that turn. Please try again.",
+                metadata=dict(metadata or {}),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            final = {}
+        else:
+            # LangGraph 1.x does *not* raise: it returns the state with the pending
+            # pause reported in `__interrupt__`. Detecting the pause by matching
+            # "Permission required" against an exception message therefore stopped
+            # working at the 1.0 upgrade, silently — the graph paused correctly and
+            # `run_turn` reported the turn complete, so `run_agent` closed the log
+            # as `completed`, `_find_paused_log` found nothing, and approving did
+            # nothing at all. Read it from the result, which is where it now lives.
+            awaiting_approval = bool(final.get("__interrupt__"))
+    finally:
+        # A run that paused is not over: its prepared fold waits for the approval
+        # and is settled when the run really ends. Every other ending settles
+        # here, on the error and cancel paths too, so no fold spend is dropped.
+        if not awaiting_approval:
+            spend = await _settle_curation(turn)
+            settled_tokens, settled_usage = spend.tokens, spend.usage
+
+    if failure is not None:
+        failure.tokens = settled_tokens
+        failure.usage = settled_usage
+        return failure
 
     answer = next(
         (m.content for m in reversed(final["messages"])
@@ -3236,8 +3587,9 @@ async def run_turn(
         thinking=final.get("thinking", ""),
         metadata=final.get("metadata", dict(metadata or {})),
         tool_trace=final.get("tool_trace", []),
-        tokens=final.get("total_tokens", 0),
-        usage=final.get("usage", EMPTY_USAGE),
+        # The run's own spend plus whatever curation it left in flight or unbilled.
+        tokens=final.get("total_tokens", 0) + settled_tokens,
+        usage=final.get("usage", EMPTY_USAGE) + settled_usage,
         awaiting_approval=awaiting_approval,
         # Chat ignores this and shows the sentence already in `answer`; an agent
         # run raises `AgentTurnFailed` on it and is recorded as failed.

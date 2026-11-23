@@ -82,34 +82,6 @@ def _snippet(text: str, position: int) -> str:
 logger = logging.getLogger(__name__)
 
 
-async def has_spilled_output(user_id: int | None, session_key) -> bool:
-    """Whether this caller has any unexpired stored output it may read.
-
-    Takes one key or several: a delegated worker may read its parent's archive
-    as well as its own, and the tools have to be *offered* whenever either has
-    something — otherwise a worker sent to work on text its parent curated away
-    is never shown the tool that would fetch it.
-    """
-    keys = [session_key] if isinstance(session_key, str) else list(session_key or ())
-    keys = [str(k)[:64] for k in keys if k]
-    if not keys:
-        return False
-    try:
-        from django.utils import timezone
-        from ..models import ToolOutput
-
-        return await ToolOutput.objects.filter(
-            user_id=user_id,
-            session_key__in=keys,
-            expires_at__gt=timezone.now(),
-        ).aexists()
-    except Exception as e:  # noqa: BLE001
-        # Withhold rather than guess: an unreachable table means the read
-        # would fail too, and the tool would be advertised for nothing.
-        logger.warning(f"Could not check stored tool outputs: {e}")
-        return False
-
-
 @tool({
         "type": "function",
         "function": {

@@ -10,6 +10,7 @@ import {
   // MVP: unused while the Security tab is hidden,
   Palette,
   Code,
+  ChevronLeft,
   ChevronRight,
   Moon,
   Sun,
@@ -28,6 +29,7 @@ import InsightsDashboard from '../components/billing/InsightsDashboard';
 import SpendSummary from '../components/billing/SpendSummary';
 import ChangeEmail from '../components/settings/ChangeEmail';
 import { useTheme } from '../hooks/useTheme';
+import { useIsDesktop } from '../hooks/useIsDesktop';
 import { useAuth } from '../contexts/authState';
 import { authService } from '../api/auth';
 import nodeService from '../api/nodeService';
@@ -71,6 +73,9 @@ function languageCode(stored: string | undefined): string {
 }
 
 type SettingsTab = 'general' | 'account' | 'orchestrator' | 'notifications' | 'memory' | 'organization' | 'security' | 'appearance' | 'api' | 'insights' | 'billing';
+
+/** Sections a `?tab=` link may open. `organization` is not in the nav; it redirects to Team. */
+const LINKABLE_TABS: readonly string[] = ['general', 'account', 'orchestrator', 'insights', 'billing', 'notifications', 'memory', 'organization', 'appearance', 'api'];
 
 
 /**
@@ -125,21 +130,28 @@ function ThemePreview({ mode }: { mode: 'light' | 'dark' | 'system' }) {
 }
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = usePersistedState<SettingsTab>('settings.tab', 'general');
+  const [persistedTab, setActiveTab] = usePersistedState<SettingsTab>('settings.tab', 'general');
   const [searchParams, setSearchParams] = useSearchParams();
-  // `?tab=` deep-links a tab (the retired /insights route lands here).
-  // Consumed on mount: an unknown value is ignored, and the param is
+  const isDesktop = useIsDesktop();
+  // Phones: the section lives in `?tab=`, so the browser Back button returns to
+  // the list and a link opens its section. `null` means the list. Desktop keeps
+  // its persisted last tab, as before.
+  const urlTab = searchParams.get('tab');
+  const phoneTab = urlTab && LINKABLE_TABS.includes(urlTab) ? (urlTab as SettingsTab) : null;
+  const activeTab: SettingsTab | null = isDesktop ? persistedTab : phoneTab;
+  const onPhoneList = activeTab === null;
+  // `?tab=` deep-links a tab (the retired /insights route lands here, and the
+  // Cmd+K menu links each section). On desktop it is consumed whenever it
+  // appears, not only on mount, so a link followed while already on Settings
+  // still switches the tab: an unknown value is ignored, and the param is
   // replaced away so a reload keeps the user's own last tab, not the link's.
+  // Phones read it in place (above) and leave it in the URL.
   useEffect(() => {
-    const asked = searchParams.get('tab');
-    const visible: readonly string[] = ['general', 'account', 'orchestrator', 'insights', 'billing', 'notifications', 'memory', 'organization', 'appearance', 'api'];
-    if (asked && visible.includes(asked)) {
-      setActiveTab(asked as SettingsTab);
+    if (isDesktop && urlTab && LINKABLE_TABS.includes(urlTab)) {
+      setActiveTab(urlTab as SettingsTab);
       setSearchParams({}, { replace: true });
     }
-    // Mount only: this honours the inbound link, not later tab switches.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isDesktop, urlTab, setActiveTab, setSearchParams]);
   const { theme, setTheme, colorTheme, setColorTheme } = useTheme();
   const { user, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
@@ -1088,16 +1100,27 @@ export default function Settings() {
     <div className="h-full flex flex-col md:flex-row">
       {/* Settings Sidebar — menu button is in-flow at the rail start on
           phones, same 40px slot as every title bar. */}
-      <div className="w-full md:w-64 border-b md:border-r md:border-b-0 border-border bg-card p-2 md:p-4 shrink-0 overflow-x-auto scrollbar-none">
-        <h2 className="text-lg font-semibold mb-2 md:mb-4 px-2 hidden md:block">Settings</h2>
-        <div className="flex items-center gap-1 min-h-10">
-          <SidebarMenuButton className="md:hidden self-center" />
-          <nav className="flex flex-row md:flex-col space-x-2 md:space-x-0 md:space-y-1 min-w-max md:min-w-0 pb-1 md:pb-0 flex-1">
+      {/* On phones this is the full-screen list of sections (onPhoneList); a
+          section then replaces it, under a thin bar that holds the menu button. */}
+      <div className={cn(
+        'w-full md:w-64 border-b md:border-r md:border-b-0 border-border bg-card p-2 md:p-4 shrink-0 overflow-x-auto scrollbar-none',
+        onPhoneList && 'flex-1 min-h-0 overflow-y-auto',
+      )}>
+        {/* On the phone list the menu button shares the title's row instead
+            of sitting alone on a row of its own. */}
+        <div className={cn('flex items-center gap-1 mb-2 md:mb-4', !onPhoneList && 'hidden md:flex')}>
+          {onPhoneList && <SidebarMenuButton className="md:hidden" />}
+          <h2 className="text-lg font-semibold px-2">Settings</h2>
+        </div>
+        <div className="flex flex-col md:flex-row md:items-center gap-1 min-h-10">
+          {!onPhoneList && <SidebarMenuButton className="md:hidden self-start md:self-center" />}
+          {(isDesktop || onPhoneList) && (
+          <nav className="flex flex-col gap-1 md:gap-0 md:space-y-1 min-w-0 flex-1">
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 md:gap-3 px-3 py-2 md:py-2.5 rounded-md transition-colors duration-200 relative whitespace-nowrap ${
+              onClick={() => (isDesktop ? setActiveTab(tab.id) : setSearchParams({ tab: tab.id }))}
+              className={`flex items-center gap-2 md:gap-3 px-3 py-2 md:py-2.5 min-h-11 md:min-h-0 rounded-md transition-colors duration-200 relative whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -1110,25 +1133,38 @@ export default function Settings() {
                 <div className="md:hidden absolute bottom-0 left-1/2 -translate-x-1/2 h-[3px] w-5 bg-primary rounded-t-full" />
               )}
               <tab.icon className="w-4 h-4 shrink-0" />
-              <span className="md:flex-1 text-left text-sm md:text-base">{tab.label}</span>
-              <ChevronRight className={`hidden md:block w-4 h-4 transition-transform ${
-                activeTab === tab.id ? 'rotate-90' : ''
+              <span className="flex-1 text-left text-sm md:text-base">{tab.label}</span>
+              <ChevronRight className={`block w-4 h-4 transition-transform ${
+                activeTab === tab.id ? 'md:rotate-90' : ''
               }`} />
             </button>
           ))}
           </nav>
+          )}
         </div>
       </div>
 
-      {/* Settings Content */}
-      <div className="flex-1 overflow-auto p-6">
+      {/* Settings Content: hidden on phones while the list is showing. */}
+      <div className={cn('flex-1 overflow-auto p-6', onPhoneList && 'hidden md:block')}>
+        {!onPhoneList && (
+          // Phones only: "‹ Settings" returns to the list. Replaces the entry, so Back
+          // from the list goes to the page before Settings, not to this section.
+          <button
+            type="button"
+            onClick={() => setSearchParams({}, { replace: true })}
+            className="-ml-2 mb-2 flex min-h-11 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            Settings
+          </button>
+        )}
         <div className={cn(
           "w-full",
-          !['insights', 'billing'].includes(activeTab) && "max-w-3xl"
+          !['insights', 'billing'].includes(activeTab ?? '') && "max-w-3xl"
         )}>
           {renderContent()}
-          
-          {['general', 'account', 'appearance'].includes(activeTab) && (
+
+          {['general', 'account', 'appearance'].includes(activeTab ?? '') && (
             <div className="mt-8 pt-6 border-t border-border flex justify-end gap-2">
               {/* Was a Cancel button with no handler. */}
               <button

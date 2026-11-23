@@ -25,6 +25,7 @@ import PageHeader from '../components/layout/PageHeader';
 import MarkdownMessage from '@/components/content/MarkdownMessage';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button } from '../components/ui/Button';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import evalsService, {
   isDraft, type EvalCase, type EvalRun, type EvalSuite, type GatedCalls, type QueueItem, type SupervisionPolicy, type Verdict,
 } from '../api/evals';
@@ -91,6 +92,7 @@ export default function Evals() {
   const [showCreate, setShowCreate] = useState(false);
   const [openSuite, setOpenSuite] = useState<number | null>(null);
   const [openRun, setOpenRun] = useState<string | null>(null);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
 
   const suitesQuery = useQuery({
     queryKey: ['eval', 'suites'],
@@ -274,11 +276,7 @@ export default function Evals() {
             loading={runsQuery.isLoading}
             openRun={openRun}
             onToggle={(id) => setOpenRun((prev) => (prev === id ? null : id))}
-            onDelete={(runId) => {
-              if (window.confirm('Delete this eval sweep, its results, and its evaluation run traces? This cannot be undone.')) {
-                removeRun.mutate(runId);
-              }
-            }}
+            onDelete={(runId) => setDeletingRunId(runId)}
             deletingId={removeRun.isPending ? (removeRun.variables ?? null) : null}
           />
         )}
@@ -293,6 +291,19 @@ export default function Evals() {
           agents={agents}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); setTab('suites'); invalidate(); }}
+        />
+      )}
+
+      {deletingRunId !== null && (
+        <ConfirmDialog
+          title="Delete this eval sweep?"
+          body="Its results and its evaluation run traces go with it. This cannot be undone."
+          onConfirm={() => {
+            const id = deletingRunId;
+            setDeletingRunId(null);
+            removeRun.mutate(id);
+          }}
+          onCancel={() => setDeletingRunId(null)}
         />
       )}
     </div>
@@ -415,7 +426,7 @@ function ReviewQueue({
             )}
             {item.execution_id && (
               <a
-                href={`/runs?execution=${item.execution_id}`}
+                href={`/runs?run=${item.execution_id}`}
                 className="ml-auto text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
               >
                 Full trace <ChevronRight className="w-3 h-3" />

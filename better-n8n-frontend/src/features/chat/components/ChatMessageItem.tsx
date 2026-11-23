@@ -12,7 +12,7 @@
  * It only draws. Every action (copy, delete, rewrite, edit, ...) is handled by
  * `StandaloneChat` through the callbacks below.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -26,6 +26,7 @@ import {
   Globe2,
   Image as ImageIcon,
   Loader2,
+  MoreHorizontal,
   Pencil,
   RotateCcw,
   Trash2,
@@ -36,7 +37,7 @@ import {
 } from 'lucide-react';
 
 import type { StandaloneChatMessage as ChatMessage } from '@/api';
-import type { ChartSpec, HtmlArtifact as HtmlArtifactData } from '@/api/chat';
+import type { ChartSpec, HtmlArtifact as HtmlArtifactData, ToolTraceEntry } from '@/api/chat';
 import type { SolutionUsed } from '@/api/solutions';
 import type { MessagePanel } from '../hooks/useMessagePanels';
 import { prettyModel } from '@/lib/modelNames';
@@ -44,8 +45,17 @@ import { cn } from '@/lib/utils';
 import FileCards from '@/components/files/FileCards';
 import FeedbackControl from '@/components/runs/FeedbackControl';
 import ChartArtifact from '@/components/content/ChartArtifact';
+import BrowserChip from '@/components/pane/BrowserChip';
+import NeedsUserCard from '@/components/pane/NeedsUserCard';
+import { awaitingUser, doneMessage, hostOf, liveViewOf, parseBrowserViews } from '@/lib/browserView';
 import { CollapsiblePanel } from './CollapsiblePanel';
 import CommandCard from './CommandCard';
+import PopMenu, { PopMenuItem } from './PopMenu';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { savedRunKey } from '../lib/browserRuns';
+import { summariseTrace } from '../lib/turnReceipt';
+import { useCountUp } from '@/hooks/useCountUp';
+import { costQualifier, formatCost, type MaybeCostSource } from '@/lib/cost';
 import { badgeInitials, personLabel, formatClock, formatElapsed, formatSteps, formatWordCount, stripXmlTags } from './format';
 import HtmlArtifact from './HtmlArtifact';
 import MarkdownMessage from '@/components/content/MarkdownMessage';
@@ -217,6 +227,80 @@ interface ChatMessageItemProps {
   draftBusy?: boolean;
   /** The signed-in person's name, to sign their own messages. Absent: "You". */
   userName?: string;
+  /** Sends a chat message: the browser hand-off's "I'm done". Absent: no button. */
+  onSendText?: (text: string) => void;
+  /** The newest message in the transcript. Only it shows the browser hand-off
+   * card: an older answer's "the assistant needs you" is history, not a request. */
+  isLatest?: boolean;
+  /**
+   * How many messages come after this one in the transcript. Retry, Edit and
+   * Take back remove them all; when that is more than the next reply, the
+   * action asks first.
+   */
+  followingCount?: number;
+}
+
+/** What asking first is for: each action names the confirm button after itself. */
+type PendingAction = 'retry' | 'edit' | 'take-back';
+
+const CONFIRM_LABEL: Record<PendingAction, string> = {
+  retry: 'Retry',
+  edit: 'Edit',
+  'take-back': 'Take back',
+};
+
+/** Icon-only controls in the action row: 44px on phones, a compact 28px on desktop. */
+const iconAction =
+  'flex h-11 w-11 md:h-7 md:w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors disabled:opacity-50';
+
+/** Text actions (Retry, Edit): the same height, with the word beside the icon. */
+const textAction =
+  'flex h-11 md:h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 md:px-2 text-[13px] md:text-[12px] font-medium text-muted-foreground transition-colors disabled:opacity-50';
+
+/**
+ * The line under a finished reply: what the turn did, how long it took and what
+ * it cost, in muted 12 px text. Tapping it opens the Steps panel. Its own
+ * component, so the cost can count up without re-rendering the message.
+ */
+function TurnReceipt({
+  trace,
+  elapsedMs,
+  costUsd,
+  costSource,
+  animate,
+  onOpenSteps,
+}: {
+  trace: ToolTraceEntry[];
+  elapsedMs?: number;
+  costUsd?: string;
+  costSource?: MaybeCostSource;
+  /** The message is new: its cost counts up from zero instead of appearing. */
+  animate: boolean;
+  /** Absent when the turn made no tool calls, so there is no Steps panel to open. */
+  onOpenSteps?: () => void;
+}) {
+  const priced = Boolean(costSource && costSource !== 'unpriced');
+  const usd = parseFloat(costUsd ?? '');
+  const shownUsd = useCountUp(priced && Number.isFinite(usd) ? usd : 0, {
+    startAt: animate ? 0 : undefined,
+  });
+  const cost = priced ? `${formatCost(shownUsd, costSource)} ${costQualifier(costSource)}`.trim() : '';
+  const line = [summariseTrace(trace), formatElapsed(elapsedMs), cost].filter(Boolean).join(' · ');
+  if (!line) return null;
+
+  if (!onOpenSteps) {
+    return <p className="text-[12px] leading-snug text-muted-foreground">{line}</p>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpenSteps}
+      title="Show the steps"
+      className="flex min-h-11 w-full items-center text-left text-[12px] leading-snug text-muted-foreground transition-colors hover:text-foreground md:min-h-6"
+    >
+      {line}
+    </button>
+  );
 }
 
 export default function ChatMessageItem({
@@ -241,7 +325,13 @@ export default function ChatMessageItem({
   onReviewSolution,
   onDraftAction,
   draftBusy = false,
+  onSendText,
+  isLatest = false,
+  followingCount = 0,
 }: ChatMessageItemProps) {
+  // Which of Retry / Edit / Take back is waiting for a yes, if any.
+  const [pending, setPending] = useState<PendingAction | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   // Read as the frame delivers it: the metadata type is open, so the array is
   // checked here before any element is trusted.
   const solutionsUsed = Array.isArray(message.metadata?.solutions_used)
@@ -255,6 +345,9 @@ export default function ChatMessageItem({
   const isSystem = message.role === 'system';
   const isAssistant = message.role === 'assistant';
   const meta = message.metadata;
+  // The browser calls this answer made, read the way the live stream reads them.
+  const browserViews = parseBrowserViews(meta?.browser);
+  const waitingOnUser = awaitingUser(browserViews);
   const traceCount = meta?.tool_trace?.length ?? 0;
   const agentRunId = (meta as { agent_run?: { execution_id?: string } })?.agent_run?.execution_id;
   // A reply is a block only when agents worked: a tool call, a file, a
@@ -262,6 +355,7 @@ export default function ChatMessageItem({
   const agentsWorked = isAssistant && (
     traceCount > 0
     || (meta?.files?.length ?? 0) > 0
+    || browserViews.length > 0
     || meta?.has_code_execution === true
     || Object.keys(meta?.worker_plans ?? {}).length > 0
     || Boolean(agentRunId)
@@ -672,10 +766,26 @@ export default function ChatMessageItem({
           whatever path the prose happened to mention. */}
       <FileCards files={message.metadata?.files} />
 
+      {/* The agent's browser. A hand-off card when it stopped for the person
+          (a code, a login), and the chip that opens the run's Browser tab. */}
+      {isAssistant && isLatest && waitingOnUser && (
+        <NeedsUserCard
+          host={hostOf(waitingOnUser.url)}
+          what={waitingOnUser.needs_user ?? ''}
+          liveUrl={liveViewOf(browserViews)}
+          onDone={onSendText ? () => onSendText(doneMessage(hostOf(waitingOnUser.url))) : undefined}
+        />
+      )}
+      {isAssistant && browserViews.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <BrowserChip runKey={savedRunKey(message.id)} views={browserViews} />
+        </div>
+      )}
+
       {/* Rendered HTML artifacts, replayed from stored history. */}
       {Array.isArray(message.metadata?.html_artifacts) &&
         (message.metadata?.html_artifacts ?? []).map((art: HtmlArtifactData, i: number) => (
-          <HtmlArtifact key={`${message.id}-art-${i}`} artifact={art} />
+          <HtmlArtifact key={`${message.id}-art-${i}`} artifact={art} artifactKey={`${message.id}-${i}`} />
         ))}
 
       {/* Charts, redrawn from the stored spec rather than from
@@ -716,6 +826,19 @@ export default function ChatMessageItem({
     </div>
   );
 
+  // Retry, Edit and Take back remove this message's later ones. More than the
+  // next reply is a lot to lose by one click, so those ask first.
+  const runAction = (action: PendingAction) => {
+    const id = message.id as number;
+    if (action === 'retry') onRewrite(id);
+    else if (action === 'edit') onEdit(id, message.content);
+    else onRewind(id);
+  };
+  const ask = (action: PendingAction) => {
+    if (followingCount > 1) setPending(action);
+    else runAction(action);
+  };
+
   // The action row sits outside the block, so its controls never read as part
   // of the agent's work.
   const actions = message.role !== 'system' && (
@@ -725,32 +848,22 @@ export default function ChatMessageItem({
       <div className="flex items-center gap-1 sm:gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity duration-300">
         <button
           onClick={onCopy}
-          className="text-muted-foreground hover:text-primary transition-colors p-2 md:p-1.5 hover:bg-primary/5 rounded-md"
+          className={cn(iconAction, 'hover:text-primary hover:bg-primary/5')}
           title="Copy message"
+          aria-label="Copy message"
         >
           {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
         </button>
-        {isAssistant && message.content.trim() && (
-          <button
-            onClick={() => onSpeak(message.id as number, message.content)}
-            className="text-muted-foreground hover:text-primary transition-colors p-2 md:p-1.5 hover:bg-primary/5 rounded-md"
-            title={isSpeaking ? 'Stop reading aloud' : 'Read aloud'}
-          >
-            {speakLoading
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : isSpeaking
-                ? <VolumeX className="w-4 h-4 text-primary" />
-                : <Volume2 className="w-4 h-4" />}
-          </button>
-        )}
+        {/* An answer: Retry, the rating, read aloud, and the rest under More. */}
         {!isUser && (
           <button
-            onClick={() => onRewrite(message.id as number)}
+            onClick={() => ask('retry')}
             disabled={deleting}
-            className="text-muted-foreground hover:text-amber-500 transition-colors p-2 md:p-1.5 hover:bg-warning-subtle rounded-md disabled:opacity-50"
-            title="Rewrite prompt (regenerates response without subsequent context)"
+            className={cn(textAction, 'hover:text-amber-500 hover:bg-warning-subtle')}
+            title="Retry: write this answer again from the same question"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className="w-4 h-4" aria-hidden="true" />
+            Retry
           </button>
         )}
         {isAssistant && typeof message.id === 'number' && (
@@ -760,38 +873,71 @@ export default function ChatMessageItem({
             initial={(message as { feedback?: { rating: number; reason: string; comment: string } | null }).feedback ?? null}
           />
         )}
-        {isUser && (
+        {isAssistant && message.content.trim() && (
           <button
-            onClick={() => onRewind(message.id as number)}
-            disabled={deleting}
-            className="text-muted-foreground hover:text-emerald-500 transition-colors p-2 md:p-1.5 hover:bg-success-subtle rounded-md disabled:opacity-50"
-            title="Take back (removes this message and everything after it, and puts the text back in the box)"
+            onClick={() => onSpeak(message.id as number, message.content)}
+            className={cn(iconAction, 'hover:text-primary hover:bg-primary/5')}
+            title={isSpeaking ? 'Stop reading aloud' : 'Read aloud'}
+            aria-label={isSpeaking ? 'Stop reading aloud' : 'Read aloud'}
           >
-            <ArrowUpFromLine className="w-4 h-4" />
+            {speakLoading
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : isSpeaking
+                ? <VolumeX className="w-4 h-4 text-primary" />
+                : <Volume2 className="w-4 h-4" />}
           </button>
         )}
+        {/* A question: Edit is the word; taking it back and deleting sit under More. */}
         {isUser && (
           <button
-            onClick={() => onEdit(message.id as number, message.content)}
+            onClick={() => ask('edit')}
             disabled={deleting}
-            className="text-muted-foreground hover:text-blue-500 transition-colors p-2 md:p-1.5 hover:bg-blue-500/10 rounded-md disabled:opacity-50"
-            title="Edit and resend message"
+            className={cn(textAction, 'hover:text-blue-500 hover:bg-blue-500/10')}
+            title="Edit this message and send it again"
           >
-            <Pencil className="w-4 h-4" />
+            <Pencil className="w-4 h-4" aria-hidden="true" />
+            Edit
           </button>
         )}
-        <button
-          onClick={() => onDelete(message.id as number)}
-          disabled={deleting}
-          className="text-muted-foreground hover:text-red-500 transition-colors p-2 md:p-1.5 hover:bg-red-500/10 rounded-md disabled:opacity-50"
-          title="Delete message"
+        <PopMenu
+          label="More actions for this message"
+          open={moreOpen}
+          onOpenChange={setMoreOpen}
+          align="left"
+          trigger={
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              disabled={deleting}
+              aria-label="More actions"
+              aria-expanded={moreOpen}
+              title="More actions"
+              className={cn(iconAction, 'hover:text-foreground hover:bg-secondary')}
+            >
+              {deleting
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <MoreHorizontal className="w-4 h-4" />}
+            </button>
+          }
         >
-          {deleting ? (
-            <Loader2 className="w-4 h-4 animate-spin text-red-500" />
-          ) : (
-            <Trash2 className="w-4 h-4" />
+          {isUser && (
+            <PopMenuItem
+              disabled={deleting}
+              onClick={() => { setMoreOpen(false); ask('take-back'); }}
+            >
+              <ArrowUpFromLine className="h-4 w-4 shrink-0" aria-hidden="true" />
+              Take back
+            </PopMenuItem>
           )}
-        </button>
+          <PopMenuItem
+            destructive
+            disabled={deleting}
+            onClick={() => { setMoreOpen(false); onDelete(message.id as number); }}
+          >
+            <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Delete
+          </PopMenuItem>
+        </PopMenu>
       </div>
       {/* Which model wrote this answer. Attribution belongs to
           the answer, not to the picker in the composer: the
@@ -864,7 +1010,36 @@ export default function ChatMessageItem({
         body
       )}
 
+      {isAssistant && (
+        <div className="mt-1">
+          <TurnReceipt
+            trace={meta?.tool_trace ?? []}
+            elapsedMs={meta?.elapsed_ms}
+            costUsd={message.cost_usd}
+            costSource={message.cost_source}
+            animate={animate}
+            onOpenSteps={traceCount > 0 ? () => togglePanel('activity', message.id as number) : undefined}
+          />
+        </div>
+      )}
+
       {actions}
+
+      {pending && (
+        <ConfirmDialog
+          title="Remove the messages after this?"
+          body={`This removes the ${followingCount} messages after it.`}
+          confirmLabel={CONFIRM_LABEL[pending]}
+          danger={false}
+          busy={deleting}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const action = pending;
+            setPending(null);
+            runAction(action);
+          }}
+        />
+      )}
     </div>
   );
 }

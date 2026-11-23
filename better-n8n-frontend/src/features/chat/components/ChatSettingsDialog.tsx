@@ -23,6 +23,9 @@ interface ChatSettingsDialogProps {
   /** Client-side only — read aloud is a browser preference, not server state. */
   readAloud: boolean;
   onToggleReadAloud: () => void;
+  /** Client-side only: open a turn's first new file beside the chat (desktop). */
+  autoOpenPane: boolean;
+  onToggleAutoOpenPane: () => void;
   /** Which tab is showing. Without `contextView` there is only Settings. */
   tab?: SettingsTab;
   onTabChange?: (tab: SettingsTab) => void;
@@ -47,6 +50,8 @@ export default function ChatSettingsDialog({
   onClose,
   readAloud,
   onToggleReadAloud,
+  autoOpenPane,
+  onToggleAutoOpenPane,
   tab = 'settings',
   onTabChange,
   contextView,
@@ -239,6 +244,36 @@ export default function ChatSettingsDialog({
                 className={cn(
                   "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
                   readAloud ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/20 p-3.5">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-foreground">Open new files beside the chat</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                When the assistant creates a file, or first uses its browser, it opens in the side pane next to the answer.
+                Desktop only: on a phone it never opens by itself. Stored in this browser only.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={autoOpenPane}
+              aria-label="Open new files beside the chat"
+              onClick={onToggleAutoOpenPane}
+              className={cn(
+                "mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-sm p-0.5",
+                "transition-colors duration-300 ease-out",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                "focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                autoOpenPane ? "bg-primary" : "bg-muted-foreground/30"
+              )}
+            >
+              <span
+                className={cn(
+                  "h-5 w-5 shrink-0 rounded-sm bg-white shadow-sm transition-transform duration-300 ease-out",
+                  autoOpenPane ? "translate-x-5" : "translate-x-0"
                 )}
               />
             </button>

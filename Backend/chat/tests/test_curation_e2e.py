@@ -73,8 +73,11 @@ class _StubProvider:
                     "index": 0,
                     "id": f"call-{step}",
                     "function": {
-                        "name": "web_search",
-                        "arguments": json.dumps({"query": f"step {step}"}),
+                        # `read_file`, not `web_search`: the turn fetches
+                        # companion images for a web search from the real
+                        # internet even when the tool itself is stubbed.
+                        "name": "read_file",
+                        "arguments": json.dumps({"path": f"/step-{step}.md"}),
                     },
                 }]}
             yield {"type": "metadata", "usage": {"total_tokens": 10}}
@@ -84,9 +87,9 @@ class _StubProvider:
 
 async def _dispatch(name: str, args: dict, context: dict) -> str:
     """A tool that returns a lot, with the secret buried in the second call."""
-    step = args.get("query", "")
+    step = args.get("path", "")
     body = f"result for {step}. " + ("filler text. " * 900)
-    if step == "step 2":
+    if step == "/step-2.md":
         body = f"{SECRET}. {body}"
     return body
 
@@ -221,7 +224,7 @@ class LongRunTests(TestCase):
         self.assertTrue(records, "nothing was compacted in a 20-turn run")
         # A record names the call it replaced and where the rest went, so a
         # truncated result and a short one cannot look alike.
-        self.assertIn("web_search(", records[0]["content"])
+        self.assertIn("read_file(", records[0]["content"])
         self.assertIn("recall_context", records[0]["content"])
 
     def test_curation_is_not_charged_to_the_user_twice(self):

@@ -40,10 +40,12 @@ import { dismissNudges } from '@/lib/nudgeToasts';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { MediaPreview } from '@/components/content/MediaPreview';
 import HtmlArtifact from './HtmlArtifact';
+import AutoOpenFiles from './AutoOpenFiles';
 import ChartArtifact from '@/components/content/ChartArtifact';
 import PlanDock from '@/components/plan/PlanDock';
 import { actionsFrom, historyFrom } from '@/lib/planView';
-import PlanPanel from '@/components/orchestration/PlanPanel';
+import PlanPanel, { PLAN_RAIL_WIDTH } from '@/components/orchestration/PlanPanel';
+import { MIN_PAGE_WIDTH } from '@/components/pane/SidePane';
 import FileCards from '@/components/files/FileCards';
 import solutionsService from '@/api/solutions';
 import type { DraftAction, DraftResolved } from '@/components/solutions/SolutionDraftCard';
@@ -73,6 +75,9 @@ import { useAuth } from '@/contexts/authState';
 import GuestBanner from './GuestBanner';
 import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatHeader from './ChatHeader';
+import ComposerMoreSheet from './ComposerMoreSheet';
+import { approvalBorderClass, approvalSelectClass } from '../lib/approvalTone';
+import { AUTONOMY_COPY } from '@/types/agentConfig';
 import ChatMessageItem, { AssistantHeader, TurnOrPlain } from './ChatMessageItem';
 import { formatSteps } from './format';
 import { useSpeech } from '@/hooks/useSpeech';
@@ -82,6 +87,7 @@ import ToolApprovalCard from './ToolApprovalCard';
 import QuestionCard from '@/components/content/QuestionCard';
 import type { QuestionAnswer } from '@/lib/question';
 import { SendButton } from '@/components/ui/SendButton';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { apiErrorMessage } from '@/lib/apiError';
 import { isNoCredentialError } from '@/lib/noCredential';
 import { appendTranscript } from '@/lib/voice';
@@ -91,6 +97,7 @@ import { isChatMode, nextChatMode, toChatMode, type ChatMode } from '../lib/chat
 import CommandPalette from './CommandPalette';
 import CommandCard from './CommandCard';
 import { useCommands } from '../hooks/useCommands';
+import { useTitleProgress } from '../hooks/useTitleProgress';
 import commandsService from '@/api/commands';
 import {
   buildCommandPayload,
@@ -147,6 +154,24 @@ export default function StandaloneChat() {
   const [isRestoring, setIsRestoring] = useState(false);
   /** Counts sends, so a transcript fetch can tell one happened under it. */
   const sendSeqRef = useRef(0);
+  /** The same count as state: `AutoOpenFiles` resets its per-turn flags when it changes. */
+  const [turnSeq, setTurnSeq] = useState(0);
+  // Side pane: whether it is showing, and the chat page's width. The plan rail
+  // collapses to its pill when the pane leaves the chat less than MIN_PAGE_WIDTH.
+  const [paneOpen, setPaneOpen] = useState(false);
+  const transcriptRowRef = useRef<HTMLDivElement>(null);
+  const [transcriptRowWidth, setTranscriptRowWidth] = useState(0);
+  useEffect(() => {
+    const row = transcriptRowRef.current;
+    if (!row || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => setTranscriptRowWidth(entry.contentRect.width));
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, []);
+  const planCollapsed =
+    paneOpen && transcriptRowWidth > 0 && transcriptRowWidth - PLAN_RAIL_WIDTH < MIN_PAGE_WIDTH;
+  // "Open new files beside the chat". Stored in this browser only.
+  const [autoOpenPane, setAutoOpenPane] = usePersistedState<boolean>('chat.autoOpenPane', true);
   // The answer that just finished streaming. It is already on screen, so it
   // mounts without the entrance animation every other message gets.
   const [settledId, setSettledId] = useState<number | string | null>(null);
@@ -353,6 +378,15 @@ export default function StandaloneChat() {
     resetPlan,
   } = usePlanStream();
 
+  // The tab title shows the turn: a dot while it runs, the plan count when there
+  // is one, and a tick if it ended while the tab was hidden (11d). Writes the
+  // title directly, so progress never re-renders the transcript.
+  useTitleProgress({
+    running: isLoading,
+    done: live.todos.filter((t) => t.status === 'done').length,
+    total: live.todos.length,
+  });
+
   // What the plan dock shows: the running turn's plan while there is one,
   // otherwise the most recent reply's — so the current plan has one place.
   // Saved replies no longer draw their own plan; this is the only copy.
@@ -480,6 +514,13 @@ export default function StandaloneChat() {
       }
     } catch (e) {
       console.error("Failed to load conversation", e);
+      // A 404 means "not this account's, or gone". Whatever the cache painted
+      // a moment ago must not stay on screen: it may be another person's.
+      if ((e as { response?: { status?: number } })?.response?.status === 404) {
+        forgetTranscript(id);
+        queryClient.removeQueries({ queryKey: ['chatSession', id] });
+        if (sendSeqRef.current === sendsBefore) startNewConversation();
+      }
     } finally {
       setIsRestoring(false);
       // A turn still running for this conversation owns the loading state:
@@ -778,10 +819,15 @@ export default function StandaloneChat() {
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [newChatRequested, startNewConversation, navigate, location.pathname, location.search]);
 
-  const handleDeleteConversation = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this conversation?')) return;
+  /** The conversation the person is being asked to delete, or null. */
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
+  const handleDeleteConversation = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setPendingDeleteId(id);
+  };
+
+  const deleteConversation = async (id: string) => {
     try {
       await chatService.deleteSession(id);
       queryClient.setQueryData<ChatSessionSummary[]>(['chatSessions'], (old = []) => old.filter(c => c.id !== id));
@@ -797,6 +843,19 @@ export default function StandaloneChat() {
     } catch (err) {
       console.error("Failed to delete conversation", err);
       toast.error("Failed to delete conversation");
+    }
+  };
+
+  const renameConversation = async (id: string, title: string) => {
+    try {
+      await chatService.updateSession(id, { title });
+      queryClient.setQueryData<ChatSession>(['chatSession', id], old => (old ? { ...old, title } : old));
+      await queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
+      // The header reads the open conversation from state, not from the list.
+      setCurrentSession(prev => (prev && prev.id === id ? { ...prev, title } : prev));
+    } catch (err) {
+      console.error("Failed to rename conversation", err);
+      toast.error("Could not rename the conversation");
     }
   };
 
@@ -1518,6 +1577,15 @@ export default function StandaloneChat() {
     }
   };
 
+  /**
+   * "I'm done" on a browser hand-off. `handleSend` clears the composer for any
+   * send, so the draft the person was typing is put back after it.
+   */
+  const sendHandOff = (text: string) => {
+    const draft = input;
+    void handleSend(text).then(() => setInput(draft));
+  };
+
   const handleSend = async (overrideInput?: string) => {
     const textToSend = overrideInput ?? input;
     if (!textToSend.trim()) return;
@@ -1564,6 +1632,7 @@ export default function StandaloneChat() {
     };
 
     sendSeqRef.current += 1;
+    setTurnSeq((n) => n + 1);
     scrollRequestRef.current = 'smooth';
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -1760,6 +1829,9 @@ export default function StandaloneChat() {
   // the lead's own delegated runs. Shown as "N workers" while the turn runs.
   const workerCount = Math.max(plan.tasks.length, live.workerPlans.length);
 
+  // Phone composer: the "+" sheet that holds the tools the row hides below sm.
+  const [composerSheetOpen, setComposerSheetOpen] = useState(false);
+
   // Run settings: the model and effort the next turn uses. Lives in the
   // header now, so the composer is only the message box and its send controls.
   const runSettings = (
@@ -1770,7 +1842,7 @@ export default function StandaloneChat() {
                           a dropdown whose choices would change nothing. */}
                       {isGuest ? (
                         <div
-                          className="flex items-center gap-2 h-8 px-3 rounded-md border border-transparent text-[10px] font-bold text-muted-foreground/50"
+                          className="flex items-center gap-2 h-11 md:h-8 px-3 rounded-md border border-transparent text-xs font-semibold text-muted-foreground/50"
                           title="Guest mode runs on NVIDIA NIM — log in to choose a model"
                         >
                           <span className="inline max-w-[22vw] sm:max-w-[140px] truncate">
@@ -1782,7 +1854,7 @@ export default function StandaloneChat() {
                         <button
                           onClick={() => setShowModelDropdown(!showModelDropdown)}
                           className={cn(
-                            "flex items-center gap-1.5 sm:gap-2 h-8 px-2 sm:px-3 rounded-md transition-colors text-[10px] font-bold border min-w-0 max-w-[38vw] sm:max-w-none",
+                            "flex items-center gap-1.5 sm:gap-2 h-11 md:h-8 px-2 sm:px-3 rounded-md transition-colors text-xs font-semibold border min-w-0 max-w-[34vw] sm:max-w-none",
                             showModelDropdown
                               ? "bg-primary/10 border-primary/30 text-primary"
                               : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40"
@@ -1943,8 +2015,20 @@ export default function StandaloneChat() {
   );
 
   return (
-    <FilePreviewProvider docked>
+    <FilePreviewProvider
+      docked
+      storageKey={conversationId ? `pane:${conversationId}` : undefined}
+      onOpenChange={setPaneOpen}
+      onSendText={sendHandOff}
+    >
     <div className="flex h-full w-full bg-background overflow-hidden relative">
+      <AutoOpenFiles
+        files={live.files}
+        browser={live.browser}
+        running={isLoading}
+        turnKey={turnSeq}
+        enabled={autoOpenPane}
+      />
       {/* No decorative wash. The three blurred orbs that used to sit here were
           off-palette (raw `purple-500`, not the `--agent` violet) and pushed a
          morphic look the Fluent tokens do not have. An answer surface
@@ -1964,7 +2048,21 @@ export default function StandaloneChat() {
         onNewConversation={startNewConversation}
         onOpenConversation={loadConversation}
         onDeleteConversation={handleDeleteConversation}
+        onRenameConversation={renameConversation}
       />
+      {pendingDeleteId && (
+        <ConfirmDialog
+          title="Delete conversation"
+          body="Are you sure you want to delete this conversation?"
+          confirmLabel="Delete"
+          onCancel={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            const id = pendingDeleteId;
+            setPendingDeleteId(null);
+            void deleteConversation(id);
+          }}
+        />
+      )}
 
       {/* 2. Main Chat Area */}
       <div className="flex-1 flex flex-col h-full relative min-w-0 z-10 transition-colors duration-300">
@@ -1981,7 +2079,7 @@ export default function StandaloneChat() {
           mode={autonomy}
           onModeChange={(next) => void setMode(next)}
           runSettings={runSettings}
-          onShowSettings={() => setShowSessionSettings(true)}
+          onSaveSettings={(patch) => { void handleSaveSessionSettings(patch); }}
           onEditSettings={() => {
             setSystemPromptDraft(currentSession?.system_prompt || '');
             setShowSessionSettings(true);
@@ -2000,6 +2098,8 @@ export default function StandaloneChat() {
             onClose={() => setShowSessionSettings(false)}
             readAloud={readAloud}
             onToggleReadAloud={() => setReadAloud((v) => !v)}
+            autoOpenPane={autoOpenPane}
+            onToggleAutoOpenPane={() => setAutoOpenPane((v) => !v)}
             tab={settingsTab}
             onTabChange={setSettingsTab}
             // Guests have no stored conversation to inspect.
@@ -2009,7 +2109,7 @@ export default function StandaloneChat() {
 
         {/* Transcript + plan rail: the panel sits beside the scroll area on
             wide screens and collapses to a bottom sheet on phones. */}
-        <div className="flex min-h-0 flex-1">
+        <div ref={transcriptRowRef} className="flex min-h-0 flex-1">
         {/* Dynamic Transition Area */}
         <div
           className={cn(
@@ -2037,7 +2137,7 @@ export default function StandaloneChat() {
           />
 
           <div className={cn(
-            "max-w-4xl mx-auto w-full relative",
+            "max-w-4xl 2xl:max-w-5xl mx-auto w-full relative",
             isInitialState ? "my-auto flex flex-col items-center" : "space-y-6"
           )}>
             {showSkeleton ? (
@@ -2067,7 +2167,10 @@ export default function StandaloneChat() {
                     key={String(message.id ?? `pending-${index}`)}
                     message={message}
                     userName={authUser?.display_name || authUser?.name || undefined}
+                    onSendText={sendHandOff}
+                    isLatest={index === messages.length - 1}
                     index={index}
+                    followingCount={messages.length - 1 - index}
                     animate={message.id !== settledId && !restoredIds.has(message.id)}
                     deleting={deletingMsgId === message.id}
                     copied={copiedId === `msg-${index}`}
@@ -2250,7 +2353,7 @@ export default function StandaloneChat() {
 
                         {/* Artifacts as they arrive, before the turn is persisted. */}
                         {live.artifacts.map((art, i) => (
-                          <HtmlArtifact key={`live-art-${i}`} artifact={art} />
+                          <HtmlArtifact key={`live-art-${i}`} artifact={art} artifactKey={`live-${i}`} />
                         ))}
 
                         {live.charts.map((chart, i) => (
@@ -2524,6 +2627,7 @@ export default function StandaloneChat() {
                 tasks={plan.tasks}
                 leases={plan.leases}
                 changes={plan.changes}
+                collapsed={planCollapsed}
               />
             </div>
           )}
@@ -2538,8 +2642,8 @@ export default function StandaloneChat() {
             ? "pb-[max(1.5rem,env(safe-area-inset-bottom))] md:pb-16"
             : "pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6 pt-2"
         )}>
-          <div className="max-w-4xl mx-auto space-y-4">
-            
+          <div className="max-w-4xl 2xl:max-w-5xl mx-auto space-y-4">
+
             <div className="relative group/input">
 
               {/* The plan, pinned above the composer so it never scrolls
@@ -2690,7 +2794,38 @@ export default function StandaloneChat() {
                     thing on the page; a border that turns primary plus the
                     standard focus ring says "focused" in the same language as
                     every other input in the app. */}
-                <div className="relative flex flex-col bg-card border border-border rounded-md shadow-sm transition-colors duration-150 focus-within:border-primary focus-within:ring-1 focus-within:ring-ring">
+                {/* The border's colour is the approval level (plan, ask, auto,
+                    full), so the level shows without opening anything. Focus
+                    is the ring, not the border. */}
+                <div className={cn(
+                  "relative flex flex-col bg-card border rounded-md shadow-sm transition-colors duration-150 focus-within:ring-1 focus-within:ring-ring",
+                  approvalBorderClass(autonomy),
+                )}>
+                  {/* Full auto never asks: say so where the eye already is. */}
+                  {!isGuest && autonomy === 'full' && (
+                    <span className="pointer-events-none absolute right-3 top-2 z-10 font-mono text-[11px] font-semibold text-destructive">
+                      Never asks
+                    </span>
+                  )}
+                  {/* Phone "+" sheet: opens from the "+" button below sm only. */}
+                  {!isGuest && composerSheetOpen && (
+                    <ComposerMoreSheet
+                      onClose={() => setComposerSheetOpen(false)}
+                      onAttach={handlePickFiles}
+                      onCommands={() => {
+                        setCommandError(null);
+                        setPaletteOpen(true);
+                        textareaRef.current?.focus();
+                      }}
+                      commandsDisabled={isLoading}
+                      searchOn={activeIntent === 'search'}
+                      onToggleSearch={() => toggleIntent('search')}
+                      researchOn={activeIntent === 'research'}
+                      onToggleResearch={() => toggleIntent('research')}
+                      mode={autonomy}
+                      onModeChange={(next) => void setMode(next)}
+                    />
+                  )}
                   {/* The `/` palette: fuzzy match, ↑/↓, Enter/Tab, Esc. */}
                   {!isGuest && (
                     <CommandPalette
@@ -2715,6 +2850,23 @@ export default function StandaloneChat() {
                   )}
                   {/* Textarea row */}
                   <div className="p-4 pb-0">
+                    {/* Phone: Search and Deep research live in the "+" sheet,
+                        so their state shows here as a chip that turns them off. */}
+                    {!isGuest && (activeIntent === 'search' || activeIntent === 'research') && (
+                      <div className="mb-2 flex sm:hidden flex-wrap items-center gap-1.5 px-2">
+                        <span className="inline-flex min-h-[44px] items-center gap-1 rounded-md border border-primary/30 bg-primary/5 pl-2.5 pr-1 text-[13px] font-medium text-foreground">
+                          {activeIntent === 'search' ? 'Searching the web' : 'Deep research'}
+                          <button
+                            type="button"
+                            onClick={() => toggleIntent(activeIntent)}
+                            aria-label={activeIntent === 'search' ? 'Turn off search' : 'Turn off deep research'}
+                            className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                    )}
                     {/* Files attached to this chat. Each chip is a file the
                         agent works with: `/Chat/<name>` for its file tools
                         and the attachment id for `read_attachment_text`. */}
@@ -2860,6 +3012,42 @@ export default function StandaloneChat() {
                               tabIndex={-1}
                               onChange={handleFileInputChange}
                             />
+                            {/* Phone: one "+" opens the sheet with every tool
+                                the row hides below sm (44px). */}
+                            <button
+                              type="button"
+                              onClick={() => setComposerSheetOpen(true)}
+                              disabled={isUploading}
+                              aria-label="More options"
+                              title="More options"
+                              className={cn(
+                                "flex sm:hidden items-center justify-center h-11 w-11 rounded-md shrink-0 border",
+                                "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
+                                "disabled:opacity-40",
+                                attachedFiles.length > 0
+                                  ? 'bg-primary/10 border-primary/30 text-primary'
+                                  : "border-transparent text-muted-foreground/50",
+                              )}
+                            >
+                              {isUploading
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <Plus className="w-4 h-4" />}
+                            </button>
+                            {/* Phone: the approval level, always readable in
+                                its colour, one tap from changing (the header
+                                select is desktop-only). */}
+                            <button
+                              type="button"
+                              onClick={() => setComposerSheetOpen(true)}
+                              aria-label={`Approval: ${AUTONOMY_COPY[autonomy].label}. Change`}
+                              className={cn(
+                                "flex sm:hidden items-center h-11 px-2.5 rounded-md border font-mono text-[11px] shrink-0 max-w-[11rem] truncate",
+                                approvalSelectClass(autonomy),
+                              )}
+                            >
+                              <span className="truncate">{AUTONOMY_COPY[autonomy].label}</span>
+                            </button>
+                            {/* Desktop (and up): attach straight away. */}
                             <button
                               onClick={handlePickFiles}
                               disabled={isUploading}
@@ -2868,7 +3056,7 @@ export default function StandaloneChat() {
                                 ? `Attach a file (${attachedFiles.length} attached — the agent works with these)`
                                 : 'Attach a file to this chat'}
                               className={cn(
-                                "flex items-center justify-center h-8 w-8 rounded-md shrink-0 border",
+                                "hidden sm:flex items-center justify-center h-8 w-8 rounded-md shrink-0 border",
                                 "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                                 "disabled:opacity-40",
                                 attachedFiles.length > 0
@@ -2900,7 +3088,7 @@ export default function StandaloneChat() {
                             aria-expanded={paletteOpen}
                             title="Slash commands ( / )"
                             className={cn(
-                              "flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
+                              "hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
                               "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                               "disabled:opacity-40",
                               paletteOpen
@@ -2929,7 +3117,7 @@ export default function StandaloneChat() {
                             key={tool.key}
                             onClick={() => toggleIntent(tool.key)}
                             className={cn(
-                              "flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
+                              "hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-md text-[10px] font-bold shrink-0 border",
                               "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                               activeIntent === tool.key
                                 ? tool.color === 'blue' ? 'bg-blue-500/15 border-blue-500/40 text-blue-500'
@@ -2981,11 +3169,11 @@ export default function StandaloneChat() {
                         </span>
                       )}
 
-                      {/* Voice input. Hidden on very narrow phones where it
-                          collides with the model picker and send button, for
-                          guests, and in browsers that cannot record. */}
+                      {/* Voice input. Shown on every phone width now (the
+                          tools that crowded it moved into the "+" sheet); hidden
+                          for guests and in browsers that cannot record. */}
                       {showMic && (
-                        <div className="hidden min-[380px]:flex">
+                        <div className="flex">
                           <VoiceInputButton
                             state={voice.state}
                             startedAt={voice.startedAt}
@@ -3008,9 +3196,9 @@ export default function StandaloneChat() {
                               workers see it through the lead. */}
                           <span
                             className="hidden sm:inline-flex h-8 items-center rounded-md border border-border px-2 font-mono text-[11px] text-muted-foreground shrink-0"
-                            title="Messages go to the lead, which passes them on to its workers"
+                            title="What you add is used in this reply, while it is written"
                           >
-                            To Lead{workerCount > 0 ? ` + ${workerCount} ${workerCount === 1 ? 'worker' : 'workers'}` : ''}
+                            Adds to this reply{workerCount > 0 ? ` · ${workerCount} ${workerCount === 1 ? 'helper' : 'helpers'} working` : ''}
                           </span>
                           <button
                             type="button"
@@ -3025,8 +3213,8 @@ export default function StandaloneChat() {
                             type="button"
                             onClick={() => handleSend()}
                             disabled={!input.trim()}
-                            aria-label="Add"
-                            title="Add to the running turn"
+                            aria-label="Add to this reply"
+                            title="Add to this reply"
                             className="h-8 shrink-0 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                           >
                             Add

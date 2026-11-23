@@ -46,6 +46,66 @@ class OpenAINode(OpenAICompatibleLLMNode):
 
 
 
+# Anthropic's prompt cache: a cache read costs about a tenth of fresh input, but
+# only a prefix that is identical up to a breakpoint can be read back. Our
+# system prompt is session-stable (H-079: per-turn facts ride a trailing system
+# message instead), so the prefix is worth caching. The trailing context message
+# is volatile, so the moving breakpoint goes on the last settled message before
+# it, and the next turn reads everything up to that point from cache. Two of
+# Anthropic's four breakpoints are used: the system prompt (the tool definitions
+# come before it in Anthropic's cache order, so they are covered too) and the
+# last non-system message. OpenAI and DeepSeek cache automatically and need no
+# marks, so only `anthropic/` models get them.
+_EPHEMERAL = {"type": "ephemeral"}
+
+
+def _marked(message: dict) -> dict | None:
+    """A copy of `message` carrying a cache breakpoint, or None if its content
+    has no text to put the mark on (a list with no text part, or a non-text
+    shape)."""
+    content = message.get("content")
+    if isinstance(content, str):
+        part = {"type": "text", "text": content, "cache_control": dict(_EPHEMERAL)}
+        return {**message, "content": [part]}
+    if isinstance(content, list):
+        for i in range(len(content) - 1, -1, -1):
+            part = content[i]
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts = list(content)
+                parts[i] = {**part, "cache_control": dict(_EPHEMERAL)}
+                return {**message, "content": parts}
+    return None
+
+
+def _with_cache_breakpoints(messages: list[dict]) -> list[dict]:
+    """Return `messages` with Anthropic cache breakpoints on at most two messages.
+
+    (a) the first `system` message; (b) the last non-system message with
+    content, walking backwards past a trailing volatile system message and past
+    assistant turns with no content. The caller's list and dicts are never
+    mutated: changed messages are replaced by copies.
+
+    (b) never has role `system`, so it can never be the same message as (a).
+    """
+    out = list(messages)
+    system_at = next(
+        (i for i, m in enumerate(out) if m.get("role") == "system"), None,
+    )
+    if system_at is not None:
+        marked = _marked(out[system_at])
+        if marked is not None:
+            out[system_at] = marked
+    for i in range(len(out) - 1, -1, -1):
+        message = out[i]
+        if message.get("role") == "system" or not message.get("content"):
+            continue
+        marked = _marked(message)
+        if marked is not None:
+            out[i] = marked
+            break
+    return out
+
+
 class OpenRouterNode(OpenAICompatibleLLMNode):
     """OpenRouter — one key, many upstream models."""
 
@@ -94,6 +154,8 @@ class OpenRouterNode(OpenAICompatibleLLMNode):
 
     def chat_payload(self, *, model, messages, config, stream):
         from .openai_compatible import num
+        if str(model or "").lower().startswith("anthropic/"):
+            messages = _with_cache_breakpoints(messages)
         payload = super().chat_payload(
             model=model, messages=messages, config=config, stream=stream,
         )

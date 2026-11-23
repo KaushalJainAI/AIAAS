@@ -89,6 +89,10 @@ export interface AgentConfig {
     /** Create decks, workbooks and Word documents in its folder. Needs a
      *  `fileAccess` other than none, like `fileOps`, to have somewhere to save. */
     office: boolean;
+    /** Create knowledge bases in its folders and add notes and documents to
+     *  them. Each write asks first unless the agent runs in Full auto. Needs a
+     *  `fileAccess` other than none, like `office`. */
+    kbWrite: boolean;
     /** Generate images, billed to the user's OpenRouter account. Saved into
      *  its folder, so it needs a `fileAccess` other than none. */
     media: boolean;
@@ -288,6 +292,7 @@ export const DEFAULT_AGENT: AgentConfig = {
     scrape: false,
     fileOps: false,
     office: false,
+    kbWrite: false,
     media: false,
     publish: false,
     browser: false,
@@ -396,6 +401,22 @@ export const AUTONOMY_COPY: Record<Autonomy, { label: string; hint: string }> = 
   full: { label: 'Never ask', hint: 'No approval gate at all, including tools using your credentials.' },
 };
 
+/** Colour tone of an approval level. Named tones, so each screen maps them to its own tokens. */
+export type ApprovalTone = 'neutral' | 'primary' | 'warning' | 'destructive';
+
+/**
+ * How loudly each approval level shows: plan is neutral, review and ask are
+ * primary, auto is a warning, and full (never asks) is destructive. The chat
+ * composer's border and the approval select use it, so the level is visible
+ * without opening anything.
+ */
+export const APPROVAL_TONE: Record<Autonomy, ApprovalTone> = {
+  plan: 'neutral',
+  review: 'primary',
+  ask: 'primary',
+  auto: 'warning',
+  full: 'destructive',
+};
 
 
 // Describes the virtual filesystem in `Backend/inference/vfs.py`, which is a

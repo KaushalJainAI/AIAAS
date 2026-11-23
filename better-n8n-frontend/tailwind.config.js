@@ -54,6 +54,14 @@ export default {
   ],
   theme: {
     extend: {
+      /* `11` is the touch-target step and means 44 CSS px, the minimum tap
+         size (WCAG 2.5.5, Apple HIG). Tailwind's default is 2.75rem, but the
+         root font size here is 14px (index.css), which made every `h-11` /
+         `min-h-11` 38.5px. Pinned in px so it cannot drift with the root size.
+         tests/e2e/mobile-layout.spec.ts measures it. */
+      spacing: {
+        11: '44px',
+      },
       fontFamily: {
         sans: ["'IBM Plex Sans'", 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         display: ["'IBM Plex Sans'", 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
@@ -118,6 +126,11 @@ export default {
           from: { backgroundColor: 'hsl(var(--primary-subtle))' },
           to: { backgroundColor: 'transparent' },
         },
+        /* A plan step becoming done: a 1 px line draws across it. Paint-only. */
+        strike: {
+          from: { backgroundSize: '0% 1px' },
+          to: { backgroundSize: '100% 1px' },
+        },
         shimmer: {
           '0%': { backgroundPosition: '-200% 0' },
           '100%': { backgroundPosition: '200% 0' },
@@ -142,6 +155,7 @@ export default {
         'slide-in-bottom': `slide-in-bottom 220ms ${DECELERATE} both`,
         'slide-out-bottom': `slide-out-bottom 150ms ${ACCELERATE} both`,
         flash: `flash 220ms ${STANDARD}`,
+        strike: `strike 250ms ${STANDARD} both`,
         shimmer: 'shimmer 2.5s linear infinite',
         'agent-pulse': 'agent-pulse 1.4s ease-in-out infinite',
       },

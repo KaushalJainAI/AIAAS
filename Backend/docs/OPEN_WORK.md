@@ -17,6 +17,7 @@ Compiled 2026-11-16 from the plan docs.
 - **Vision agent:** Phase 2 (rasterised visual documents — needs a PDF rasterizer) and Phase 3 (lift `chat/vision/` into a shared `perception/` package). [VISION_AGENT](VISION_AGENT.md)
 - **Agent config:** the draft switch needs a data migration; a per-message cost breakdown. [AGENT_CONFIG_IMPROVEMENT_PLAN](AGENT_CONFIG_IMPROVEMENT_PLAN.md)
 - **Specialists:** screenshots to `ask_vision`; charts inside `.docx`. [SPECIALIST_AGENTS_PLAN](SPECIALIST_AGENTS_PLAN.md)
+- **UX overhaul (phone + desktop):** Phases 0–11 and 13 built 2026-11-19 (undeployed, not committed); Phase 12 run replay is optional. Not checked on a real phone or with a live agent run. [UX_OVERHAUL_PLAN](UX_OVERHAUL_PLAN.md)
 - **UI redesign:** B3 (edit a request before approving it), B12 (live turn cost). [UI_REDESIGN_PLAN](UI_REDESIGN_PLAN.md)
 - **Schedules:** optional Phase 5 (the same claim-then-run fix for the other sweeps). [SCHEDULES_SIMPLIFICATION_PLAN](SCHEDULES_SIMPLIFICATION_PLAN.md)
 - **Sheets app:** formulas now calculate on the main thread (the worker was never wired; fixed 2026-11-17). Check in a browser that `=1+1` shows 2 without a reload; a proper worker entry is optional future work for very large workbooks.

@@ -52,7 +52,7 @@ class RunOrgTests(TransactionTestCase):
     async def _run(self, thread, **kwargs):
         from agents.agent.runtime import run_agent
 
-        async def capture(turn, *, prompt, thread_id):
+        async def capture(turn, *, prompt, thread_id, **_):
             self.seen.append(turn)
             return TurnResult(answer='done')
 
@@ -127,7 +127,7 @@ class ScheduledRunOrgTests(TransactionTestCase):
 
         kwargs.setdefault('caller', 'trigger')
 
-        async def capture(turn, *, prompt, thread_id):
+        async def capture(turn, *, prompt, thread_id, **_):
             self.seen.append(turn)
             return TurnResult(answer='done')
 

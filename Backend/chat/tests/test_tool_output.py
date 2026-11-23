@@ -146,7 +146,13 @@ class ReadBackTests(TestCase):
 
 
 class AdvertisementTests(TestCase):
-    """`read_tool_output` is withheld until there is something to read."""
+    """`read_tool_output` is offered for any session from the first pass.
+
+    It used to be withheld until something was stored, which made the tool
+    list grow mid-run — and the tool list is part of the request prefix a
+    provider caches, so every request after the first spill was a full cache
+    miss (2026-11-17). Without a session there is nothing it could ever read.
+    """
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -167,13 +173,63 @@ class AdvertisementTests(TestCase):
     def test_not_offered_without_a_session(self):
         self.assertNotIn("read_tool_output", self._names())
 
-    def test_not_offered_when_nothing_has_spilled(self):
-        self.assertNotIn("read_tool_output", self._names(session_key="sess-1"))
-
-    def test_offered_once_this_session_has_spilled(self):
-        self._spill("sess-1")
+    def test_offered_before_anything_has_spilled(self):
         self.assertIn("read_tool_output", self._names(session_key="sess-1"))
 
-    def test_another_session_spilling_does_not_offer_it_here(self):
-        self._spill("sess-other")
-        self.assertNotIn("read_tool_output", self._names(session_key="sess-1"))
+    def test_the_list_does_not_change_when_something_spills(self):
+        before = self._names(session_key="sess-1")
+        self._spill("sess-1")
+        self.assertEqual(before, self._names(session_key="sess-1"))
+
+
+class RetentionTests(TestCase):
+    """Stored output outlives a paused run, and expired rows are deleted.
+
+    Before 2026-11-17 it expired after 24 hours — shorter than a run can sit
+    paused for approval — and expiry only *hid* a row: nothing ever deleted
+    one, so every spill stayed on disk unreadable for ever.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="kept", email="k@example.test", password="x"
+        )
+
+    def _row(self, session_key, *, hours):
+        return ToolOutput.objects.create(
+            user=self.user, session_key=session_key, tool_name="t",
+            content="x", total_chars=1,
+            expires_at=timezone.now() + timedelta(hours=hours),
+        )
+
+    def test_retention_is_a_week(self):
+        from workflow_backend.thresholds import TOOL_OUTPUT_RETENTION_HOURS
+        self.assertGreaterEqual(TOOL_OUTPUT_RETENTION_HOURS, 7 * 24)
+
+    def test_resuming_restarts_the_clock_even_on_an_expired_row(self):
+        from chat.tools.tool_output import keep_alive
+
+        stale = self._row("run-1", hours=-5)
+        other = self._row("run-2", hours=-5)
+        self.assertEqual(async_to_sync(keep_alive)(self.user.id, "run-1"), 1)
+        stale.refresh_from_db()
+        other.refresh_from_db()
+        self.assertGreater(stale.expires_at, timezone.now() + timedelta(days=6))
+        self.assertLess(other.expires_at, timezone.now(), "another session is untouched")
+
+    def test_expired_rows_are_actually_deleted(self):
+        from chat.tools.tool_output import purge_expired
+
+        self._row("gone-1", hours=-1)
+        self._row("gone-2", hours=-1)
+        kept = self._row("kept", hours=5)
+        self.assertEqual(purge_expired(batch=1), 2)
+        self.assertEqual(list(ToolOutput.objects.values_list("id", flat=True)), [kept.id])
+
+    def test_the_purge_runs_in_the_scheduler_and_on_beat(self):
+        from django.conf import settings
+        from agents.scheduler import PERIODIC_JOBS
+
+        self.assertIn("chat.purge_tool_outputs", {job.task for job in PERIODIC_JOBS})
+        self.assertIn("chat.purge_tool_outputs",
+                      {entry["task"] for entry in settings.CELERY_BEAT_SCHEDULE.values()})

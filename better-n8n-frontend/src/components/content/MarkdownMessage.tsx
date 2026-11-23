@@ -34,10 +34,11 @@ import { healStreamingTail } from '@/lib/streamHeal';
 import { insertSourceMarkers } from '@/lib/sourceSpans';
 import { copyText } from '@/lib/clipboard';
 import { stripAnsi } from '@/lib/ansi';
-import { API_ORIGIN } from '@/lib/origins';
+import { isOwnOrigin } from '@/lib/ownOrigin';
 import { useMarkdownMath } from '@/hooks/useMarkdownMath';
 import CodeView from '@/components/files/CodeView';
 import { useFilePreview } from '@/components/files/filePreviewState';
+import LinkPreviewButton from '@/components/pane/LinkPreviewButton';
 
 export interface MarkdownSource {
   url: string;
@@ -227,17 +228,6 @@ type MarkdownNode = { node?: unknown };
 type AnchorProps = React.ComponentPropsWithoutRef<'a'> & MarkdownNode;
 type ImageProps = React.ComponentPropsWithoutRef<'img'> & MarkdownNode;
 
-/** Served by this app or its own API, so loading it tells no third party anything. */
-function isOwnOrigin(src: string): boolean {
-  if (src.startsWith('/') && !src.startsWith('//')) return true;
-  try {
-    const origin = new URL(src, window.location.href).origin;
-    return origin === window.location.origin || (API_ORIGIN !== '' && origin === API_ORIGIN);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * A remote image in model output is a link, never an <img>.
  *
@@ -344,30 +334,38 @@ function MarkdownMessage({
             </a>
           );
         }
+        // The Preview button (desktop, with a browser on the server) sits after
+        // the link. The link itself still opens a new tab on a normal click.
         if (variant === 'compact') {
           return (
+            <>
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-medium"
+                {...props}
+              >
+                {children}
+              </a>
+              <LinkPreviewButton href={href ?? ''} />
+            </>
+          );
+        }
+        return (
+          <>
             <a
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:underline font-medium"
+              className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-primary font-semibold bg-primary/5 border border-primary/20 rounded-lg no-underline hover:bg-primary/15 hover:border-primary/40 transition-all shadow-sm"
               {...props}
             >
+              <ExternalLink className="w-3 h-3 opacity-60 shrink-0" />
               {children}
             </a>
-          );
-        }
-        return (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-primary font-semibold bg-primary/5 border border-primary/20 rounded-lg no-underline hover:bg-primary/15 hover:border-primary/40 transition-all shadow-sm"
-            {...props}
-          >
-            <ExternalLink className="w-3 h-3 opacity-60 shrink-0" />
-            {children}
-          </a>
+            <LinkPreviewButton href={href ?? ''} />
+          </>
         );
       },
       code: ({ node: _node, inline, className: codeClass, children, ...props }: CodeProps) => {

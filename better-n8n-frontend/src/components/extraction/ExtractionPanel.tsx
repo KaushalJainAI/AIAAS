@@ -37,6 +37,7 @@ import extractionService, {
 } from '../../api/extraction';
 import { sourceIcon, sourceLabel, rowStatusStyle } from '../../lib/extractionDisplay';
 import TruncationNotice from '../ui/TruncationNotice';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 const FILTERS: { id: RowStatus | ''; label: string }[] = [
   { id: '', label: 'All' },
@@ -634,6 +635,7 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
   const [creating, setCreating] = useState(false);
   const [editingSchema, setEditingSchema] = useState<ExtractionSchema | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [deletingSchema, setDeletingSchema] = useState<ExtractionSchema | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['extraction-schemas'],
@@ -658,6 +660,17 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
 
   return (
     <div>
+      {deletingSchema && (
+        <ConfirmDialog
+          title={`Delete "${deletingSchema.name}"?`}
+          body="Its extracted rows go with it."
+          onConfirm={() => {
+            removeSchema.mutate(deletingSchema.id);
+            setDeletingSchema(null);
+          }}
+          onCancel={() => setDeletingSchema(null)}
+        />
+      )}
       {creating && <NewSchemaForm onDone={() => setCreating(false)} />}
       {editingSchema && (
         <NewSchemaForm initial={editingSchema} onDone={() => setEditingSchema(null)} />
@@ -721,8 +734,7 @@ export default function ExtractionPanel({ mode }: { mode: 'manage' | 'review' })
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!confirm(`Delete "${s.name}"? Its extracted rows go with it.`)) return;
-                        removeSchema.mutate(s.id);
+                        setDeletingSchema(s);
                       }}
                       aria-label={`Delete ${s.name}`}
                       className="p-1 rounded hover:bg-destructive-subtle text-muted-foreground hover:text-destructive"

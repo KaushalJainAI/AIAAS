@@ -40,6 +40,11 @@ class BrowserSession(models.Model):
         help_text='Provider live-view URL, when one was offered',
     )
     live_expires_at = models.DateTimeField(null=True, blank=True)
+    last_url = models.CharField(
+        max_length=2000, blank=True, default='',
+        help_text='The page the last call on this session ended on. A call that names '
+                  'the session and no url starts here, checked against browserDomains again',
+    )
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='open')
     last_used_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(

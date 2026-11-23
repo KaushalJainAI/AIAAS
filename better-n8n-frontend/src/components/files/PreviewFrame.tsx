@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Download, FileOutput, Loader2, X } from 'lucide-react';
+import { ChevronRight, Download, ExternalLink, FileOutput, Loader2, X } from 'lucide-react';
 
 import { documentsService, type Document } from '../../api/documents';
 import { useRecordOpen } from '../../hooks/useRecents';
@@ -84,11 +84,16 @@ interface FrameProps {
   onClose?: () => void;
   /** Extra actions beside Download, e.g. the pane's Full preview button. */
   extra?: React.ReactNode;
+  /**
+   * Show "Pop out": the file's own page in a new browser tab. Desktop only
+   * (hidden below md). Off by default, since the Documents page is already that page.
+   */
+  popOut?: boolean;
   children: React.ReactNode;
   className?: string;
 }
 
-export default function PreviewFrame({ doc, onClose, extra, children, className }: FrameProps) {
+export default function PreviewFrame({ doc, onClose, extra, popOut = false, children, className }: FrameProps) {
   const app = defaultAppFor(doc);
   const openPath = (app && openInAppPath(doc, app)) || `/documents?doc=${doc.id}`;
   const formats = useExportFormats(doc);
@@ -142,6 +147,18 @@ export default function PreviewFrame({ doc, onClose, extra, children, className 
           <Download className="h-4 w-4" />
         </button>
         {extra}
+        {popOut && (
+          <a
+            href={`/documents?doc=${doc.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Pop out to a new tab"
+            aria-label="Pop out to a new tab"
+            className="hidden shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:inline-flex"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        )}
         {formats !== null && formats.length > 0 && (
           <div ref={exportRef} className="relative shrink-0">
             <button

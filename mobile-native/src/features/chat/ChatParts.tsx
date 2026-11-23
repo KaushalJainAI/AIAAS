@@ -14,6 +14,7 @@ import { fontFamily } from '../../fonts';
 import { radius, spacing, typography, useTheme } from '../../theme';
 import { AgentRunCard, AnswerExtras, BlockedNotice } from './AnswerExtras';
 import { CommandCard } from './CommandCard';
+import { parseBrowser } from './frames';
 import { PlanList } from './PlanList';
 import type { TurnState } from './useChatTurn';
 import type { ChatMessage, PendingApproval, PendingQuestion } from './types';
@@ -130,6 +131,7 @@ export function MessageBubble({
     sources: Array.isArray(meta.sources) ? meta.sources : [],
     images: Array.isArray(meta.images) ? meta.images : [],
     files: Array.isArray(meta.files) ? meta.files : [],
+    browser: parseBrowser(meta.browser),
     charts: Array.isArray(meta.charts) ? meta.charts : [],
     htmlArtifacts: Array.isArray(meta.html_artifacts) ? meta.html_artifacts : [],
     workerPlans: Object.entries(meta.worker_plans ?? {}).map(([execution_id, w]) => ({
@@ -389,6 +391,7 @@ export function LiveTurn({
         sources={state.sources}
         images={state.images}
         files={state.files}
+        browser={state.browser}
         charts={state.charts}
         htmlArtifacts={state.htmlArtifacts}
         workerPlans={state.workerPlans}

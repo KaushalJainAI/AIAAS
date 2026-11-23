@@ -7,8 +7,12 @@
  * contract in all three layouts — click selects, Ctrl/Shift extend,
  * double-click opens, right-click opens the menu, dragging moves — so the
  * layout is a matter of taste, never of what you can do.
+ *
+ * Touch has its own visible route to the same menu: a "More actions" button
+ * on every row and tile below md, and a long press on a row (a shortcut, not
+ * the only way).
  */
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowDown, ArrowUp, Folder as FolderIcon, Loader2, MoreVertical } from 'lucide-react';
 
 import type { Document } from '../../api/documents';
@@ -16,6 +20,8 @@ import { keyOf, nameOf, stemLength, type Item, type Sort, type SortKey } from '.
 import { formatDate, formatSize, locationOf, typeName } from '../../lib/fileDisplay';
 import { cn } from '../../lib/utils';
 import { useBlobUrl } from '../../hooks/useBlobUrl';
+import { useLongPress } from '../../hooks/useLongPress';
+import { IconButton } from '../ui/IconButton';
 import FileIcon from '../files/FileIcon';
 import AuthorTag from '../documents/AuthorTag';
 
@@ -66,11 +72,13 @@ export default function ItemsView(props: Props) {
             <div className="flex flex-col items-center gap-1.5 px-1 py-2 text-center">
               <Thumb item={item} />
               <NameCell item={item} {...props} center />
+              <MoreButton item={item} onItemMenu={props.onItemMenu} className="md:hidden" />
             </div>
           ) : (
             <div className="flex items-center gap-2 px-2 py-1">
               <ItemIcon item={item} className="h-4 w-4" />
               <NameCell item={item} {...props} />
+              <MoreButton item={item} onItemMenu={props.onItemMenu} className="md:hidden" />
             </div>
           )}
         </ItemShell>
@@ -118,7 +126,7 @@ function DetailsView(props: Props) {
         <col className="w-28 sm:w-40" />
         <col className="hidden w-44 md:table-column" />
         <col className="hidden w-24 sm:table-column" />
-        <col className="w-10" />
+        <col className="w-12 md:w-10" />
       </colgroup>
       <thead className="border-b border-border/60 text-[12px]">
         <tr>
@@ -155,18 +163,13 @@ function DetailsView(props: Props) {
             <td className="hidden truncate px-3 text-right tabular-nums text-muted-foreground sm:table-cell">
               {item.kind === 'doc' ? formatSize(item.doc.file_size) : ''}
             </td>
-            <td className="pr-2 text-right">
-              <button
-                type="button"
-                aria-label={`More actions for ${nameOf(item)}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  props.onItemMenu(item, e);
-                }}
-                className="rounded p-1 text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100"
-              >
-                <MoreVertical className="h-4 w-4" />
-              </button>
+            <td className="pr-1 text-right md:pr-2">
+              {/* Always visible on phones; on desktop it appears on hover or keyboard focus. */}
+              <MoreButton
+                item={item}
+                onItemMenu={props.onItemMenu}
+                className="p-1 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+              />
             </td>
           </ItemShell>
         ))}
@@ -185,6 +188,16 @@ function ItemShell({
   const isSelected = selected.has(key);
   const busy = item.kind === 'doc' && item.doc.status === 'uploading';
   const Tag = as;
+  // A long press opens the same menu as right-click, at the finger. The press
+  // that opened it must not also select the row when the finger lifts.
+  const pressAt = useRef<ReactPointerEvent<Element> | null>(null);
+  const pressOpened = useRef(false);
+  const longPress = useLongPress(() => {
+    const at = pressAt.current;
+    if (!at) return;
+    pressOpened.current = true;
+    onItemMenu(item, at);
+  });
   return (
     <Tag
       data-key={key}
@@ -207,8 +220,20 @@ function ItemShell({
         setOver(false);
         onDropOnFolder(item.folder.id);
       }}
+      onPointerDown={(e: ReactPointerEvent<Element>) => {
+        pressAt.current = e;
+        pressOpened.current = false;
+        longPress.onPointerDown(e);
+      }}
+      onPointerMove={longPress.onPointerMove}
+      onPointerUp={longPress.onPointerUp}
+      onPointerCancel={longPress.onPointerCancel}
       onClick={(e: MouseEvent) => {
         e.stopPropagation();
+        if (pressOpened.current) {
+          pressOpened.current = false;
+          return;
+        }
         onItemClick(item, e);
       }}
       onDoubleClick={() => !busy && onItemOpen(item)}
@@ -228,6 +253,22 @@ function ItemShell({
     >
       {children}
     </Tag>
+  );
+}
+
+/** The visible route to a row's menu for touch: the same menu right-click opens, anchored to the button. */
+function MoreButton({ item, onItemMenu, className }: { item: Item; onItemMenu: Props['onItemMenu']; className?: string }) {
+  return (
+    <IconButton
+      label={`More actions for ${nameOf(item)}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onItemMenu(item, e);
+      }}
+      className={cn('shrink-0 text-muted-foreground', className)}
+    >
+      <MoreVertical className="h-4 w-4" />
+    </IconButton>
   );
 }
 

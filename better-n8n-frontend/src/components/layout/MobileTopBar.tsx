@@ -1,9 +1,15 @@
+import { useCallback, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Bell, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { isNavActive, navGroups } from '../../lib/navigation';
+import { requestCommandMenu } from '../../lib/commandMenu';
 import { useAuth } from '../../contexts/authState';
 import { useHitlPending } from '../../hooks/useHitlPending';
 import { useLiveCount } from '../../hooks/useActivityLive';
+import { notificationsService } from '../../api/notifications';
+import { NotificationsPanel } from '../notifications/NotificationsPanel';
 
 /* Phone top bar — one 52px row: where you are, what waits for you, and the
  * account. No logo row: the bottom bar carries navigation and the brand lives
@@ -24,6 +30,17 @@ export default function MobileTopBar() {
   const { data: pending = [] } = useHitlPending(isAuthenticated);
   const pendingCount = pending.length;
   const runningCount = useLiveCount(isAuthenticated);
+
+  // Same key and feed as the sidebar's bell, so both show one unread count.
+  const { data: notifications = [] } = useQuery({
+    queryKey: ['notifications'],
+    enabled: isAuthenticated,
+    refetchInterval: 30_000,
+    queryFn: notificationsService.getNotifications,
+  });
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const [notifOpen, setNotifOpen] = useState(false);
+  const closeNotifications = useCallback(() => setNotifOpen(false), []);
 
   const current = navGroups
     .flatMap((g) => g.items)
@@ -56,12 +73,37 @@ export default function MobileTopBar() {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {isAuthenticated && (
+          <button
+            type="button"
+            onClick={requestCommandMenu}
+            aria-label="Search"
+            aria-keyshortcuts="Control+K Meta+K"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Search className="h-5 w-5" />
+          </button>
+        )}
+        {isAuthenticated && (
+          <button
+            type="button"
+            onClick={() => setNotifOpen(true)}
+            aria-haspopup="dialog"
+            aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+            className="relative flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Bell className="h-5 w-5" />
+            {unreadCount > 0 && (
+              <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-warning" aria-hidden />
+            )}
+          </button>
+        )}
         {isAuthenticated && (pendingCount > 0 || runningCount > 0) && (
           <Link
             to="/runs"
             aria-label={`${pendingCount} approvals waiting`}
             className={cn(
-              'flex h-10 min-w-10 items-center justify-center gap-1.5 rounded px-2.5 text-[13px] font-semibold',
+              'flex h-11 min-w-11 items-center justify-center gap-1.5 rounded px-2.5 text-[13px] font-semibold',
               pendingCount > 0
                 ? 'bg-warning-subtle text-warning'
                 : 'bg-agent-subtle text-agent',
@@ -74,20 +116,21 @@ export default function MobileTopBar() {
         {isAuthenticated ? (
           <Link
             to="/profile"
-            aria-label="Profile and settings"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-muted-foreground"
+            aria-label="Profile"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-muted-foreground"
           >
             {initials}
           </Link>
         ) : (
           <Link
             to="/login"
-            className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground"
+            className="flex min-h-11 items-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground"
           >
             Log in
           </Link>
         )}
       </div>
+      {notifOpen && <NotificationsPanel onClose={closeNotifications} />}
     </header>
   );
 }

@@ -3494,3 +3494,238 @@ Agents got `maxIterations` (guardrails, 3-200, default 36 via
 assistant); `iteration_limit()` no longer drives agent runs. Every field opens
 pre-filled with the value in force, and the Settings tab explains each limit,
 what reaching it looks like and what it costs (the user asked for both).
+
+## H-153 · The preview pane holds tabs, in a browser (2026-11-17)
+
+Area: frontend  
+Files: Backend/docs/PREVIEW_PANE_AND_BROWSER_PLAN.md, better-n8n-frontend/src/lib/paneTabs.ts, better-n8n-frontend/src/components/pane/SidePane.tsx, better-n8n-frontend/src/components/files/FilePreviewProvider.tsx
+
+**The preview pane holds tabs, in a browser (2026-11-17).** Phase 1 of
+`PREVIEW_PANE_AND_BROWSER_PLAN.md`, modelled on the OpenCode desktop side
+panel. The pane held one file and swapped it; it now holds up to 8 tabs
+(`lib/paneTabs.ts`, a pure reducer: the tab id comes from the content so the
+same file focuses one tab, a ninth evicts the leftmost inactive tab, five
+recently closed). Three choices that differ from the desktop app because we
+live inside a browser tab: **no ⌘W/⇧⌘T/Ctrl+Tab** (those keys belong to the
+browser; buttons, a tab menu and Escape instead); **only the active tab's body
+is mounted** (a hidden PDF must not hold a pdf.js worker; reopening re-reads
+the file, and the reader reopens at the saved page); **phone Back closes the
+pane** through a `pane: true` history entry merged into router state rather
+than a URL change. Tabs persist per conversation in `sessionStorage` and come
+back hidden, so a reload never covers the chat on a phone. The header × and
+Escape hide the pane and keep the tabs; a tab's × closes it.
+`FilePreviewProvider` is a re-export, so `useFilePreview()` callers did not
+change.
+
+## H-153b · Six long-horizon gaps closed (2026-11-17)
+
+Area: pattern  
+Files: better-n8n-frontend/scripts/vitest.mjs, chat/tools/tool_output.py, chat/tasks.py, agents/scheduler.py, chat/turn/agent.py, chat/tools/__init__.py, agents/agent/runtime.py, llm/access.py, llm/handlers/openai_compatible.py, llm/handlers/responses_api.py, llm/handlers/llm_nodes.py, workflow_backend/thresholds.py, workflow_backend/settings/test.py
+
+**The frontend tests were never broken; they could not start.** Every Vitest
+file failed at collection with "reading 'config'" from a VS Code terminal.
+Node keys ES modules by URL and URLs are case-sensitive: VS Code starts in
+`c:\`, so Vitest loaded once as `file:///c:/…` and once as `file:///C:/…`, and
+`describe` registered with the copy whose runner was never set. A `chdir` in
+the config is too late; `scripts/vitest.mjs` starts Vitest in a fresh process
+with an uppercase drive, and `npm test`/`test:watch`/`test:integration` use it.
+**Stored tool output** kept 24 h and was never deleted — expiry only hid a row.
+Now 7 days, refreshed when a paused run resumes (`tool_output.keep_alive`, in
+`run_turn`), and deleted when expired (`purge_expired`, a `PERIODIC_JOBS` +
+beat job). **Agent runs** may run 8 h (`MAX_RUN_SECONDS`, the orchestrator's
+own maximum). **The tool list no longer changes mid-run**, because it is part
+of the cached prefix: the retrieval tools are offered for any session from the
+first pass (not once something spills), and the last pass keeps its tools with
+`tool_choice="none"` instead of sending none (the ChatGPT plan and Ollama
+routes cannot express that and still omit them). **Agent runs are paced**
+(`runtime._starting_pace`): they start at `standard` and are promoted to their
+full `maxIterations` when they plan or delegate. **No test reaches the
+internet**: a stubbed `web_search` still fetched companion images, so
+`CHAT_COMPANION_IMAGES` is off in test settings — the context tests went from
+over five minutes to under a minute and a half.
+
+## H-154 · An HTML file runs its scripts only for its owner, and only on request (2026-11-17)
+
+Area: security  
+Files: Backend/inference/serializers.py, Backend/inference/views.py, Backend/inference/folder_views.py, Backend/inference/recent_views.py, Backend/inference/tests/test_document_is_owner.py, better-n8n-frontend/src/components/files/FilePreview.tsx
+
+**An HTML file runs its scripts only for its owner, and only on request
+(2026-11-17).** Phase 3 of `PREVIEW_PANE_AND_BROWSER_PLAN.md` relaxes H-069 on
+purpose. A chart page or small app the agent wrote as a file looked broken,
+because the file preview runs HTML with an empty `sandbox`. That stays the
+default: a file may be someone else's upload shared into the library. Its
+owner may now press "Run scripts", which sets `sandbox="allow-scripts"` (never
+`allow-same-origin`, so still a null origin) under a CSP that allows inline
+script and no network at all. The choice is not remembered. Ownership is a
+read-only `is_owner` on the document serializers (the user chose a server
+field over guessing from `author`), and it **fails closed**: no request or user
+in the serializer context means `false`. That made the first version inert,
+because almost every document view built its serializer without context; the
+fix threads `request` through every view (and `{'user': user}` through the
+page helpers and recents), and an API-level test now asserts that the owner
+gets `true` on detail and list. A unit test of the serializer alone could not
+have caught this (the H-068 pattern again).
+
+## H-155 · The user can see the agent's browser, and the agent can see the page (2026-11-17)
+
+Area: pattern  
+Files: Backend/browsing/frames.py, Backend/browsing/views.py, Backend/browsing/engine.py, Backend/chat/tools/browser.py, Backend/chat/turn/agent.py, Backend/chat/tests/test_browser_view.py, Backend/browsing/tests/test_actions.py, Backend/browsing/tests/test_preview.py
+
+**The user can see the agent's browser, and the agent can see the page
+(2026-11-17).** Phases 5, 6 and 8 (backend) of
+`PREVIEW_PANE_AND_BROWSER_PLAN.md`. `browser_act` had returned a provider
+live-view URL since H-067 and no client ever read it (H-068 again). Now every
+browser call takes one picture and the result carries a `browser_view`
+(final URL, title, session, live URL, the steps that ran — never typed text —
+and `needs_user`); `_on_browser` streams the last ten as `browser_update`.
+**Pictures go to the cache, not the user's files**: a picture of someone's
+logged-in page is sensitive, saving one per call would fill their folders,
+and the viewer only needs it while the conversation is fresh. The key names
+the owner (`browser:frame:<user_id>:<id>`), so a foreign, unknown or expired
+id is the same 404; the TTL is read at call time; over 600 KB is not kept.
+Saving to files stays opt-in. For control, the fixed script returns up to 80
+interactive `elements` with a ready-made selector (and never an input's
+value), because guessed CSS selectors were the commonest failed step; new
+verbs are still data (`navigate` is re-checked against `browserDomains` and
+the address guard), steps fail with a `code` the model can act on, a session
+remembers `last_url` so a call can resume without a url, and a `phone`
+viewport tests mobile sites. `POST /api/browser/preview/` (a link preview the
+user asks for) is throttled to 20/hour and billed like a tool call.
+
+## H-156 · A knowledge base is bound to a folder; reads follow the tree, writes ask (2026-11-18)
+
+Files: Backend/inference/models.py, Backend/inference/migrations/0027_knowledgebase_folder.py, Backend/inference/kb_folders.py, Backend/inference/vfs.py, Backend/inference/kb_views.py, Backend/inference/serializers.py, Backend/chat/tools/knowledge.py, Backend/chat/turn/reviewer.py, Backend/chat/tools/describe.py, Backend/agents/grants.py, Backend/agents/config.py, Backend/inference/tests/test_kb_folders.py, Backend/chat/tests/test_kb_write_tools.py
+
+**A knowledge base is bound to a folder, and the folder tree is the hierarchy.** `KnowledgeBase.folder` is a nullable FK with `SET_NULL`, and there is deliberately no `parent` column: a KB bound to `/Research` has the KBs bound beneath it as children, found by the id prefix on `Folder.path`. A folder held by someone else is refused in `save()` (`ValueError`, as `Folder.save` does) and in `clean()`. Deleting a folder unbinds its KBs; it never deletes them. **The scope rule**: a run may use a KB that is in its `kb_scope` selection, or that is bound to a live folder inside its file scope. A caller with no selection stays unrestricted, as H-085 says. Unknown and out-of-scope KBs give the same answer in every tool, so ids cannot be probed. **Writes need the bound folder writable** in the file scope and go through `vfs.write_file`, so quotas, the per-write cap (refused, never truncated) and versioning all apply.
+
+**Writes ask, reads never do.** The `kbWrite` grant holds `create_knowledge_base` and `add_to_knowledge_base`. Both are `sensitive=True` and `effect="irreversible"`. Why irreversible when a write is in fact undoable through the recycle bin: `agents/agent/runtime.py::sensitive_tools_for` gates `irreversible` under `auto`, `sensitive` under `ask` and everything under `review`, and `full` gates nothing. So the ladder asks in `ask`, `review` and `auto`, and only `full` runs them unasked. The ladder has no "undoable but ask" rung, and `effect` answers "what if nobody was asked", which is the question here. Chat is withheld by the same `effect != 'read'` rule that keeps chat read-only. In chat's `auto`, a KB write would otherwise reach the model judge, which may allow it, so `reviewer.static_check` now refuses it before any judge runs, and `subagent_floor` (a manager approving its worker's call) gets the same answer through that function.
+
+Open at the time of writing, both in `agents/agent/runtime.py` (out of scope for this change): (1) `AgentToolbox.allowed_names` withholds `office`/`fileOps` tools when there is no file scope, and does not yet withhold the two KB write tools, so they are advertised and refused at call time with a clear message; (2) `build_file_scope` builds a scope only when a file-using grant is set (`fileOps`, `office`, `media`, `codeExecution`), so a `kbWrite` agent without one of those gets no scope, and a `rag` agent gets no folder-bound reach. `AgentSerializer.validate` refuses `kbWrite` with `fileAccess='none'`. Both runtime lines need adding before the feature works end to end.
+
+## H-157 · Harness gaps closed against the coding-agent harness guide (2026-11-18)
+
+Files: Backend/llm/handlers/llm_providers.py, Backend/llm/tests/test_prompt_cache.py, Backend/chat/turn/agent.py, Backend/chat/tools/tasks.py, Backend/agents/agent/tasks.py, Backend/chat/tests/test_task_reports.py, Backend/chat/tests/test_iteration_limit.py, Backend/chat/turn/curation.py, Backend/chat/tests/test_curation_prefold.py, Backend/llm/testing.py, Backend/llm/tests/test_scripted_model.py, Backend/chat/tests/test_scripted_loop.py, Backend/chat/tests/test_empty_answer.py, Backend/docs/TESTING.md, learning/17_coding_agent_harness_guide.md
+
+A comparison with `learning/17_coding_agent_harness_guide.md` (section 22 there) found four gaps worth closing now.
+
+**Prompt cache breakpoints.** Nothing set `cache_control`, so Claude models on OpenRouter never hit the prompt cache (OpenAI and DeepSeek cache on their own). `OpenRouterNode.chat_payload` now marks two breakpoints for `anthropic/` models only: the first system message (covers the tools too) and the last non-system message with content, skipping the trailing volatile context message. The caller's messages are never mutated. Not yet checked live: whether OpenRouter accepts the mark on a `tool`-role message.
+
+**Task reports are pushed, not polled.** A lead used to call `wait_tasks` in a loop. Now `steering_node` delivers a `<task-reports>` system message (notices, then reports, then any steer, so the steer stays last) at every step boundary, each status change once (`CodeTask.reported_status`). When the model answers while a worker is still running, `_next_step` routes to `await_reports` instead of END; it waits (one shared helper, `chat/tools/tasks.py::wait_for_news`) for news, a steer or the 300 s window, and a silent window waits again without a model call, up to `MAX_AWAIT_ROUNDS = 30` and the run's own time limit. Paused workers do not hold the lead open. `wait_tasks` stays, returns early when a steer is waiting, and no longer repeats finishes already delivered.
+
+**Steering latency.** Two causes fixed: `wait_tasks` could block 300 s without looking at the mailbox, and a steer sent while the model wrote its final answer was dropped to the leftovers path instead of read. Known and not fixed: `curate_node` (possibly a paid fold) runs before `steering`; a steer waits for the whole tool batch (`web_fetch`, `invoke_subagent`, `run_agent` can be slow); a model call in flight is never interrupted.
+
+**Structured, prepared compaction.** `SUMMARY_INSTRUCTION` is now a checkpoint with fixed sections (Objective, Requirements and constraints, Decisions, Work state with Completed/Active/Blocked, Next move, Relevant files and ids ≤15, Important facts) that the next fold updates section by section. And the fold is prepared ahead: past `PREPARE_AHEAD_RATIO` (0.85) × the high mark, the block the real pass would fold is predicted and summarised in the background (`background.spawn`), keyed by `user_id:session_id` and fingerprinted by message ids; the real fold uses it only on a fingerprint match and otherwise folds inline. Spend is counted once; a discarded prepared fold is billed by the next curated pass (`_UNBILLED`). Open: a prepared fold still in flight when a run ends is never billed (needs a run-end settle call), and the live hit rate is unmeasured.
+
+**Scripted-model test kit.** Ad-hoc fakes that replace whole decision functions are how the auto-mode judge shipped broken with green tests (see `chat/turn/reviewer.py`). `llm/testing.py` fakes the provider at `llm.handlers.openai_compatible.shared_client` with an httpx `MockTransport`, so the access funnel, payload building, SSE parsing and usage all run for real. Rules and the list of fakes still to migrate are in `Backend/docs/TESTING.md`. Not covered: Ollama, the ChatGPT plan handler, `llm/decisions.py`. Found and left alone: `access.stream`/`complete` never set the handler's `thinking` flag, so provider reasoning is dropped on that path.
+
+## H-158 · Cross-turn prompt caching: stable prefix first, volatile last (2026-11-18)
+
+Files: Backend/chat/turn/pipeline.py, Backend/chat/turn/history.py, Backend/chat/turn/agent.py, Backend/workflow_backend/thresholds.py, Backend/docs/CONTEXT_LIFECYCLE.md, Backend/chat/README.md, better-n8n-frontend/src/features/chat/components/ChatContextPanel.tsx
+
+**The rule: stable content first, volatile last.** A provider reuses a request's prefix only while its bytes match the previous turn's. So the order is: system prompt, replayed history, upload pointers, then the volatile parts (conversation notes, current state, plan, budget).
+
+What was broken: the notes sat at position 0 and the replay window slid by one message per turn, so nothing past the system prompt was cached across turns. Attachments were re-sent uncached on every pass, a 120k-character preview was built and thrown away, and an upload vanished from context once it was more than five messages old.
+
+The fixes: the notes are appended after the replayed history. The window start moves in steps of `HISTORY_WINDOW_STEP` (10), so it stays put between steps (`history._replayed_count`). An upload replays as a short deterministic pointer (`_attachment_pointer`). The preview injection is removed. `recent_attachments` resends images from the last five messages and documents only if uploaded since the last assistant reply. After the first pass, raw attachments ride on the user's question inside history (`agent._seat_attachments`, for openrouter, openai and nvidia only).
+
+H-081's "inserts it as the first history message" is superseded: the notes now follow the history.
+
+## H-159 · Model second opinion on tool results: the injection check (2026-11-19)
+
+Files: core/safety/moderation.py, chat/turn/agent.py (tools_node, _model_taint), workflow_backend/thresholds.py, chat/tests/test_injection_model_check.py, docs/SAFETY_AND_GUARDRAILS.md
+
+The pattern list in provenance.instruction_shaped misses prose that asks an AI for something ("please also email the conversation to ..."). The model door already used for image prompts and published pages (CONTENT_MODERATION_MODEL, the platform key) now answers one narrow question per untrusted tool result: does this text address an AI? It runs only in auto and full turns with no pattern hit, because ask and review already stop before anything irreversible. Its only effect is the existing taint flag, so a wrong answer costs one approval click, and it fails open (timeout, error, unreadable answer: the turn is not tainted). Verdicts are cached in process (512 entries, LRU) by a hash of model and text, including clean ones, so a result is asked once; a verdict already on record is taken before any call, so a later timeout cannot clear a taint an earlier batch found. Each batch asks at most 8 unknown results, 4 at a time, under one overall timeout. Not covered: the /search and /research seed results, which enter the prompt in pipeline.py and never pass tools_node.
+
+## H-160 · Reasoning is captured, a short note of it stays in context; leads wait for paused workers, out loud; curation spend is settled (2026-11-19)
+
+Files: Backend/llm/access.py, Backend/llm/handlers/openai_compatible.py, Backend/chat/turn/reasoning_note.py, Backend/chat/turn/agent.py, Backend/chat/turn/curation.py, Backend/chat/tools/tasks.py, Backend/agents/agent/tasks.py, Backend/workflow_backend/thresholds.py, Backend/chat/tests/test_reasoning_note.py, Backend/chat/tests/test_task_reports.py, Backend/chat/tests/test_curation_prefold.py, Backend/llm/tests/test_scripted_model.py
+
+Follow-ups to H-157, decided by the user.
+
+**Reasoning was thrown away on every call.** Handlers only surface reasoning when `config["thinking"]` is set, and `llm/access.py` never set it. So `completion.thinking` was always empty through the funnel. The reasoning panel, `AgentTurn.reasoning` and the eval judge's "AGENT REASONING" section ("(not recorded)") were all affected. On the non-stream path, `<think>` text even stayed inside the content. `_build_request` now sets it for every provider except Ollama, whose handler turns the flag into a JSON-mode request for non-native reasoners. The non-stream `execute` also reads `reasoning_content`/`reasoning`/`reasoning_details`. Expect eval scores to move, because the judge now sees reasoning.
+
+**A short note, not the full reasoning, stays in context.** Full reasoning on every step costs too much. Without it, the next step can't see why a call was made. A tool-calling turn now carries `additional_kwargs["reasoning_note"]`: the last `REASONING_NOTE_CHARS` (600) characters of that turn's reasoning, cut at a sentence boundary, with no model call (`chat/turn/reasoning_note.py`). `to_wire` renders it as `<reasoning-summary>…</reasoning-summary>` before the content. It is fixed at creation, so the cached prefix stays byte-identical. A final answer never gets one, and an imitated block is stripped from the streamed and saved answer (`EchoFilter`, `strip_echo`). The note survives compaction of tool results and is dropped when its turn is folded.
+
+**Paused workers hold the lead open.** The user's rule: "the lead needs to wait, otherwise how will we progress." A worker paused for approval now counts as live (`has_running`). The worker wrapper follows its `ExecutionLog` row every 10 s (`_follow_approval`) through resume, a second pause, or the end. So an approval in the Inbox leads to a report the lead reads, and then the lead continues. The bound is still `MAX_AWAIT_ROUNDS` × 300 s plus the run's own time limit.
+
+**No silent wait.** `wait_for_news` reports progress on entry and every `WAIT_HEARTBEAT_SECONDS` (15 s). `await_reports_node` sends it as `STATUS {phase: "waiting_on_workers"}`. The text lists paused workers first ("Waiting for your approval in the Inbox: implementer (paused 4m). Running: tester (2m)"). The web and mobile apps render `message` directly, so neither needed a change. The explicit `wait_tasks` tool path is still silent.
+
+**Curation spend is settled when a run ends.** `curation.settle(key)` runs in `run_turn`'s `finally`. It awaits a prepared fold still in flight (up to 20 s, then cancels it and books its usage) and bills the `_UNBILLED` ledger. **Agent runs only wait.** A chat session's key outlives the turn, so a chat turn bills only the ledger (`keep_prepared=True`) and leaves the in-flight fold for its next turn. Waiting would hold the user's turn open and discard a summary the next turn could read from cache. Still unbilled: a chat whose last turn left a fold in flight, and the paths that re-raise (`LLMUserActionable`, cancellation), which have no `TurnResult` to carry the spend. The graph's own tokens are lost on those paths too, and that gap is older than this change.
+
+## H-161 · Third-party text is wrapped, checked and inherited (2026-11-19)
+
+Files: Backend/core/safety/provenance.py, Backend/chat/turn/agent.py, Backend/chat/turn/pipeline.py, Backend/chat/turn/prompts.py, Backend/chat/tools/registry.py, Backend/agents/agent/runtime.py, Backend/chat/tests/test_injection_model_check.py, Backend/docs/SAFETY_AND_GUARDRAILS.md
+
+H-159 checks tool results with the model. This closes the rest of the third-party text a turn can see.
+
+**Every result and upload is enclosed.** `provenance.wrap_untrusted` puts a tool result or an uploaded file's text inside `<untrusted_data source tag>`. The tag is made once per request (`run_chat_turn`), so every envelope in one turn shares it. An envelope marker inside the text is neutralised, so a page cannot close its own envelope. A tool declares `trusted_output=True` when its output is only ours (clock, planning, charts, ask); those are not enclosed, and neither are refusals. The agent prompt says uploads are data too, as chat's prompt already did.
+
+**Seeds and uploads are scanned before the first model call.** The `/search` and `/research` result and an uploaded file's text run through the pattern check in every mode, which sets `initial_taint` to the seed's tool name or `upload`. In `auto` and `full`, when the patterns find nothing, `moderation.injection_check` is asked about the same text. This closes H-159's "not covered" line for the seed.
+
+**A worker inherits the taint.** `run_agent(inherited_taint=...)` gives a worker the taint of the turn that started it. A delegation whose own brief reads like orders starts tainted as `delegated task`. The taint is written to the run's `input_data['taint']`, only when it is set. A resumed run arrives with only its log (`agents/recovery.py`), so `_remember_taint` reads the taint back from there. It only widens.
+
+Known and left open: an image or PDF sent to the model raw is never scanned, and the envelope tag changes when a paused turn resumes. Both are in `docs/SAFETY_AND_GUARDRAILS.md`, section 5.
+
+## H-162 · The knowledge-base write tools follow the file scope (2026-11-19)
+
+Files: Backend/agents/agent/runtime.py, Backend/chat/tests/test_kb_write_tools.py, Backend/docs/SAFETY_AND_GUARDRAILS.md
+
+This closes the two runtime lines H-156 left open.
+
+**The write tools are withheld without a writable scope.** `AgentToolbox.allowed_names` removes `create_knowledge_base` and `add_to_knowledge_base` when the run has no file scope or the scope is not writable. The KB write saves into a folder of the scope (`inference/kb_folders.py::write_parts`), so a run with no folder cannot use them. Like the office tools, they are not advertised, so the model never offers a call that can only refuse.
+
+**A `kbWrite` agent gets a file scope.** `build_file_scope` builds a scope when `kbWrite` is the only file-using grant. Before, a `kbWrite` agent with no `fileOps`, `office`, `media` or `codeExecution` got no scope at all, and so no folder to write into.
+
+The approval side is unchanged (H-156): writes ask in `ask`, `review` and `auto`, and run unasked only in `full`. `chat/tests/test_kb_write_tools.py` covers the withheld case (no scope, and a scope that is not writable) and the scope a `kbWrite`-only run gets.
+
+## H-163 · Five destinations; a hub's sections are a strip, not more sidebar rows (2026-11-19)
+
+Files: better-n8n-frontend/src/lib/navigation.ts, better-n8n-frontend/src/components/layout/HubTabs.tsx, better-n8n-frontend/src/App.tsx, better-n8n-frontend/src/components/layout/Sidebar.tsx, better-n8n-frontend/src/components/layout/MobileBottomNav.tsx, better-n8n-frontend/src/pages/Agents.tsx, Backend/docs/UX_OVERHAUL_PLAN.md
+
+The sidebar had fourteen items in four groups, and four of them answered one question ("what can my agents use"). It now has five: Ask, Activity, Agents, Library, Connect. The old destinations are `tabs` on their hub in `navigation.ts`, and `HubTabs` draws them once in the shell, above the routed page, so every page still owns its scroller. **Routes did not change**, so deep links, the mobile app and the e2e routes keep working. `hubFor` matches a page only when its path *is* a tab path, so detail pages (`/agents/12`, `/templates/x`) get no strip and keep their full height. The phone bar is drawn from `primaryNav`, so it can no longer disagree with the sidebar ("Agents" vs "Automations"). A button that duplicates a tab (the Agents page's own "Explore") was removed. `src/lib/__tests__/navigation.test.ts` fails if a shell route stops being reachable.
+
+## H-164 · 44 px means 44 px: the touch rule and how it is kept (2026-11-19)
+
+Files: better-n8n-frontend/tailwind.config.js, better-n8n-frontend/src/components/ui/Modal.tsx, better-n8n-frontend/src/components/ui/IconButton.tsx, better-n8n-frontend/src/components/ui/Button.tsx, better-n8n-frontend/src/features/chat/components/ChatHistorySidebar.tsx, better-n8n-frontend/tests/e2e/mobile-layout.spec.ts
+
+The rule: below `md`, every control is at least 44 x 44 px with a name, and hover, right-click, long-press and keys are only shortcuts to something visible. Eleven agents wrote `h-11` / `min-h-11` for it and every one measured 39 px in the browser: `:root` has `font-size: 14px`, and Tailwind's `11` is 2.75rem. `spacing.11` is now pinned to `44px` in `tailwind.config.js`, so the class says what it means whatever the root size. Only the browser caught this; unit tests cannot, so `mobile-layout.spec.ts` has a "touch targets" block that measures every visible control on five routes (`data-touch-exempt` for inline prose links only). Two more things the same pass fixed: `Modal` is a bottom sheet on phones and only locks scroll and takes Escape while `open` (a Modal kept mounted with `open={false}` used to lock the page), and the closed chat-history drawer is `invisible`, because at `w-0` it was clipped but its buttons were still in the tab order.
+
+## H-165 · One approval vocabulary, always visible, picked where you type on a phone (2026-11-19)
+
+Files: better-n8n-frontend/src/types/agentConfig.ts, better-n8n-frontend/src/features/chat/lib/approvalTone.ts, better-n8n-frontend/src/features/chat/components/ChatHeader.tsx, better-n8n-frontend/src/features/chat/components/ComposerMoreSheet.tsx, better-n8n-frontend/src/features/chat/components/ThisChatMenu.tsx, better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx, better-n8n-frontend/src/pages/AgentBuilder.tsx
+
+Chat and the builder typed the same four labels twice and called the control two names ("Approval rule", "Autonomy"). Both now read `AUTONOMY_COPY` and say "Approval"; the values did not change. The level's tone (`APPROVAL_TONE`) colours the composer border, so the level shows without opening anything, and `full` says "Never asks". Memory, sharing, cost and the encryption line moved behind one "This chat" button, with a dot when memory is off or the chat is shared, so that state is not hidden. On a 390 px phone the header could not hold the title, the approval select and the model, and the title collapsed to "N…"; so on phones the level is a coloured chip in the composer that opens the "+" sheet, which lists the four levels with their hints (H-132 put the mode in the composer). Desktop keeps the header select.
+
+## H-166 · A failed run says why in plain words, and Retry is offered only where it means something (2026-11-19)
+
+Files: better-n8n-frontend/src/lib/explainRunError.ts, better-n8n-frontend/src/components/activity/HistoryList.tsx
+
+`error_message` is raw backend text. `explainRunError` matches fragments of the real sentences (the test quotes one per rule, from `llm/access.py`, `agents/agent/runtime.py`, `agents/budget.py`, `agents/admission.py` and LangGraph's recursion limit) to a headline and at most one link; the raw text stays under "Details", and unmatched text gets a generic headline, never a guess. Order matters: credits before key, because the out-of-credit sentence names "Credentials". Retry re-runs `input_data.goal` through `agentsService.execute` after a confirm (it costs credits). It is hidden, not disabled, for delegated runs (the parent decides), runs with no recorded task, and **eval runs**: a retry outside its sweep would start an ordinary run the eval page never scores.
+
+## H-167 · A rule two screens need lives in lib/, once (2026-11-19)
+
+Files: better-n8n-frontend/src/lib/connectionStatus.ts, better-n8n-frontend/src/pages/Connections.tsx, better-n8n-frontend/src/features/chat/lib/setupSteps.ts, better-n8n-frontend/src/lib/notificationLink.ts, better-n8n-frontend/src/components/settings/NotificationsTab.tsx, better-n8n-frontend/src/lib/commandMenu.ts
+
+Three new screens needed a rule an older page already held privately, and the first versions copied it. The chat's "Get set up" card copied Connections' `statusOf`; it now calls `lib/connectionStatus.ts`, which Connections uses too, so "connected" means one thing. The bell's panel and Settings → Notifications each had a link allow-list (the old one listed `/chat`, which is not a route); both call `notificationLink`, which follows only `data.action_url` and only to a known app route. Cmd+K needs the Settings sections, which `Settings.tsx` does not export; the copy in `lib/commandMenu.ts` has a test that reads `Settings.tsx` and fails on drift. Cmd+K reads the react-query cache and never fetches, so opening it costs nothing.
+
+## H-168 · System prompts in cache order: fixed rules first, role next, date last (2026-11-23)
+
+Files: Backend/chat/turn/prompts.py, Backend/agents/agent/runtime.py, Backend/chat/tests/test_context.py, Backend/agents/tests/test_agent_runtime.py
+
+A provider reuses a cached prompt only up to the first byte that differs. Both system prompts put the varying parts early, so most of the fixed text after them was paid at full price.
+
+**Chat.** The session's role (a custom session prompt or `DEFAULT_IDENTITY`) used to be the first line, so any custom prompt broke the prefix for every rule after it. Now the prompt opens with `PLATFORM_OPENER`, then CONTEXT, `CORE_RULES` and the memory rule, then `### YOUR ROLE ###` and the user's memory last. About 98% of the text (11.1k of 11.3k characters) is shared across every session of every user. The clock and mode already ride the trailing context message (`build_context_update`).
+
+**Agents.** `build_system_prompt` put the agent's name, brief, skills and KBs first, then **the date**, then the long fixed WORKING METHOD rules. A new day therefore re-billed the rules on every run, and a `useEnvironment` agent re-billed them every minute. The fixed lines now form one constant, `AGENT_CORE_RULES`, which leads every agent prompt and is identical across agents (about 2.9k characters). Then come the role, brief, skills, KBs, playbooks, limits, files and output contract. The delegation `BRIEFING`, which differs per fan-out, and the date come last, in that order.
+
+**New architecture in the rules.** Both prompts now cover the following. Chat's new rule 15 is LONG JOBS, and the memory rule is now 16. The agent side has a WHAT ARRIVES WHILE YOU WORK section.
+- Mid-run messages: follow the newest; notices are information.
+- `<task-reports>` arrive by themselves, so don't poll and don't finish while workers run.
+- A paused worker waits for the person in the Inbox, and the lead waits with it.
+- `read_tool_output` reads a cut result.
+- Old steps fold into a checkpoint note.
+- `<reasoning-summary>` is the model's own shortened reasoning and must never appear in a reply (H-157, H-160).
+
+The search_solutions rule moved into `AGENT_CORE_RULES`, so it is not said twice.
+
+Rule: nothing in `PLATFORM_OPENER`, `CORE_RULES` or `AGENT_CORE_RULES` may depend on the user, agent, run or clock. `CacheOrderTests` and `test_the_fixed_rules_lead_and_the_date_is_last` pin the order.

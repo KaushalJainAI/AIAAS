@@ -37,12 +37,13 @@ Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
 | File | What it does |
 |---|---|
 | `turn/pipeline.py` | The steps before and after the model: preflight, history, memory, attachments, the run's plan |
-| `turn/agent.py` | The loop (LangGraph): model, tools, curation, steering. `tools_node` runs a batch in four passes |
+| `turn/agent.py` | The loop (LangGraph): model, tools, curation, steering. `tools_node` runs a batch in four passes. `enclose_result` wraps each tool result in `<untrusted_data>` unless the tool is `trusted_output` |
 | `turn/prompts.py` | System prompt and the context update message. Nothing that changes may go in the system prompt |
-| `turn/history.py` | Loads the transcript the model sees |
-| `turn/session_notes.py` | The conversation's notes file: summary, task index, how to fetch more. Read first every turn |
+| `turn/history.py` | Loads the transcript the model sees: a window that moves in steps of 10 so the prefix stays cacheable; upload markers replay as a fixed pointer |
+| `turn/session_notes.py` | The conversation's notes file: summary, task index, how to fetch more. Read every turn, but sent after the replayed history, not before it |
 | `turn/context_view.py` | Backs `GET /api/chat/sessions/<id>/context/`, the "What the assistant sees" panel |
 | `turn/curation.py` | Shrinks a long run's transcript and archives what it cuts |
+| `turn/reasoning_note.py` | The short note of why a tool-calling turn made its calls, rendered into the transcript; strips a copied note from the answer |
 | `turn/prune.py` | Deletes old chat checkpoint rows |
 | `turn/extraction.py` | Fallback parser for models that write tool calls as text instead of native tool calls |
 | `turn/side_calls.py` | Model calls a turn makes outside its own loop (for example, follow-up questions). Priced into the turn's cost |
@@ -80,7 +81,7 @@ Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
 | `code.py`, `compute.py`, `workspace.py` | Coding (grant `shell`) and compute (grant `compute`). Need a workspace engine, so not offered until one exists |
 | `runs.py`, `missions.py`, `esign.py`, `eval_manager.py`, `internal.py`, `clock.py` | Smaller tools: runs, missions, e-sign, eval management (chat only), internal, clock |
 | `permissions.py`, `describe.py`, `tool_output.py` | Approval policy, the sentence on an approval card, and capping big results |
-| `registry.py` | The `@tool` declaration |
+| `registry.py` | The `@tool` declaration. `trusted_output=True` marks a tool whose result is only ours, so it is not enclosed as third-party text |
 | `__init__.py` | Imports every tool file (this registers them) and picks what a turn is offered. Chat gets reads, delegation, agent-building, memory and missions (`chat_orchestrator_allowed`) |
 
 ## Rules

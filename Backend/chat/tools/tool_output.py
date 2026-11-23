@@ -233,6 +233,52 @@ def readable_scopes(context: dict[str, Any]) -> list[str]:
 
 
 
+async def keep_alive(user_id: int | None, session_key: str | None) -> int:
+    """Restart the retention clock on everything stored for one session.
+
+    Called when a paused run resumes: its transcript still names these ids, and
+    a pause for approval can outlast the retention window — after which every
+    "fetch id X" in it pointed at nothing. Rows already expired are revived too,
+    since `purge_expired` may not have reached them yet. Best-effort: a failure
+    here costs recall, never the resume. Returns how many rows were refreshed.
+    """
+    from chat.models import ToolOutput
+
+    if not user_id or not session_key:
+        return 0
+    try:
+        return await ToolOutput.objects.filter(
+            user_id=user_id, session_key=str(session_key)[:64],
+        ).aupdate(
+            expires_at=timezone.now() + timedelta(hours=TOOL_OUTPUT_RETENTION_HOURS),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("[ToolOutput] Could not refresh stored output for %s", session_key)
+        return 0
+
+
+def purge_expired(batch: int = 500) -> int:
+    """Delete stored output past its expiry. Returns how many rows went.
+
+    Expiry used to only *hide* a row — nothing ever deleted one — so every
+    spill and every curated result stayed on disk for ever while being
+    unreadable. Run by the in-process scheduler (`agents/scheduler.py`), the
+    beat task `chat.purge_tool_outputs`, and `manage.py purge_tool_outputs`.
+    Deleted in batches so one sweep never holds a long lock.
+    """
+    from chat.models import ToolOutput
+
+    removed = 0
+    while True:
+        ids = list(
+            ToolOutput.objects.filter(expires_at__lte=timezone.now())
+            .values_list("id", flat=True)[:batch]
+        )
+        if not ids:
+            return removed
+        removed += ToolOutput.objects.filter(id__in=ids).delete()[0]
+
+
 async def archive(
     label: str, text: str, context: dict[str, Any]
 ) -> str | None:

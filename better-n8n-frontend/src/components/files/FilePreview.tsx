@@ -24,6 +24,14 @@
  * the frame gets an empty `sandbox` (no scripts, forms or popups) and a CSP
  * that refuses every network load — a preview must not be able to phone home,
  * track that it was opened, or draw a login form. Source stays one click away.
+ *
+ * The opt-in (preview pane plan, Phase 3): the **owner** of an HTML file can
+ * press "Run scripts" to re-render it with `sandbox="allow-scripts"` under
+ * `HTML_CSP_SCRIPTS`. Still no `allow-same-origin`, so the page runs in an
+ * opaque origin with no access to our cookies or storage, and the CSP still
+ * blocks every network load. The button shows only when `doc.is_owner` is
+ * true (the serializer's flag; a shared file is never the reader's). The
+ * choice is plain component state: every open starts with scripts off.
  */
 
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
@@ -63,6 +71,10 @@ const SOURCE_LANGUAGE: Partial<Record<PreviewKind, string>> = {
 
 const HTML_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:";
+
+/** The owner's opt-in: inline script allowed, still no network. */
+const HTML_CSP_SCRIPTS =
+  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
 
 interface Props {
   doc: Document;
@@ -293,7 +305,7 @@ export default function FilePreview({ doc, className }: Props) {
           ) : rendered && kind === 'json' && pretty !== null ? (
             <CodeView code={pretty} language="json" wrap={wrap} />
           ) : rendered && kind === 'html' ? (
-            <HtmlFrame html={clipped} title={doc.filename} />
+            <HtmlFrame html={clipped} title={doc.filename} isOwner={doc.is_owner === true} />
           ) : rendered && kind === 'notebook' && notebook ? (
             <NotebookView notebook={notebook} />
           ) : rendered && kind === 'latex' ? (
@@ -467,29 +479,67 @@ function ArchiveList({ doc }: { doc: Document }) {
   );
 }
 
-function HtmlFrame({ html, title }: { html: string; title: string }) {
+/**
+ * The rendered HTML in a sandboxed frame. Scripts are off unless the owner
+ * presses "Run scripts" (`isOwner` must be true for the button to show, and
+ * the scripts state is ignored without it). Exported for its tests.
+ *
+ * Never add `allow-same-origin`, `allow-forms`, `allow-popups` or
+ * `allow-top-navigation` here: the frame's origin must stay opaque.
+ */
+export function HtmlFrame({ html, title, isOwner = false }: { html: string; title: string; isOwner?: boolean }) {
+  const [scriptsOn, setScriptsOn] = useState(false);
+  const scripts = scriptsOn && isOwner;
   const srcDoc = useMemo(
     () =>
       `<!DOCTYPE html><html><head><meta charset="utf-8" />` +
-      `<meta http-equiv="Content-Security-Policy" content="${HTML_CSP}" />` +
+      `<meta http-equiv="Content-Security-Policy" content="${scripts ? HTML_CSP_SCRIPTS : HTML_CSP}" />` +
       `<style>html,body{margin:0;padding:12px;background:#fff;color:#1a1a1a;` +
       `font-family:ui-sans-serif,system-ui,sans-serif;}img{max-width:100%;}</style>` +
       `</head><body>${html}</body></html>`,
-    [html],
+    [html, scripts],
   );
   return (
     <div className="p-3">
       <iframe
         // Empty sandbox: no scripts, no forms, no popups, and a null origin.
-        // See the module note for why this is stricter than HtmlArtifact.
-        sandbox=""
+        // With the owner's opt-in only scripts are added; the origin stays null.
+        sandbox={scripts ? 'allow-scripts' : ''}
         srcDoc={srcDoc}
         title={`Rendered ${title}`}
         className="block h-[65vh] w-full rounded-md border border-border/60 bg-white"
       />
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Scripts and network requests are off in this preview.
-      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {scripts ? (
+          <>
+            <p className="m-0 min-w-0 flex-1 text-[11px] text-muted-foreground">
+              Scripts are on. The page cannot reach the internet or your account.
+            </p>
+            <button
+              type="button"
+              onClick={() => setScriptsOn(false)}
+              className="h-11 shrink-0 rounded-md border border-border/60 px-3 text-xs font-medium text-foreground hover:bg-muted md:h-8"
+            >
+              Turn off
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="m-0 min-w-0 flex-1 text-[11px] text-muted-foreground">
+              Scripts and network requests are off in this preview.
+            </p>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setScriptsOn(true)}
+                className="h-11 shrink-0 rounded-md border border-border/60 px-3 text-xs font-medium text-foreground hover:bg-muted md:h-8"
+              >
+                Run scripts
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

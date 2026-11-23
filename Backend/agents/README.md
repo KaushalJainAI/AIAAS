@@ -39,7 +39,7 @@ What a run *did* is stored in the `logs` app.
 |---|---|
 | `grants.py` | The permissions tables: `GRANT_TOOLS`, `ALWAYS_AVAILABLE`, `AUTONOMY_LADDER`, who may start a run. Plain data |
 | `config.py` | `AgentSerializer`: the only way an agent is saved. The builder, templates, chat authoring and restore all use it |
-| `agent/runtime.py` | The runtime: builds the toolbox, enforces guardrails, starts and runs every run |
+| `agent/runtime.py` | The runtime: builds the toolbox, enforces guardrails, starts and runs every run. A worker inherits its parent's taint, and the taint is kept on the run's log so a resumed run keeps it |
 | `agent/stream.py` | Saves each turn and tool call as it happens, and sends live updates |
 | `agent/orchestrator.py` | Delegation: one agent handing work to others, bounded by depth, budget and result size |
 | `agent/hitl.py` | Opens and closes `HITLRequest` rows when a run pauses |

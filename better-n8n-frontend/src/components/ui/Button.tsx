@@ -17,9 +17,11 @@ const VARIANTS: Record<Variant, string> = {
     'text-muted-foreground hover:bg-secondary hover:text-foreground',
 };
 
+/* Phones (below md) get a 44 px tap height whatever the size; desktop keeps
+   the dense sizes. `max-md:` is emitted after the base class, so it wins. */
 const SIZES: Record<Size, string> = {
-  sm: 'h-8 px-3 text-[13px]',
-  md: 'h-10 px-4 text-sm',
+  sm: 'h-8 max-md:h-11 px-3 text-[13px]',
+  md: 'h-10 max-md:h-11 px-4 text-sm',
   lg: 'h-11 px-6 text-sm',
 };
 

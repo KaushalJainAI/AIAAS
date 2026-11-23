@@ -25,7 +25,7 @@ read in the code before they were listed.
 | C11 | Med | A worker started after a poisoned web read runs at `full`; taint lost once curation compacts the poisoned result | `_live_autonomy`, `chat/turn/agent.py` | Open |
 | C12 | Med | One chat turn can start N detached workers each spending a full cap; no chat-level cap | `check_guardrails` | Open |
 | C13 | Low | A stranger holding a session UUID can replay a live chat stream | `chat/views.py` | Open |
-| C14 | Low | Rewrite deletes the message and everything after with no confirm; drops command chip and attachments | `StandaloneChat.tsx` | Open |
+| C14 | Low | Rewrite deletes the message and everything after with no confirm; drops command chip and attachments | `StandaloneChat.tsx` | Confirm fixed 2026-11-19 (Retry/Edit/Take back ask when more than the next reply would go); chip and attachments still dropped |
 | C15 | Low | Failed first message: text not restored; orphan conversation left in the sidebar | `StandaloneChat.tsx` | Open |
 | C16 | Low | Guest chat errors leak internals (`Server error: {exc}`) | `chat/guest/views.py` | Open |
 | C17 | Med | Deleting a chat leaves its last checkpoints (full transcripts) in Postgres for ever | `chat/turn/checkpoints.py` | Open |
@@ -123,3 +123,47 @@ read in the code before they were listed.
 | E6 | Med | A cancelled sweep whose process died blocks deleting the suite; cancel can overwrite a just-completed run | `eval/views.py` | Open |
 | E7 | Low | "Save as eval case" doesn't check the agent matches the run's, has no dedupe, accepts eval-caller runs; bulk accept isn't atomic | `eval/views.py` | Open |
 | E8 | Low | Evals UI silently caps runs/reviews with no "more"; suite list unpaginated; reviewers overwrite each other silently | `api/evals.ts` | Open |
+
+## Found 2026-11-19
+
+A second sweep (backend, then frontend against the backend), skipping
+everything above. `checked` = read in the code by the reviewer; the rest come
+from a read-only agent review with file:line evidence and still want a look
+before work starts.
+
+| ID | severity | gap | where | status |
+|---|---|---|---|---|
+| T1 | High | An event trigger (`job.finished`) is switched off instead of launched: `prepare` claims the next cron slot, an event trigger has no cron, so `_rearm` disables it as "never comes round again". Latent until the workspace engine ships; the test mocks `launch` | `agents/sweep.py` (`prepare`), `agents/scheduler.py::launch` | Open, checked |
+| T2 | High | e-sign requests can never complete: no callback URL or per-request secret is sent, nothing sets `expired`. Latent while `ESIGN_ENGINE` is off | `esign/provider.py`, `esign/views.py` | Open |
+| T3 | Med | A document shared to the platform KB is marked shared before the copy succeeds; a failed or empty copy can't be re-shared (403) and edits never refresh it | `inference/views.py`, `inference/tasks.py` | Open |
+| T4 | Med | A sent message draft can be sent again (lookup has no `status='draft'` filter, no atomic claim) | `chat/tools/talk.py` | Open |
+| T5 | Med | Slack retries/replays store inbound messages twice (no provider message id, no unique key) | `messaging/views.py`, `messaging/models.py` | Open |
+| T6 | Med | The outbound daily cap is check-then-act: concurrent runs all pass at 99 | `core/safety/outbound.py` | Open |
+| T7 | Med | A failed cost-ledger write is logged and swallowed, so spend caps undercount | `logs/costs.py` | Open |
+| T8 | Med | A video job is marked failed after 10 minutes while the provider keeps it (and bills it); nothing collects it later | `imagine/tasks.py` | Open |
+| T9 | Med | The workspace `job.finished` hook is not idempotent: a retried POST rewrites a finished job and wakes waiters again | `workspaces/views.py` | Open |
+| T10 | Med | ASGI/WSGI/Celery entry points default to `settings.local` (DEBUG, CORS allow-all, a public fallback SECRET_KEY); only the Dockerfile sets deployment | `workflow_backend/asgi.py`, `wsgi.py`, `celery.py` | Open |
+| T11 | Low | `/executions/{id}/events/` reads a table nothing writes, so it always returns [] | `streaming/views.py` | Open |
+| T12 | Low | Deleting a skill removes vector doc `None` (pk cleared by `delete()` first); the vectors stay | `skills/views.py` | Open |
+| T13 | Low | `Notification` rows are never purged | `notifications/models.py` | Open |
+| T14 | Low | Production ALLOWED_HOSTS/CSRF origins always include localhost and ngrok wildcards | `workflow_backend/settings/base.py` | Open |
+| T15 | Low | Two concurrent eval-world generations: the loser gets an IntegrityError (500), not "busy" | `eval/api.py` | Open |
+| W1 | High | Another account's cached data survives sign-in: the 401 handler and `login()` never clear the react-query cache (`claimAccountData` clears storage only), and queries stay fresh 5 min | `contexts/AuthContext.tsx` | Open, checked |
+| W2 | Med | Any failed profile read at boot (network blip, 5xx) clears the tokens and signs the user out | `contexts/AuthContext.tsx` | Open |
+| W3 | Med | The protected-route redirect sends no `?next=`, so an expired session on a deep link lands on chat after sign-in | `App.tsx` | Open |
+| W4 | Med | Escape on a confirm also closes the dialog under it (every open `Modal` listens on window), losing a form's edits | `components/ui/Modal.tsx` | Open |
+| W5 | Med | `Modal` does not move, trap or restore focus | `components/ui/Modal.tsx` | Open |
+| W6 | Med | Six Schedules mutations have no error message (a failed rotate or toggle just snaps back) | `pages/Schedules.tsx` | Open |
+| W7 | Med | Creating an agent in the wizard did not refresh the agents list | `pages/AgentCreateWizard.tsx` | Fixed 2026-11-19, checked |
+| W8 | Med | Evals "Full trace" linked `?execution=`, which Activity does not read | `pages/Evals.tsx` | Fixed 2026-11-19, checked |
+| W9 | Med | The plan panel's run link went to `/runs/<id>`, which is not a route (404) | `components/orchestration/PlanPanel.tsx` | Fixed 2026-11-19, checked |
+| W10 | Med | The schedules list drops the server's `truncated` flag past 200 rows | `api/triggers.ts` | Open |
+| W11 | Low | Shared tools, Pages and Dashboards never show `truncated` | `components/tools/CustomTools.tsx`, `pages/Pages.tsx`, `pages/Dashboards.tsx` | Open |
+| W12 | Low | Sign-out leaves `app-tabs:*`, `imagine.prompt` and `credentials.search` in session storage | `lib/accountData.ts` | Open |
+| W13 | Low | The WebSocket token is in the URL, so it lands in proxy logs | `lib/websocket.ts` | Open |
+| W14 | Low | A socket with no token shows "connecting" forever | `lib/websocket.ts` | Open |
+| W15 | Low | A stray click on a dialog's backdrop throws away a half-filled form | `components/ui/Modal.tsx` | Open |
+| W16 | Low | Evals polls every 15 s even when nothing is running | `pages/Evals.tsx` | Open |
+| W17 | Low | `insights/stats/`, `usage/insights/` and `push/devices/` have no frontend caller | `logs/urls.py`, `core/urls.py`, `notifications/urls.py` | Open |
+| W18 | Low | Six places wrap a `Button` in a `Link` (a button inside a link: two tab stops, invalid HTML) | `pages/Agents.tsx` and others | Open, checked |
+

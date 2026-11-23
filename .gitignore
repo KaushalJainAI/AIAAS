@@ -29,6 +29,8 @@ credentials.toml
 /agents-walkthrough.mp4
 
 # ── Local-only folders ───────────────────────────────────────────────
+# Personal study notes on coding-agent harnesses (from the OpenCode study), kept off the repo
+/learning/17_coding_agent_harness_guide.md
 .archive/
 .git-backup/
 .deploy-coordination/

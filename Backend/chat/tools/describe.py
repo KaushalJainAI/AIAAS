@@ -87,6 +87,8 @@ _SALIENT_FIRST = (
 #: else humanises well enough from its own name.
 _BUILTIN_PHRASES = {
     'write_file': 'Save a file',
+    'create_knowledge_base': 'Create a knowledge base in a folder',
+    'add_to_knowledge_base': 'Add a document to a knowledge base',
     'edit_file': 'Edit a file',
     'delete_file': 'Delete a file',
     'make_directory': 'Create a folder',

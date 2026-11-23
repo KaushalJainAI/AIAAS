@@ -89,6 +89,16 @@ class KnowledgeBaseShareSerializer(serializers.Serializer):
     shared_with_org = serializers.BooleanField(required=False)
 
 
+class KnowledgeBaseFolderSerializer(serializers.Serializer):
+    """The folder a knowledge base is bound to: a folder id, or null to unbind.
+
+    The id is never trusted as a locator. The view resolves it through
+    `filesystem.resolve_folder` for the owner, which answers unknown and foreign
+    ids the same way. `KnowledgeBase.save` repeats the owner check.
+    """
+    folder = serializers.IntegerField(allow_null=True)
+
+
 class FolderSerializer(serializers.ModelSerializer):
     """One folder as the API presents it.
 
@@ -169,6 +179,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     folder_id = serializers.IntegerField(read_only=True, allow_null=True)
     folder_path = serializers.SerializerMethodField()
     author = serializers.SerializerMethodField()
+    is_owner = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -177,12 +188,28 @@ class DocumentSerializer(serializers.ModelSerializer):
             'chunk_count', 'is_shared', 'shared_at', 'created_at',
             'updated_at', 'sharing_mode', 'status', 'author_name', 'author',
             'content', 'metadata', 'knowledge_base_id', 'knowledge_base_name',
-            'error_message', 'folder_id', 'folder_path',
+            'error_message', 'folder_id', 'folder_path', 'is_owner',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'chunk_count']
 
     def get_author_name(self, obj):
         return obj.user.get_full_name() or obj.user.username
+
+    def get_is_owner(self, obj):
+        """Whether the caller owns this file (read-only; gates "Run scripts").
+
+        Needs the request in the serializer context. A view that does not pass
+        it gets False, never True: the only thing this flag unlocks is an
+        opt-in for the owner, so a missing context must fail closed. A shared
+        file (`sharing_mode`) is someone else's, so it is False for every reader
+        but its owner.
+        """
+        # `user` for helpers handed the user rather than the request.
+        request = self.context.get('request')
+        user = self.context.get('user') or getattr(request, 'user', None)
+        if user is None or not getattr(user, 'is_authenticated', False):
+            return False
+        return obj.user_id == user.id
 
     def get_author(self, obj):
         """Which agent or chat wrote this file, or None (uploads, edits by a person, older files).
@@ -226,7 +253,7 @@ class DocumentListSerializer(DocumentSerializer):
             'chunk_count', 'is_shared', 'shared_at', 'created_at',
             'updated_at', 'sharing_mode', 'status', 'author_name', 'author',
             'metadata', 'knowledge_base_id', 'knowledge_base_name',
-            'error_message', 'folder_id', 'folder_path',
+            'error_message', 'folder_id', 'folder_path', 'is_owner',
         ]
 
     def to_representation(self, instance):

@@ -97,9 +97,11 @@ def _render(page: dict, shot: str | None) -> dict:
         'name': 'browse_page',
         'description': (
             'Open a web page in a real browser, let its JavaScript run, and read '
-            'the rendered text and links. Use it for pages read_url returns empty '
-            'or broken — dashboards, single-page apps, listings that load as you '
-            'scroll. For an ordinary article, read_url is faster.'
+            'the rendered text, links and `elements` (the things on the page you '
+            'could click or type into, each with a `selector`). Use it for pages '
+            'read_url returns empty or broken — dashboards, single-page apps, '
+            'listings that load as you scroll. For an ordinary article, read_url '
+            'is faster.'
             + _DATA_NOT_INSTRUCTIONS
         ),
         'parameters': {
@@ -108,6 +110,8 @@ def _render(page: dict, shot: str | None) -> dict:
                 'url': {'type': 'string', 'description': 'The http(s) URL to open.'},
                 'screenshot': {'type': 'boolean',
                                'description': 'Also save a screenshot to the user\'s files.'},
+                'viewport': {'type': 'string', 'enum': ['desktop', 'phone'],
+                             'description': 'desktop (1280×900, the default) or phone (390×844, touch, a phone browser).'},
             },
             'required': ['url'],
             'additionalProperties': False,
@@ -115,7 +119,7 @@ def _render(page: dict, shot: str | None) -> dict:
     },
 }, requires='browser', parallel=True, effect='read')
 async def browse_page(args: Dict, context: Dict) -> str:
-    from browsing.engine import BrowserError, run
+    from browsing.engine import BrowserError, run, viewport_of
 
     url = str(args.get('url') or '').strip()
     from core.safety.provenance import refusal_for
@@ -124,13 +128,19 @@ async def browse_page(args: Dict, context: Dict) -> str:
     if refusal:
         return json.dumps({'error': refusal})
     try:
+        viewport = viewport_of(args.get('viewport'))
+        # A picture on every call, for the Browser tab; saved to the user's
+        # files only when they asked (`screenshot: true`).
         page = await run(
-            url, screenshot=bool(args.get('screenshot')),
+            url, screenshot=True, viewport=viewport,
             text_chars=await alimit(context, 'browse_page', 'textChars'))
     except BrowserError as exc:
         return json.dumps({'error': str(exc)})
-    shot = await _save_screenshot(context, page.get('screenshot'), url)
-    return json.dumps(_render(page, shot), default=str)
+    shot = (await _save_screenshot(context, page.get('screenshot'), url)
+            if args.get('screenshot') else None)
+    out = _render(page, shot)
+    out['browser_view'] = await _browser_view(context, page)
+    return json.dumps(out, default=str)
 
 
 @tool({
@@ -139,21 +149,29 @@ async def browse_page(args: Dict, context: Dict) -> str:
         'name': 'browser_act',
         'description': (
             'Open a page and perform steps on it in order — click, type, select, '
-            'press a key, wait, scroll, download a file, extract a table or log '
-            'in — then read the result. Steps are data for one fixed script, '
+            'press a key, hover, check or uncheck a box, navigate to a URL, go '
+            'back, wait, scroll, download a file, extract a table or log in — '
+            'then read the result. Steps are data for one fixed script, '
             'never JavaScript you write. `fill_secret` types a vault login '
             'without you ever seeing the value; name it as `secret_ref`. '
             '`ask_user` stops for a person (an OTP, a CAPTCHA): you get the '
             'page back and a prompt to ask them, then act again once they '
             'answer. Anything that submits, buys, books or sends needs the '
             'user\'s go-ahead, which they give when this call is shown to them. '
-            'Use it only for what the user asked you to do on a site with no API.'
+            'Use it only for what the user asked you to do on a site with no API. '
+            'Use a `selector` from `elements` rather than guessing one. A failed '
+            'step says why in `code`: not_found, not_visible, timeout, '
+            'navigated_away, or failed; a call refused before it ran has '
+            '`code`: blocked.'
             + _DATA_NOT_INSTRUCTIONS
         ),
         'parameters': {
             'type': 'object',
             'properties': {
-                'url': {'type': 'string', 'description': 'The page to start on.'},
+                'url': {'type': 'string',
+                        'description': 'The page to start on. May be left out when `session` '
+                                       'names an open session: the call then starts where that '
+                                       'session\'s last call ended.'},
                 'steps': {
                     'type': 'array',
                     'description': 'Done in order; stops at the first that fails.',
@@ -163,11 +181,12 @@ async def browse_page(args: Dict, context: Dict) -> str:
                             'action': {'type': 'string',
                                        'enum': ['click', 'type', 'select', 'press', 'wait',
                                                 'scroll', 'fill_secret', 'download', 'extract',
+                                                'navigate', 'back', 'hover', 'check', 'uncheck',
                                                 'ask_user']},
                             'selector': {'type': 'string',
-                                         'description': 'CSS selector (all actions but press and ask_user).'},
+                                         'description': 'CSS selector (all actions but press, back, navigate and ask_user).'},
                             'text': {'type': 'string',
-                                     'description': 'What to type, the option, the key, the scrolled amount, or the extract mode (table|text|links).'},
+                                     'description': 'What to type, the option, the key, the scrolled amount, the extract mode (table|text|links), or the web address for navigate.'},
                             'secret_ref': {'type': 'string',
                                            'description': 'Vault login as slug.field for fill_secret.'},
                             'prompt': {'type': 'string',
@@ -183,8 +202,10 @@ async def browse_page(args: Dict, context: Dict) -> str:
                           'description': 'Save a picture per step to the user\'s files.'},
                 'screenshot': {'type': 'boolean',
                                'description': 'Save a screenshot of the end state to the user\'s files.'},
+                'viewport': {'type': 'string', 'enum': ['desktop', 'phone'],
+                             'description': 'desktop (1280×900, the default) or phone (390×844, touch, a phone browser).'},
             },
-            'required': ['url', 'steps'],
+            'required': ['steps'],
             'additionalProperties': False,
         },
     },
@@ -192,11 +213,22 @@ async def browse_page(args: Dict, context: Dict) -> str:
    action_label='Run browser steps')
 async def browser_act(args: Dict, context: Dict) -> str:
     from browsing.engine import (
-        BrowserError, check_steps, host_of, looks_submitting, run,
+        BrowserError, check_steps, host_of, looks_submitting, run, viewport_of,
     )
 
     url = str(args.get('url') or '').strip()
     domains = context.get('browser_domains')
+    try:
+        viewport = viewport_of(args.get('viewport'))
+    except BrowserError as exc:
+        return json.dumps({'error': str(exc)})
+    if not url:
+        # Carry on where the last call stopped. The resumed address is checked
+        # below like any other start URL, so a session whose last page is now
+        # off the agent's sites is refused there, not followed.
+        url, why = await _last_url(context, str(args.get('session') or '').strip())
+        if why:
+            return json.dumps({'error': why})
     if domains is not None and not _domain_allowed(url, domains):
         allowed = ', '.join(domains) if domains else 'none'
         return json.dumps({'error': (
@@ -221,6 +253,22 @@ async def browser_act(args: Dict, context: Dict) -> str:
         return json.dumps({'error': (
             f'{len(raw_steps)} steps is more than one call may take '
             f'({max_steps}). Split the task.')})
+    # A `navigate` step is a new start URL, so it gets the start URL's checks:
+    # the agent's own site list (empty means none), then the address guard.
+    for raw in raw_steps if isinstance(raw_steps, list) else []:
+        if not (isinstance(raw, dict) and str(raw.get('action') or '').lower() == 'navigate'):
+            continue
+        target = str(raw.get('text') or '').strip()
+        if domains is not None and not _domain_allowed(target, domains):
+            allowed = ', '.join(domains) if domains else 'none'
+            return json.dumps({'code': 'blocked', 'error': (
+                f'A navigate step may only go to these sites: {allowed}. '
+                'Going anywhere else needs the site added in this agent\'s settings.')})
+        from core.safety.net import validate_url_async
+
+        ok, reason = await validate_url_async(target)
+        if not ok:
+            return json.dumps({'code': 'blocked', 'error': reason})
     try:
         steps = check_steps([
             s for s in raw_steps
@@ -270,7 +318,7 @@ async def browser_act(args: Dict, context: Dict) -> str:
 
     try:
         page = await run(
-            url, steps=engine_steps, screenshot=bool(args.get('screenshot')),
+            url, steps=engine_steps, screenshot=True, viewport=viewport,
             trace=bool(args.get('trace')),
             session_id=(session.provider_session_id if session else ''),
             text_chars=await alimit(context, 'browse_page', 'textChars'),
@@ -287,7 +335,9 @@ async def browser_act(args: Dict, context: Dict) -> str:
 
     from credentials.refs import redact
 
-    out = _render(page, await _save_screenshot(context, page.get('screenshot'), page['url']))
+    shot = (await _save_screenshot(context, page.get('screenshot'), page['url'])
+            if args.get('screenshot') else None)
+    out = _render(page, shot)
     if session is not None:
         await _session_finished(session, page, context)
         out['session'] = str(session.id)
@@ -307,10 +357,71 @@ async def browser_act(args: Dict, context: Dict) -> str:
             'Ask the user for this, then run browser_act again to continue. '
             'Never guess an OTP or solve a CAPTCHA yourself.'
         )
+    out['browser_view'] = await _browser_view(
+        context, page, steps=steps,
+        session_id=str(out.get('session') or ''),
+        needs_user=out.get('needs_user'),
+    )
     if secrets:
         out = json.loads(redact(json.dumps(out, default=str), secrets))
     await _record_browser_cost(context)
     return json.dumps(out, default=str)
+
+
+#: The most steps a browser view lists. Matches the engine's own cap.
+VIEW_STEPS = 15
+#: A selector is shown cut to this; the rest of a long one adds nothing a person needs.
+VIEW_SELECTOR_CHARS = 120
+
+
+def _view_steps(sent: list, results: list) -> list[dict]:
+    """The steps that ran, with whether each one worked.
+
+    Only `action`, `selector` and `ok` leave here. Never `text`: a typed value
+    may be a password, and a `fill_secret` value is a vault login. Steps the
+    script never reached (it stops at the first failure) are left out rather
+    than shown as failed.
+    """
+    out: list[dict] = []
+    for step, result in zip(sent or [], results or []):
+        if len(out) >= VIEW_STEPS:
+            break
+        out.append({
+            'action': str((step or {}).get('action') or '')[:32],
+            'selector': str((step or {}).get('selector') or '')[:VIEW_SELECTOR_CHARS],
+            'ok': bool(isinstance(result, dict) and result.get('ok')),
+        })
+    return out
+
+
+async def _browser_view(context: Dict, page: dict, *, steps: list | None = None,
+                        session_id: str = '', needs_user=None) -> dict:
+    """What the Browser tab draws for one call, stored on the turn as it runs.
+
+    `frame_id` names the last picture in `browsing/frames.py`, which only this
+    user can read back. A picture that cannot be kept gives an empty id; the
+    call itself never fails over it.
+    """
+    from asgiref.sync import sync_to_async
+
+    from browsing.frames import put
+
+    frame_id = ''
+    user_id = context.get('user_id')
+    if user_id and page.get('screenshot'):
+        try:
+            frame_id = await sync_to_async(put)(user_id, page['screenshot']) or ''
+        except Exception:  # noqa: BLE001 — a cache hiccup costs the picture, not the call
+            logger.exception('[Browser] Could not keep the picture')
+    return {
+        'frame_id': frame_id,
+        'url': str(page.get('url') or '')[:2000],
+        'title': str(page.get('title') or '')[:300],
+        'session': str(session_id or ''),
+        'live_url': str(page.get('live_url') or '')[:1000],
+        'steps': _view_steps(steps or [], page.get('steps') or []),
+        'needs_user': str(needs_user) if needs_user else None,
+    }
 
 
 async def _browser_session(context: Dict, url: str, choice: str):
@@ -371,6 +482,8 @@ async def _session_finished(session, page: dict, context: Dict) -> None:
     from browsing.sessions import touch
 
     try:
+        fields = ['last_url']
+        session.last_url = str(page.get('url') or '')[:2000]
         live = page.get('live_url') or ''
         if live:
             from datetime import timedelta
@@ -379,10 +492,35 @@ async def _session_finished(session, page: dict, context: Dict) -> None:
 
             session.live_url = live[:1000]
             session.live_expires_at = _tz.now() + timedelta(minutes=10)
-            await sync_to_async(session.save)(update_fields=['live_url', 'live_expires_at'])
+            fields += ['live_url', 'live_expires_at']
+        await sync_to_async(session.save)(update_fields=fields)
         await sync_to_async(touch)(session)
     except Exception:  # noqa: BLE001
         logger.exception('[Browser] Could not update session')
+
+
+async def _last_url(context: Dict, choice: str) -> tuple[str, str]:
+    """(url, '') for the page an open session's last call ended on, or ('', why).
+
+    Only a numeric session id resumes: `"new"` has no page yet, and a call with
+    neither a url nor a session has nothing to start from.
+    """
+    if not choice or choice == 'new':
+        return '', 'Give a url to open, or the id of a session to carry on from.'
+    try:
+        session_id = int(choice)
+    except (TypeError, ValueError):
+        return '', f'No browser session {choice!r}. Pass "new" to open one.'
+    from browsing.models import BrowserSession
+
+    session = await BrowserSession.objects.filter(
+        id=session_id, user_id=context.get('user_id'), status='open',
+    ).afirst()
+    if session is None:
+        return '', f'No open browser session {choice}. Pass "new" to open one.'
+    if not session.last_url:
+        return '', 'That session has no page yet. Give a url to open.'
+    return session.last_url, ''
 
 
 async def _save_browser_files(context: Dict, page: dict, url: str) -> list:
@@ -431,27 +569,12 @@ async def _save_browser_files(context: Dict, page: dict, url: str) -> list:
 
 
 async def _record_browser_cost(context: Dict) -> None:
-    """One browser minute in the ledger, estimated — the provider meters, we
-    do not, and an unpriced call must never read as free."""
-    from asgiref.sync import sync_to_async
+    """One browser minute in the ledger (`browsing/costs.py`, shared with the
+    preview endpoint). The provider meters; we estimate, so it is never free."""
+    from browsing.costs import record_browser_minute
 
-    from django.contrib.auth import get_user_model
-
-    user_id = context.get('user_id')
-    if not user_id:
-        return
-    try:
-        user = await get_user_model().objects.filter(id=user_id).afirst()
-        if user is None:
-            return
-        from logs.costs import record
-
-        await sync_to_async(record)(
-            user=user, kind='browser', amount_inr=2, units=1, unit='minute',
-            estimated=True, source=f"browser_act:{context.get('call_id') or ''}",
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception('[Browser] Failed to record browser cost')
+    await record_browser_minute(
+        context.get('user_id'), source=f"browser_act:{context.get('call_id') or ''}")
 
 
 BROWSER_TOOLS = ('browse_page', 'browser_act')

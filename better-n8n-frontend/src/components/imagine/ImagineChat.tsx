@@ -28,6 +28,7 @@ import type { Capabilities, MediaKind } from '../../api/imagine';
 import { IntentPreviewCard } from './IntentPreviewCard';
 import { GenerationBubble } from './GenerationBubble';
 import { Lightbox, type LightboxItem } from './Lightbox';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ModelPicker } from './ModelPicker';
 import { SendButton } from '../ui/SendButton';
 import { cn } from '../../lib/utils';
@@ -99,6 +100,7 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
   const [draft, setDraft] = useState('');
   const [lightbox, setLightbox] = useState<LightboxItem | null>(null);
   const [internalShowHistory, setInternalShowHistory] = useState(false);
+  const [deletingConversation, setDeletingConversation] = useState<number | null>(null);
   const showHistory = propShowHistory ?? internalShowHistory;
   const setShowHistory = onShowHistoryChange ?? setInternalShowHistory;
   const [kind, setKind] = usePersistedState<KindChoice>('imagine.agentKind', 'auto');
@@ -131,9 +133,10 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
     void sendMessage(message, pinnedModel);
   };
 
-  const handleDeleteConversation = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    if (!confirm('Delete this conversation? Generations inside stay in Documents.')) return;
+  const confirmDeleteConversation = async () => {
+    const id = deletingConversation;
+    setDeletingConversation(null);
+    if (id === null) return;
     try {
       await deleteConversation(id);
       toast.success('Conversation deleted');
@@ -280,7 +283,11 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
                     </div>
                   </div>
                   <button
-                    onClick={(e) => handleDeleteConversation(e, c.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeletingConversation(c.id);
+                    }}
+                    aria-label="Delete conversation"
                     className="rounded-md p-1 opacity-0 transition-[opacity,background-color] duration-normal group-hover:opacity-100 hover:bg-destructive hover:text-white"
                     title="Delete"
                   >
@@ -404,6 +411,14 @@ export function ImagineChat({ capabilities, onRefreshCatalog, isRefreshingCatalo
         )}
         <Lightbox isOpen={!!lightbox} onClose={() => setLightbox(null)} result={lightbox} />
       </div>
+      {deletingConversation !== null && (
+        <ConfirmDialog
+          title="Delete this conversation?"
+          body="Generations inside stay in Documents."
+          onConfirm={() => void confirmDeleteConversation()}
+          onCancel={() => setDeletingConversation(null)}
+        />
+      )}
     </div>
   );
 }

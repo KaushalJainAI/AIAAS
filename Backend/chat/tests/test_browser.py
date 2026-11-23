@@ -140,3 +140,23 @@ class GuardTests(SimpleTestCase):
              mock.patch('core.safety.net.validate_url_async', return_value=(True, '')):
             out = run('browse_page', {'url': 'https://example.com'})
         self.assertIn('rate limited', out['error'])
+
+
+async def _page_with_elements(*args, **kwargs):
+    return {'url': 'https://shop.example.com/cart', 'title': 'Cart', 'text': 'Cart',
+            'truncated': False, 'links': [], 'steps': [], 'screenshot': None,
+            'elements': [{'ref': 'e1', 'role': 'button', 'name': 'Checkout',
+                          'selector': '#checkout'}],
+            'elements_truncated': False}
+
+
+@override_settings(**REMOTE)
+class ElementsInToolResultTests(SimpleTestCase):
+    def test_both_tools_hand_the_model_the_element_list(self):
+        with mock.patch('browsing.engine.run', side_effect=_page_with_elements):
+            read = run('browse_page', {'url': 'https://shop.example.com/cart'})
+            acted = run('browser_act', {'url': 'https://shop.example.com/cart',
+                                        'steps': [{'action': 'wait', 'selector': 'body'}]})
+        for out in (read, acted):
+            self.assertEqual(out['elements'][0]['selector'], '#checkout')
+            self.assertFalse(out['elements_truncated'])

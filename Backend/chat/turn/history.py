@@ -17,7 +17,7 @@ from asgiref.sync import sync_to_async
 from workflow_backend.thresholds import (
     CONTEXT_LOW_WATER_RATIO,
     HISTORY_WINDOW,
-    LARGE_FILE_PREVIEW_LENGTH,
+    HISTORY_WINDOW_STEP,
     MAX_CONTEXT_TOKENS,
     RECENT_TAIL_MESSAGES,
 )
@@ -38,78 +38,58 @@ _REQUIRED_CAPABILITY = {
 }
 _TEXT_EXTRACTED_TYPES = frozenset({"pdf", "pptx", "docx", "xlsx", "text"})
 
-#: How many past turns may still contribute their uploaded files.
+#: How many recent messages an image may come from (`recent_attachments`).
+#: Documents are not bounded by this; they are admitted by upload position.
 _ATTACHMENT_LOOKBACK = 5
 
 
 # ── Loading history ──────────────────────────────────────────────────────────
 
-def _enrich_with_attachments(
-    messages: Sequence[ChatMessage], *, supports_docs: bool
-) -> None:
-    """Fold attachment text into the messages that reference it, in place."""
-    # Whether an assistant turn has already responded *after* a given upload
-    # decides how much of it to re-inject: the first time the model needs the
-    # full text, later it only needs enough to know the file exists and can be
-    # re-read on demand.
-    already_answered: dict[str, bool] = {}
-    seen_assistant = False
-    for message in reversed(messages):
-        attachment_id = (message.metadata or {}).get("attachment_id")
-        if attachment_id:
-            already_answered[attachment_id] = seen_assistant
-        if message.role == "assistant":
-            seen_assistant = True
+def _flag_deleted_attachments(messages: Sequence[ChatMessage]) -> None:
+    """Mark the upload markers whose file no longer exists, in place.
 
-    if not already_answered:
+    Marker contents are not replayed any more: `to_wire_history` renders a short
+    pointer built from the metadata, so the file text is never loaded here. The
+    one question left for the database is whether the file still exists. A
+    marker whose file is gone gets `attachment_deleted` on its in-memory metadata
+    copy, which the pointer reads. Nothing is saved.
+    """
+    # Keyed by the canonical UUID string so `UUID` casing cannot read as "gone".
+    # A malformed id cannot name a stored file, so it is left out of the lookup
+    # and therefore counts as deleted.
+    referenced: dict[str, list[ChatMessage]] = {}
+    for message in messages:
+        raw = (message.metadata or {}).get("attachment_id")
+        if not raw:
+            continue
+        try:
+            key = str(UUID(str(raw)))
+        except (ValueError, TypeError):
+            logger.debug("[History] Malformed attachment id %r", raw)
+            key = str(raw)
+        referenced.setdefault(key, []).append(message)
+    if not referenced:
         return
 
-    valid_ids: list[UUID] = []
-    for raw in already_answered:
-        try:
-            valid_ids.append(UUID(raw))
-        except (ValueError, TypeError):
-            logger.debug("[History] Ignoring malformed attachment id %r", raw)
+    valid_ids = [UUID(key) for key in referenced if _is_uuid(key)]
+    existing = {
+        str(found)
+        for found in ChatAttachment.objects.filter(id__in=valid_ids).values_list("id", flat=True)
+    } if valid_ids else set()
 
-    known = {
-        str(a.id): a
-        for a in ChatAttachment.objects.filter(id__in=valid_ids)
-    } if valid_ids else {}
-
-    for message in messages:
-        attachment_id = (message.metadata or {}).get("attachment_id")
-        if not attachment_id:
+    for attachment_id, markers in referenced.items():
+        if attachment_id in existing:
             continue
+        for message in markers:
+            message.metadata = {**(message.metadata or {}), "attachment_deleted": True}
 
-        attachment = known.get(attachment_id)
-        if attachment is None:
-            message.content += (
-                f"\n\n[RESOURCE DELETED: the file referenced here "
-                f"(ID: {attachment_id}) is no longer available.]"
-            )
-            continue
 
-        text = attachment.extracted_text
-        if not text:
-            continue
-
-        if supports_docs:
-            message.content += f"\n\n[RESOURCE: {attachment.filename} (sent to the model directly)]"
-        elif not already_answered[attachment_id]:
-            message.content += (
-                f"\n\n[FULL RESOURCE CONTENT: {attachment.filename}]\n{text}\n"
-                f"[END FULL CONTENT]\n"
-                f"[Working file: `/Chat/{attachment.filename}` — open it with "
-                f"`read_file`, locate it with `find_files`.]"
-            )
-        else:
-            message.content += (
-                f"\n\n[RESOURCE: FILE] - ID: {attachment_id}\n"
-                f"Preview: {text[:LARGE_FILE_PREVIEW_LENGTH]}...\n"
-                f"[You have already read \"{attachment.filename}\" in full. To cite it "
-                f"precisely, call read_attachment_text with ID {attachment_id}. "
-                f"Working file: `/Chat/{attachment.filename}`.]"
-            )
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 def _enrich_with_sources(messages: Sequence[ChatMessage]) -> None:
@@ -143,23 +123,50 @@ def _enrich_with_sources(messages: Sequence[ChatMessage]) -> None:
         )
 
 
+def _replayed_count(total: int, window: int) -> int:
+    """How many of the newest `total` conversational messages to replay.
+
+    Up to `window`, all of them. Past it, the count is `window` plus the
+    remainder past a whole number of `HISTORY_WINDOW_STEP`s, so the oldest
+    replayed message only changes when `total` crosses a step. A window that
+    slid by one message per turn would change the first replayed message on
+    every turn, and the provider could never reuse the prompt prefix after the
+    system message. Totals 21-29 replay everything; totals 30-39 drop the oldest
+    10 (the oldest replayed message stays fixed for those ten turns); totals
+    40-49 drop the oldest 20; and so on.
+    """
+    if total <= window:
+        return total
+    return window + (total - window) % HISTORY_WINDOW_STEP
+
+
 def load_history_sync(
     session: ChatSession, *, exclude_id: int | None, supports_docs: bool = False
 ) -> list[ChatMessage]:
     """
-    Load the recent conversation, enriched with attachment and source context.
+    Load the recent conversation, enriched with source context and deletion flags.
 
     The window counts *conversational* turns only. System rows are the upload
     markers carrying `metadata['attachment_id']`, so counting them against the
     limit would let a handful of uploads push out the actual conversation, while
     excluding them outright would silently drop every attachment from context.
     Take the turns, then re-admit the system rows falling within their span.
+    Their pointer is rendered by `to_wire_history`; their file text is not
+    loaded at all.
+
+    The number of turns replayed is snapped to `HISTORY_WINDOW_STEP` (see
+    `_replayed_count`), both for the plain window and for the notes tail, so
+    the replayed prefix stays identical across consecutive turns.
 
     Once the conversation has notes (`session_notes`), the turns are no longer
     "the last N": they are the current task's messages, everything not yet
     filed into the notes (an update may still be running), and a short tail
     for continuity across a change of task. Every other message is a row in
     the notes, one tool call away.
+
+    `supports_docs` is still accepted because the pipeline passes it. It no
+    longer changes what is replayed: documents reach the model through
+    `recent_attachments`, not through this history.
     """
     from . import session_notes
 
@@ -168,15 +175,18 @@ def load_history_sync(
         .filter(session=session, role__in=["user", "assistant"])
         .exclude(id=exclude_id)
     )
+    total = conversational.count()
     focus = session_notes.focus(getattr(session, "notes_state", None))
     if focus is None:
-        turns = list(conversational.order_by("-created_at")[:HISTORY_WINDOW])
+        keep = _replayed_count(total, HISTORY_WINDOW)
+        turns = list(conversational.order_by("-created_at")[:keep])
     else:
         task_ids, through = focus
         picked = {m.id: m for m in conversational.filter(id__in=task_ids)}
         for m in conversational.filter(id__gt=through):
             picked.setdefault(m.id, m)
-        for m in conversational.order_by("-created_at")[:RECENT_TAIL_MESSAGES]:
+        tail = _replayed_count(total, RECENT_TAIL_MESSAGES)
+        for m in conversational.order_by("-created_at")[:tail]:
             picked.setdefault(m.id, m)
         turns = sorted(picked.values(), key=lambda m: (m.created_at, m.id), reverse=True)
 
@@ -187,7 +197,7 @@ def load_history_sync(
     ) if turns else []
 
     messages = sorted(turns + system_rows, key=lambda m: (m.created_at, m.id))
-    _enrich_with_attachments(messages, supports_docs=supports_docs)
+    _flag_deleted_attachments(messages)
     _enrich_with_sources(messages)
     return messages
 
@@ -229,44 +239,107 @@ def to_wire_history(
     used = 0
 
     for message in reversed(list(messages)):
-        if message.role not in ("user", "assistant"):
-            continue
-
-        summary = (message.metadata or {}).get("summary")
-        if message.role == "assistant" and summary:
-            content = (
-                f"[SUMMARY of message {message.id}]: {summary}\n\n"
-                f"(Call get_chat_message_full_text(message_id={message.id}) for the full text.)"
-            )
+        if message.role == "system":
+            # Only upload markers reach the model, and only as a pointer built
+            # from their metadata. Their `content` is the UI card, not context.
+            if not (message.metadata or {}).get("attachment_id"):
+                continue
+            role, content = "system", _attachment_pointer(message)
+        elif message.role in ("user", "assistant"):
+            role = message.role
+            summary = (message.metadata or {}).get("summary")
+            if message.role == "assistant" and summary:
+                content = (
+                    f"[SUMMARY of message {message.id}]: {summary}\n\n"
+                    f"(Call get_chat_message_full_text(message_id={message.id}) for the full text.)"
+                )
+            else:
+                content = message.content
         else:
-            content = message.content
+            continue
 
         cost = estimate_tokens(content)
         if used + cost > max_tokens:
             break
-        wire.append({"role": message.role, "content": content})
+        wire.append({"role": role, "content": content})
         used += cost
 
     wire.reverse()
     return wire
 
 
+def _attachment_pointer(marker: ChatMessage) -> str:
+    """The one line the model sees for an earlier upload.
+
+    Built only from the marker's metadata, so it is identical on every turn and
+    the replayed prefix stays cacheable. A marker whose file was deleted says so
+    (`attachment_deleted`, set by `_flag_deleted_attachments`). Every key is
+    optional; the attachment id is the only one the marker is recognised by.
+    """
+    meta = marker.metadata or {}
+    attachment_id = str(meta.get("attachment_id") or "").strip()
+    filename = str(meta.get("filename") or "").strip() or "a file"
+    file_type = str(meta.get("file_type") or "").strip()
+    vfs_path = str(meta.get("vfs_path") or "").strip()
+    label = f"{filename} ({file_type})" if file_type else filename
+
+    if meta.get("attachment_deleted"):
+        return (
+            f"[File uploaded earlier: {label}, attachment id {attachment_id}. "
+            f"It has been deleted and is no longer available.]"
+        )
+    working = f" Working file `{vfs_path}`." if vfs_path else ""
+    return (
+        f"[File uploaded earlier: {label}, attachment id {attachment_id}.{working} "
+        f"Read it with read_attachment_text or read_file when needed.]"
+    )
+
+
 @sync_to_async
 def recent_attachments(messages: Sequence[ChatMessage]) -> list[ChatAttachment]:
-    """Attachments referenced by the last few turns, excluding oversized files."""
-    ids: set[UUID] = set()
-    for message in list(messages)[-_ATTACHMENT_LOOKBACK:]:
+    """Attachments that should reach the model this turn, excluding oversized files.
+
+    Two rules, because the two kinds cost different things to resend:
+
+    - Images come from the last `_ATTACHMENT_LOOKBACK` messages. They are cheap
+      to send and a vision model needs them for follow-up questions.
+    - Documents (anything not an image) come only from uploads made after the
+      last assistant reply, i.e. uploaded for this turn. Re-sending a document
+      on every later turn put tens of thousands of characters at the end of the
+      request, where the provider cannot cache them. An older document is still
+      reachable: its pointer from `to_wire_history` names it, and the model can
+      open it with `read_attachment_text` or `read_file`.
+    """
+    ordered = list(messages)
+    window_start = max(0, len(ordered) - _ATTACHMENT_LOOKBACK)
+    last_reply = max(
+        (i for i, m in enumerate(ordered) if m.role == "assistant"), default=-1,
+    )
+
+    # Latest marker position for each attachment id.
+    position: dict[UUID, int] = {}
+    for index, message in enumerate(ordered):
         raw = (message.metadata or {}).get("attachment_id")
         if not raw:
             continue
         try:
-            ids.add(UUID(raw))
+            attachment_id = UUID(str(raw))
         except (ValueError, TypeError):
             continue
+        position[attachment_id] = max(index, position.get(attachment_id, -1))
 
-    if not ids:
+    if not position:
         return []
-    return list(ChatAttachment.objects.filter(id__in=ids).exclude(is_large_file=True))
+    found = ChatAttachment.objects.filter(id__in=position.keys()).exclude(is_large_file=True)
+    return [
+        attachment
+        for attachment in found
+        if (
+            position[attachment.id] >= window_start
+            and (attachment.file_type or "").lower() == "image"
+        )
+        or position[attachment.id] > last_reply
+    ]
 
 
 # ── Model capability gating ──────────────────────────────────────────────────

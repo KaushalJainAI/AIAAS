@@ -86,6 +86,7 @@ describe('ChatSettingsDialog context tab', () => {
     session: { id: 's', memory_enabled: true } as never,
     isGuest: false, promptDraft: '', onPromptDraftChange: () => {}, saving: false,
     onSave: () => {}, onClose: () => {}, readAloud: false, onToggleReadAloud: () => {},
+    autoOpenPane: true, onToggleAutoOpenPane: () => {},
   };
 
   it('switches tabs through the callback and hides Save on the context tab', () => {

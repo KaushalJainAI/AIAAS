@@ -182,7 +182,8 @@ class _Model:
     def __call__(self, **kwargs):
         self.calls += 1
         index = self.calls
-        offered = bool(kwargs.get("tools"))
+        # Callable tools: offered and not `tool_choice='none'` (the last pass).
+        offered = bool(kwargs.get("tools")) and kwargs.get("tool_choice") != "none"
         self.system_lines.append([
             str(m.get("content") or "") for m in kwargs.get("history") or []
             if m.get("role") == "system"

@@ -45,6 +45,9 @@ export interface ToolGrants {
   fileOps: boolean;
   /** Create decks, workbooks and Word documents in its folder. */
   office: boolean;
+  /** Create knowledge bases in its folders and add notes and documents to
+   *  them. Each write asks first unless the agent runs in Full auto. */
+  kbWrite: boolean;
   /** Generate images, billed to the user's OpenRouter account. */
   media: boolean;
   /** Publish hosted pages shareable by link. */

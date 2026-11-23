@@ -198,7 +198,7 @@ def render_answer(spec: dict[str, Any], value: Any) -> str:
             "required": ["question", "assumption"],
         },
     },
-}, effect="read")
+}, effect="read", trusted_output=True)
 async def ask_user(args: Dict, context: Dict) -> str:
     spec, problem = question_spec(args)
     if spec is None:

@@ -560,10 +560,15 @@ function TriggerCard({ trigger, onEdit }: {
       )}
 
       <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
-        {isSchedule && (
+        {/* A paused schedule says so instead of showing a greyed-out button
+            with no reason; the switch above turns it back on. */}
+        {isSchedule && !trigger.enabled && (
+          <span className="text-[12px] text-muted-foreground">Paused. Turn it on to run it.</span>
+        )}
+        {isSchedule && trigger.enabled && (
           <button
             onClick={() => runNow.mutate()}
-            disabled={runNow.isPending || !trigger.enabled}
+            disabled={runNow.isPending}
             className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground disabled:opacity-50"
           >
             {runNow.isPending

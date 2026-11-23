@@ -233,6 +233,23 @@ class KnowledgeBase(models.Model):
         default=False,
         help_text='Members of `org` may search and read this KB from a chat',
     )
+    # The folder this knowledge base is bound to. The folder tree is the
+    # hierarchy: a KB bound to `/Research` is the parent of a KB bound to
+    # `/Research/2026`, by position in the tree, with no `parent` column. A run
+    # may use a KB bound to a folder inside its file scope even when the KB is
+    # not in its selection (see `inference/kb_folders.py`). NULL means no folder.
+    folder = models.ForeignKey(
+        'inference.Folder',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='knowledge_bases',
+        help_text=(
+            'Folder this knowledge base is bound to. Must belong to the same '
+            'user. SET_NULL: deleting a folder unbinds its KBs; it never '
+            'deletes them or their documents.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -253,6 +270,26 @@ class KnowledgeBase(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.user})"
+
+    def clean(self):
+        super().clean()
+        if self._folder_is_foreign():
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                {'folder': 'A knowledge base may only be bound to a folder its owner holds.'}
+            )
+
+    def save(self, *args, **kwargs):
+        # The last line of defence behind `inference/filesystem.py`, the same
+        # guard `Folder.save` keeps: a KB bound to someone else's folder is an
+        # error, not a silent cross-user link.
+        if self._folder_is_foreign():
+            raise ValueError('A knowledge base may not be bound to a folder its owner does not hold.')
+        super().save(*args, **kwargs)
+
+    def _folder_is_foreign(self) -> bool:
+        return self.folder_id is not None and self.folder.user_id != self.user_id
 
     # Index file locations are owned by `inference.engine.HNSWKnowledgeBase`
     # (`_local_index_path` / `_local_docs_path`). The duplicates that used to

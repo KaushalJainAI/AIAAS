@@ -257,6 +257,44 @@ class TurnOutputTests(TestCase):
         self.assertNotIn("write_file", offered)
 
 
+    # ── the browser (H-068: the hop from tool to stream and to the record) ──
+
+    def test_a_browser_call_reaches_the_stream_and_the_stored_message(self):
+        """A page the turn read shows in the Browser tab, live and on reload.
+
+        The unit tests cover the tool's view and the handler's cap. This is the
+        hop between them: the tool result must become a `browser_update` frame
+        and be left on the finished message's metadata.
+        """
+        from django.core.cache import cache
+        from django.test import override_settings
+
+        cache.clear()
+
+        async def fake_run(url, **kwargs):
+            return {
+                "url": url, "title": "Cart", "text": "2 items", "truncated": False,
+                "links": [], "steps": [], "screenshot": b"\xff\xd8\xff\xe0 picture",
+            }
+
+        with override_settings(BROWSER_ENGINE="remote",
+                               BROWSER_REMOTE_URL="https://browser.example"), \
+                patch("browsing.engine.run", side_effect=fake_run):
+            result, seen = self._run([
+                ("browse_page", {"url": "https://shop.example.com/cart"}),
+            ], thread="browser-1")
+
+        self.assertIn("browser_update", [name for name, _ in seen])
+        streamed = next(p for n, p in seen if n == "browser_update")
+        stored = result.metadata.get("browser")
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["url"], "https://shop.example.com/cart")
+        self.assertEqual(stored[0]["title"], "Cart")
+        self.assertTrue(stored[0]["frame_id"], "the stored view names no picture")
+        self.assertEqual(stored, streamed["browser"],
+                         "the stored views and the streamed views disagree")
+
+
 class AgentRunOutputTests(TestCase):
     """What an agent run leaves behind for the run view to show.
 

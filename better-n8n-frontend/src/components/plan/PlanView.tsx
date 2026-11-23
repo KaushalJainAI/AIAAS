@@ -63,10 +63,23 @@ function textClass(item: PlanItemView): string {
 // Number column and the indent of anything under a row share one width.
 const INDENT = 'pl-7';
 
+/* A done step is struck through with a faint 1 px line, drawn as an inline
+ * background so it follows wrapped lines (`box-decoration-clone`). A step that
+ * turns done while it is on screen draws the line across (`animate-strike`,
+ * 250 ms); one already done when the plan loads shows it still, so opening an
+ * old plan does not replay every tick. Reduced motion: the global override
+ * in index.css cuts the animation to nothing and the line just appears. */
+const STRIKE =
+  'box-decoration-clone bg-[linear-gradient(currentColor,currentColor)] bg-no-repeat bg-[position:0_55%] bg-[length:100%_1px]';
+
 function PlanRow({ item, number, actions }: { item: PlanItemView; number: string; actions: StepAction[] }) {
   const [open, setOpen] = useState(false);
   const gone = item.change === 'dropped' || item.change === 'removed';
   const tag = item.change ? TAG[item.change] : null;
+  // Whether this row was already done when it first rendered; only a row that
+  // becomes done afterwards animates its line.
+  const [doneAtMount] = useState(item.status === 'done');
+  const struck = item.status === 'done' && !gone;
 
   return (
     <li className="py-1.5 text-[13px] leading-5">
@@ -75,7 +88,11 @@ function PlanRow({ item, number, actions }: { item: PlanItemView; number: string
           {number}
         </span>
         <span className="sr-only">{gone ? item.change : item.status}:</span>
-        <span className={`min-w-0 flex-1 ${textClass(item)}`}>{item.text}</span>
+        <span className={`min-w-0 flex-1 ${textClass(item)}`}>
+          {struck
+            ? <span className={`${STRIKE} ${doneAtMount ? '' : 'animate-strike'}`}>{item.text}</span>
+            : item.text}
+        </span>
         {(tag || item.owner || actions.length > 0) && (
           <span className="flex shrink-0 items-center gap-3 text-[11px] leading-5 text-muted-foreground">
             {item.owner && <span>{item.owner}</span>}

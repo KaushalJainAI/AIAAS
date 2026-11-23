@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { OPEN_COMMAND_MENU_EVENT } from '../../../lib/commandMenu';
 
 // The sidebar reads matchMedia when the module loads, and jsdom has none.
 vi.hoisted(() => {
@@ -83,10 +84,23 @@ describe('Sidebar', () => {
     expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
   });
 
-  it('keeps the profile and notifications links at the bottom', () => {
+  it('keeps the profile, settings and notifications controls at the bottom', () => {
     renderSidebar();
-    expect(screen.getByRole('link', { name: 'Profile and settings' }).getAttribute('href')).toBe('/profile');
-    expect(screen.getByRole('link', { name: 'Notifications' }).getAttribute('href')).toBe('/settings');
+    expect(screen.getByRole('link', { name: 'Profile' }).getAttribute('href')).toBe('/profile');
+    expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+    expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
+  });
+
+  it('offers Search, which opens the command menu', () => {
+    const opened = vi.fn();
+    window.addEventListener(OPEN_COMMAND_MENU_EVENT, opened);
+    try {
+      renderSidebar();
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      expect(opened).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener(OPEN_COMMAND_MENU_EVENT, opened);
+    }
   });
 
   it('marks the active destination with the muted background and primary icon', () => {

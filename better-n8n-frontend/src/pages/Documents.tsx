@@ -102,6 +102,7 @@ export default function Documents() {
   const [naming, setNaming] = useState<{ kind: 'folder' } | { kind: 'file'; opt: NewFileOption } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Item[] | null>(null);
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
   const [movePicker, setMovePicker] = useState<Item[] | null>(null);
   const [properties, setProperties] = useState<Item | null>(null);
   const [shareDoc, setShareDoc] = useState<Document | null>(null);
@@ -497,7 +498,6 @@ export default function Documents() {
   };
 
   const emptyTrash = async () => {
-    if (!window.confirm('Permanently delete everything in Trash? This cannot be undone.')) return;
     try {
       const r = await foldersService.trash.empty();
       toast.success('Trash emptied', `${r.purged_documents} file(s) and ${r.purged_folders} folder(s) removed.`);
@@ -728,16 +728,16 @@ export default function Documents() {
       {/* Address row */}
       <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2 md:px-3">
         <SidebarMenuButton />
-        <button type="button" onClick={() => setNavOpen((o) => !o)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted lg:hidden" aria-label="Show folders">
+        <button type="button" onClick={() => setNavOpen((o) => !o)} className="inline-flex max-md:h-11 max-md:w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted lg:hidden" aria-label="Show folders">
           <PanelLeft className="h-4 w-4" />
         </button>
-        <button type="button" onClick={back} disabled={history.index <= 0} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-30" aria-label="Back (Alt+Left)" title="Back (Alt+Left)">
+        <button type="button" onClick={back} disabled={history.index <= 0} className="inline-flex max-md:h-11 max-md:w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-30" aria-label="Back (Alt+Left)" title="Back (Alt+Left)">
           <ArrowLeft className="h-4 w-4" />
         </button>
         <button type="button" onClick={forward} disabled={history.index >= history.stack.length - 1} className="hidden rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-30 sm:block" aria-label="Forward (Alt+Right)" title="Forward (Alt+Right)">
           <ArrowRight className="h-4 w-4" />
         </button>
-        <button type="button" onClick={() => go({ kind: 'folder', id: parentId })} disabled={!inFolder || !currentFolder} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-30" aria-label="Up (Alt+Up)" title="Up (Alt+Up)">
+        <button type="button" onClick={() => go({ kind: 'folder', id: parentId })} disabled={!inFolder || !currentFolder} className="inline-flex max-md:h-11 max-md:w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-30" aria-label="Up (Alt+Up)" title="Up (Alt+Up)">
           <ArrowUp className="h-4 w-4" />
         </button>
         <button type="button" onClick={refresh} className="hidden rounded-md p-1.5 text-muted-foreground hover:bg-muted sm:block" aria-label="Refresh" title="Refresh">
@@ -788,7 +788,7 @@ export default function Documents() {
       {loc.kind !== 'extraction' && (
         <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card px-2 py-1 scrollbar-none md:px-3">
           {loc.kind === 'trash' ? (
-            <button type="button" onClick={() => void emptyTrash()} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-destructive hover:bg-destructive/10">
+            <button type="button" onClick={() => setConfirmEmpty(true)} className="inline-flex h-11 md:h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-destructive hover:bg-destructive/10">
               <Trash2 className="h-4 w-4" /> Empty Trash
             </button>
           ) : (
@@ -801,12 +801,15 @@ export default function Documents() {
                     setMenu({ x: r.left, y: r.bottom + 4, items: newSubmenu });
                   }}
                   disabled={!inFolder}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12.5px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                  className="inline-flex h-11 md:h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12.5px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                 >
                   <FilePlus2 className="h-4 w-4" /> New <ChevronDown className="h-3.5 w-3.5" />
                 </button>
               </div>
               <Cmd label="Upload" icon={Upload} onClick={pickFiles} disabled={!inFolder} wide primary />
+              {!inFolder && (
+                <span className="self-center whitespace-nowrap px-2 text-[12.5px] text-muted-foreground">Open a folder to add files</span>
+              )}
               <span className="mx-1 h-5 w-px shrink-0 bg-border/70" />
               {cmd('Cut', Scissors, () => setClipboard({ mode: 'cut', items: selectedItems }), !mine || !selectedItems.length)}
               {cmd('Copy', Copy, () => setClipboard({ mode: 'copy', items: selectedItems.filter((i) => i.kind === 'doc') }), !mine || !selectedDocs.length)}
@@ -820,7 +823,7 @@ export default function Documents() {
                 <button
                   type="button"
                   onClick={() => setViewMenu((o) => !o)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-foreground/80 hover:bg-muted"
+                  className="inline-flex h-11 md:h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-foreground/80 hover:bg-muted"
                   aria-label="Change layout"
                 >
                   {view === 'details' ? <TableIcon className="h-4 w-4" /> : view === 'tiles' ? <LayoutGrid className="h-4 w-4" /> : <ListIcon className="h-4 w-4" />}
@@ -1098,6 +1101,19 @@ export default function Documents() {
         />
       )}
 
+      {confirmEmpty && (
+        <ConfirmDialog
+          title="Permanently delete everything in Trash?"
+          body="This cannot be undone."
+          confirmLabel="Empty Trash"
+          onConfirm={() => {
+            setConfirmEmpty(false);
+            void emptyTrash();
+          }}
+          onCancel={() => setConfirmEmpty(false)}
+        />
+      )}
+
       <FolderPickerModal
         isOpen={!!movePicker}
         excludeFolderIds={(movePicker ?? []).flatMap((i) => (i.kind === 'folder' ? [i.folder.id] : []))}
@@ -1147,7 +1163,7 @@ function Cmd({
       title={label}
       aria-label={label}
       className={cn(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] disabled:pointer-events-none disabled:opacity-35',
+        'inline-flex h-11 min-w-11 justify-center md:h-8 md:min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] disabled:pointer-events-none disabled:opacity-35',
         // Upload is the one thing here that adds to the library, so it is the
         // solid "you act" button; the rest are quiet text commands.
         primary
@@ -1185,7 +1201,7 @@ function Crumb({
         }}
         aria-current={current ? 'page' : undefined}
         className={cn(
-          'flex min-w-0 items-center gap-1 truncate rounded px-1.5 py-0.5',
+          'flex min-w-0 items-center gap-1 truncate rounded px-1.5 py-0.5 max-md:min-h-11',
           current ? 'font-medium text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           !onClick && 'cursor-default hover:bg-transparent',
           over && 'bg-primary/20 ring-1 ring-primary',

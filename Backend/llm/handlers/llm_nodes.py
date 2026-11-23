@@ -330,7 +330,9 @@ class OllamaNode(BaseNodeHandler):
 
                 # Tools come from the caller, never from a lookup here (see
                 # `OpenAICompatibleLLMNode._tools_for`).
-                tools_payload: list | None = list(config.get("tools") or [])
+                tools_payload: list | None = (
+                    [] if config.get("tool_choice") == "none"  # Ollama has no tool_choice
+                    else list(config.get("tools") or []))
                 if tools_payload:
                     req_payload["tools"] = tools_payload
 

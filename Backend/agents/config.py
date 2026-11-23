@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 # the user's credentials — see mcp_integration/credential_injector.py.
 TOOL_KEYS = {'codeExecution', 'shell', 'webSearch', 'scrape', 'fileOps', 'office', 'media', 'publish', 'browser', 'rag',
              'mcp', 'subAgents', 'voice', 'esign', 'talk', 'data', 'api', 'compute',
-             'decisions'}
+             'decisions', 'kbWrite'}
 # `connectors` holds `MCPServer` ids, validated against what the user can
 # actually see. It used to be a hardcoded set of six presentation slugs
 # ({'gdrive', 'gmail', 'sheets', 'photos', 'calendar', 'slack'}) that nothing
@@ -841,6 +841,15 @@ class AgentSerializer(serializers.Serializer):
         return f'"{model}" is not a {provider} model we know of.'
 
     def validate(self, attrs):
+        # The knowledge-base write tools need a file scope to write into
+        # (`inference/kb_folders.py::write_parts`). With file access off there
+        # is no scope, so the grant could only ever refuse: say so at save time.
+        if (attrs.get('tools') or {}).get('kbWrite') and attrs.get('fileAccess') == 'none':
+            raise serializers.ValidationError(
+                {'tools': 'Writing to a knowledge base needs file access. Set '
+                          'file access to something other than none, or turn '
+                          'this grant off.'}
+            )
         for model_key, provider_key, fallback in (
             ('model', 'provider', 'openrouter'),
             ('summaryModel', 'summaryProvider', ''),

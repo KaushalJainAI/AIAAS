@@ -122,6 +122,23 @@ class RegistryLookupTests(TestCase):
         return async_to_sync(effort.support_for)(model)
 
 
+class ToolChoiceTests(TestCase):
+    """The last pass keeps its tools (the cached prefix) and forbids calling them."""
+
+    TOOLS = [{"type": "function", "function": {"name": "t", "parameters": {}}}]
+
+    def test_tool_choice_rides_beside_the_tools(self):
+        payload = OpenAINode().chat_payload(model="m", messages=[], stream=False,
+                                            config={"tools": self.TOOLS, "tool_choice": "none"})
+        self.assertEqual(payload["tools"], self.TOOLS)
+        self.assertEqual(payload["tool_choice"], "none")
+
+    def test_absent_unless_asked(self):
+        payload = OpenAINode().chat_payload(model="m", messages=[], stream=False,
+                                            config={"tools": self.TOOLS})
+        self.assertNotIn("tool_choice", payload)
+
+
 class WireEncodingTests(TestCase):
     """Each provider's own spelling of the same rung."""
 

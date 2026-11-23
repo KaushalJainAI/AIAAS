@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Code2, Maximize2, Minimize2 } from 'lucide-react';
+import { Code2, Maximize2, Minimize2, PanelRight } from 'lucide-react';
 import type { HtmlArtifact as HtmlArtifactData } from '@/api/chat';
+import { usePane } from '@/components/pane/paneState';
+import { ARTIFACT_SANDBOX, artifactSrcDoc } from '../lib/htmlArtifact';
 
 /**
  * Renders a model-authored HTML/CSS/JS snippet.
@@ -37,42 +39,21 @@ const clamp = (value: number, lo: number, hi: number, fallback: number) => {
 
 interface Props {
   artifact: HtmlArtifactData;
+  /** Names this artifact in the side pane: the message id and the artifact's index. */
+  artifactKey: string;
 }
 
-export default function HtmlArtifact({ artifact }: Props) {
+export default function HtmlArtifact({ artifact, artifactKey }: Props) {
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const pane = usePane();
 
   const width = clamp(Number(artifact.width), MIN_WIDTH, MAX_WIDTH, 640);
   const height = clamp(Number(artifact.height), MIN_HEIGHT, MAX_HEIGHT, 360);
 
-  // A frame with no styling of its own inherits nothing and renders as an
-  // unstyled white box against a dark chat. Give it a readable baseline that the
-  // artifact's own CSS can still override.
-  const srcDoc = useMemo(() => `<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      html, body {
-        margin: 0;
-        padding: 12px;
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-        font-size: 14px;
-        line-height: 1.5;
-        color: #e7e9ee;
-        background: transparent;
-        overflow: auto;
-      }
-      a { color: #7aa2f7; }
-      table { border-collapse: collapse; }
-      td, th { border: 1px solid #3a3f4b; padding: 4px 8px; }
-      img, svg, canvas { max-width: 100%; height: auto; }
-    </style>
-  </head>
-  <body>${artifact.html}</body>
-</html>`, [artifact.html]);
+  // Built once here and handed to the pane too, so both frames show the same document.
+  const srcDoc = useMemo(() => artifactSrcDoc(artifact.html), [artifact.html]);
+  const title = artifact.title || 'Rendered output';
 
   return (
     <div
@@ -83,15 +64,27 @@ export default function HtmlArtifact({ artifact }: Props) {
       <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-3 py-1.5">
         <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500/70" />
         <span className="truncate text-[11px] font-medium text-muted-foreground">
-          {artifact.title || 'Rendered output'}
+          {title}
         </span>
-        <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover/artifact:opacity-100 focus-within:opacity-100">
+        {/* Hidden until hover on desktop; always shown on touch screens, which have no hover. */}
+        <div className="ml-auto flex items-center gap-0.5 opacity-100 transition-opacity duration-200 md:opacity-0 md:group-hover/artifact:opacity-100 md:focus-within:opacity-100">
+          {pane && (
+            <button
+              type="button"
+              onClick={() => pane.openTab({ kind: 'html', title, artifactKey, srcDoc })}
+              aria-label="Open in pane"
+              title="Open in pane"
+              className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1"
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowSource(s => !s)}
             aria-pressed={showSource}
             title={showSource ? 'Show rendered output' : 'Show HTML source'}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1"
           >
             <Code2 className="h-3.5 w-3.5" />
           </button>
@@ -100,7 +93,7 @@ export default function HtmlArtifact({ artifact }: Props) {
             onClick={() => setExpanded(e => !e)}
             aria-pressed={expanded}
             title={expanded ? 'Shrink' : 'Expand to full width'}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:h-auto md:w-auto md:p-1"
           >
             {expanded
               ? <Minimize2 className="h-3.5 w-3.5" />
@@ -121,7 +114,7 @@ export default function HtmlArtifact({ artifact }: Props) {
           // Deliberately omits allow-same-origin: with it, allow-scripts would
           // give the frame access to our origin and the sandbox would be
           // meaningless. Omitting it also blocks network access from the frame.
-          sandbox="allow-scripts"
+          sandbox={ARTIFACT_SANDBOX}
           srcDoc={srcDoc}
           title={artifact.title || 'Rendered output'}
           loading="lazy"

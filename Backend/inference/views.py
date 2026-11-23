@@ -107,8 +107,8 @@ def _legacy_page(user, folder=_UNFILTERED) -> dict:
     mine = list(_owned_documents(user, folder)[:_LEGACY_CAP])
     shared = list(_shared_documents()[:_LEGACY_CAP])
     return {
-        'my_documents': DocumentSerializer(mine, many=True).data,
-        'public_documents': DocumentSerializer(shared, many=True).data,
+        'my_documents': DocumentSerializer(mine, many=True, context={'user': user}).data,
+        'public_documents': DocumentSerializer(shared, many=True, context={'user': user}).data,
         'truncated': len(mine) == _LEGACY_CAP or len(shared) == _LEGACY_CAP,
     }
 
@@ -153,8 +153,8 @@ def _cursor_page(user, params, folder=_UNFILTERED) -> dict:
     # that is all that was asked for, otherwise the user's own.
     primary = public_page if scope == 'public' else my_page
     return {
-        'my_documents': DocumentListSerializer(my_page.items, many=True).data if my_page else [],
-        'public_documents': DocumentListSerializer(public_page.items, many=True).data if public_page else [],
+        'my_documents': DocumentListSerializer(my_page.items, many=True, context={'user': user}).data if my_page else [],
+        'public_documents': DocumentListSerializer(public_page.items, many=True, context={'user': user}).data if public_page else [],
         'my_next_cursor': my_page.next_cursor if my_page else None,
         'public_next_cursor': public_page.next_cursor if public_page else None,
         'my_has_more': my_page.has_more if my_page else False,
@@ -268,7 +268,7 @@ async def document_list(request):
     # broker-reconnect and then fail — leaving the upload stuck "pending".
     indexing.index_document(doc.id, resolved_kb_id)
 
-    return Response(DocumentSerializer(doc).data, status=201)
+    return Response(DocumentSerializer(doc, context={'request': request}).data, status=201)
 
 
 def _search_page(request) -> dict:
@@ -287,7 +287,7 @@ def _search_page(request) -> dict:
     )
 
     def rows(docs):
-        out = DocumentListSerializer(docs, many=True).data
+        out = DocumentListSerializer(docs, many=True, context={'request': request}).data
         for row in out:
             row['matched_in'] = found['matched_in'].get(row['id'])
             row['snippet'] = found['snippets'].get(row['id'])
@@ -361,7 +361,7 @@ async def document_detail(request, document_id: int):
         # Serialize in a sync context: the serializer touches obj.user /
         # obj.knowledge_base, which would trigger a lazy DB query from this
         # async view and raise SynchronousOnlyOperation.
-        return Response(await sync_to_async(lambda: DocumentSerializer(doc).data)())
+        return Response(await sync_to_async(lambda: DocumentSerializer(doc, context={'request': request}).data)())
 
     doc = await sync_to_async(_owned_document)(request.user, document_id)
 
@@ -372,7 +372,7 @@ async def document_detail(request, document_id: int):
 
         def _rename():
             office_edit.rename(doc, request.data.get('name'))
-            return DocumentSerializer(doc).data
+            return DocumentSerializer(doc, context={'request': request}).data
 
         try:
             return Response(await sync_to_async(_rename)())
@@ -441,7 +441,7 @@ async def document_content(request, document_id: int):
 
     def _save():
         office_edit.save_text(doc, content)
-        return DocumentSerializer(doc).data
+        return DocumentSerializer(doc, context={'request': request}).data
 
     return Response(await sync_to_async(_save)())
 
@@ -458,7 +458,7 @@ async def document_share(request, document_id: int):
 
     if doc.sharing_mode != 'private':
         # Serialize in a sync context (obj.user / obj.knowledge_base are lazy).
-        data = await sync_to_async(lambda: DocumentSerializer(doc).data)()
+        data = await sync_to_async(lambda: DocumentSerializer(doc, context={'request': request}).data)()
         return Response({
             **data,
             'error': 'Un-sharing documents is not allowed once they are part of the platform knowledge base.',
@@ -479,7 +479,7 @@ async def document_share(request, document_id: int):
         target=share_document, args=(doc.id, request.user.id), daemon=True
     ).start()
 
-    data = await sync_to_async(lambda: DocumentSerializer(doc).data)()
+    data = await sync_to_async(lambda: DocumentSerializer(doc, context={'request': request}).data)()
     return Response({**data, 'message': f'Document set to {doc.sharing_mode}'})
 
 
@@ -649,7 +649,7 @@ async def document_new(request):
     def _create():
         doc = office_edit.create(request.user, request.data.get('name'), folder,
                                  request.data.get('content') or '')
-        return DocumentSerializer(doc).data
+        return DocumentSerializer(doc, context={'request': request}).data
 
     try:
         return Response(await sync_to_async(_create)(), status=201)
@@ -695,7 +695,7 @@ async def document_office(request, document_id: int):
             office_edit.edit_spec(doc, request.data.get('spec'))
         else:
             office_edit.edit_workbook(doc, request.data)
-        return DocumentSerializer(doc).data
+        return DocumentSerializer(doc, context={'request': request}).data
 
     try:
         return Response(await sync_to_async(_apply)())
@@ -728,7 +728,7 @@ async def document_import(request, document_id: int):
         from .serializers import DocumentSerializer
 
         result = importers.import_upload(doc)
-        return {**DocumentSerializer(doc).data, **result}
+        return {**DocumentSerializer(doc, context={'request': request}).data, **result}
 
     try:
         return Response(await sync_to_async(_convert)())
@@ -884,7 +884,7 @@ async def document_copy(request, document_id: int):
 
         # A pending office draft renders first: the copy is the file, and the
         # file is what the draft is still building.
-        return DocumentSerializer(office_edit.copy(drafts.ensure_rendered(doc), folder)).data
+        return DocumentSerializer(office_edit.copy(drafts.ensure_rendered(doc), folder), context={'request': request}).data
 
     try:
         return Response(await sync_to_async(_copy)(), status=201)
@@ -943,7 +943,7 @@ async def document_version_restore(request, document_id: int, version_id: int):
         )
 
     def _restore():
-        return DocumentSerializer(versions.restore(doc, version)).data
+        return DocumentSerializer(versions.restore(doc, version), context={'request': request}).data
 
     try:
         return Response(await sync_to_async(_restore)())
@@ -974,7 +974,7 @@ async def document_draft(request, document_id: int):
         from .serializers import DocumentSerializer
 
         _doc, stamp = drafts.save_draft(doc, request.data, expected)
-        return DocumentSerializer(_doc).data, stamp
+        return DocumentSerializer(_doc, context={'request': request}).data, stamp
 
     try:
         data, stamp = await sync_to_async(_save)()

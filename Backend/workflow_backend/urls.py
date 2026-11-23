@@ -124,6 +124,9 @@ urlpatterns = [
 
     # Solutions: what an organisation has solved, found again by the next person
     path('api/solutions/', include('solutions.urls')),
+
+    # Browser: the Browser tab's frames and the "is a browser set up" flag
+    path('api/browser/', include('browsing.urls')),
 ]
 
 

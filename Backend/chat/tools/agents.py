@@ -578,6 +578,9 @@ async def run_agent(args: Dict, context: Dict) -> str:
             # library the conversation does (`runtime._remember_org`).
             org_id=context.get("org_id"),
             share_solutions=bool(context.get("share_solutions")),
+            # A worker started from a tainted turn starts tainted (see
+            # `runtime.run_agent`). `tainted_by` is None on a clean turn.
+            inherited_taint=context.get("tainted_by") or None,
         )
     except AgentRunRefused as exc:
         # A guardrail said no — spend cap, disabled agent. The user can act
@@ -1030,6 +1033,8 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
     # chat, whose folder is `/Chat/`.
     parent_scope = context.get("file_scope")
     workspace = tuple(getattr(parent_scope, "write_prefix", None) or ())
+    # A tainted delegator hands its taint to every worker it fans out to.
+    inherited_taint = context.get("tainted_by") or None
 
     caller, gated_calls = worker_caller(context)
 
@@ -1083,6 +1088,7 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             # library the conversation does (`runtime._remember_org`).
             org_id=context.get("org_id"),
             share_solutions=bool(context.get("share_solutions")),
+            inherited_taint=inherited_taint,
         )
         return WorkerResult(
             index=index, task=task, answer=run.answer or "",

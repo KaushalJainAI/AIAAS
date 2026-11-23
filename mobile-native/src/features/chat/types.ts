@@ -60,6 +60,28 @@ export interface FileCard {
   bytes?: number | null;
 }
 
+/** One step of a browser call: what was done, to which element, and whether it worked. */
+export interface BrowserStep {
+  action: string;
+  selector: string;
+  ok: boolean;
+}
+
+/**
+ * One browser call the turn made (`browser_update`, saved as `metadata.browser`).
+ * `frame_id` names the last picture kept for the call; "" means none was kept.
+ * `needs_user` is set when the site needs the person (a login, a captcha).
+ */
+export interface BrowserView {
+  frame_id: string;
+  url: string;
+  title: string;
+  session: string;
+  live_url: string;
+  steps: BrowserStep[];
+  needs_user: string | null;
+}
+
 export interface ChartPoint {
   x: string;
   /** null is a gap: a missing measurement, not a zero. */
@@ -128,6 +150,8 @@ export interface ChatMessageMetadata {
   charts?: ChartSpec[];
   html_artifacts?: HtmlArtifact[];
   files?: FileCard[];
+  /** The whole browser-call list the turn made, newest last. */
+  browser?: BrowserView[];
   worker_plans?: Record<string, { agent_name?: string; todos?: TodoItem[] }>;
   solutions_used?: SolutionUsed[];
   model?: string;

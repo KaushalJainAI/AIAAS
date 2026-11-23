@@ -43,7 +43,7 @@ class CancelledRunTests(TransactionTestCase):
 
         started = asyncio.Event()
 
-        async def blocking_turn(turn, *, prompt, thread_id):
+        async def blocking_turn(turn, *, prompt, thread_id, **_):
             started.set()
             await asyncio.Event().wait()  # never resolves
 
@@ -124,7 +124,7 @@ class CrashedTurnTests(TransactionTestCase):
 
         log = await _open_log(self.agent, self.user, 'go', 'manual', 'thread-crash')
 
-        async def crashed_turn(turn, *, prompt, thread_id):
+        async def crashed_turn(turn, *, prompt, thread_id, **_):
             return TurnResult(answer='I hit an internal error on that turn. Please try again.',
                               error='RuntimeError: lock bound to a different event loop')
 

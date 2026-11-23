@@ -21,7 +21,7 @@ from logs.models import ExecutionLog
 from notifications.models import Notification
 
 
-async def completed_turn(turn, *, prompt, thread_id):
+async def completed_turn(turn, *, prompt, thread_id, **_):
     return TurnResult(answer='done')
 
 
@@ -128,7 +128,7 @@ class FallbackRunTests(TransactionTestCase):
             lambda: setattr(self.agent, 'llm_model', 'new/shiny') or
             self.agent.save(update_fields=['llm_model']))()
 
-        async def refused_turn(turn, *, prompt, thread_id):
+        async def refused_turn(turn, *, prompt, thread_id, **_):
             raise LLMModelUnavailable('"new/shiny" is no longer available.')
 
         from agents.agent.runtime import run_agent

@@ -69,6 +69,15 @@ class CodeTask:
     started_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
     done: asyncio.Event = field(default_factory=asyncio.Event, compare=False)
     finished_at: float = 0.0
+    #: The last status the lead was told about, so each change is reported
+    #: once — at a steering boundary or by a `wait_tasks` return, whichever
+    #: delivers it first. '' until something is reported.
+    reported_status: str = ''
+
+
+#: Statuses the lead is told about. `running` is not one of them: a worker
+#: that is going is not news, only a change in what it is doing is.
+REPORTED_STATUSES = ('done', 'failed', 'paused', 'cancelled')
 
 
 #: parent thread id -> {handle -> CodeTask}. Keyed by the lead's thread so two
@@ -111,6 +120,17 @@ def live_count(parent_thread: str) -> int:
     """Workers currently running or paused for this lead."""
     return sum(1 for t in _tasks.get(parent_thread or '', {}).values()
                if t.status in ('running', 'paused'))
+
+
+def records_for(parent_thread: str) -> list[CodeTask]:
+    """Every record this lead holds, in start order. Never creates a bucket,
+    so a run with no tasks pays one dict lookup."""
+    return list(_tasks.get(parent_thread or '', {}).values())
+
+
+def pending_events(parent_thread: str) -> bool:
+    """Whether a lead event is queued. Peeks: `drain_events` is what consumes."""
+    return bool(_events.get(parent_thread or ''))
 
 
 def iter_live():
@@ -195,9 +215,10 @@ def parent_of_execution(execution_id: str) -> str | None:
 def finish_execution(execution_id: str, *, status: str, error: str = '') -> CodeTask | None:
     """Close whichever record holds this execution, from outside the wrapper.
 
-    For the stop path reached over HTTP (`run_cancel`): the wrapper's own
-    `CancelledError` branch does this when the task is in-process, but a
-    paused worker has no task — so the endpoint closes the record itself.
+    For the stop path reached over HTTP (`run_cancel`) and for stopping a paused
+    worker (`_cancel_detached`): the wrapper's own `CancelledError` branch does
+    this when the task is in-process, but a paused worker's wrapper is only
+    waiting on its approval, so the stop closes the record itself.
     """
     parent = parent_of_execution(execution_id)
     if parent is None:
@@ -282,6 +303,22 @@ def make_label(agent_name: str, bucket: dict[str, CodeTask]) -> str:
 def new_thread_id(parent_thread: str) -> str:
     """A throwaway checkpointer key, so the worker starts with no transcript."""
     return f'code-{parent_thread}-{uuid.uuid4().hex[:8]}'
+
+
+def set_paused(record: CodeTask) -> None:
+    """A worker waiting on a person for an approval. It is still live, not done:
+    its lead keeps waiting for it, and the worker's own wrapper follows the
+    approval through to the end (`chat/tools/tasks.py::_follow_approval`)."""
+    if not record.done.is_set():
+        record.status = 'paused'
+
+
+def set_resumed(record: CodeTask) -> None:
+    """The approval came through and the worker is running again. Clearing
+    `reported_status` means a second pause is news to the lead too."""
+    if not record.done.is_set() and record.status == 'paused':
+        record.status = 'running'
+        record.reported_status = ''
 
 
 def finish(record: CodeTask, *, status: str, answer: str = '',

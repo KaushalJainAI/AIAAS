@@ -32,7 +32,9 @@ class _Relentless:
     def __call__(self, **kwargs):
         self.calls += 1
         index = self.calls
-        offered = bool(kwargs.get('tools'))
+        # May it call a tool? Offered, and not told `tool_choice='none'` — the
+        # last pass keeps the list (for the prompt cache) and says none.
+        offered = bool(kwargs.get('tools')) and kwargs.get('tool_choice') != 'none'
 
         async def chunks():
             if offered or not self.obey:
@@ -87,4 +89,8 @@ class IterationLimitTests(TestCase):
         graph = agent_module._build_graph()
         loop_nodes = {'agent', 'tools', 'curate', 'steering'}
         self.assertTrue(loop_nodes <= set(graph.nodes))
-        self.assertEqual(agent_module.STEPS_PER_ITERATION, len(set(graph.nodes) - {'__start__'}))
+        # `await_reports` is visited per wait, not per iteration: it is budgeted
+        # by `_AWAIT_STEPS`, so it is not one of the per-iteration nodes.
+        self.assertEqual(
+            agent_module.STEPS_PER_ITERATION,
+            len(set(graph.nodes) - {'__start__', 'await_reports'}))

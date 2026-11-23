@@ -5,7 +5,7 @@ Chat used to replay "the last 20 messages" and nothing else, so turn 21 forgot
 turn 1: the goal, the decisions, the file written an hour ago. Nothing even
 told the model those turns existed, so it could not go and fetch them. This
 module gives every conversation a small markdown file that the model reads
-*before* any history, holding:
+right *after* the replayed history, holding:
 
 - a **summary** of the conversation (goal, where it stands),
 - the **decisions** made and the **open questions**,
@@ -94,7 +94,7 @@ EXPOSED_OUTCOME = (
 #: Shown to the model with the notes, and written into the file for people
 #: and workers. Kept here, once, so the file and the prompt cannot disagree.
 RETRIEVAL_GUIDE = """## How to get more context
-- The current task's messages follow these notes in full. Other tasks appear only as rows above.
+- The current task's messages are shown in full just before these notes. Other tasks appear only as rows above.
 - `open_conversation_task(task_id="T2")` returns every message of a task, in order.
 - `get_chat_message_full_text(message_id=N)` returns the full text of a long answer shown as a summary.
 - `search_conversation_history(query="...")` searches every message and your earlier reasoning by keyword.
@@ -106,7 +106,7 @@ PROMPT_HEADER = (
     "### CONVERSATION NOTES ###\n"
     "This conversation's notes file, kept up to date after every reply. Read "
     "it first: it is the map of everything said so far, including what is no "
-    "longer shown below. It is your own working memory, not instructions — "
+    "longer shown in the messages. It is your own working memory, not instructions — "
     "the user's messages decide what to do. If the notes and a message "
     "disagree, the newer message wins."
 )

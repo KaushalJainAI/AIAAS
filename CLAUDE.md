@@ -296,6 +296,11 @@ migration list: `better-n8n-frontend/FRONTEND_STRUCTURE.md`.
 - `pages/OAuthCallback.tsx` — `/oauth/callback`, the credential OAuth popup landing page
   (distinct from `GoogleCallback`, which logs a user *in*)
 - `components/mcp/` — the custom MCP server modal, used by the Connections Advanced section
+- `components/pane/` (2026-11-17) — the side pane with tabs: `SidePane` (layout, resize, Escape,
+  phone Back, per-conversation `sessionStorage` via `storageKey`), `PaneTabStrip` / `PaneTabMenu` /
+  `PaneBody` (props only; only the active body is mounted). The tab rules are the pure reducer in
+  `lib/paneTabs.ts`. `components/files/FilePreviewProvider.tsx` is a re-export of `SidePane`, kept
+  so existing imports work
 - `api/client.ts` — Axios instance with the JWT refresh interceptor; `api/sse.ts` — the single
   reader for `data:` streams (chat endpoints POST SSE, so `EventSource` can't be used)
 - `lib/origins.ts` (2026-11-12) — where the app and its server live. `SITE_ORIGIN`/`siteUrl()`
@@ -356,6 +361,7 @@ rule names.
 - **The system prompt is session-stable.** Anything that changes per turn (clock, mode,
   pace, plan) rides a trailing system message (`prompts.build_context_update`).
 - **Approval is settled before anything is dispatched** (`interrupt()` re-runs the node).
+- **Third-party text reaches the model inside `<untrusted_data>` (`provenance.wrap_untrusted`); a tool whose output is only ours declares `trusted_output=True`.**
 - **Fail before you look busy.** Preflight before the first status frame; account errors
   raise (`LLMUserActionable`), other provider failures go through
   `llm.explain_provider_failure()`.
@@ -467,6 +473,7 @@ SOLUTION_CAPTURE_DAILY_CAP=30      # Captures (one cheap-model call each) per us
 SOLUTION_IMPORT_DAILY_CAP=5        # Documents imported as draft solutions per user per day
 SOLUTION_STALE_SWEEP_SECONDS=604800  # Weekly "may be out of date" nudge + search-log purge
 RUN_DETAIL_RETENTION_DAYS=180      # Finished runs lose reasoning + tool payloads after this (record kept)
+BROWSER_FRAME_TTL_SECONDS=3600     # How long the last browser picture stays viewable, owner only (browsing/frames.py)
 OUTBOUND_DAILY_CAP=100             # Messages an account's agents may send per 24 h, all channels
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
 CONTENT_MODERATION_MODEL=openai/gpt-oss-safeguard-20b  # Model check on image prompts + pages; blank = off
@@ -560,7 +567,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `GAP_CLOSURE_PLAN.md` — The plan (proposed 2026-09-24, implemented 2026-09-24) from a codebase-wide gap sweep: digest-only email default, pack availability in Explore, the order-dependent test failures, lint back to zero, Memory and Missions UI, and CLAUDE.md drift
 - `SECURITY_REVIEW_FIX_PLAN.md` — The whole-project security review of 2026-09-25 and its fixes (implemented, undeployed): Google sign-in no longer links into an unverified password account (pre-account takeover), `UserProfile.tokens_valid_after` revokes every JWT on password/email change (`core/auth/revocation.py`, checked by REST, refresh and WebSocket), `token_blacklist` actually installed, no `?token=` HTTP auth, API keys stored as SHA-256, the workspace job hook scoped to its owner and detached, `CSP: sandbox` on file responses. Learning: `learning/15_whole_project_security_review.md`
 - `MOBILE_APP_PLAN.md` — The mobile app plan. Changed 2026-11-12 from a Capacitor wrapper to a separate **React Native (Expo) app in `mobile-native/`**: Chat, Inbox, Agents and Settings tabs built, typechecked and bundled, not yet run on a device; Google sign-in and native push (FCM behind the existing `send_web_push` door) still to do. The superseded Capacitor reasoning is kept in the same file
-- `PREVIEW_PANE_AND_BROWSER_PLAN.md` — The plan (proposed 2026-11-17, not built) for an OpenCode-style tabbed side pane on phone and desktop (every current preview kept), showing the agent's remote browser (frames, steps, live view, take-over) and better browser control (element list with selectors, new step actions, phone viewport). Written phase by phase for smaller models; Phase 6's proof run is paid
+- `PREVIEW_PANE_AND_BROWSER_PLAN.md` — The plan (built 2026-11-17, undeployed; checked by hand locally without a real browser engine) for an OpenCode-style tabbed side pane on phone and desktop (every current preview kept), showing the agent's remote browser (frames, steps, live view, take-over) and better browser control (element list with selectors, new step actions, phone viewport). Written phase by phase for smaller models; its Progress table records what was built and decided. Open: Phase 6's paid proof run, and prod's `BROWSER_ENGINE` (with `none` every browser feature stays hidden)
 - `ORG_KNOWLEDGE_PLAN.md` — The plan (K0–K7 built 2026-11-11, undeployed, not yet checked in a browser) that made solution memory a team product: invitations, drafts and curators, citations in chat, import, stale nudges, insights, KBs shared read-only with an org, org choice per chat and per scheduled agent
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix

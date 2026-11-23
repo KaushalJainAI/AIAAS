@@ -22,6 +22,7 @@ that before picking up a plan.
 | [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | The MCP runtime: sessions, pooling, memory budget, credentials |
 | [RAG_STRATEGY.md](RAG_STRATEGY.md) | How knowledge-base search works |
 | [EVALUATION.md](EVALUATION.md) | How agents are tested and scored |
+| [TESTING.md](TESTING.md) | How agent tests are written: the scripted model, what runs for real, what is still fake |
 | [NOTIFICATION_SERVICE.md](NOTIFICATION_SERVICE.md) | Notifications, HITL reminders, device push |
 | [WEBHOOK_TRIGGERS.md](WEBHOOK_TRIGGERS.md) | How a webhook starts an agent run |
 | [IMAGINE.md](IMAGINE.md) | Image / video / audio generation |
@@ -60,6 +61,7 @@ decisions worth remembering, and what is still open.
 | [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Run visibility and reminder fixes |
 | [ACTIVITY_PAGE_PLAN.md](ACTIVITY_PAGE_PLAN.md) | The Activity page |
 | [PREVIEW_PANE_AND_BROWSER_PLAN.md](PREVIEW_PANE_AND_BROWSER_PLAN.md) | Tabbed side pane (phone + desktop), showing and improving the agent's browser |
+| [UX_OVERHAUL_PLAN.md](UX_OVERHAUL_PLAN.md) | Phone and desktop UX overhaul: five destinations, touch basics, calmer chat, failed-run retry, first run (proposed, not built) |
 | [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | "Continue with ChatGPT" provider |
 | [COMPUTE_ISOLATION_PLAN.md](COMPUTE_ISOLATION_PLAN.md) | A private machine per user |
 | [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) | The React Native (Expo) mobile app |

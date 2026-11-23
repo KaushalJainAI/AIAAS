@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { ChartSpec, FileCardData, TodoItem, HtmlArtifact as HtmlArtifactData } from '@/api/chat';
 import type { ChatMediaItem, CodeExecutionEntry } from '@/api/chat';
+import type { BrowserView } from '@/api/browser';
+import { parseBrowserViews } from '@/lib/browserView';
 import { toQuestionSpec, type QuestionSpec } from '@/lib/question';
 import { appendRevision } from '@/lib/planView';
 import type { SolutionUsed } from '@/api/solutions';
@@ -153,6 +155,8 @@ export interface ChatStreamState {
   /** One entry per agent working for this turn, in the order they started. */
   workerPlans: WorkerPlan[];
   files: FileCardData[];
+  /** The agent's browser calls this turn, newest last. Replaced whole on each update. */
+  browser: BrowserView[];
   /** Team solutions the turn has read so far: "checked", not "cited". */
   solutionsUsed: SolutionUsed[];
   blockedAttachments: { message: string; items: BlockedAttachment[] } | null;
@@ -180,6 +184,7 @@ const EMPTY: ChatStreamState = {
   todoHistory: [],
   workerPlans: [],
   files: [],
+  browser: [],
   solutionsUsed: [],
   blockedAttachments: null,
   pendingToolCall: null,
@@ -278,6 +283,12 @@ function reduceEvent(state: ChatStreamState, event: StreamEvent): ChatStreamStat
       // Whole list, like todos: a second write to one file updates its entry
       // on the server, so appending here would show it twice.
       return { ...state, files: arr<FileCardData>(event.files) };
+    case 'browser_update':
+      // Whole list, like files: the backend sends every call of the turn each
+      // time (at most 10, newest last), so a repeat replaces the list rather
+      // than adding to it. Cleared by `done` with the other live fields; the
+      // saved message keeps it as `metadata.browser`.
+      return { ...state, browser: parseBrowserViews(event.browser) };
     case 'solutions_update':
       // Whole list, like files: the backend keeps one entry per solution, so
       // replacing is the only way a repeat read stays one row.

@@ -22,6 +22,12 @@ MAX_CONTEXT_TOKENS = 100_000  # 100K token hard limit
 # the search_conversation_history tool, so shrinking this window loses no data —
 # it only stops us paying for context the model usually does not need.
 HISTORY_WINDOW = 20
+# The window's start moves in steps of this many messages, not one at a time.
+# A window that slid by one message every turn would change the first replayed
+# message every turn, so the whole replay after the system prompt would miss
+# the provider's prompt cache. With steps, the replayed prefix stays identical
+# for HISTORY_WINDOW_STEP turns at a stretch (`chat/turn/history.py`).
+HISTORY_WINDOW_STEP = 10
 # ── Conversation notes (`chat/turn/session_notes.py`) ──
 # Once a conversation has notes, history is no longer "the last N messages":
 # it is the current task's messages plus a short tail, and every older task
@@ -107,6 +113,9 @@ WEB_SEARCH_MAX_RETRIES = 5
 IMAGE_SEARCH_MAX_RESULTS = 6
 VIDEO_SEARCH_MAX_RESULTS = 4
 MAX_TOOL_ITERATIONS = 12
+#: Characters of a tool-calling turn's reasoning kept in the transcript, so the
+#: next model call can see why it made the calls (`chat/turn/reasoning_note.py`).
+REASONING_NOTE_CHARS = 600
 #: Model calls a chat turn may make at each pace (`chat/turn/pace.py`). The
 #: last one is always the answer, so `quick` is two tool rounds and a reply.
 #: `deep` is also the turn's hard ceiling: it sizes the graph's step budget,
@@ -305,7 +314,11 @@ TOOL_OUTPUT_PREVIEW_CHARS = 6_000
 #: How long the spilled full text stays readable. The bounded preview in the
 #: transcript is the durable record; this is only the window in which the model
 #: can still go and fetch the rest.
-TOOL_OUTPUT_RETENTION_HOURS = 24
+TOOL_OUTPUT_RETENTION_HOURS = 7 * 24
+#: Raised from 24 h (2026-11-17): long runs and runs paused for approval
+#: outlived it, and their transcripts pointed at ids that no longer read.
+#: A resumed run also restarts the clock (`tool_output.keep_alive`), and
+#: expired rows are now actually deleted (`tool_output.purge_expired`).
 
 # ==================== Context Curation ====================
 # What keeps a long agent run inside its window. `clamp_input` is the byte guard
@@ -477,10 +490,12 @@ PUBLISHED_PAGE_LIST_LIMIT = 60
 # runtime compares against, so no reader has to remember a conversion.
 DEFAULT_RUN_SECONDS = 15 * 60
 MIN_RUN_SECONDS = 30
-#: The ceiling a user may set. Above this a run is not "long", it is stuck, and
-#: the honest failure is the one that returns partial work while someone is
-#: still watching for it.
-MAX_RUN_SECONDS = 2 * 60 * 60
+#: The ceiling a user may set. Raised from 2 h to 8 h (2026-11-17) for
+#: long-horizon agents, matching the orchestrator's own maximum
+#: (`MAX_CHAT_TURN_SECONDS`) so a worker is not cut off long before the chat
+#: that started it. Past this, work belongs in a mission — a chain of runs
+#: that survives restarts — not in one run. The default stays 15 minutes.
+MAX_RUN_SECONDS = 8 * 60 * 60
 
 #: Left for the run to write its answer once the clock is nearly out. The soft
 #: stop fires here rather than at zero: a run killed mid-tool-call has paid for
@@ -539,3 +554,31 @@ ADMISSION_WAIT_SECONDS = _int_env('ADMISSION_WAIT_SECONDS', 120)
 #: `truncated` when it cut, because a capped list and a complete one must not
 #: look alike.
 PUBLIC_CATALOGUE_LIMIT = 60
+
+# ==================== Agent file catalogue ====================
+# The "dictionary" of a run's files: what exists and what each file is, so an
+# agent can pick what to read instead of carrying everything in its transcript.
+#: Entries `list_files(describe=true)` returns, per listing or tree. Lower than
+#: the plain listing's cap, because a description is the expensive part.
+AGENT_FILE_DESCRIBE_LIMIT = 100
+#: Longest one-line description a file gets (from its own text), in characters.
+AGENT_FILE_DESCRIPTION_CHARS = 120
+#: How much of a file's extracted text is scanned for its first meaningful line.
+AGENT_FILE_DESCRIBE_SCAN_CHARS = 1_000
+#: Files named in a run's "YOUR FILES" index in the system prompt.
+AGENT_FILE_INDEX_LIMIT = 30
+
+# ==================== Model injection check ====================
+# The model second opinion on tool results (`core/safety/moderation.py`), run in
+# an `auto`/`full` turn where the patterns found nothing.
+#: Characters of one tool result the model reads. The patterns read all of it;
+#: the start of a page carries the instruction that matters, and each new
+#: result costs one call, so the cap is the budget.
+INJECTION_CHECK_CHARS = 6_000
+#: Newest unknown results asked in one batch. Older ones are asked as later
+#: batches come, so the cap bounds one batch's cost, not the whole turn's.
+INJECTION_CHECK_MAX_RESULTS = 8
+#: Model calls in flight at once for one batch's results.
+INJECTION_CHECK_CONCURRENCY = 4
+#: Verdicts kept in memory, least recently used out first.
+INJECTION_CHECK_CACHE_ENTRIES = 512

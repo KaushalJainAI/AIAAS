@@ -97,7 +97,10 @@ async def _run(context: Dict, fn, *args, **kwargs) -> str:
             "this before reading or writing when you are not certain what is "
             "there — paths are case-sensitive and guessing wastes a turn. "
             "Returns entries directly inside the path; pass depth (up to 3) to "
-            "also get a `tree` of everything that many levels down."
+            "also get a `tree` of everything that many levels down. Pass "
+            "describe=true for a map of what each file is: every file gets a "
+            "one-line description taken from its own text, plus its size and "
+            "last-updated time. Read only the files you need after that."
         ),
         "parameters": {
             "type": "object",
@@ -110,6 +113,14 @@ async def _run(context: Dict, fn, *args, **kwargs) -> str:
                     "type": "integer",
                     "description": "How many levels to include in `tree` (1-3). Defaults to 1: this directory only.",
                 },
+                "describe": {
+                    "type": "boolean",
+                    "description": (
+                        "Add a one-line description, size and last-updated time to "
+                        "each file. In this mode a tree entry is an object, not a "
+                        "bare path, and the listing is capped at 100 entries."
+                    ),
+                },
             },
             "required": [],
             "additionalProperties": False,
@@ -119,10 +130,13 @@ async def _run(context: Dict, fn, *args, **kwargs) -> str:
 async def list_files(args: Dict, context: Dict) -> str:
     from inference import vfs
 
+    describe = args.get("describe")
     return await _run(
         context, vfs.list_dir, args.get("path") or "/",
         limit=await alimit(context, "list_files", "maxEntries"),
-        depth=_int(args.get("depth")) or 1)
+        depth=_int(args.get("depth")) or 1,
+        # A string "false" from a model is not a request for descriptions.
+        describe=describe is True or str(describe).strip().lower() == "true")
 
 
 @tool({

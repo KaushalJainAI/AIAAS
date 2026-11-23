@@ -218,7 +218,7 @@ def trash_list(request):
         'folders_truncated': len(folders) == FOLDER_CHILDREN_LIMIT,
         'documents': [
             {
-                **DocumentListSerializer(d).data,
+                **DocumentListSerializer(d, context={'request': request}).data,
                 'deleted_at': d.deleted_at,
                 'purges_at': recycle.purges_at(d.deleted_at),
             }

@@ -148,6 +148,32 @@ guide gives a full picture.
 
 ---
 
+### 5. The side pane is shared, in `components/pane/` (2026-11-17)
+
+The tabbed preview pane beside the chat (`SidePane`, the tab strip and menu,
+and one body per tab kind: file, media, HTML, browser, link) is used by the
+chat and by the Activity and Runs pages, so it is shared code, not chat code.
+Its tab rules are a pure reducer in `lib/paneTabs.ts`.
+`components/files/FilePreviewProvider.tsx` is now a re-export of `SidePane`
+so older imports keep working. What only the chat does with the pane
+(opening new files and the browser on their own) lives in `features/chat/`
+(`AutoOpenFiles.tsx`, `lib/autoOpen.ts`). Plan:
+`Backend/docs/PREVIEW_PANE_AND_BROWSER_PLAN.md`.
+
+### 6. Rules two screens need live in `lib/` (2026-11-19)
+
+The UX overhaul (`Backend/docs/UX_OVERHAUL_PLAN.md`) added shared code in
+the usual places: `components/command/` (Ctrl+K), `components/notifications/`
+(the bell's panel), `components/layout/HubTabs.tsx`, and pure rules in `lib/`:
+`connectionStatus.ts` (what "connected" means, used by Connections and the
+chat's setup card), `notificationLink.ts` (where a notification may link),
+`explainRunError.ts`, `agentAdvanced.ts`, `commandMenu.ts`. Chat-only pieces
+went into `features/chat/` (`ThisChatMenu`, `PopMenu`, `ComposerMoreSheet`,
+`lib/historyGroups.ts`, `lib/setupSteps.ts`, `lib/starters.ts`,
+`lib/turnReceipt.ts`, `lib/approvalTone.ts`, `hooks/useTitleProgress.ts`).
+When a second screen needs a rule a page keeps privately, move the rule to
+`lib/` and call it from both; do not copy it.
+
 ## Still to do
 
 The other features still use the old layout. Move them one at a time, when

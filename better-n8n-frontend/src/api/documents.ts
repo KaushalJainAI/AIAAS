@@ -56,6 +56,8 @@ export interface Document {
   folder_id?: number | null;
   /** Human-readable location for display only — never send it back. */
   folder_path?: string | null;
+  /** Read-only. True only when the caller owns the file; a file shared to them is not theirs. Gates the HTML "Run scripts" opt-in. */
+  is_owner?: boolean;
   deleted_at?: string | null;
   purges_at?: string | null;
 }

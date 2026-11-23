@@ -30,7 +30,7 @@ const PAGE_SIZE = 25;
 export default function AgentHistory() {
   const { id } = useParams<{ id: string }>();
   const agentId = Number(id);
-  const { restore, pending } = useRestoreRevision(agentId);
+  const { restore, pending, dialog } = useRestoreRevision(agentId);
 
   const { data: agent } = useQuery({
     queryKey: ['agent', agentId],
@@ -117,6 +117,7 @@ export default function AgentHistory() {
                   restoring={pending === rev.number} />
               ))}
             </ol>
+            {dialog}
           </>
         )}
 

@@ -8,10 +8,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  User,
+  Search,
+  Settings,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { navGroups } from "../../lib/navigation";
+import { commandMenuShortcutLabel, requestCommandMenu } from "../../lib/commandMenu";
 import { OPEN_SIDEBAR_EVENT } from "./sidebarBus";
 import { useQuery } from "@tanstack/react-query";
 import { useHitlPending } from "../../hooks/useHitlPending";
@@ -20,6 +22,7 @@ import { useAuth } from "../../contexts/authState";
 import { useImagineOptional } from "../../contexts/imagineState";
 import { notificationsService } from "../../api";
 import { monthSpendLabel, spendService } from "../../api/spend";
+import { NotificationsPanel } from "../notifications/NotificationsPanel";
 import { toast } from "sonner";
 
 
@@ -27,6 +30,15 @@ import { toast } from "sonner";
    scale. Kept module-level so the initial `useState` and the subscription can
    never disagree about the breakpoint. */
 const MOBILE_QUERY = window.matchMedia('(max-width: 767px)');
+
+/* A group title only helps when there is more than one group to tell apart.
+   With the single catalogue group, the heading would just repeat the nav. */
+const SHOW_GROUP_TITLES = navGroups.length > 1;
+
+/* The Search button shows the chord the platform uses, read once. */
+const SEARCH_SHORTCUT = commandMenuShortcutLabel(
+  typeof navigator === 'undefined' ? '' : navigator.userAgent,
+);
 
 /* The sidebar is the whole navigation surface on desktop (the top bar is gone):
    brand and a small New chat button at the top, the grouped catalogue, this
@@ -113,6 +125,11 @@ const Sidebar = () => {
         queryFn: notificationsService.getNotifications,
     });
     const unreadCount = notifications.filter((n) => !n.is_read).length;
+    // The bell opens a popover beside itself. The anchor is kept in state (set
+    // by the button's ref callback), not read from a ref during render.
+    const [bellEl, setBellEl] = useState<HTMLButtonElement | null>(null);
+    const [notifOpen, setNotifOpen] = useState(false);
+    const closeNotifications = useCallback(() => setNotifOpen(false), []);
 
     // This month's spend, for the one-line figure under the nav. A failed or
     // empty request leaves `data` undefined and the line is simply not shown.
@@ -281,15 +298,43 @@ const Sidebar = () => {
                 </button>
             </div>}
 
-            <nav className={cn("flex-1 overflow-y-auto p-2 space-y-3", !isMobile && "pt-2")}>
+            {/* Desktop: Search opens the command menu, with its shortcut shown.
+                Phones have the same button in the top bar. */}
+            {!isMobile && isAuthenticated && (
+                <div className="px-2 pb-1">
+                    <button
+                        type="button"
+                        onClick={requestCommandMenu}
+                        aria-label="Search"
+                        aria-keyshortcuts="Control+K Meta+K"
+                        title={collapsed ? `Search (${SEARCH_SHORTCUT})` : undefined}
+                        className={cn(
+                            "flex h-8 w-full items-center rounded-md border border-border/60 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            collapsed ? "justify-center" : "gap-2 px-2.5"
+                        )}
+                    >
+                        <Search className="h-4 w-4 shrink-0" />
+                        {!collapsed && (
+                            <>
+                                <span className="flex-1 text-left">Search</span>
+                                <kbd className="rounded border border-border px-1 font-mono text-[11px] text-muted-foreground">
+                                    {SEARCH_SHORTCUT}
+                                </kbd>
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            <nav aria-label="Main" className={cn("flex-1 overflow-y-auto p-2 space-y-3", !isMobile && "pt-2")}>
                 {navGroups.map((group) => (
-                    <div key={group.title}>
-                        <h4 className={cn(
+                    <div key={group.title || 'nav'}>
+                        {SHOW_GROUP_TITLES && group.title && <h4 className={cn(
                             "label-mono px-2.5 pb-1 transition-all duration-300",
                             collapsed ? "h-0 opacity-0 overflow-hidden" : "opacity-100"
                         )}>
                             {group.title}
-                        </h4>
+                        </h4>}
                         <div className="space-y-0.5">
                             {group.items.map((item) => {
                                 // `match` lets one entry own several routes —
@@ -392,7 +437,7 @@ const Sidebar = () => {
                         )}>
                             <Link
                                 to="/profile"
-                                aria-label="Profile and settings"
+                                aria-label="Profile"
                                 title={user?.email ?? 'Profile'}
                                 className={cn(
                                     "flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 transition-colors hover:bg-muted/60",
@@ -406,16 +451,28 @@ const Sidebar = () => {
                                     <span className="truncate text-sm font-medium text-foreground">{user?.name || 'User'}</span>
                                 )}
                             </Link>
-                            <Link
-                                to="/settings"
+                            <button
+                                type="button"
+                                ref={setBellEl}
+                                onClick={() => setNotifOpen((open) => !open)}
+                                aria-haspopup="dialog"
+                                aria-expanded={notifOpen}
                                 aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
                                 title={unreadCount > 0 ? `${unreadCount} unread` : 'Notifications'}
-                                className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                                 <Bell className="h-4 w-4" />
                                 {unreadCount > 0 && (
                                     <span className="absolute right-1.5 top-1.5 h-[7px] w-[7px] rounded-full bg-warning" />
                                 )}
+                            </button>
+                            <Link
+                                to="/settings"
+                                aria-label="Settings"
+                                title="Settings"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <Settings className="h-4 w-4" />
                             </Link>
                         </div>
                     )}
@@ -435,60 +492,43 @@ const Sidebar = () => {
                 </div>
             )}
 
+            {/* Phone drawer account rows: Profile and Settings, each a labelled
+                44px target. The drawer is either open or fully hidden on phones,
+                so these never render in the icon-rail state. */}
             {isMobile && isAuthenticated && <div className="p-2 border-t border-border/60 space-y-1">
                 <Link
                     to="/profile"
+                    aria-current={location.pathname === '/profile' ? 'page' : undefined}
                     className={cn(
-                        "flex items-center rounded-md transition-all duration-200 group py-1.5",
+                        "flex min-h-11 items-center gap-3 rounded-md px-2.5 text-sm transition-colors",
                         location.pathname === '/profile'
-                            ? "bg-muted text-muted-foreground"
-                            : "text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40",
-                        collapsed ? "px-0 justify-center gap-0" : "px-3 justify-start gap-2"
+                            ? "bg-muted font-semibold text-foreground"
+                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     )}
-                    title={collapsed ? "Profile" : undefined}
                 >
-                    <User className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span className={cn(
-                        "text-[11px] font-medium transition-all duration-300 whitespace-nowrap overflow-hidden",
-                        collapsed ? "w-0 opacity-0 ml-0" : "w-auto opacity-100 ml-0"
-                    )}>
-                        Profile
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-semibold text-muted-foreground">
+                        {getInitials()}
                     </span>
+                    <span className="min-w-0 truncate">Profile</span>
                 </Link>
                 <Link
                     to="/settings"
+                    aria-current={location.pathname === '/settings' ? 'page' : undefined}
                     className={cn(
-                        "flex items-center rounded-md transition-all duration-200 group py-2 overflow-hidden",
+                        "flex min-h-11 items-center gap-3 rounded-md px-2.5 text-sm transition-colors",
                         location.pathname === '/settings'
-                            ? "bg-primary/5 text-primary"
-                            : "hover:bg-muted/60",
-                        collapsed ? "px-0 justify-center gap-0" : "px-3 justify-start gap-3"
+                            ? "bg-muted font-semibold text-foreground"
+                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     )}
-                    title={collapsed ? "Settings" : undefined}
                 >
-                    <div className="relative w-8 h-8 flex-shrink-0 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground font-semibold text-sm">
-                        {getInitials()}
-                        {unreadCount > 0 && (
-                            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-warning text-background text-[10px] font-bold flex items-center justify-center border border-background">
-                                {unreadCount > 9 ? '9+' : unreadCount}
-                            </span>
-                        )}
-                    </div>
-                    <div className={cn(
-                        "flex-1 min-w-0 transition-all duration-300",
-                        collapsed ? "w-0 opacity-0 invisible" : "w-auto opacity-100 visible"
-                    )}>
-                        <p className="text-sm font-bold text-foreground/90 truncate">{user?.name || 'User'}</p>
-                        <p className="text-xs text-muted-foreground truncate">{user?.email || ''}</p>
-                    </div>
-                    {!collapsed && unreadCount > 0 && (
-                        <span className="ml-auto text-[11px] font-semibold px-1.5 rounded bg-warning-subtle text-warning shrink-0">
-                            {unreadCount} new
-                        </span>
-                    )}
+                    <Settings className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 truncate">Settings</span>
                 </Link>
             </div>}
         </div>
+        {notifOpen && bellEl && (
+            <NotificationsPanel anchor={bellEl} onClose={closeNotifications} />
+        )}
         </>
     );
 };

@@ -32,6 +32,9 @@ so expect layout and behaviour bugs that this list does not know about.
   "refresh catalogue" action.
 - **Team settings tab** (organisation people and settings) inside Team
   knowledge. Organisations are managed from Settings → Organisations instead.
+- **Browser screen "I'm done" button**: the chat composer belongs to the chat
+  screen, so the Browser screen cannot send a message. It shows the
+  "needs you" notice and asks the person to go back and say so.
 - **Chat stream frames** not drawn: `videos_update`, and the memory, cost,
   findings-detail and pause/resume command cards.
 - **Run detail** does not draw the files, charts or team-task lanes stored on a
@@ -59,6 +62,7 @@ so expect layout and behaviour bugs that this list does not know about.
 | Rejecting an extracted row | No confirm | Asks first | Destructive action |
 | Deleting an organisation | API exists, no button | Owner-only button | Brief asked for web rules incl. delete |
 | Notification taps | Open the web page | Mapped to the native screen (`src/notifications/route.ts`), anything unknown opens in the web view | — |
+| Browser calls of an answer | Not drawn yet (the browser pane is planned in `Backend/docs/PREVIEW_PANE_AND_BROWSER_PLAN.md`) | A "Browser · host" chip under the answer opens a Browser screen (latest picture, calls newest first, Watch live) | Screen width. Pictures are not zoomable, and Watch live opens the system browser |
 
 ## Needs setup or deployment before it works
 

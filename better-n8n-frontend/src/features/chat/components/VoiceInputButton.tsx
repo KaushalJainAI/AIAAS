@@ -24,7 +24,7 @@ export function VoiceInputButton({ state, startedAt, onToggle, onCancel, disable
         <button
           type="button"
           onClick={onCancel}
-          className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          className="w-11 h-11 md:w-7 md:h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
           title="Discard recording"
           aria-label="Discard recording"
         >
@@ -34,7 +34,7 @@ export function VoiceInputButton({ state, startedAt, onToggle, onCancel, disable
         <button
           type="button"
           onClick={onToggle}
-          className="w-8 h-8 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors animate-pulse"
+          className="w-11 h-11 md:w-8 md:h-8 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors animate-pulse"
           title="Stop and transcribe"
           aria-label="Stop recording and transcribe"
         >
@@ -49,7 +49,7 @@ export function VoiceInputButton({ state, startedAt, onToggle, onCancel, disable
       type="button"
       onClick={onToggle}
       disabled={disabled || busy}
-      className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0 disabled:opacity-40 disabled:hover:bg-transparent"
+      className="w-11 h-11 md:w-8 md:h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0 disabled:opacity-40 disabled:hover:bg-transparent"
       title={busy ? 'Transcribing…' : 'Voice input'}
       aria-label={busy ? 'Transcribing' : 'Start voice input'}
     >

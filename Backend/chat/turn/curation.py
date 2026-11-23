@@ -45,12 +45,23 @@ clock does not live in the system message.
 
 *There is exactly one summary note.* A second note is not more memory, it is the
 same run written down twice; the fold always absorbs the previous note.
+
+*The fold is prepared while the cache is warm.* Between an early mark
+(`PREPARE_AHEAD_RATIO` of the high mark) and the high mark, the fold that the
+next pass would make is started in the background, keyed by the run and by the
+ids of the messages it would fold. When the fold is really needed and the ids
+match, the prepared summary is used; otherwise the fold runs inline as before.
+A prepared summary is cheap to produce while the provider's prompt cache still
+holds the run's prefix, and the run does not stall at the fold. Its spend is
+counted exactly once, whether it is used or thrown away.
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
 from langchain_core.messages import (
@@ -61,7 +72,10 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
+from core.safety import provenance
 from llm import budget
+from llm.usage import EMPTY_USAGE, TokenUsage
+from workflow_backend import background
 from workflow_backend.thresholds import (
     CONTEXT_HIGH_WATER_RATIO,
     CONTEXT_KEEP_RECENT_SEGMENTS,
@@ -85,6 +99,19 @@ RECORD_PREFIX = "[COMPACTED RESULT]"
 SUMMARY_PREFIX = "[EARLIER WORK IN THIS RUN — SUMMARY]"
 #: Marks an argument value that was shrunk, so a later pass leaves it alone.
 ARGS_MARKER = "[COMPACTED ARGUMENT]"
+
+#: The early mark for preparing a fold, as a fraction of the high-water mark.
+#: 0.85 of 0.70 is 0.595 of the budget: far enough below the trigger that the
+#: background fold has the whole band between the marks to finish in, and high
+#: enough that a run is not paying for a summary it may never need.
+PREPARE_AHEAD_RATIO = 0.85
+#: How long a pass waits for a prepared fold that is still running before it
+#: folds inline. The inline call would start from zero, so waiting a little is
+#: almost always cheaper; waiting for good is not.
+PREPARED_WAIT_SECONDS = 20.0
+#: Runs remembered by each module-level dict. Beyond this the oldest is dropped
+#: (a prepared fold is let finish and its spend is still booked).
+PREPARED_KEEP_RUNS = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,9 +318,11 @@ def _record_for(result: str, call: str, archive_id: str | None) -> str:
 
 
 def _already_compacted(message: BaseMessage) -> bool:
+    # A result enclosed as untrusted data keeps its record inside the envelope,
+    # so the prefix is looked for in the body.
     return (
         isinstance(message.content, str)
-        and message.content.startswith(RECORD_PREFIX)
+        and provenance.unwrap_untrusted(message.content).startswith(RECORD_PREFIX)
     )
 
 
@@ -334,7 +363,25 @@ async def curate(
 
     limit = await budget.input_budget_for(model, reserve_output=reserve_output)
     result.tokens_before = baseline_tokens + message_tokens(messages)
+    key = _run_key(context)
     if not force and result.tokens_before <= limit * CONTEXT_HIGH_WATER_RATIO:
+        # Below the high mark nothing is curated, but past the early mark the
+        # fold that the next pass would make is started now, while the cache is
+        # warm. See `_prepare_ahead`.
+        if (
+            key is not None
+            and policy.recursive
+            and summarise is not None
+            and result.tokens_before
+            > limit * PREPARE_AHEAD_RATIO * CONTEXT_HIGH_WATER_RATIO
+        ):
+            await _prepare_ahead(
+                messages, policy, context, key,
+                limit=limit,
+                baseline_tokens=baseline_tokens,
+                tokens_before=result.tokens_before,
+                summarise=summarise,
+            )
         return result
 
     target = int(limit * CONTEXT_LOW_WATER_RATIO)
@@ -343,9 +390,7 @@ async def curate(
     # The tail is never curated: the model must be able to see what it just did,
     # or it does it again. Counted in segments rather than tokens so that one
     # oversized recent result cannot push three whole turns out of view.
-    keep = min(1 if force else CONTEXT_KEEP_RECENT_SEGMENTS, len(grouped))
-    head = grouped[:-keep] if keep else list(grouped)
-    tail = grouped[-keep:] if keep else []
+    head, tail = _split(grouped, 1 if force else CONTEXT_KEEP_RECENT_SEGMENTS)
     if not head:
         return result
 
@@ -363,10 +408,14 @@ async def curate(
         archived.extend(ids)
         updates.extend(replacements)
 
+    spent_tokens = 0
     if policy.recursive and summarise is not None and projected() > target:
         folded, note, ids, tokens = await _fold(
             head, tail, policy, context, target, baseline_tokens, summarise
         )
+        # Every token a fold spent is recorded, even when no note came of it:
+        # the spend happened, so it has to reach the run's total either way.
+        spent_tokens = tokens
         if note is not None:
             # RemoveMessage by id is what actually deletes from the checkpoint;
             # the note is appended, which puts it last in the transcript. That
@@ -376,12 +425,12 @@ async def curate(
             updates.extend(RemoveMessage(id=m.id) for m in folded if m.id)
             updates.append(note)
             result.steps_folded = len(folded)
-            result.summary_tokens = tokens
         archived.extend(ids)
 
     result.updates = updates
     result.archived_ids = tuple(archived)
     result.tokens_after = projected()
+    _settle(result, key, summarise, spent_tokens)
 
     if result.curated:
         logger.info(
@@ -445,18 +494,29 @@ async def _compact(
                 # everything already in state, so this is a guard, not a case.
                 continue
             content = message.content
-            if not isinstance(content, str) or len(content) <= CONTEXT_TOOL_RECORD_CHARS:
+            if not isinstance(content, str):
+                continue
+            # The text the tool returned, without its untrusted-data enclosure.
+            # The record is enclosed again under the same tag and source, so a
+            # compacted result is still third-party data to the model.
+            envelope = provenance.parse_untrusted(content)
+            body = envelope[2] if envelope is not None else content
+            if len(body) <= CONTEXT_TOOL_RECORD_CHARS:
                 continue
 
             call = _describe_call(segment.head, message.tool_call_id)
             archive_id = None
             if policy.indexing:
-                archive_id = await tool_output.archive(call, content, context)
+                archive_id = await tool_output.archive(call, body, context)
                 if archive_id:
                     archived.append(archive_id)
 
+            record = _record_for(body, call, archive_id)
+            if envelope is not None:
+                record = provenance.wrap_untrusted(
+                    record, source=envelope[0], tag=envelope[1])
             replacement = ToolMessage(
-                content=_record_for(content, call, archive_id),
+                content=record,
                 tool_call_id=message.tool_call_id,
                 id=message.id,
                 name=message.name,
@@ -540,6 +600,409 @@ def _arguments_compacted(turn: AIMessage) -> bool:
     return ARGS_MARKER in json.dumps([call.get("args") for call in turn.tool_calls])
 
 
+# ── Model spend, and folds prepared ahead ────────────────────────────────────
+#
+# A fold is a model call, and the spend has to reach the run's total exactly
+# once. Three things can happen to a call made for a fold:
+#
+#   used       — the fold it was prepared for is the fold the pass needs; its
+#                tokens and usage are billed by that pass.
+#   discarded  — prepared for messages the pass no longer folds (or the claim
+#                timed out or failed). It was still spent, so it is booked into
+#                `_UNBILLED` and billed by the next pass that curates.
+#   inline     — the pass folded without a prepared result; the call's usage is
+#                already on the summariser that pass holds, and is billed there.
+#
+# The summariser's `usage` is an accumulator that `curate_node` prices at the
+# end of the pass, so every path above ends in that one place.
+
+@dataclass(frozen=True, slots=True)
+class _Spend:
+    tokens: int = 0
+    usage: TokenUsage = EMPTY_USAGE
+
+    def __add__(self, other: _Spend) -> _Spend:
+        return _Spend(self.tokens + other.tokens, self.usage + other.usage)
+
+    @property
+    def is_empty(self) -> bool:
+        return self.tokens == 0 and self.usage.is_empty
+
+
+_NO_SPEND = _Spend()
+#: The public name of a spend: what `settle` returns and what callers add up.
+Spend = _Spend
+
+
+@dataclass(slots=True, eq=False)
+class _Prepared:
+    """One fold started ahead of its pass. `tokens` and `usage` are written by
+    the task itself, in its `finally`, so they are right whether it succeeded,
+    failed or was cancelled."""
+
+    key: str
+    fingerprint: tuple[str, ...]
+    task: asyncio.Task | None = None
+    tokens: int = 0
+    usage: TokenUsage = EMPTY_USAGE
+
+
+#: At most one prepared fold per run. The key is the run's thread, so a second
+#: early mark replaces the first rather than stacking another model call on it.
+_PREPARED: dict[str, _Prepared] = {}
+#: Spend from folds that were discarded, waiting for a pass that will bill it.
+_UNBILLED: dict[str, _Spend] = {}
+
+
+def _run_key(context: dict[str, Any]) -> str | None:
+    """The run's key, from what `curate` already receives.
+
+    `session_id` is the run's thread (`agent-<id>-<uuid>` for an agent run), so
+    it is per run; `user_id` keeps two users' runs apart. Without a session there
+    is nothing to key on, and nothing is prepared: the fold runs inline as before.
+    """
+    session = context.get("session_id")
+    if not session:
+        return None
+    return f"{context.get('user_id')}:{session}"
+
+
+def run_key(context: dict[str, Any]) -> str | None:
+    """Public name for the key a run's curation is filed under, so the caller
+    that ends a run (`settle`) passes exactly the key `curate` used."""
+    return _run_key(context)
+
+
+def _fingerprint(messages: Sequence[BaseMessage]) -> tuple[str, ...]:
+    """Identity of the messages a fold covers.
+
+    Ids, because compaction replaces a message under its own id: a result shrunk
+    between the early mark and the fold is still the same message. A message with
+    no id is keyed by its content instead, which compaction never touches.
+    """
+    return tuple(_message_key(message) for message in messages)
+
+
+def _message_key(message: BaseMessage) -> str:
+    if message.id:
+        return str(message.id)
+    body = json.dumps(
+        [message.type, message.content, getattr(message, "tool_calls", None)],
+        default=str, sort_keys=True,
+    )
+    return "sha:" + hashlib.sha256(body.encode("utf-8")).hexdigest()[:32]
+
+
+def _usage_of(summarise) -> TokenUsage:
+    usage = getattr(summarise, "usage", None)
+    return usage if isinstance(usage, TokenUsage) else EMPTY_USAGE
+
+
+def _set_usage(summarise, usage: TokenUsage) -> None:
+    if summarise is None:
+        return
+    try:
+        summarise.usage = usage
+    except AttributeError:  # a bare callable that cannot carry an accumulator
+        logger.warning("[Curation] Summariser cannot record usage; spend unpriced")
+
+
+def _add_usage(summarise, usage: TokenUsage) -> None:
+    if usage.is_empty:
+        return
+    _set_usage(summarise, _usage_of(summarise) + usage)
+
+
+def _split(
+    grouped: list[_Segment], keep: int,
+) -> tuple[list[_Segment], list[_Segment]]:
+    """(head, tail): the tail is the last `keep` segments and is never curated."""
+    keep = min(keep, len(grouped))
+    if not keep:
+        return list(grouped), []
+    return grouped[:-keep], grouped[-keep:]
+
+
+def _fold_block(
+    head: list[_Segment],
+    tail: list[_Segment],
+    baseline_tokens: int,
+    target: int,
+) -> tuple[list[_Segment], list[_Segment]]:
+    """The oldest segments a fold would take, and what is left of `head`.
+
+    Pure: the caller's lists are not changed. Used both by the fold itself and by
+    `_prepare_ahead`, so the two cannot disagree about what "the block" is.
+    """
+    # What the note itself will cost. Folding more segments does not shrink
+    # `fold + remainder`, so a condition measured over that total would never
+    # change and the first pass would fold the entire run.
+    note_tokens = CONTEXT_SUMMARY_TARGET_WORDS * 2
+
+    fold: list[_Segment] = []
+    remainder = list(head)
+    while remainder:
+        kept = [m for segment in remainder + tail for m in segment.messages]
+        if baseline_tokens + note_tokens + message_tokens(kept) <= target:
+            break
+        fold.append(remainder.pop(0))
+    return fold, remainder
+
+
+def _folded_messages(
+    fold: list[_Segment], remainder: list[_Segment], tail: list[_Segment],
+) -> list[BaseMessage]:
+    """What a fold reads: the segments it takes, plus any earlier note, wherever
+    it sits. The previous note is always absorbed, which is what keeps there
+    being exactly one."""
+    stragglers = [segment for segment in remainder + tail if segment.is_note]
+    messages = [m for segment in fold for m in segment.messages]
+    messages += [m for segment in stragglers for m in segment.messages]
+    return messages
+
+
+async def _prepare_ahead(
+    messages: Sequence[BaseMessage],
+    policy: CurationPolicy,
+    context: dict[str, Any],
+    key: str,
+    *,
+    limit: int,
+    baseline_tokens: int,
+    tokens_before: int,
+    summarise,
+) -> None:
+    """Start the fold the next pass would need, while the cache is warm.
+
+    Between the early mark and the high mark, nothing is curated yet. The fold
+    that will be needed is worked out now, as if the transcript were already at
+    the high mark: the growth still to come is added to the baseline, so the
+    block is the same one the real pass will pick, rather than a block that
+    shifts with every new step. Compaction is simulated in full (without
+    archiving, so nothing is written) because a fold is only ever needed after
+    every compactable result has been compacted. No block means no fold is
+    coming, and nothing is spent.
+
+    The summary is generated from the simulated, compacted text, which is what
+    the inline fold would have read. The archive is written by the real pass.
+    """
+    head, tail = _split(segments(messages), CONTEXT_KEEP_RECENT_SEGMENTS)
+    if not head:
+        return
+    # Copies: the simulation compacts in place, and the real pass must not see it.
+    head = [_Segment(messages=list(segment.messages)) for segment in head]
+    tail = [_Segment(messages=list(segment.messages)) for segment in tail]
+
+    at_high = int(limit * CONTEXT_HIGH_WATER_RATIO)
+    target = int(limit * CONTEXT_LOW_WATER_RATIO)
+    predicted_base = baseline_tokens + max(at_high - tokens_before, 0)
+
+    if policy.compaction:
+        def projected() -> int:
+            return predicted_base + message_tokens(
+                [m for segment in head + tail for m in segment.messages]
+            )
+
+        # `target=-1` never breaks: compact everything, as a fold-bound pass would.
+        await _compact(
+            head, replace(policy, indexing=False), context, -1, projected,
+        )
+
+    fold, remainder = _fold_block(head, tail, predicted_base, target)
+    if not fold:
+        return
+    folded = _folded_messages(fold, remainder, tail)
+    fingerprint = _fingerprint(folded)
+
+    current = _PREPARED.get(key)
+    if current is not None and current.fingerprint == fingerprint:
+        return  # already in flight for exactly this block
+    if current is not None:
+        del _PREPARED[key]
+        _retire(current)
+
+    # The prepared call owns this summariser: it is only ever used by the one
+    # call started here, so zeroing its accumulator makes it read back as exactly
+    # that call's spend.
+    _set_usage(summarise, EMPTY_USAGE)
+    transcript = _render_for_summary(folded)[:CONTEXT_SUMMARY_INPUT_CHARS]
+    entry = _Prepared(key=key, fingerprint=fingerprint)
+    entry.task = background.spawn(
+        _prepared_call(entry, summarise, transcript),
+        name=f"curation-prefold:{key}",
+    )
+    _PREPARED[key] = entry
+    logger.info(
+        "[Curation] Fold prepared ahead for %s: %d message(s)", key, len(folded),
+    )
+    _bound_prepared()
+
+
+async def _prepared_call(entry: _Prepared, summarise, transcript: str) -> tuple[str, int]:
+    try:
+        summary, tokens = await summarise(transcript)
+        entry.tokens = tokens
+        return summary, tokens
+    finally:
+        entry.usage = _usage_of(summarise)
+
+
+async def _claim(entry: _Prepared) -> tuple[str, int] | None:
+    """The prepared (summary, tokens), or None when the pass must fold inline."""
+    task = entry.task
+    if task is None or task.get_loop() is not asyncio.get_running_loop():
+        return None  # started on another loop: cannot be awaited from here
+    try:
+        # `shield`: a timeout must not cancel the call, because its spend is
+        # still owed and it is booked when it finishes.
+        return await asyncio.wait_for(asyncio.shield(task), PREPARED_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.info("[Curation] Prepared fold still running; folding inline")
+        return None
+    except asyncio.CancelledError:
+        if task.cancelled():
+            return None
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning("[Curation] Prepared fold failed; folding inline", exc_info=True)
+        return None
+
+
+def _retire(entry: _Prepared) -> None:
+    """A prepared fold that will not be used. Its spend still counts."""
+    task = entry.task
+    if task is None or task.done():
+        _book(entry)
+    else:
+        task.add_done_callback(lambda _task: _book(entry))
+
+
+def _book(entry: _Prepared) -> None:
+    task = entry.task
+    if task is not None and task.done() and not task.cancelled():
+        task.exception()  # marks a failure as retrieved; the spend is what matters
+    spend = _Spend(entry.tokens, entry.usage)
+    if spend.is_empty:
+        return
+    _UNBILLED[entry.key] = _UNBILLED.get(entry.key, _NO_SPEND) + spend
+    while len(_UNBILLED) > PREPARED_KEEP_RUNS:
+        dropped = next(iter(_UNBILLED))
+        del _UNBILLED[dropped]
+        logger.warning("[Curation] Unbilled fold spend for %s dropped (too many runs)", dropped)
+
+
+def _bound_prepared() -> None:
+    while len(_PREPARED) > PREPARED_KEEP_RUNS:
+        oldest = next(iter(_PREPARED))
+        _retire(_PREPARED.pop(oldest))
+
+
+def _settle(
+    result: CurationResult,
+    key: str | None,
+    summarise,
+    spent_tokens: int,
+) -> None:
+    """Decide what this pass pays for, and write it onto the result.
+
+    A pass that curated is the one `curate_node` charges, so it carries the
+    spend of every fold since the last such pass. A pass that did not curate is
+    not charged, so its own spend is booked for the next one.
+    """
+    if key is None:
+        if result.curated:
+            result.summary_tokens = spent_tokens
+        return
+
+    owed = _UNBILLED.pop(key, _NO_SPEND)
+    if result.curated:
+        result.summary_tokens = spent_tokens + owed.tokens
+        _add_usage(summarise, owed.usage)
+        return
+
+    spend = _Spend(spent_tokens, _usage_of(summarise)) + owed
+    if not spend.is_empty:
+        _UNBILLED[key] = spend
+        while len(_UNBILLED) > PREPARED_KEEP_RUNS:
+            del _UNBILLED[next(iter(_UNBILLED))]
+
+
+def reset_prepared_state() -> None:
+    """Forget every prepared fold and all unbilled spend. Tests only: in
+    production each dict is bounded by `PREPARED_KEEP_RUNS` and cleared by use."""
+    for entry in _PREPARED.values():
+        if entry.task is not None and not entry.task.done():
+            entry.task.cancel()
+    _PREPARED.clear()
+    _UNBILLED.clear()
+
+
+#: How long `settle` waits for a prepared fold still running when its run ends.
+#: Past this the fold is cancelled and whatever usage it had reported is booked.
+SETTLE_WAIT_SECONDS = 20.0
+#: After that cancel, how long to wait for the fold to unwind and report.
+SETTLE_UNWIND_SECONDS = 2.0
+
+
+async def settle(key: str | None, *, keep_prepared: bool = False) -> _Spend:
+    """Bill everything a run's curation has spent and not yet booked.
+
+    Called once when a run ends, however it ends (finished, failed, cancelled).
+    A prepared fold still in flight has already cost money, so it is awaited for
+    up to `SETTLE_WAIT_SECONDS`; past that it is cancelled and the usage it
+    reports is booked. The run's pending entry and its `_UNBILLED` ledger are
+    then dropped, and returned as the spend the caller must add to the run's
+    totals. Idempotent: a second call for the same key returns zero.
+
+    `keep_prepared` is for a chat turn: the chat's key outlives the turn, so a
+    prepared fold still in flight is left for the next turn to use (or discard
+    and bill, through `_UNBILLED`), and only the ledger is billed now. Waiting
+    for it here would hold the user's turn open for up to `SETTLE_WAIT_SECONDS`
+    and throw away a summary the next turn could have read from cache.
+    """
+    if not key:
+        return _NO_SPEND
+    if keep_prepared:
+        return _UNBILLED.pop(key, _NO_SPEND)
+    entry = _PREPARED.pop(key, None)
+    spend = _NO_SPEND
+    if entry is not None:
+        await _await_at_run_end(entry)
+        spend = _Spend(entry.tokens, entry.usage)
+    return spend + _UNBILLED.pop(key, _NO_SPEND)
+
+
+async def _await_at_run_end(entry: _Prepared) -> None:
+    """Let a prepared fold finish if it can; otherwise cancel it. Afterwards the
+    entry's `tokens` and `usage` are as final as they will be for this run."""
+    task = entry.task
+    if task is None or task.done():
+        return
+    if task.get_loop() is not asyncio.get_running_loop():
+        # Started on another loop: it cannot be awaited or cancelled from here.
+        logger.warning("[Curation] Prepared fold for %s is on another loop; booked later", entry.key)
+        _retire(entry)
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(task), SETTLE_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.info("[Curation] Prepared fold for %s outlived its run; cancelling", entry.key)
+        task.cancel()
+        await asyncio.wait({task}, timeout=SETTLE_UNWIND_SECONDS)
+        if not task.done():
+            logger.warning("[Curation] Cancelled fold for %s did not unwind; booked later", entry.key)
+            _retire(entry)
+    except asyncio.CancelledError:
+        if task.cancelled():
+            return  # the fold itself was cancelled, so there is nothing more to wait for
+        # The run is being cancelled too: the fold's spend is booked when it ends.
+        _retire(entry)
+        raise
+    except Exception:  # noqa: BLE001
+        # The fold failed; its task's `finally` has already recorded its usage.
+        return
+
+
 async def _fold(
     head: list[_Segment],
     tail: list[_Segment],
@@ -559,18 +1022,7 @@ async def _fold(
     """
     from chat.tools import tool_output
 
-    # What the note itself will cost. Folding more segments does not shrink
-    # `fold + remainder`, so a condition measured over that total would never
-    # change and the first pass would fold the entire run.
-    note_tokens = CONTEXT_SUMMARY_TARGET_WORDS * 2
-
-    fold: list[_Segment] = []
-    remainder = list(head)
-    while remainder:
-        kept = [m for segment in remainder + tail for m in segment.messages]
-        if baseline_tokens + note_tokens + message_tokens(kept) <= target:
-            break
-        fold.append(remainder.pop(0))
+    fold, remainder = _fold_block(head, tail, baseline_tokens, target)
 
     # Any earlier note is folded in even when it is not in `fold` — it may be
     # sitting in the protected tail, which is exactly where the last pass left
@@ -581,12 +1033,19 @@ async def _fold(
         # the run.
         return [], None, [], 0
 
-    stragglers = [
-        segment for segment in remainder + tail if segment.is_note
-    ]
+    folded_messages = _folded_messages(fold, remainder, tail)
 
-    folded_messages = [m for segment in fold for m in segment.messages]
-    folded_messages += [m for segment in stragglers for m in segment.messages]
+    # A fold prepared ahead is used only for exactly these messages. It is taken
+    # out of the table either way, so it can be used or retired, never both.
+    key = _run_key(context)
+    pending = _PREPARED.pop(key, None) if key is not None else None
+    claimed: tuple[str, int] | None = None
+    try:
+        if pending is not None and pending.fingerprint == _fingerprint(folded_messages):
+            claimed = await _claim(pending)
+    finally:
+        if pending is not None and claimed is None:
+            _retire(pending)
 
     transcript = _render_for_summary(folded_messages)
     archived: list[str] = []
@@ -595,14 +1054,20 @@ async def _fold(
         if archive_id:
             archived.append(archive_id)
 
-    try:
-        summary, tokens = await summarise(transcript[:CONTEXT_SUMMARY_INPUT_CHARS])
-    except Exception:  # noqa: BLE001
-        # A failed fold must not fail the run. Nothing is applied, the messages
-        # stay where they are, and `clamp_input` drops them at the wire if the
-        # request is still too large — worse, but not an outage.
-        logger.exception("[Curation] Fold failed; transcript left intact")
-        return [], None, archived, 0
+    if claimed is not None:
+        summary, tokens = claimed
+        # The prepared call's usage is on its own summariser. Move it onto this
+        # pass's, which is the one `curate_node` prices: counted here, once.
+        _add_usage(summarise, pending.usage)
+    else:
+        try:
+            summary, tokens = await summarise(transcript[:CONTEXT_SUMMARY_INPUT_CHARS])
+        except Exception:  # noqa: BLE001
+            # A failed fold must not fail the run. Nothing is applied, the messages
+            # stay where they are, and `clamp_input` drops them at the wire if the
+            # request is still too large — worse, but not an outage.
+            logger.exception("[Curation] Fold failed; transcript left intact")
+            return [], None, archived, 0
 
     if not summary.strip():
         return [], None, archived, tokens
@@ -642,14 +1107,48 @@ def _render_for_summary(messages: Sequence[BaseMessage]) -> str:
     return "\n\n".join(lines)
 
 
+#: The checkpoint's sections, in the order they must appear. The fold writes
+#: this shape and nothing parses it, but `chat/tests/test_curation_prefold.py`
+#: pins the headings, so a template edit cannot silently drop one.
+SUMMARY_SECTIONS = (
+    "Objective",
+    "Requirements and constraints",
+    "Decisions",
+    "Work state",
+    "Next move",
+    "Relevant files and ids",
+    "Important facts",
+)
+
 SUMMARY_INSTRUCTION = (
-    "You are compressing the earlier steps of an agent run so the agent can keep "
-    "working without them in view. Write a factual record of at most "
-    f"{CONTEXT_SUMMARY_TARGET_WORDS} words, in plain prose, covering: what was "
-    "attempted, what was established as fact — with the specific values, names, "
-    "ids and figures, which are what a later step will need — what failed and "
-    "why, and what is still open. Do not address the user, do not add "
-    "conclusions of your own, and never state a detail that is not in the text. "
-    "If an earlier summary appears in the input, fold it in rather than "
-    "repeating it verbatim."
+    "You are writing the running checkpoint of an agent run. The agent keeps "
+    "working from this checkpoint after the steps it describes have left its "
+    "view, so it must hold everything a later step will need and nothing it can "
+    "read again. Fill in these sections, in this order, under these exact "
+    "headings:\n\n"
+    "Objective: the goal the run is pursuing, in one or two sentences.\n"
+    "Requirements and constraints: what the user or the task asked for, and any "
+    "limit they set.\n"
+    "Decisions: each choice made, and why, one line each.\n"
+    "Work state: three sub-lines, Completed:, Active: and Blocked:. Completed "
+    "holds what finished and its result. Active holds what is in progress and "
+    "the open questions. Blocked holds each failure with why it failed, and what "
+    "it is waiting on.\n"
+    "Next move: the single next step the record points to.\n"
+    "Relevant files and ids: at most 15 entries, one per line. Paths, ids and "
+    "URLs only, never file contents.\n"
+    "Important facts: the exact values, names, ids and figures a later step will "
+    "need, each as it appeared in the input.\n\n"
+    "Rules:\n"
+    "- If an earlier checkpoint appears in the input, UPDATE it section by "
+    "section: merge in the new facts, move an item from Active to Completed when "
+    "it finishes, and drop whatever a later step superseded. Do not rewrite it "
+    "from scratch, and do not append a second copy of it.\n"
+    f"- Stay within {CONTEXT_SUMMARY_TARGET_WORDS} words in total.\n"
+    "- Never invent a detail. Every value you write must appear in the input.\n"
+    "- Do not copy what the agent can read again: file contents, tool output, or "
+    "the todo list, which is kept separately and must be left out.\n"
+    "- Write `none` for a section with nothing in it.\n"
+    "- Do not address the user and do not add conclusions of your own.\n"
+    "- Output only the checkpoint, starting with the Objective heading."
 )

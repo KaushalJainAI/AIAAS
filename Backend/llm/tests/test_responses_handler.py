@@ -130,6 +130,14 @@ class RequestBodyTests(SimpleTestCase):
             'tools': self.TOOLS, 'temperature': 0.2, 'max_tokens': 4096, **config})
         return client.calls[0]
 
+    def test_tool_choice_none_is_said_by_sending_no_tools(self):
+        # The plan route takes only ALLOWED_BODY_KEYS, so a last pass that
+        # may not call a tool omits them rather than sending tool_choice.
+        body = self.body(tool_choice='none')['json']
+        self.assertNotIn('tools', body)
+        self.assertNotIn('tool_choice', body)
+        self.assertIn('tools', self.body()['json'])
+
     def test_only_fields_the_plan_route_accepts_are_sent(self):
         body = self.body(effort='high', response_format='json_object')['json']
         self.assertLessEqual(set(body), ALLOWED_BODY_KEYS)

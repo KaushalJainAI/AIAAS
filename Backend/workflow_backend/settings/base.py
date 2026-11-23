@@ -345,6 +345,9 @@ BROWSER_API_TOKEN = os.environ.get('BROWSER_API_TOKEN', '')
 #: than the box: the provider holds the profile, we hold the row.
 BROWSER_SESSION_IDLE_SECONDS = int(os.environ.get('BROWSER_SESSION_IDLE_SECONDS', '600'))
 BROWSER_SESSION_MAX_SECONDS = int(os.environ.get('BROWSER_SESSION_MAX_SECONDS', '3600'))
+#: How long the last picture of a browser call stays viewable (`browsing/frames.py`).
+#: Kept in the cache, never on disk, and only ever for the user who ran the call.
+BROWSER_FRAME_TTL_SECONDS = int(os.environ.get('BROWSER_FRAME_TTL_SECONDS', '3600'))
 
 # ---------------------------------------------------------------------------
 # Voice and e-sign
@@ -360,6 +363,11 @@ BROWSER_SESSION_MAX_SECONDS = int(os.environ.get('BROWSER_SESSION_MAX_SECONDS', 
 # from the day the tool shipped; flipping the default is the actual fix —
 # requiring an env var nobody would think to add is how that stayed broken.
 STT_ENGINE = os.environ.get('STT_ENGINE', 'openrouter')
+
+# A chat web search also fetches an image strip (`chat/turn/agent.py::
+# _fetch_companion_images`). On by default; `settings/test.py` turns it off so
+# no test reaches the internet.
+CHAT_COMPANION_IMAGES = os.environ.get('CHAT_COMPANION_IMAGES', 'True').lower() in ('true', '1', 'yes')
 STT_MODEL = os.environ.get('STT_MODEL', 'openai/whisper-large-v3-turbo')
 #: The chat mic's cap on one clip. ~2 minutes of browser Opus is well under;
 #: a bigger body is refused before anything is sent or spent.
@@ -513,6 +521,8 @@ REST_FRAMEWORK = {
         'transcribe': '120/hour',
         # The speaker button: one reply's text per request.
         'speak': '120/hour',
+        # The link preview in the side pane: one paid browser call per request.
+        'browser_preview': '20/hour',
         'password_reset': '10/hour',
         'password_change': '10/hour',
         'guest_chat_min': '3/minute',
@@ -683,6 +693,8 @@ HITL_REMINDER_SWEEP_SECONDS = int(os.environ.get('HITL_REMINDER_SWEEP_SECONDS', 
 SCHEDULED_SWEEP_SECONDS = int(os.environ.get('SCHEDULED_SWEEP_SECONDS', '60'))
 TRIGGER_SWEEP_SECONDS = int(os.environ.get('TRIGGER_SWEEP_SECONDS', '60'))
 RECYCLE_SWEEP_SECONDS = int(os.environ.get('RECYCLE_SWEEP_SECONDS', '3600'))
+# How often expired stored tool output is deleted (`chat.purge_tool_outputs`).
+TOOL_OUTPUT_PURGE_SECONDS = int(os.environ.get('TOOL_OUTPUT_PURGE_SECONDS', '3600'))
 # Weekly digest of team solutions that may be out of date (`solutions/stale.py`).
 # Defined here, not with the other SOLUTION_* settings, because the beat entry
 # below reads it and that dict is built first.
@@ -728,6 +740,13 @@ CELERY_BEAT_SCHEDULE = {
     'prune-chat-checkpoints': {
         'task': 'orchestrator.prune_chat_checkpoints',
         'schedule': RUN_RECOVERY_SWEEP_SECONDS,
+    },
+    # Stored tool output (spills, curated results) past its expiry. Expiry used
+    # to only hide a row; nothing deleted one. Also `manage.py
+    # purge_tool_outputs` — see chat/tools/tool_output.py::purge_expired.
+    'purge-tool-outputs': {
+        'task': 'chat.purge_tool_outputs',
+        'schedule': TOOL_OUTPUT_PURGE_SECONDS,
     },
     # Idle workspaces hibernate. Also runnable as `manage.py sweep_workspaces`.
     'sweep-workspaces': {

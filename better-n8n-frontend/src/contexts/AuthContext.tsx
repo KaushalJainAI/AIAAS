@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { authService } from '../api/auth';
 import { tokenManager, setUnauthorizedCallback } from '../api/client';
 import { abortAllChatRuns } from '../lib/chatRuns';
+import { claimAccountData, forgetAccountData } from '../lib/accountData';
 
 import { AuthContext } from './authState';
 
@@ -24,6 +25,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const userData = await authService.getProfile();
+        // Before any page reads the chat's stored content: if another account
+        // wrote it, it is forgotten here (`lib/accountData.ts`).
+        claimAccountData(userData.id);
         return userData;
       } catch (err) {
         console.error('Operation failed', err);
@@ -52,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await authService.login({ email, password });
+      claimAccountData(response.user.id);
       queryClient.setQueryData(['authProfile'], response.user);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -64,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await authService.register({ email, password, name });
+      claimAccountData(response.user.id);
       queryClient.setQueryData(['authProfile'], response.user);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Registration failed';
@@ -76,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await authService.googleLogin(code);
+      claimAccountData(response.user.id);
       queryClient.setQueryData(['authProfile'], response.user);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Google login failed';
@@ -89,6 +96,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await authService.logout();
     } finally {
+      // The next person on this browser must not see this one's conversations:
+      // neither the copies kept for a fast reload nor the in-memory query cache.
+      forgetAccountData();
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'authProfile' });
       queryClient.setQueryData(['authProfile'], null);
     }
   }, [queryClient]);

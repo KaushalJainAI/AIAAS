@@ -344,7 +344,10 @@ class ResponsesAPINode(OpenAICompatibleLLMNode):
             reasoning['summary'] = 'auto'
         if reasoning:
             body['reasoning'] = reasoning
-        if tools := to_responses_tools(self._tools_for(config)):
+        # The plan route accepts only `ALLOWED_BODY_KEYS`, so "may not call a
+        # tool" is said the old way here: by sending none.
+        tools = None if config.get('tool_choice') == 'none' else self._tools_for(config)
+        if tools := to_responses_tools(tools):
             body['tools'] = tools
         if config.get('response_format') in ('json_object', 'json_code'):
             body['text'] = {'format': {'type': 'json_object'}}

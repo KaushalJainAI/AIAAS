@@ -55,6 +55,7 @@ import {
   CATEGORY_ORDER,
   connectorVisual,
 } from '../lib/connectorIcons';
+import { connectionStatus, type ConnectionStatus } from '../lib/connectionStatus';
 import { googleScopesFor } from '../lib/googleScopes';
 import { startOAuth } from '../lib/oauthFlow';
 import { oauthCallbackUrl } from '../lib/origins';
@@ -77,13 +78,6 @@ import { cn } from '../lib/utils';
  *   user something is wrong, and these connectors are simply not built yet.
  *   Driven by the row's own `coming_soon` flag, never by its name.
  */
-type ConnectionStatus =
-  | 'always'
-  | 'connected'
-  | 'needs_auth'
-  | 'off'
-  | 'unavailable'
-  | 'coming_soon';
 
 interface StatusView {
   label: string;
@@ -840,29 +834,14 @@ export default function Connections() {
    * `needs_auth` even if a row exists — the agent's tool list is filtered by
    * the same resolution, so a status that ignored it would be a lie.
    */
-  const statusOf = (server: MCPServer): ConnectionStatus => {
-    // The platform's own switch is checked first: a row turned off here can
-    // never be turned on by the user, so reporting it as their `off` would
-    // offer an action that does not exist.
-    // Checked before `unavailable`, which it is a special case of: both are
-    // platform-off and inert, but an upcoming connector is not a fault, and
-    // saying "Unavailable" reads as one.
-    if (server.is_system && !server.enabled && server.coming_soon) return 'coming_soon';
-    if (server.is_system && !server.enabled) return 'unavailable';
-    if (!server.effective_enabled) return 'off';
-    const validation = validationQuery.data?.get(server.id);
-    if (validation) {
-      if (!validation.ok) return 'needs_auth';
-      const needsCreds =
-        (server.required_credential_types?.length ?? 0) > 0 ||
-        (server.credential_env_map && Object.keys(server.credential_env_map).length > 0) ||
-        (server.credential_header_map && Object.keys(server.credential_header_map).length > 0);
-      return needsCreds ? 'connected' : 'always';
-    }
-    const required = server.required_credential_types ?? [];
-    if (required.length === 0) return 'always';
-    return missingCredTypes(server).length === 0 ? 'connected' : 'needs_auth';
-  };
+  // The rule lives in lib/connectionStatus.ts, shared with the chat's
+  // "Get set up" card so the two can never disagree about "connected".
+  const statusOf = (server: MCPServer): ConnectionStatus =>
+    connectionStatus(server, {
+      credentials: credsQuery.data?.credentials ?? [],
+      types: typesQuery.data?.types ?? [],
+      validation: validationQuery.data,
+    });
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>

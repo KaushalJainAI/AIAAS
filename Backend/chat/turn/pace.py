@@ -35,9 +35,13 @@ turn promoted before an approval pause is still `deep` when it resumes.
 every pass; the system prompt is the session's cached prefix (the clock trap,
 `prompts.py`).
 
-A caller that sets no pace (no `metadata['pace']`: agent runs, evals) keeps
-`max_iterations` as its cap and gets no tiers or promotion, but is still told
-its budget every pass (`render_run`) — the longest runs need it most.
+Agent runs are paced too (2026-11-17, `agents/agent/runtime.py::
+_starting_pace`): they start at `standard` and are promoted to `deep` — their
+own `maxIterations` — when they plan or delegate, so a one-step request to an
+agent with a large step limit stays a one-step run. A caller that sets no pace
+(no `metadata['pace']`: an agent whose limit is already at or below
+`standard`) keeps `max_iterations` as its cap and is still told its budget
+every pass (`render_run`).
 """
 from __future__ import annotations
 

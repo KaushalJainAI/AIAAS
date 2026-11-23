@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, Loader2, MessageSquare, Workflow } from 'lucide-react';
 import { toast } from 'sonner';
 import agentsService from '../api/agents';
@@ -20,6 +20,7 @@ type Question = { id: string; text: string; why: string; multi: boolean; options
 type Step = 'describe' | 'questions' | 'proposal' | 'done';
 
 export default function AgentCreateWizard() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('describe');
   const [description, setDescription] = useState('');
@@ -56,6 +57,9 @@ export default function AgentCreateWizard() {
       ...(proposal?.config as object),
     } as never),
     onSuccess: (agent) => {
+      // The Agents page keeps its list fresh for 5 minutes; without this the
+      // new agent is missing from it on the way back.
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
       setCreatedId(agent.id);
       setStep('done');
       toast.success(`Created ${agent.name}.`);

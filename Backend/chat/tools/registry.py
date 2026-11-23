@@ -108,6 +108,14 @@ class Tool:
     #: default, "Approve", which is what every undeclared tool gets.
     action_label: str = ""
 
+    #: Is this result's text the tool's own — fixed strings, numbers, or what
+    #: the model or the person wrote — rather than anything fetched from
+    #: outside? Default False, so an undeclared tool, and every MCP tool, is
+    #: wrapped as third-party data (`core/safety/provenance.py`). A True here
+    #: means the model reads the result as plain tool output, so declare it only
+    #: where nothing a page, a file or an email said can reach the output.
+    trusted_output: bool = False
+
 
 _REGISTRY: Dict[str, Tool] = {}
 
@@ -123,6 +131,7 @@ def tool(
     timeout: float | None = None,
     external: bool = False,
     action_label: str = "",
+    trusted_output: bool = False,
 ) -> Callable[[ToolFunc], ToolFunc]:
     """
     Register a tool from its own schema and return the function unchanged.
@@ -141,6 +150,7 @@ def tool(
         _REGISTRY[name] = Tool(
             name, schema, func, requires, sensitive, parallel, effect,
             connector, timeout, external=external, action_label=action_label,
+            trusted_output=trusted_output,
         )
         return func
 
@@ -219,6 +229,15 @@ def action_label_of(name: str) -> str:
     """The approve-button verb for `name`, or "Approve" when undeclared."""
     entry = _REGISTRY.get(name)
     return (entry.action_label if entry is not None and entry.action_label else "Approve")
+
+
+def trusted_output_of(name: str) -> bool:
+    """Whether `name`'s result is plain tool output, not third-party text.
+
+    Unregistered (every MCP tool) is False: its result is wrapped.
+    """
+    entry = _REGISTRY.get(name)
+    return entry.trusted_output if entry is not None else False
 
 
 def connector_of(name: str) -> str | None:

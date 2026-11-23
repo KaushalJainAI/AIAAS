@@ -5,6 +5,7 @@ import { notificationsService, type Notification } from '../../api/notifications
 import ReminderPreferences from './ReminderPreferences';
 import ScheduledReminders from './ScheduledReminders';
 import { cn } from '../../lib/utils';
+import { notificationLink } from '../../lib/notificationLink';
 import { formatDistanceToNow } from 'date-fns';
 
 /**
@@ -24,7 +25,6 @@ import { formatDistanceToNow } from 'date-fns';
 const ACTION_PATHS: Record<string, string> = {
   '/inbox': 'Answer requests',
   '/overview': 'Open Activity',
-  '/chat': 'Open the conversation',
   '/ai-chat': 'Open the conversation',
   '/runs': 'Open Activity',
   '/documents': 'Open documents',
@@ -33,21 +33,11 @@ const ACTION_PATHS: Record<string, string> = {
 };
 
 function actionLink(notification: Notification): { to: string; label: string } | null {
-  const url = notification.data?.action_url;
-  if (typeof url !== 'string') return null;
-  // Exact allow-list matches, plus a same-origin path prefix for deep links
-  // like /agents/12 or /runs?cursor=… that writers legitimately produce.
-  if (ACTION_PATHS[url]) return { to: url, label: ACTION_PATHS[url] };
-  if (url.startsWith('/') && !url.startsWith('//')) {
-    // Up to the first `/`, `?` or `#`: `/solutions?id=3` has base `/solutions`.
-    const base = `/${url.slice(1).split(/[/?#]/)[0]}`;
-    // `?request=` / `?run=` / `?session=` deep links arrive here from the
-    // writers; the query is what makes them land on the thing, not the page.
-    if (['/agents', '/runs', '/overview', '/documents', '/templates', '/ai-chat', '/solutions', '/team'].includes(base)) {
-      return { to: url, label: 'Open' };
-    }
-  }
-  return null;
+  // The one link check, shared with the bell's panel (lib/notificationLink.ts):
+  // a same-origin path whose first segment is an app route, nothing else.
+  const to = notificationLink(notification);
+  if (!to) return null;
+  return { to, label: ACTION_PATHS[to] ?? 'Open' };
 }
 
 export default function NotificationsTab() {

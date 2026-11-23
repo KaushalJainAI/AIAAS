@@ -1,17 +1,19 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, Menu, MessageCircle, Plus, Workflow } from 'lucide-react';
+import { Menu, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
-import { isNavActive } from '../../lib/navigation';
+import { isNavActive, primaryNav, type NavItem } from '../../lib/navigation';
 import { useAuth } from '../../contexts/authState';
 import { useHitlPending } from '../../hooks/useHitlPending';
 import { useLiveCount } from '../../hooks/useActivityLive';
 import { openSidebar } from './sidebarBus';
 
 /* Phone bottom tab bar, 60px tall: Ask / Agents / New / Activity / More.
- * New chat is a plain item like the others (plus icon, "New" label), not a
- * raised round button. "More" opens the drawer, which stays the full
- * catalogue — the bar carries the daily loop, never the whole app.
+ * The three tabs come from `primaryNav` in lib/navigation, so the bar and the
+ * destinations cannot drift apart. New chat is a plain item like the others
+ * (plus icon, "New" label), not a raised round button. "More" opens the
+ * drawer, which stays the full catalogue — the bar carries the daily loop,
+ * never the whole app.
  *
  * `fixed` + safe-area padding; the shell compensates with bottom padding on
  * <main> so content never slides underneath. Badges reuse the shared query
@@ -35,16 +37,39 @@ export default function MobileBottomNav() {
     }
   };
 
-  const askActive = location.pathname.startsWith('/ai-chat');
-  const agentsActive = location.pathname.startsWith('/agents') || location.pathname.startsWith('/workflow');
-
-  const activityActive = isNavActive(location.pathname, { icon: Activity, label: 'Activity', path: '/runs' });
-
   const itemClass = (active: boolean) =>
     cn(
       'relative flex h-full min-h-10 flex-col items-center justify-center gap-0.5 rounded text-[11px] transition-colors',
       active ? 'font-semibold text-primary' : 'text-muted-foreground hover:text-foreground',
     );
+
+  // One tab from `primaryNav`. The `agent` and `pending` flags say which tab
+  // carries the running dot and the waiting count.
+  const renderTab = (item: NavItem) => {
+    const active = isNavActive(location.pathname, item);
+    return (
+      <Link
+        key={item.path}
+        to={item.path}
+        onClick={item.guestOk ? undefined : guardGuest(item.label)}
+        aria-current={active ? 'page' : undefined}
+        className={itemClass(active)}
+      >
+        <span className="relative flex">
+          <item.icon className="h-5 w-5" />
+          {item.agent && !isGuest && runningCount > 0 && (
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-agent animate-agent-pulse" />
+          )}
+          {item.pending && !isGuest && pendingCount > 0 && (
+            <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded bg-warning px-1 text-[9px] font-bold text-background">
+              {pendingCount > 9 ? '9+' : pendingCount}
+            </span>
+          )}
+        </span>
+        {item.label}
+      </Link>
+    );
+  };
 
   return (
     <nav
@@ -53,25 +78,7 @@ export default function MobileBottomNav() {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <div className="grid h-[60px] grid-cols-5 items-stretch px-1 py-1">
-        {/* Ask */}
-        <Link
-          to="/ai-chat"
-          aria-current={askActive ? 'page' : undefined}
-          className={itemClass(askActive)}
-        >
-          <MessageCircle className="h-5 w-5" />
-          Ask
-        </Link>
-        {/* Automations */}
-        <Link
-          to="/agents"
-          onClick={guardGuest('Automations')}
-          aria-current={agentsActive ? 'page' : undefined}
-          className={itemClass(agentsActive)}
-        >
-          <Workflow className="h-5 w-5" />
-          Agents
-        </Link>
+        {primaryNav.slice(0, 2).map(renderTab)}
         {/* New chat — a plain item like its neighbours */}
         <button
           type="button"
@@ -82,26 +89,7 @@ export default function MobileBottomNav() {
           <Plus className="h-5 w-5" />
           New
         </button>
-        {/* Activity */}
-        <Link
-          to="/runs"
-          onClick={guardGuest('Activity')}
-          aria-current={activityActive ? 'page' : undefined}
-          className={itemClass(activityActive)}
-        >
-          <span className="relative">
-            <Activity className="h-5 w-5" />
-            {!isGuest && runningCount > 0 && (
-              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-agent animate-agent-pulse" />
-            )}
-            {!isGuest && pendingCount > 0 && (
-              <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded bg-warning px-1 text-[9px] font-bold text-background">
-                {pendingCount > 9 ? '9+' : pendingCount}
-              </span>
-            )}
-          </span>
-          Activity
-        </Link>
+        {primaryNav.slice(2).map(renderTab)}
         {/* More — opens the full drawer */}
         <button
           type="button"

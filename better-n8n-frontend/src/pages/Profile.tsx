@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   User,
   Mail,
@@ -253,7 +253,15 @@ export default function Profile() {
                   disabled // Email typically can't be changed
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                To change it,{' '}
+                <Link
+                  to="/settings?tab=account"
+                  className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-2 md:min-h-0"
+                >
+                  change it in Settings → Account
+                </Link>
+              </p>
             </div>
 
             <Button

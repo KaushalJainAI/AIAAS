@@ -107,14 +107,14 @@ class McpMemoTests(TestCase):
         self.assertEqual(len(attempts), 3)
 
 
-class MemoDoesNotFreezeRequirementsTests(TestCase):
-    """The half that genuinely moves is still rebuilt every pass.
+class ToolListIsStableTests(TestCase):
+    """A spill mid-turn no longer changes the tool list.
 
-    `read_tool_output` becomes real the moment a run spills an oversized
-    result, which happens *during* the loop. Freezing the whole list at the
-    first iteration would withhold it for the rest of the run, and the notice
-    naming it — written by `tool_output.bound` — would be pointing at a tool
-    the model cannot see.
+    `read_tool_output` used to appear only once a run had spilled something, so
+    the list grew mid-run — and the tool list is part of the cached request
+    prefix, so every later request was a full cache miss. It is now offered
+    from the first pass, and the notice `tool_output.bound` writes names a tool
+    the model can already see (2026-11-17).
     """
 
     def setUp(self):
@@ -122,12 +122,12 @@ class MemoDoesNotFreezeRequirementsTests(TestCase):
             username="unfrozen", email="u@example.test", password="x"
         )
 
-    def test_a_tool_earned_mid_turn_is_offered_on_the_next_pass(self):
+    def test_a_spill_mid_turn_leaves_the_list_unchanged(self):
         memo: dict = {}
         first = async_to_sync(get_available_tools)(
             self.user.id, session_key="sess-9", mcp_memo=memo,
         )
-        self.assertNotIn("read_tool_output", _names(first))
+        self.assertIn("read_tool_output", _names(first))
 
         ToolOutput.objects.create(
             user=self.user, session_key="sess-9", tool_name="mcp_fetch",
@@ -138,4 +138,4 @@ class MemoDoesNotFreezeRequirementsTests(TestCase):
         second = async_to_sync(get_available_tools)(
             self.user.id, session_key="sess-9", mcp_memo=memo,
         )
-        self.assertIn("read_tool_output", _names(second))
+        self.assertEqual(_names(first), _names(second))

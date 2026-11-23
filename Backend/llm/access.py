@@ -56,6 +56,9 @@ PROVIDER_NODE_TYPES: dict[str, str] = {
 #: unverified credential counts as usable.
 _KEYLESS_PROVIDERS = KEYLESS_PROVIDERS
 
+#: Providers whose handler must not get `thinking=True`. See `_build_request`.
+_THINKING_OFF_PROVIDERS: frozenset[str] = frozenset({"ollama"})
+
 
 class LLMUnavailable(RuntimeError):
     """No usable route to the requested provider — missing handler or credential.
@@ -599,6 +602,7 @@ async def _build_request(
     tools: list[dict] | None,
     history: list[dict] | None,
     attachments: list | None,
+    tool_choice: str | None = None,
 ) -> _Request:
     """Resolve routing + credentials and assemble the handler config."""
     from .handlers.registry import get_registry
@@ -668,9 +672,18 @@ async def _build_request(
         "api_key_override": api_key_override,
         "history": history or [],
         "attachments": attachments or [],
+        # Captures the model's reasoning into `Completion.thinking` (and strips
+        # `<think>` tags out of the content) instead of dropping it. Ollama is
+        # the exception: its handler turns this flag into a JSON-output request
+        # for models that do not reason natively, which changes the answer.
+        "thinking": provider not in _THINKING_OFF_PROVIDERS,
     }
     if tools:
         config["tools"] = tools
+        # "none" keeps the tool list (and so the cached request prefix)
+        # identical on a pass that must answer rather than call a tool.
+        if tool_choice:
+            config["tool_choice"] = tool_choice
 
     return _Request(node_type=node_type, config=config)
 
@@ -820,6 +833,8 @@ async def complete(
     tools: list[dict] | None = None,
     history: list[dict] | None = None,
     attachments: list | None = None,
+    #: "none": offer the tools but forbid calling one (see `_build_request`).
+    tool_choice: str | None = None,
 ) -> Completion:
     """
     Run one non-streaming completion.
@@ -834,7 +849,7 @@ async def complete(
         provider=provider, model=model, prompt=prompt,
         system_message=system_message, user_id=user_id, temperature=temperature,
         max_tokens=max_tokens, effort=effort, tools=tools, history=history,
-        attachments=attachments,
+        attachments=attachments, tool_choice=tool_choice,
     )
     handler = get_registry().get_handler(request.node_type)
     result = await handler.execute({}, request.config, _execution_context(user_id))
@@ -895,6 +910,8 @@ async def stream(
     tools: list[dict] | None = None,
     history: list[dict] | None = None,
     attachments: list | None = None,
+    #: "none": offer the tools but forbid calling one (see `_build_request`).
+    tool_choice: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """
     Yield raw provider chunks: `{"type": "content"|"thinking"|"tool_calls"|
@@ -908,7 +925,7 @@ async def stream(
         provider=provider, model=model, prompt=prompt,
         system_message=system_message, user_id=user_id, temperature=temperature,
         max_tokens=max_tokens, effort=effort, tools=tools, history=history,
-        attachments=attachments,
+        attachments=attachments, tool_choice=tool_choice,
     )
     handler = get_registry().get_handler(request.node_type)
     metered = bool(request.config.get("api_key_override"))

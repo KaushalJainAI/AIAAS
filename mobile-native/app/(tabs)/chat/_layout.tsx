@@ -8,6 +8,7 @@ export default function ChatLayout() {
     <Stack screenOptions={{ headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.text }}>
       <Stack.Screen name="index" options={{ title: 'Chat' }} />
       <Stack.Screen name="[id]" options={{ title: 'Chat' }} />
+      <Stack.Screen name="browser/[key]" options={{ title: 'Browser' }} />
     </Stack>
   );
 }

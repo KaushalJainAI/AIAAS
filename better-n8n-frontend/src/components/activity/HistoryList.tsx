@@ -12,14 +12,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { GitBranch, Loader2, Target, Trash2 } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { GitBranch, Loader2, RotateCcw, Target, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   logsService,
+  type ExecutionDetail,
   type ExecutionLog,
 } from '../../api';
+import agentsService from '../../api/agents';
 import { cn } from '../../lib/utils';
+import { explainRunError } from '../../lib/explainRunError';
 import { describeCost, formatCost } from '../../lib/cost';
 import FilePreviewProvider from '../files/FilePreviewProvider';
 import RunControls from '../runs/RunControls';
@@ -55,6 +58,105 @@ const CALLER_LABELS: Record<string, string> = {
 function errorText(err: unknown, fallback: string): string {
   const data = (err as { response?: { data?: { error?: string } } }).response?.data;
   return data?.error ?? fallback;
+}
+
+/** A failed or cancelled run's error: a plain-words headline, one action where
+ *  there is one, and the raw text under "Details" for whoever needs it. */
+function RunFailure({ message, agentId }: {
+  message: string;
+  agentId: number | string | null | undefined;
+}) {
+  const { headline, action } = explainRunError(message, { agentId });
+  return (
+    <div className="mb-3 px-3 py-2 rounded-md bg-destructive-subtle border border-destructive text-[13px] text-destructive">
+      <p className="font-medium">{headline}</p>
+      {action && (
+        <Link
+          to={action.to}
+          className="inline-flex items-center min-h-11 md:min-h-0 font-semibold underline underline-offset-2"
+        >
+          {action.label}
+        </Link>
+      )}
+      <details className="mt-1">
+        <summary className="inline-flex items-center min-h-11 md:min-h-0 cursor-pointer select-none text-[12px] underline underline-offset-2">
+          Details
+        </summary>
+        <p className="text-[12px] break-words whitespace-pre-wrap">{message}</p>
+      </details>
+    </div>
+  );
+}
+
+/** The task a finished run can be started again with, or null when it cannot:
+ *  no agent to run it, a worker another agent started (its parent decides), or
+ *  no recorded task to repeat, or an eval run (retrying it here would start an
+ *  ordinary run outside its sweep, which the eval page would never score). */
+function retryGoal(detail: ExecutionDetail): string | null {
+  if (!detail.workflow_id || detail.is_delegated || detail.caller === 'eval') return null;
+  const goal = detail.input_data?.goal;
+  return typeof goal === 'string' && goal.trim() ? goal : null;
+}
+
+/** Retry for a failed or cancelled run, and a way to the agent it ran. Shows
+ *  nothing for a run that is still going or that has no agent. */
+function RunRecovery({ detail, onStarted }: {
+  detail: ExecutionDetail;
+  onStarted: (executionId: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const queryClient = useQueryClient();
+  const goal = retryGoal(detail);
+  const again = useMutation({
+    mutationFn: () => agentsService.execute(detail.workflow_id, goal ?? ''),
+    onSuccess: (started) => {
+      toast.success('Started again');
+      setConfirming(false);
+      queryClient.invalidateQueries({ queryKey: ['runs'] });
+      onStarted(started.execution_id);
+    },
+    onError: (err) => {
+      toast.error(errorText(err, 'Could not start the run again.'));
+      setConfirming(false);
+    },
+  });
+
+  const stopped = detail.status === 'failed' || detail.status === 'cancelled';
+  if (!stopped || !detail.workflow_id) return null;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        {goal !== null && (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="inline-flex items-center gap-1.5 min-h-11 md:min-h-8 px-3 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-[13px] font-medium"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        )}
+        <Link
+          to={`/agents/${detail.workflow_id}`}
+          className="inline-flex items-center min-h-11 md:min-h-8 px-3 rounded-md border border-border hover:bg-secondary text-[13px]"
+        >
+          Open agent
+        </Link>
+      </div>
+      {confirming && goal !== null && (
+        <ConfirmDialog
+          title="Run it again?"
+          body={`Runs ${detail.workflow_name ?? 'this agent'} again with the same task. This uses credits.`}
+          confirmLabel="Run again"
+          danger={false}
+          busy={again.isPending}
+          onConfirm={() => again.mutate()}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </>
+  );
 }
 
 export default function HistoryList({ pendingCount }: { pendingCount: number }) {
@@ -218,7 +320,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
             key={f}
             onClick={() => setFilter(f)}
             className={cn(
-              'px-3 py-1.5 text-sm rounded-md border transition-colors first-letter:uppercase',
+              'px-3 py-1.5 max-md:min-h-11 text-sm rounded-md border transition-colors first-letter:uppercase',
               filter === f
                 ? 'bg-primary text-primary-foreground border-primary font-semibold'
                 : 'bg-card border-border hover:bg-secondary'
@@ -282,7 +384,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
           <button
             type="button"
             onClick={() => setClearingFailed(true)}
-            className="px-3 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground"
+            className="px-3 py-1.5 max-md:min-h-11 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground"
             title="Delete every failed run. Cost records are kept."
           >
             Clear failed
@@ -302,7 +404,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
             type="button"
             onClick={() => setClearingOld(true)}
             disabled={!/^\d+$/.test(olderDays.trim())}
-            className="px-3 py-1.5 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground disabled:opacity-50"
+            className="px-3 py-1.5 max-md:min-h-11 text-[12px] rounded-md border border-border hover:bg-secondary text-muted-foreground disabled:opacity-50"
             title="Delete failed, cancelled and timed-out runs older than N days. Cost records are kept."
           >
             Clear
@@ -328,15 +430,14 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
             ) : detail ? (
               <>
                 {detail.error_message && (
-                  <div className="mb-3 px-3 py-2 rounded-md bg-destructive-subtle border border-destructive text-[13px] text-destructive">
-                    {detail.error_message}
-                  </div>
+                  <RunFailure message={detail.error_message} agentId={detail.workflow_id} />
                 )}
                 <>
                 {LIVE_STATUSES.has(detail.status) && (
                   <RunControls executionId={detail.execution_id}
                     agentId={detail.workflow_id ?? null} status={detail.status} />
                 )}
+                <RunRecovery detail={detail} onStarted={setOpenId} />
                 <RunDetail detail={detail} />
               </>
               </>
@@ -425,9 +526,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
                 {open && (
                   <div className="px-4 pb-4 pl-12 bg-muted">
                     {run.error_message && (
-                      <div className="mb-3 px-3 py-2 rounded-md bg-destructive-subtle border border-destructive text-[13px] text-destructive">
-                        {run.error_message}
-                      </div>
+                      <RunFailure message={run.error_message} agentId={run.workflow_id} />
                     )}
                     {detailLoading ? (
                       <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -455,6 +554,7 @@ export default function HistoryList({ pendingCount }: { pendingCount: number }) 
                             </span>
                           )}
                         </div>
+                        <RunRecovery detail={detail} onStarted={setOpenId} />
                         <RunDetail detail={detail} />
                       </>
                     ) : (

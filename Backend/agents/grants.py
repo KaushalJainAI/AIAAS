@@ -33,6 +33,16 @@ GRANT_TOOLS: dict[str, tuple[str, ...]] = {
     # agent whose KB was keyword- or raw-backed could not read it at all.
     'rag': ('list_knowledge_bases', 'knowledge_base_search', 'keyword_search',
             'list_documents', 'read_document', 'extract_data', 'ocr_document'),
+    # Writing into knowledge bases (`chat/tools/knowledge.py`): create a KB
+    # bound to a folder, and add a document to one. A grant of its own, apart
+    # from `rag`, because reading a KB and changing what every later run will
+    # find are different things to hand out. Needs a writable file scope to
+    # write into, exactly as `office` does. Both tools are declared
+    # `irreversible` with `sensitive=True` on purpose: the ladder gates
+    # `irreversible` under `auto` and `sensitive` under `ask`, so a KB write
+    # asks in `ask`, `review` and `auto`, and only `full` runs it unasked. Chat
+    # never holds them, since chat's toolbox is read-only.
+    'kbWrite': ('create_knowledge_base', 'add_to_knowledge_base'),
     'codeExecution': ('execute_python', 'run_python_on_files'),
     # The virtual filesystem over the user's own Folder/Document tree
     # (`inference/vfs.py`). What the agent may actually do with these is a

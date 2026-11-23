@@ -49,7 +49,7 @@ export default function FeedbackControl({
         aria-label="Thumbs up"
         onClick={() => submit.mutate(1)}
         className={cn(
-          'p-1 rounded-md hover:bg-secondary',
+          'flex h-11 w-11 items-center justify-center rounded-md hover:bg-secondary md:h-6 md:w-6 md:p-1',
           rating === 1 ? 'text-success' : 'text-muted-foreground',
         )}
       >
@@ -60,7 +60,7 @@ export default function FeedbackControl({
         aria-label="Thumbs down"
         onClick={() => (rating === -1 ? setOpen((o) => !o) : (setOpen(true), submit.mutate(-1)))}
         className={cn(
-          'p-1 rounded-md hover:bg-secondary',
+          'flex h-11 w-11 items-center justify-center rounded-md hover:bg-secondary md:h-6 md:w-6 md:p-1',
           rating === -1 ? 'text-red-600' : 'text-muted-foreground',
         )}
       >

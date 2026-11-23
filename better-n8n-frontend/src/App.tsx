@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { useThemeContext } from './contexts/themeState';
@@ -8,6 +8,7 @@ import { useAuth } from './contexts/authState';
 import Sidebar from './components/layout/Sidebar';
 import MobileTopBar from './components/layout/MobileTopBar';
 import MobileBottomNav from './components/layout/MobileBottomNav';
+import HubTabs from './components/layout/HubTabs';
 import { useHITLReminders } from './hooks/useHITLReminders';
 import { useWebPush } from './hooks/useWebPush';
 import { ImagineProvider } from './contexts/ImagineContext';
@@ -23,6 +24,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { AssistantProvider } from './contexts/AssistantContext';
 import RouteTransition from './components/layout/RouteTransition';
 import { AppLoader, PaneLoader } from './components/ui/Loading';
+import { OPEN_COMMAND_MENU_EVENT, isCommandMenuShortcut } from './lib/commandMenu';
 
 // Route-level code splitting.
 //
@@ -66,6 +68,8 @@ const Pages = lazyPage(() => import('./pages/Pages'));
 const Templates = lazyPage(() => import('./pages/Templates'));
 const Tools = lazyPage(() => import('./pages/Tools'));
 const NotFound = lazyPage(() => import('./pages/NotFound'));
+// The command menu is a chunk of its own, fetched the first time it opens.
+const CommandMenu = lazy(() => import('./components/command/CommandMenu'));
 
 // Protected route wrapper
 function ProtectedRoute({ children }: { children?: React.ReactNode }) {
@@ -108,17 +112,22 @@ const Layout = () => {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar />
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
-          <main className="flex-1 min-h-0 overflow-hidden relative pb-[calc(61px+env(safe-area-inset-bottom))] md:pb-0">
-            <ErrorBoundary>
-              <RouteTransition>
-                {/* Its own boundary, so a page whose code is still loading
-                    waits inside the pane instead of replacing the whole
-                    shell (sidebar included) with the boot loader. */}
-                <Suspense fallback={<PaneLoader />}>
-                  <Outlet />
-                </Suspense>
-              </RouteTransition>
-            </ErrorBoundary>
+          <main className="flex flex-col flex-1 min-h-0 overflow-hidden relative pb-[calc(61px+env(safe-area-inset-bottom))] md:pb-0">
+            {/* The section strip of a hub (Agents, Library, Connect). Renders
+                nothing on other pages, so only the hub pages lose height. */}
+            <HubTabs />
+            <div className="flex flex-1 min-h-0 flex-col overflow-hidden relative">
+              <ErrorBoundary>
+                <RouteTransition>
+                  {/* Its own boundary, so a page whose code is still loading
+                      waits inside the pane instead of replacing the whole
+                      shell (sidebar included) with the boot loader. */}
+                  <Suspense fallback={<PaneLoader />}>
+                    <Outlet />
+                  </Suspense>
+                </RouteTransition>
+              </ErrorBoundary>
+            </div>
           </main>
         </div>
       </div>
@@ -155,6 +164,39 @@ const LandingRoute = () => {
     </div>
   );
 };
+
+/* Cmd+K / Ctrl+K, and the Search buttons (they fire OPEN_COMMAND_MENU_EVENT),
+ * open the command menu. It sits outside <Routes> so it works on every page,
+ * including the full-screen app frame. Signed-in users only: a guest's Go to
+ * list would be a row of login walls. */
+function CommandMenuHost() {
+  const { isAuthenticated } = useAuth();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!isCommandMenuShortcut(e)) return;
+      e.preventDefault();
+      setOpen((o) => !o);
+    };
+    const onRequest = () => setOpen(true);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener(OPEN_COMMAND_MENU_EVENT, onRequest);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(OPEN_COMMAND_MENU_EVENT, onRequest);
+    };
+  }, [isAuthenticated]);
+
+  const close = useCallback(() => setOpen(false), []);
+  if (!isAuthenticated || !open) return null;
+  return (
+    <Suspense fallback={null}>
+      <CommandMenu onClose={close} />
+    </Suspense>
+  );
+}
 
 const AppContent = () => {
   const { resolvedTheme } = useThemeContext();
@@ -279,11 +321,12 @@ const AppContent = () => {
           </Route>
         </Routes>
         </Suspense>
+        <CommandMenuHost />
       </Router>
       {/* Bottom-right: bottom-left sat on top of the sidebar's lower links and
           swallowed their clicks. Three at most, each closable. */}
       <Toaster richColors closeButton visibleToasts={3} position="bottom-right"
-        theme={resolvedTheme} duration={1500} />
+        theme={resolvedTheme} duration={4000} />
     </>
   );
 };

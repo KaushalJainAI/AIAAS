@@ -9,9 +9,9 @@
     "build:deployment": "tsc -b && vite build --mode deployment",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test": "node scripts/vitest.mjs run",
+    "test:watch": "node scripts/vitest.mjs",
+    "test:integration": "node scripts/vitest.mjs run -c vitest.integration.config.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

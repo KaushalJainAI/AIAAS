@@ -8,6 +8,18 @@ import {
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { openExternal } from '@/lib/safeUrl';
+import { isOwnOrigin } from '@/lib/ownOrigin';
+import { usePane } from '@/components/pane/paneState';
+
+/**
+ * Only an own-origin picture or video opens in the pane. A remote URL stays a
+ * link (see MarkdownMessage's RemoteImage). A blob: URL is excluded even though
+ * it counts as own-origin: its owner revokes it on unmount, so a pane tab
+ * holding it would break when the owner goes away.
+ */
+function canOpenInPane(url: string): boolean {
+  return !url.startsWith('blob:') && isOwnOrigin(url);
+}
 
 interface MediaPreviewProps {
   url: string;
@@ -21,6 +33,7 @@ interface MediaPreviewProps {
 
 export function MediaPreview({ url, type, title, source, thumbnail, className, compact }: MediaPreviewProps) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const pane = usePane();
 
   // Detection logic if type is missing
   const detectedType = type || (() => {
@@ -49,6 +62,10 @@ export function MediaPreview({ url, type, title, source, thumbnail, className, c
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (pane && (detectedType === 'image' || detectedType === 'video') && canOpenInPane(url)) {
+      pane.openTab({ kind: 'media', title: title || 'Media', mediaType: detectedType, src: url });
+      return;
+    }
     openExternal(url);
   };
 

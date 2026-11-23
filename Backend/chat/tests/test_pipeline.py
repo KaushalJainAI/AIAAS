@@ -12,7 +12,7 @@ from typing import Any
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from unittest.mock import patch
 
 from chat.turn.events import Event
@@ -185,7 +185,9 @@ class ChatTurnTests(TestCase):
         self.assertEqual(assistant["tool_calls"][0]["function"]["name"], "web_search")
         self.assertEqual(result["tool_call_id"],
                          assistant["tool_calls"][0]["id"])
-        self.assertEqual(result["content"], fake_result_text())
+        # Wrapped as untrusted data (provenance.wrap_untrusted); the body is unchanged.
+        from core.safety.provenance import unwrap_untrusted
+        self.assertEqual(unwrap_untrusted(result["content"]), fake_result_text())
         self.assertEqual(outcome.assistant_message.content, "Team A won.")
 
     def test_sources_reach_the_client_and_the_stored_message(self):
@@ -322,6 +324,10 @@ class ChatTurnTests(TestCase):
 
         self.assertIn("web_search", seen)
 
+    # The companion strip is off in test settings (no test may reach the
+    # internet, `settings/test.py`). This test is about the strip, so it turns it
+    # on; `setUp` stubs `image_search`, so the call stays hermetic.
+    @override_settings(CHAT_COMPANION_IMAGES=True)
     def test_web_search_also_fills_the_image_panel(self):
         # A Perplexity-style answer with an empty visual panel reads as broken.
         async def fake_tool(name, args, context):
@@ -414,6 +420,43 @@ class ChatTurnTests(TestCase):
             self._run("what is my name", Recorder())
 
         self.assertIn("my name is Ada", json.dumps(seen[0]))
+
+    def test_notes_come_after_the_replayed_history(self):
+        # The notes are rewritten after every reply, so they must sit after the
+        # replayed messages: at the head they would change the cached prefix on
+        # every turn. The per-turn CURRENT STATE message comes last of all.
+        from chat.turn import session_notes
+
+        ChatMessage.objects.create(
+            session=self.session, role="user", content="my name is Ada"
+        )
+        ChatMessage.objects.create(
+            session=self.session, role="assistant", content="Hello Ada"
+        )
+        self.session.notes_state = {
+            **session_notes.empty_state(), "summary": "Trip planning for Ada.",
+        }
+        self.session.save(update_fields=["notes_state"])
+        seen: list[list[dict]] = []
+
+        async def stream(**kwargs):
+            seen.append(list(kwargs.get("history") or []))
+            yield {"type": "content", "content": "ok"}
+
+        with patch("llm.access.stream", stream):
+            self._run("where should I go", Recorder())
+
+        def position(marker: str) -> list[int]:
+            return [i for i, m in enumerate(seen[0]) if marker in str(m.get("content"))]
+
+        replayed = position("my name is Ada") + position("Hello Ada")
+        notes = position("### CONVERSATION NOTES ###")
+        state = position("### CURRENT STATE ###")
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(len(state), 1)
+        self.assertEqual(seen[0][notes[0]]["role"], "system")
+        self.assertLess(max(replayed), notes[0])
+        self.assertLess(notes[0], state[0])
 
     # ── Failure handling ──
 

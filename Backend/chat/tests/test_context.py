@@ -55,6 +55,28 @@ class BaselineStabilityTests(SimpleTestCase):
         self.assertIn("NO MEMORY THIS TURN", off)
 
 
+class CacheOrderTests(SimpleTestCase):
+    """H-168: the fixed platform text leads, so every session of every user
+    shares one cached prefix; the session's role and the user's memory follow."""
+
+    def test_every_session_starts_with_the_same_fixed_block(self):
+        plain = prompts.build_system_message(_session())
+        custom = prompts.build_system_message(
+            _session(system_prompt="You are a pirate."),
+            user_memory="WHAT YOU KNOW ABOUT THIS USER\n- likes tea")
+        fixed = plain[:plain.index("### YOUR ROLE ###")]
+        self.assertTrue(plain.startswith(prompts.PLATFORM_OPENER))
+        self.assertTrue(custom.startswith(fixed))
+        self.assertIn(prompts.CORE_RULES, fixed)
+
+    def test_the_role_comes_after_the_rules_and_memory_last(self):
+        text = prompts.build_system_message(
+            _session(system_prompt="You are a pirate."),
+            user_memory="WHAT YOU KNOW ABOUT THIS USER\n- likes tea")
+        self.assertLess(text.index("14. FORMAT"), text.index("You are a pirate."))
+        self.assertTrue(text.endswith("- likes tea"))
+
+
 class ContextUpdateTests(SimpleTestCase):
     """Everything volatile has to actually reach the model somewhere."""
 
