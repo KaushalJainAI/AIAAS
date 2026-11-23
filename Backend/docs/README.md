@@ -62,6 +62,8 @@ decisions worth remembering, and what is still open.
 | [ACTIVITY_PAGE_PLAN.md](ACTIVITY_PAGE_PLAN.md) | The Activity page |
 | [UNDO_PLAN.md](UNDO_PLAN.md) | "Undo this run" (a change log per chat message and run, reverted without overwriting newer work) and "Undo send" (a short hold on outgoing messages) (proposed, not built) |
 | [PREVIEW_PANE_AND_BROWSER_PLAN.md](PREVIEW_PANE_AND_BROWSER_PLAN.md) | Tabbed side pane (phone + desktop), showing and improving the agent's browser |
+| [CONNECTOR_CATALOGUE_PLAN.md](CONNECTOR_CATALOGUE_PLAN.md) | Retire custom MCP servers; one catalogue over four engines (hosted MCP, API cards, SQL drivers, native) with a "Get started" panel per card, and a conformance check every connector passes (proposed, not built) |
+| [CONNECTOR_CATALOGUE.md](CONNECTOR_CATALOGUE.md) | Every planned connector by category: engine, what we need, what the user needs, and the user's setup steps (research of 2026-11-23) |
 | [UX_OVERHAUL_PLAN.md](UX_OVERHAUL_PLAN.md) | Phone and desktop UX overhaul: five destinations, touch basics, calmer chat, failed-run retry, first run (proposed, not built) |
 | [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | "Continue with ChatGPT" provider |
 | [COMPUTE_ISOLATION_PLAN.md](COMPUTE_ISOLATION_PLAN.md) | A private machine per user |
