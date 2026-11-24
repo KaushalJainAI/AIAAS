@@ -103,6 +103,18 @@ configures tool by tool.
 | A ChatGPT plan pays only for runs a person started: schedules, missions and evals are refused | `llm/chatgpt_plan.py::REFUSED_CALLERS`, `agents/config.py` |
 | **Pause everything** (account-wide), cancel a run, stop a worker | `UserProfile.paused_until`, `cancel_agent_run`, `stop_task` |
 
+#### Send window (undo plan D12–D14)
+
+A message or email sent while a person is watching waits `OUTBOUND_HOLD_SECONDS` (20) so they can cancel it. Once sent, nothing can be unsent, so this is the last chance to catch a mistake.
+
+| Rule | Code |
+|---|---|
+| Only attended sends wait. Unattended runs (`trigger`, `orchestrator`, `mission`) and evals send at once, as before | `messaging/holds.py::should_hold` |
+| A held send is claimed by one conditional `UPDATE`. Cancel, Send now, the timer and the sweep cannot send it twice | `messaging/holds.py::deliver`, `cancel`, `send_now` |
+| A send interrupted mid-delivery is never retried. Stuck in `sending` for 5 minutes, it becomes `unknown`, and the user is told it may or may not have gone out | `messaging/holds.py::sweep` |
+| A cancelled hold still counts toward the daily cap, which is the conservative choice | `core/safety/outbound.py` |
+| The user can list, cancel and send-now only their own holds. A foreign id and an unknown id get the same 404 | `messaging/views.py` (`hold_*`) |
+
 ### Layer 6 — Content and the law
 
 | Control | What it does | Code |
@@ -205,6 +217,8 @@ Stated plainly, so nobody reads this as "solved":
 |---|---|---|
 | `RUN_DETAIL_RETENTION_DAYS` | 180 | When a finished run's reasoning and tool payloads are cleared |
 | `OUTBOUND_DAILY_CAP` | 100 | Messages an account's agents may send in 24 h |
+| `OUTBOUND_HOLD_SECONDS` | 20 | How long an attended send waits so the person can cancel it. 0 = send at once |
+| `OUTBOUND_HOLD_SWEEP_SECONDS` | 15 | How often the sweep delivers held sends whose timer was lost |
 | `STORAGE_QUOTA_FREE_MB` / `_PRO_MB` / `_ENTERPRISE_MB` | 1024 / 10240 / 102400 | MB an account may keep by tier. 0 switches the byte quota off |
 | `MAX_DOCUMENTS_PER_USER` | 10000 | Files per account, trash included |
 | `INDEXING_CONCURRENCY` | 2 | Documents extracted and embedded at once, process-wide |

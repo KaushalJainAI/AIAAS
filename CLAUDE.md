@@ -475,6 +475,8 @@ SOLUTION_STALE_SWEEP_SECONDS=604800  # Weekly "may be out of date" nudge + searc
 RUN_DETAIL_RETENTION_DAYS=180      # Finished runs lose reasoning + tool payloads after this (record kept)
 BROWSER_FRAME_TTL_SECONDS=3600     # How long the last browser picture stays viewable, owner only (browsing/frames.py)
 OUTBOUND_DAILY_CAP=100             # Messages an account's agents may send per 24 h, all channels
+OUTBOUND_HOLD_SECONDS=20           # Seconds an attended send waits so the person can cancel it; 0 = send at once
+OUTBOUND_HOLD_SWEEP_SECONDS=15     # Beat interval for the sweep that delivers held sends whose timer was lost
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
 CONTENT_MODERATION_MODEL=openai/gpt-oss-safeguard-20b  # Model check on image prompts + pages; blank = off
 CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns already ran)
