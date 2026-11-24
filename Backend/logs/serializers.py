@@ -10,7 +10,7 @@ module docstring in `views.py`.
 """
 from rest_framework import serializers
 
-from workflow_backend.thresholds import REVISION_TIMELINE_LIMIT
+from workflow_backend.thresholds import CHANGE_LIST_LIMIT, REVISION_TIMELINE_LIMIT
 
 
 class AnalyticsFilterSerializer(serializers.Serializer):
@@ -94,3 +94,16 @@ class BulkDeleteSerializer(serializers.Serializer):
                 'Pass `ids` or `status` (with optional `older_than_days`).'
             )
         return data
+
+
+class ChangeRevertSerializer(serializers.Serializer):
+    """Body of `POST /api/logs/changes/sets/<id>/revert/`.
+
+    Absent `change_ids` means "the whole set". Present, it is the subset to undo,
+    and the list is capped so the request cannot name an unbounded set of ids.
+    """
+
+    change_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        max_length=CHANGE_LIST_LIMIT, required=False,
+    )
