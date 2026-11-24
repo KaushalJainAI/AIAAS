@@ -20,17 +20,18 @@ from llm import access as llm
 from chat.turn.events import Event
 from chat.models import ChatMessage, ChatSession
 from chat.turn.pipeline import TurnError, TurnRequest, run_chat_turn
+from llm.testing import provider_error, scripted_model
 
 User = get_user_model()
 
 
-def error_stream(message: str, status: int | None):
-    """A provider stream that fails the way a real one does."""
+def error_stream(message: str, status: int):
+    """The provider refusing the call: `status` with `message` as the error.
 
-    async def _stream(**_kwargs):
-        yield {"type": "error", "message": message, "status": status}
-
-    return _stream
+    A scripted step, so the refusal goes through the real handler and the
+    real error classifier instead of arriving pre-shaped at the agent.
+    """
+    return provider_error(status, message)
 
 
 class ClassifyProviderError(TestCase):
@@ -157,7 +158,7 @@ class QuotaExhaustedMidTurn(TestCase):
     async def _inert(*_a, **_k) -> str:
         return json.dumps({"type": "search_results", "text": "", "sources": []})
 
-    def _run(self, stream):
+    def _run(self, step):
         from asgiref.sync import async_to_sync
 
         events: list[tuple] = []
@@ -165,7 +166,7 @@ class QuotaExhaustedMidTurn(TestCase):
         async def sink(event, payload) -> None:
             events.append((event, payload))
 
-        with patch("llm.access.stream", stream):
+        with scripted_model(step, provider="nvidia", model="nvidia/nemotron"):
             try:
                 async_to_sync(run_chat_turn)(
                     session=self.session,

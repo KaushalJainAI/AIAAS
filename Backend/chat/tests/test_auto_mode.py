@@ -10,12 +10,12 @@ call.
 """
 from __future__ import annotations
 
-import json
 from datetime import timedelta
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from chat.models import ChatSession, ToolPermission
@@ -23,113 +23,124 @@ from chat.tools import READ_ONLY_TOOLS
 from chat.tools.permissions import is_remembered
 from chat.turn import reviewer
 from chat.turn.reviewer import audit_for, auto_policy, read_only_source, review
+from llm.testing import fail, provider_error, scripted_model, text
 
 User = get_user_model()
 
-
-async def _allow(**kwargs):
-    return {'allow': True, 'reason': 'Clearly asked for.'}
-
-
-async def _deny(**kwargs):
-    return {'allow': False, 'reason': 'Not convinced.'}
-
-
-async def _dead(**kwargs):
-    raise RuntimeError('no model here')
+# The judge is the real one (`reviewer._model_judge` -> `llm.access`); only the
+# model's reply is scripted. A test whose rule must stop the call before the
+# judge scripts an ALLOW and then asserts the model was never asked, which is a
+# stronger check than "the fake judge said yes and the rule still refused".
+ALLOW = text('ALLOW Clearly asked for.')
+DENY = text('ASK Not convinced.')
 
 
-class ReviewerStaticTests(TestCase):
-    def decide(self, **kwargs):
+class _Judged(TestCase):
+    def setUp(self):
+        cache.clear()
+        reviewer._verdicts.clear()
+        self.addCleanup(reviewer._verdicts.clear)
+        self.user = User.objects.create_user(f'judged-{type(self).__name__}', password='pw')
+        self.uid = self.user.id
+
+
+@override_settings(AUTO_REVIEWER_PROVIDER='openrouter',
+                   AUTO_REVIEWER_MODEL='meta-llama/llama-4-scout')
+class ReviewerStaticTests(_Judged):
+    def decide(self, *steps, **kwargs):
         params = dict(tool_name='write_file', args={'path': 'a.md'},
-                      described='Write a.md', user_text='write a.md to say hi')
-        judge = kwargs.pop('judge', _deny)
+                      described='Write a.md', user_text='write a.md to say hi',
+                      user_id=self.uid)
         params.update(kwargs)
-        return async_to_sync(review)(**params, judge=judge)
+        with scripted_model(*steps) as model:
+            out = async_to_sync(review)(**params)
+        return out, model
 
-    def test_a_spendy_tool_always_asks(self):
-        out = self.decide(tool_name='generate_image', args={'prompt': 'a cat'},
-                          judge=_allow)
+    def assertRuledWithoutTheJudge(self, out, model):
         self.assertFalse(out['allow'])
         self.assertEqual(out['reviewed_by'], 'rules')
+        self.assertEqual(model.requests, [], 'a rule must decide before the judge is asked')
+
+    def test_a_spendy_tool_always_asks(self):
+        self.assertRuledWithoutTheJudge(*self.decide(
+            ALLOW, tool_name='generate_image', args={'prompt': 'a cat'}))
 
     def test_publishing_above_link_always_asks(self):
-        out = self.decide(tool_name='publish_page',
-                          args={'visibility': 'public'}, judge=_allow)
-        self.assertFalse(out['allow'])
+        self.assertRuledWithoutTheJudge(*self.decide(
+            ALLOW, tool_name='publish_page', args={'visibility': 'public'}))
 
     def test_a_link_page_may_reach_the_judge(self):
-        out = async_to_sync(review)(
-            tool_name='publish_page', args={'visibility': 'link'},
-            described='Publish a page', user_text='publish it', judge=_allow)
+        out, model = self.decide(
+            ALLOW, tool_name='publish_page', args={'visibility': 'link'},
+            described='Publish a page', user_text='publish it')
         self.assertTrue(out['allow'])
         self.assertEqual(out['reviewed_by'], 'model')
+        self.assertIn('Publish a page', model.requests[0].last_user_text())
 
     def test_a_recipient_outside_the_request_always_asks(self):
-        out = self.decide(tool_name='message_send',
-                          args={'to': '#strangers', 'message': 'hi'},
-                          user_text='tell #team-ops hi', judge=_allow)
-        self.assertFalse(out['allow'])
+        out, model = self.decide(
+            ALLOW, tool_name='message_send',
+            args={'to': '#strangers', 'message': 'hi'}, user_text='tell #team-ops hi')
+        self.assertRuledWithoutTheJudge(out, model)
         self.assertIn('#strangers', out['reason'])
 
     def test_a_recipient_in_the_request_may_reach_the_judge(self):
-        out = async_to_sync(review)(
-            tool_name='message_send',
+        out, _ = self.decide(
+            ALLOW, tool_name='message_send',
             args={'to': '#team-ops', 'message': 'hi'},
-            described='Send hi to #team-ops',
-            user_text='tell #team-ops hi', judge=_allow)
+            described='Send hi to #team-ops', user_text='tell #team-ops hi')
         self.assertTrue(out['allow'])
 
     def test_tainted_arguments_always_ask(self):
-        out = self.decide(tainted=True, judge=_allow)
-        self.assertFalse(out['allow'])
+        self.assertRuledWithoutTheJudge(*self.decide(ALLOW, tainted=True))
 
     def test_a_first_seen_browser_host_always_asks(self):
-        out = self.decide(tool_name='browser_act',
-                          args={'url': 'https://portal.example.com/',
-                                'steps': [{'action': 'click', 'selector': 'button'}]},
-                          seen_hosts=(), judge=_allow)
-        self.assertFalse(out['allow'])
+        self.assertRuledWithoutTheJudge(*self.decide(
+            ALLOW, tool_name='browser_act',
+            args={'url': 'https://portal.example.com/',
+                  'steps': [{'action': 'click', 'selector': 'button'}]},
+            seen_hosts=()))
 
     def test_a_dead_judge_is_an_ask_not_an_allow(self):
-        out = async_to_sync(review)(
-            tool_name='write_file', args={'path': 'a.md'},
-            described='Write a.md', user_text='write a.md', judge=_dead)
+        out, _ = self.decide(provider_error(503, 'no model here'),
+                             described='Write a.md', user_text='write a.md')
         self.assertFalse(out['allow'])
+        self.assertEqual(out['reason'], 'The reviewer was unavailable.')
 
     def test_review_never_raises(self):
-        async def _boom(**kwargs):
-            raise ValueError('judge exploded')
-
-        out = async_to_sync(review)(
-            tool_name='x', args={}, described='x', judge=_boom)
+        out, _ = self.decide(fail(ValueError('judge exploded')),
+                             tool_name='x', args={}, described='x')
         self.assertFalse(out['allow'])
 
 
-class AutoPolicyTests(TestCase):
+@override_settings(AUTO_REVIEWER_PROVIDER='openrouter',
+                   AUTO_REVIEWER_MODEL='meta-llama/llama-4-scout')
+class AutoPolicyTests(_Judged):
     def test_a_read_runs_without_a_reviewer(self):
         policy = auto_policy(user_text='what time is it')
-        self.assertFalse(async_to_sync(policy)('get_current_time', {}, {'user_id': 1}))
+        with scripted_model() as model:
+            self.assertFalse(async_to_sync(policy)('get_current_time', {}, {'user_id': self.uid}))
+        self.assertEqual(model.requests, [])
         self.assertIsNone(audit_for(policy, 'get_current_time', {}))
 
     PAGE = {'visibility': 'link', 'title': 'Notes'}
 
     def test_an_allowed_irreversible_call_runs_and_leaves_an_audit(self):
         policy = auto_policy(user_text='publish the notes as a page')
-        with _judge(reviewer, _allow):
-            paused = async_to_sync(policy)('publish_page', self.PAGE, {'user_id': 1})
+        with scripted_model(ALLOW):
+            paused = async_to_sync(policy)('publish_page', self.PAGE, {'user_id': self.uid})
         self.assertFalse(paused)
         audit = audit_for(policy, 'publish_page', self.PAGE)
         self.assertEqual(
             (audit['mode'], audit['verdict'], audit['reviewed_by']),
             ('auto', 'allow', 'model'),
         )
-        self.assertTrue(audit['reason'])
+        self.assertEqual(audit['reason'], 'Clearly asked for.')
 
     def test_a_refused_irreversible_call_pauses(self):
         policy = auto_policy(user_text='save the notes')
-        with _judge(reviewer, _deny):
-            paused = async_to_sync(policy)('publish_page', self.PAGE, {'user_id': 1})
+        with scripted_model(DENY):
+            paused = async_to_sync(policy)('publish_page', self.PAGE, {'user_id': self.uid})
         self.assertTrue(paused)
         self.assertEqual(audit_for(policy, 'publish_page', self.PAGE)['verdict'], 'ask')
 
@@ -137,10 +148,11 @@ class AutoPolicyTests(TestCase):
         # One meaning of `auto` for chat and agents: the agent ladder has
         # always freed reversible tools; chat used to send each to the judge.
         policy = auto_policy(user_text='save the notes')
-        with _judge(reviewer, _dead):
+        with scripted_model() as model:  # no steps: a model call would fail the test
             paused = async_to_sync(policy)(
-                'write_file', {'path': 'n.md'}, {'user_id': 1})
+                'write_file', {'path': 'n.md'}, {'user_id': self.uid})
         self.assertFalse(paused)
+        self.assertEqual(model.requests, [])
         audit = audit_for(policy, 'write_file', {'path': 'n.md'})
         self.assertEqual((audit['verdict'], audit['reviewed_by']), ('allow', 'rules'))
 
@@ -149,20 +161,22 @@ class AutoPolicyTests(TestCase):
         # carried out, so every delegation asked and auto behaved as ask.
         policy = auto_policy(user_text='make me a deck about Q3')
         args = {'agent_id': 4, 'goal': 'Build a Q3 deck'}
-        with _judge(reviewer, _dead):
+        with scripted_model() as model:
             for name in ('run_agent', 'invoke_subagent', 'start_tasks'):
                 self.assertFalse(
-                    async_to_sync(policy)(name, args, {'user_id': 1}), name)
+                    async_to_sync(policy)(name, args, {'user_id': self.uid}), name)
+        self.assertEqual(model.requests, [])
         self.assertEqual(audit_for(policy, 'run_agent', args)['reviewed_by'], 'rules')
 
     def test_a_tainted_turn_frees_nothing(self):
         policy = auto_policy(user_text='make me a deck about Q3')
-        ctx = {'user_id': 1, 'tainted_by': 'read_url'}
-        with _judge(reviewer, _allow):
+        ctx = {'user_id': self.uid, 'tainted_by': 'read_url'}
+        with scripted_model(ALLOW, ALLOW) as model:
             self.assertTrue(async_to_sync(policy)(
                 'run_agent', {'agent_id': 4, 'goal': 'x'}, ctx))
             self.assertTrue(async_to_sync(policy)(
                 'write_file', {'path': 'n.md'}, ctx))
+        self.assertEqual(model.requests, [])
 
     def test_a_mission_and_a_spend_are_never_freed_by_rule(self):
         self.assertEqual(reviewer.rule_allow('start_mission'), '')
@@ -170,12 +184,15 @@ class AutoPolicyTests(TestCase):
         self.assertEqual(reviewer.rule_allow('run_eval_suite'), '')
         self.assertEqual(reviewer.rule_allow('mcp__7__send_email_ab12cd34'), '')
         policy = auto_policy(user_text='run the suite')
-        with _judge(reviewer, _allow):
+        with scripted_model(ALLOW) as model:
             self.assertTrue(async_to_sync(policy)(
-                'run_eval_suite', {'suite_id': 1}, {'user_id': 1}))
+                'run_eval_suite', {'suite_id': 1}, {'user_id': self.uid}))
+        self.assertEqual(model.requests, [])
 
 
-class FullAutoTests(TestCase):
+@override_settings(AUTO_REVIEWER_PROVIDER='openrouter',
+                   AUTO_REVIEWER_MODEL='meta-llama/llama-4-scout')
+class FullAutoTests(_Judged):
     """Full auto: nothing asks — except in a turn that read orders from a page."""
 
     def policy(self):
@@ -183,7 +200,7 @@ class FullAutoTests(TestCase):
 
     def test_nothing_pauses_and_no_judge_is_called(self):
         policy = self.policy()
-        with _judge(reviewer, _dead):
+        with scripted_model() as model:
             for name, args in (
                 ('run_agent', {'agent_id': 4, 'goal': 'x'}),
                 ('publish_page', {'visibility': 'public'}),
@@ -193,16 +210,18 @@ class FullAutoTests(TestCase):
                 ('mcp__7__send_email_ab12cd34', {'to': 'a@b.c'}),
             ):
                 self.assertFalse(
-                    async_to_sync(policy)(name, args, {'user_id': 1}), name)
+                    async_to_sync(policy)(name, args, {'user_id': self.uid}), name)
+        self.assertEqual(model.requests, [])
 
     def test_a_tainted_turn_falls_back_to_auto(self):
         policy = self.policy()
-        ctx = {'user_id': 1, 'tainted_by': 'read_url'}
-        with _judge(reviewer, _allow):
+        ctx = {'user_id': self.uid, 'tainted_by': 'read_url'}
+        with scripted_model(ALLOW) as model:
             self.assertTrue(async_to_sync(policy)(
                 'run_agent', {'agent_id': 4, 'goal': 'x'}, ctx))
             # A plain read is never gated, tainted or not.
             self.assertFalse(async_to_sync(policy)('get_current_time', {}, ctx))
+        self.assertEqual(model.requests, [])
 
     def test_the_model_is_told_the_mode(self):
         from chat.turn.prompts import AUTONOMY_NOTES
@@ -414,18 +433,3 @@ class SessionAutonomyTests(TestCase):
         self.assertFalse(serializer.is_valid())
 
 
-class _judge:
-    """Swap the reviewer's model call for a fake within one policy test."""
-
-    def __init__(self, module, fake):
-        self.module = module
-        self.fake = fake
-        self.real = module._model_judge
-
-    def __enter__(self):
-        self.module._model_judge = self.fake
-        return self
-
-    def __exit__(self, *args):
-        self.module._model_judge = self.real
-        return False

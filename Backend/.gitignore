@@ -83,6 +83,8 @@ diff.txt
 !package.json
 !package-lock.json
 !tsconfig.json
+# Provider HTTP recordings replayed by tests (llm/recorded.py); credentials are stripped.
+!llm/tests/recordings/*.json
 backupdata.json
 clean_backupdata.json
 pg_dump.sql

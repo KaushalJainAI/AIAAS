@@ -3,18 +3,22 @@ Tests for the LLM extraction engine (`inference/extraction.py`) and its
 dispatch (`POST /api/extraction/schemas/{id}/extract/`).
 
 The LLM call goes through `llm.access.complete` (same funnel as the chat
-agent — credential resolution, platform-key fallback, clamping). These tests
-mock it: what is under test is the contract — prompt shape, JSON parsing,
+agent — credential resolution, platform-key fallback, clamping). The model is
+scripted at the wire (`llm.testing`), so that funnel runs too; what is under
+test is the contract — prompt shape, JSON parsing,
 confidence plumbing, replace semantics, and the sync/async dispatch split.
 """
 import json
-from unittest.mock import AsyncMock, patch
+import shutil
+import tempfile
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from llm.access import Completion
+from llm.testing import always, scripted_model, text
 from inference.extraction import dispatch_extraction, run_extraction
 from inference.models import Document, ExtractedRow, ExtractionSchema
 
@@ -24,19 +28,22 @@ FIELDS = [
 ]
 
 
-def reply(fields):
-    return Completion(content=json.dumps({'fields': fields}))
+def _scripted(fields_by_doc):
+    """A model answering with `fields_by_doc[name]` for the document it is asked about.
+
+    The prompt always names the document it is extracting, so the reply is
+    chosen from the request as sent. The default extraction model is served by
+    NVIDIA, whose platform key the scripted model supplies.
+    """
+    def respond(request):
+        line = next(ln for ln in request.last_user_text().splitlines()
+                    if ln.startswith('Document name:'))
+        return text(json.dumps({'fields': fields_by_doc.get(line.split(': ', 1)[1], {})}))
+    return scripted_model(always(respond), provider='nvidia')
 
 
-def _patched_complete(fields_by_doc):
-    """Return an AsyncMock answering with `fields_by_doc` per document."""
-    async def fake(*, provider, model, prompt, system_message, user_id,
-                   temperature, max_tokens, attachments=None, **kw):
-        # The prompt always names the document it is extracting.
-        doc_name = [ln for ln in prompt.splitlines() if ln.startswith('Document name:')][0]
-        doc_name = doc_name.split(': ', 1)[1]
-        return reply(fields_by_doc.get(doc_name, {}))
-    return patch('inference.extraction.llm.complete', new=AsyncMock(side_effect=fake))
+def _question(request) -> dict:
+    return [m for m in request.messages if m['role'] == 'user'][-1]
 
 
 class ExtractionEngineTests(APITestCase):
@@ -54,12 +61,12 @@ class ExtractionEngineTests(APITestCase):
         ]
 
     def _run(self, fields_by_doc):
-        with _patched_complete(fields_by_doc) as mock:
+        with _scripted(fields_by_doc) as model:
             stats = run_extraction([d.id for d in self.docs], self.schema.id, self.user.id)
-        return stats, mock
+        return stats, model
 
     def test_happy_path_creates_accepted_rows_with_min_confidence(self):
-        stats, mock = self._run({
+        stats, model = self._run({
             '0.pdf': {'vendor': {'value': 'Acme', 'confidence': 0.99},
                       'gstin': {'value': '27AAACA5678M1Z2', 'confidence': 0.95}},
             '1.pdf': {'vendor': {'value': 'Baxter', 'confidence': 0.99},
@@ -76,18 +83,25 @@ class ExtractionEngineTests(APITestCase):
         self.assertEqual(row.data['vendor'], 'Acme')
         self.assertEqual(row.confidence, 0.95)  # min of the field confidences
         # The engine went through the chat funnel with the schema's model.
-        self.assertEqual(mock.await_count, 2)
-        self.assertEqual(mock.await_args.kwargs['model'], self.schema.effective_model)
-        self.assertEqual(mock.await_args.kwargs['temperature'], 0)
-        self.assertIsNone(mock.await_args.kwargs['attachments'])  # text doc
+        self.assertEqual(len(model.requests), 2)
+        self.assertEqual(model.requests[-1].model, self.schema.effective_model)
+        self.assertEqual(model.requests[-1].body['temperature'], 0)
+        self.assertIsInstance(_question(model.requests[-1])['content'], str)  # text doc
 
     def test_vision_document_is_passed_as_attachment(self):
-        image = Document.objects.create(user=self.user, name='scan.png',
-                                        file_type='image', file_size=1, status='indexed')
-        with _patched_complete({'scan.png': {}}) as mock:
-            run_extraction([image.id], self.schema.id, self.user.id)
-        self.assertIsNotNone(mock.await_args.kwargs['attachments'])
-        self.assertEqual(mock.await_args.kwargs['attachments'][0].id, image.id)
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        with override_settings(MEDIA_ROOT=media):
+            image = Document.objects.create(
+                user=self.user, name='scan.png', file_type='image', file_size=1,
+                status='indexed',
+                file=SimpleUploadedFile('scan.png', b'\x89PNG\r\n\x1a\n pixels',
+                                        content_type='image/png'))
+            with _scripted({'scan.png': {}}) as model:
+                run_extraction([image.id], self.schema.id, self.user.id)
+        parts = _question(model.requests[-1])['content']
+        self.assertIsInstance(parts, list, 'the image never reached the request')
+        self.assertTrue(any(p.get('type') == 'image_url' for p in parts), parts)
 
     def test_below_threshold_row_is_held_for_review(self):
         stats, _ = self._run({
@@ -113,8 +127,7 @@ class ExtractionEngineTests(APITestCase):
         self.assertEqual(ExtractedRow.objects.filter(schema=self.schema).count(), 1)
 
     def test_non_json_reply_fails_the_document_not_the_run(self):
-        with patch('inference.extraction.llm.complete',
-                   new=AsyncMock(return_value=Completion(content='sorry, no JSON'))):
+        with scripted_model(text('sorry, no JSON'), provider='nvidia'):
             stats = run_extraction([self.docs[0].id], self.schema.id, self.user.id)
         self.assertEqual(stats['processed'], 0)
         self.assertEqual(len(stats['errors']), 1)
@@ -150,11 +163,11 @@ class ExtractionEngineTests(APITestCase):
     def test_schema_model_field_is_used(self):
         self.schema.llm_model = 'custom/model'
         self.schema.save()
-        _, mock = self._run({'0.pdf': {}})
-        self.assertEqual(mock.await_args.kwargs['model'], 'custom/model')
+        _, model = self._run({'0.pdf': {}})
+        self.assertEqual(model.requests[-1].model, 'custom/model')
 
     def test_dispatch_sync_returns_stats(self):
-        with _patched_complete({'0.pdf': {}}):
+        with _scripted({'0.pdf': {}}):
             result = dispatch_extraction([self.docs[0].id], self.schema.id, self.user.id)
         self.assertEqual(result['async'], False)
         self.assertIn('processed', result)
@@ -174,7 +187,7 @@ class ExtractionTriggerTests(APITestCase):
                                            file_type='pdf', file_size=1, status='indexed')
 
     def test_extract_returns_stats_synchronously(self):
-        with _patched_complete({'a.pdf': {
+        with _scripted({'a.pdf': {
             'vendor': {'value': 'Acme', 'confidence': 0.99},
             'gstin': {'value': '27AAACA5678M1Z2', 'confidence': 0.95},
         }}):

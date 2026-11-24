@@ -23,6 +23,7 @@ from django.contrib.auth.models import User
 from django.test import TransactionTestCase
 
 from agents.models import HITLRequest, SubAgent
+from llm.testing import hang, scripted_model
 
 
 class CancelledRunTests(TransactionTestCase):
@@ -41,22 +42,14 @@ class CancelledRunTests(TransactionTestCase):
         if on_started is not None:
             await on_started(log)
 
-        started = asyncio.Event()
-
-        async def blocking_turn(turn, *, prompt, thread_id, **_):
-            started.set()
-            await asyncio.Event().wait()  # never resolves
-
-        async def no_preflight(**kwargs):
-            return None
-
-        with patch('chat.turn.agent.run_turn', blocking_turn), \
-                patch('llm.access.preflight', no_preflight):
+        # The real graph runs; the model call never answers. The scripted
+        # model also supplies the platform key, so the real preflight passes.
+        with scripted_model(hang(), provider='nvidia', model='test/model') as model:
             task = asyncio.ensure_future(
                 run_agent(self.agent, 'go', user=self.user,
                           thread_id='thread-1', log=log)
             )
-            await started.wait()
+            await model.until_requested(1)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
@@ -128,11 +121,10 @@ class CrashedTurnTests(TransactionTestCase):
             return TurnResult(answer='I hit an internal error on that turn. Please try again.',
                               error='RuntimeError: lock bound to a different event loop')
 
-        async def no_preflight(**kwargs):
-            return None
-
+        # An internal crash has no wire-level cause to script, so the graph
+        # itself is stood in for. The real preflight runs on the platform key.
         with patch('chat.turn.agent.run_turn', crashed_turn), \
-                patch('llm.access.preflight', no_preflight):
+                scripted_model(provider='nvidia', model='test/model'):
             with self.assertRaises(AgentTurnFailed):
                 await run_agent(self.agent, 'go', user=self.user,
                                 thread_id='thread-crash', log=log)
@@ -150,12 +142,8 @@ class CrashedTurnTests(TransactionTestCase):
 
         log = await _open_log(self.agent, self.user, 'go', 'manual', 'thread-refused')
 
-        async def no_preflight(**kwargs):
-            return None
-
         refusal = error_stream('Upstream error from Alibaba: Output data may contain inappropriate content.', 400)
-        with patch('llm.access.stream', refusal), \
-                patch('llm.access.preflight', no_preflight):
+        with scripted_model(refusal, provider='nvidia', model='test/model'):
             with self.assertRaises(AgentTurnFailed):
                 await run_agent(self.agent, 'go', user=self.user,
                                 thread_id='thread-refused', log=log)

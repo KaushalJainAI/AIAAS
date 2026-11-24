@@ -9,10 +9,13 @@ and a case with nothing to assert.
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
-from django.test import SimpleTestCase
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.test import SimpleTestCase, TestCase
 
 from eval import graders
 from eval.graders import GradeContext, GraderError
+from llm.testing import provider_error, scripted_model, text
 
 
 def grade(specs, **ctx):
@@ -184,7 +187,12 @@ class FoldingTests(SimpleTestCase):
         self.assertIn('no longer exists', grades[0].detail)
 
 
-class JudgeTests(SimpleTestCase):
+class JudgeTests(TestCase):
+    """The judge runs through the real funnel; its replies are scripted at the wire."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('judged', password='pw')
+
     def test_reply_parsing_tolerates_fences_and_prose(self):
         score, reason = graders._judge_reply(
             'Sure!\n```json\n{"score": 0.4, "reason": "vague"}\n```'
@@ -202,13 +210,10 @@ class JudgeTests(SimpleTestCase):
     def test_a_judge_that_cannot_run_fails_closed(self):
         # A judge that passes everything when the provider is down would turn
         # an outage into a green suite.
-        async def boom(**kwargs):
-            raise RuntimeError('provider down')
-
-        with patch('llm.access.complete', boom):
+        with scripted_model(provider_error(503, 'provider down')):
             grades, _, passed = grade(
                 [{'type': 'llm_judge', 'rubric': 'names the capital'}],
-                answer='Paris', user_id=1,
+                answer='Paris', user_id=self.user.id,
             )
         self.assertFalse(passed)
         self.assertIn('judge unavailable', grades[0].detail)
@@ -219,19 +224,16 @@ class JudgeTests(SimpleTestCase):
         self.assertIn('no rubric', grades[0].detail)
 
     def test_threshold_decides_the_verdict(self):
-        class Reply:
-            content = '{"score": 0.8, "reason": "good"}'
-
-        async def fake(**kwargs):
-            return Reply()
-
-        with patch('llm.access.complete', fake):
+        reply = text('{"score": 0.8, "reason": "good"}')
+        with scripted_model(reply, reply) as model:
             _, _, strict = grade(
-                [{'type': 'llm_judge', 'rubric': 'r', 'threshold': 0.9}], user_id=1,
+                [{'type': 'llm_judge', 'rubric': 'r', 'threshold': 0.9}], user_id=self.user.id,
             )
             _, score, lenient = grade(
-                [{'type': 'llm_judge', 'rubric': 'r', 'threshold': 0.7}], user_id=1,
+                [{'type': 'llm_judge', 'rubric': 'r', 'threshold': 0.7}], user_id=self.user.id,
             )
+        # The judge is the configured model, never the agent's.
+        self.assertEqual({r.model for r in model.requests}, {settings.EVAL_JUDGE_MODEL})
         self.assertFalse(strict)
         self.assertTrue(lenient)
         self.assertAlmostEqual(score, 0.8)

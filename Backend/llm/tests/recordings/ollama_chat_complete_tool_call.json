@@ -1,0 +1,42 @@
+{
+  "source": "from-docs",
+  "note": "Written from Ollama's API reference (docs/api.md, 'Generate a chat completion': streaming, thinking, tool calling). No local Ollama was available. Re-record against a running Ollama: RECORD_PROVIDER_FIXTURES=overwrite pytest llm/tests/test_recorded_providers.py -k ollama",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/chat"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "json": {
+          "model": "qwen3:8b",
+          "created_at": "2026-11-23T09:00:00.000000Z",
+          "message": {
+            "role": "assistant",
+            "content": "",
+            "thinking": "I should look up the weather.",
+            "tool_calls": [
+              {
+                "function": {
+                  "name": "get_weather",
+                  "arguments": {
+                    "city": "Paris"
+                  }
+                }
+              }
+            ]
+          },
+          "done": true,
+          "done_reason": "stop",
+          "total_duration": 4883583458,
+          "prompt_eval_count": 120,
+          "eval_count": 15
+        }
+      }
+    }
+  ]
+}

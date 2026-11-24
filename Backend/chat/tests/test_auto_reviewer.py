@@ -17,112 +17,127 @@ everything. These tests pin the real wiring and the four fixes that followed:
 from __future__ import annotations
 
 import asyncio
-import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
-from django.test import SimpleTestCase, override_settings
+from django.contrib.auth.models import User
+from django.core.cache import cache
+from django.test import SimpleTestCase, TestCase, override_settings
 from langchain_core.messages import AIMessage
 
 from chat.turn import reviewer
 from chat.turn.agent import TurnContext, tools_node
 from chat.turn.pipeline import REVIEWER_RECENT_USER_MESSAGES, reviewer_text
 from chat.turn.reviewer import auto_policy
+from llm.testing import fail, provider_error, scripted_model, text
 
 
-class _Completion(SimpleNamespace):
-    pass
+@override_settings(AUTO_REVIEWER_PROVIDER='openrouter',
+                   AUTO_REVIEWER_MODEL='meta-llama/llama-4-scout')
+class RealJudgeWiringTests(TestCase):
+    """No fake judge and no fake `complete`: the model is scripted at the wire,
+    so `_model_judge`, `llm.access` and the provider handler all run. A judge
+    that called a missing function (the 2026-09-24 bug) fails here."""
 
-
-def _fake_complete(reply: str, seen: list):
-    async def complete(**kwargs):
-        seen.append(kwargs)
-        return _Completion(content=reply)
-    return complete
-
-
-class RealJudgeWiringTests(SimpleTestCase):
-    """No `_model_judge` fake here: this is the path production takes."""
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user('reviewed', password='pw')
 
     def judge(self, **kwargs):
         params = dict(described='Write notes.md', user_text='save notes.md',
-                      todos=(), user_id=1, provider='openrouter',
+                      todos=(), user_id=self.user.id, provider='openrouter',
                       model='openrouter/free')
         params.update(kwargs)
         return async_to_sync(reviewer._model_judge)(**params)
 
-    @override_settings(AUTO_REVIEWER_PROVIDER='openrouter',
-                       AUTO_REVIEWER_MODEL='meta-llama/llama-4-scout')
     def test_the_judge_calls_the_real_funnel_on_the_reviewer_model(self):
-        seen: list = []
-        with patch('llm.access.complete', _fake_complete('ALLOW it matches', seen)):
+        with scripted_model(text('ALLOW it matches')) as model:
             allow, reason = self.judge()
         self.assertTrue(allow)
         self.assertEqual(reason, 'it matches')
-        self.assertEqual((seen[0]['provider'], seen[0]['model']),
+        request = model.requests[0]
+        self.assertEqual((request.provider, request.model),
                          ('openrouter', 'meta-llama/llama-4-scout'))
-        self.assertEqual(seen[0]['effort'], 'none')
+        self.assertFalse(request.stream)
+        self.assertFalse(request.tools_offered)
+        self.assertIn('Write notes.md', request.last_user_text())
+        self.assertIn('approval reviewer', request.system_text())
 
     @override_settings(AUTO_REVIEWER_PROVIDER='openrouter', AUTO_REVIEWER_MODEL='')
     def test_a_blank_model_falls_back_to_the_chats_whole_pair(self):
-        seen: list = []
-        with patch('llm.access.complete', _fake_complete('ASK unsure', seen)):
+        with scripted_model(text('ASK unsure'), provider='openai') as model:
             allow, _ = self.judge(provider='openai', model='gpt-x')
         self.assertFalse(allow)
         # Never the configured provider with the chat's model: that pair names
         # a model the provider does not serve.
-        self.assertEqual((seen[0]['provider'], seen[0]['model']), ('openai', 'gpt-x'))
+        self.assertEqual((model.requests[0].provider, model.requests[0].model),
+                         ('openai', 'gpt-x'))
+
+    def _review(self):
+        return async_to_sync(reviewer.review)(
+            tool_name='write_file', args={'path': 'notes.md'},
+            described='Write notes.md', user_text='save notes.md',
+            user_id=self.user.id)
 
     def test_review_reaches_a_verdict_through_the_real_judge(self):
-        seen: list = []
-        with patch('llm.access.complete', _fake_complete('ALLOW yes', seen)):
-            out = async_to_sync(reviewer.review)(
-                tool_name='write_file', args={'path': 'notes.md'},
-                described='Write notes.md', user_text='save notes.md')
+        with scripted_model(text('ALLOW yes')):
+            out = self._review()
         self.assertEqual((out['allow'], out['reviewed_by']), (True, 'model'))
 
+    def test_a_provider_error_is_an_ask_never_an_allow(self):
+        with scripted_model(provider_error(503, 'overloaded')):
+            out = self._review()
+        self.assertEqual((out['allow'], out['reason']),
+                         (False, 'The reviewer was unavailable.'))
 
-class VerdictCacheTests(SimpleTestCase):
+    def test_a_dropped_connection_is_an_ask_too(self):
+        with scripted_model(fail(ConnectionResetError('peer closed'))):
+            out = self._review()
+        self.assertFalse(out['allow'])
+
+
+@override_settings(AUTO_REVIEWER_PROVIDER='openrouter',
+                   AUTO_REVIEWER_MODEL='meta-llama/llama-4-scout')
+class VerdictCacheTests(TestCase):
+    """The verdict cache, with the real judge behind it: each model request
+    the script answers is one judgement."""
+
     def setUp(self):
+        cache.clear()
         reviewer._verdicts.clear()
-        self.calls: list = []
-
-        async def judge(**kwargs):
-            self.calls.append(kwargs)
-            return {'allow': True, 'reason': 'ok'}
-
-        self.real = reviewer._model_judge
-        reviewer._model_judge = judge
-
-    def tearDown(self):
-        reviewer._model_judge = self.real
-        reviewer._verdicts.clear()
+        self.addCleanup(reviewer._verdicts.clear)
+        self.user = User.objects.create_user('cached', password='pw')
 
     def gate(self, policy, call_id, **extra):
-        ctx = {'user_id': 1, 'session_id': 's1', 'call_id': call_id, **extra}
+        ctx = {'user_id': self.user.id, 'session_id': 's1', 'call_id': call_id, **extra}
         # Irreversible, so it reaches the judge: what can be undone is freed
         # by rule and never gets this far (`reviewer.rule_allow`).
         return async_to_sync(policy)(
             'publish_page', {'visibility': 'link', 'title': 'n'}, ctx)
 
     def test_the_same_call_is_judged_once(self):
-        policy = auto_policy(user_text='save n.md')
-        self.assertFalse(self.gate(policy, 'c1'))
-        # A second policy object, as a resumed turn builds: still cached.
-        self.assertFalse(self.gate(auto_policy(user_text='save n.md'), 'c1'))
-        self.assertEqual(len(self.calls), 1)
+        with scripted_model(text('ALLOW ok')) as model:
+            policy = auto_policy(user_text='publish n')
+            self.assertFalse(self.gate(policy, 'c1'))
+            # A second policy object, as a resumed turn builds: still cached.
+            self.assertFalse(self.gate(auto_policy(user_text='publish n'), 'c1'))
+        self.assertEqual(len(model.requests), 1)
 
     def test_a_different_call_is_judged_again(self):
-        policy = auto_policy(user_text='save n.md')
-        self.gate(policy, 'c1')
-        self.gate(policy, 'c2')
-        self.assertEqual(len(self.calls), 2)
+        with scripted_model(text('ALLOW ok'), text('ASK not this one')) as model:
+            policy = auto_policy(user_text='publish n')
+            self.assertFalse(self.gate(policy, 'c1'))
+            self.assertTrue(self.gate(policy, 'c2'))
+        self.assertEqual(len(model.requests), 2)
 
     def test_the_live_plan_beats_the_turns_snapshot(self):
-        policy = auto_policy(user_text='save n.md', todos=[{'text': 'old'}])
-        self.gate(policy, 'c1', todos=[{'status': 'in_progress', 'text': 'new'}])
-        self.assertEqual(self.calls[0]['todos'][0]['text'], 'new')
+        with scripted_model(text('ALLOW ok')) as model:
+            policy = auto_policy(user_text='publish n', todos=[{'text': 'old step'}])
+            self.gate(policy, 'c1', todos=[{'status': 'in_progress', 'text': 'new step'}])
+        prompt = model.requests[0].last_user_text()
+        self.assertIn('new step', prompt)
+        self.assertNotIn('old step', prompt)
 
     def test_reviewing_is_announced_on_the_sink(self):
         frames: list = []
@@ -130,7 +145,8 @@ class VerdictCacheTests(SimpleTestCase):
         async def sink(event, payload):
             frames.append((str(getattr(event, 'value', event)), payload))
 
-        self.gate(auto_policy(user_text='save n.md'), 'c1', sink=sink)
+        with scripted_model(text('ALLOW ok')):
+            self.gate(auto_policy(user_text='publish n'), 'c1', sink=sink)
         self.assertEqual(frames[0][0], 'status')
         self.assertEqual(frames[0][1]['phase'], 'reviewing')
 
@@ -184,18 +200,29 @@ def _run(calls, turn, metadata=None):
 
 class GateSettlingTests(SimpleTestCase):
     def test_gates_are_decided_concurrently(self):
-        delay = 0.25
+        # Each gate waits until all four have started. Run one after another,
+        # the first would wait for ever (here: until its 5 s guard), so this
+        # holds on any machine without measuring how long anything took.
+        arrived = 0
+        all_in = asyncio.Event()
+        timed_out: list = []
 
-        async def slow_policy(name, args, context):
-            await asyncio.sleep(delay)
+        async def barrier_policy(name, args, context):
+            nonlocal arrived
+            arrived += 1
+            if arrived == 4:
+                all_in.set()
+            try:
+                await asyncio.wait_for(all_in.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                timed_out.append(context['call_id'])
             return False
 
         calls = [{'name': 'write_file', 'id': f'c{i}', 'args': {'path': f'{i}.md'}}
                  for i in range(4)]
-        started = time.monotonic()
-        _run(calls, _turn(slow_policy))
-        # Sequential would be 4 x 0.25 = 1.0 s before dispatch even starts.
-        self.assertLess(time.monotonic() - started, delay * 2.5)
+        _run(calls, _turn(barrier_policy))
+        self.assertEqual(arrived, 4)
+        self.assertEqual(timed_out, [], 'the gates ran one after another')
 
     def test_an_approved_call_is_not_gated_again(self):
         asked: list = []

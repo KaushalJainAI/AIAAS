@@ -26,6 +26,7 @@ from chat.turn import curation
 from chat.turn.agent import TurnContext, run_turn
 from llm import budget
 from llm.access import clamp_input, is_context_overflow, window_from_error
+from llm.testing import ScriptedModel, ScriptedRequest, always, provider_error, text, tool_call
 
 User = get_user_model()
 
@@ -212,10 +213,11 @@ class _RefusingProvider:
     """Calls a tool `turns` times, then answers; refuses any request longer
     than PROVIDER_LIMIT with an OpenAI-style context error.
 
-    Stands in for `llm.access.stream`, which is where the final clamp runs, so
-    it applies that clamp itself exactly as `_build_request` does and measures
-    what would really have gone out — the reply's `max_tokens` included, as
-    real providers count it.
+    The model is scripted at the wire, so the funnel's own final clamp has
+    already run on every request it measures (this used to re-implement that
+    clamp, and a copy can drift from the original). Size is counted as real
+    providers count it: the messages, the tool definitions and the reply's
+    `max_tokens`.
     """
 
     def __init__(self, turns: int) -> None:
@@ -223,47 +225,26 @@ class _RefusingProvider:
         self.steps = 0
         self.refusals = 0
         self.accepted: list[int] = []
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    def __call__(self, **kwargs):
-        tools = kwargs.get("tools")
-        model, max_tokens = kwargs["model"], kwargs.get("max_tokens") or 0
-        prompt, system, history = clamp_input(
-            kwargs.get("prompt") or "", kwargs.get("system_message") or "",
-            kwargs.get("history") or [],
-            budget.cached_input_budget(model, reserve_output=max_tokens),
-            reserved_tokens=budget.tools_tokens(tools),
-        )
-        size = (
-            budget.history_tokens(history) + budget.estimate_tokens(prompt)
-            + budget.estimate_tokens(system) + budget.tools_tokens(tools) + max_tokens
-        )
-        refuse = size > PROVIDER_LIMIT
-        if refuse:
+    def _respond(self, request: ScriptedRequest):
+        max_tokens = int(request.body.get("max_tokens")
+                         or request.body.get("max_completion_tokens") or 0)
+        size = (budget.history_tokens(request.messages)
+                + budget.tools_tokens(request.tools) + max_tokens)
+        if size > PROVIDER_LIMIT:
             self.refusals += 1
-        else:
-            self.accepted.append(size)
-            self.steps += 1
-        step, answering = self.steps, self.steps > self.turns
-
-        async def chunks():
-            if refuse:
-                yield {"type": "error", "status": 400, "message": json.dumps({"error": {
-                    "message": f"This model's maximum context length is {PROVIDER_LIMIT} "
-                               f"tokens. However, you requested {size} tokens."}})}
-                return
-            if answering:
-                yield {"type": "content", "content": "done"}
-            else:
-                # `read_file`, not `web_search`: the latter fetches companion
-                # images from the real internet after the (stubbed) tool runs.
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": f"call-{step}",
-                    "function": {"name": "read_file",
-                                 "arguments": json.dumps({"path": f"/step-{step}.md"})},
-                }]}
-            yield {"type": "metadata", "usage": {"total_tokens": 10}}
-
-        return chunks()
+            return provider_error(400, f"This model's maximum context length is "
+                                       f"{PROVIDER_LIMIT} tokens. However, you "
+                                       f"requested {size} tokens.")
+        self.accepted.append(size)
+        self.steps += 1
+        if self.steps > self.turns:
+            return text("done")
+        # `read_file`, not `web_search`: the latter fetches companion images
+        # from the real internet after the (stubbed) tool runs.
+        return tool_call("read_file", {"path": f"/step-{self.steps}.md"},
+                         id=f"call-{self.steps}")
 
 
 async def _big_result(name, args, context):
@@ -288,12 +269,12 @@ class OverflowRecoveryTests(TestCase):
     def _run(self, policy, thread):
         stub = _RefusingProvider(turns=10)
         turn = TurnContext(
-            provider="stub", model="stub-unknown-window", system_message="You are a test.",
+            provider="openrouter", model="stub-unknown-window", system_message="You are a test.",
             user_id=self.user.id, session_id=thread, intent="research",
             user_text="do the work", memory_enabled=False, max_iterations=40,
             tool_dispatch=_big_result, approval_policy=_never, curation=policy,
         )
-        with patch("llm.access.stream", new=stub):
+        with stub.scripted.installed():
             result = async_to_sync(run_turn)(turn, prompt="do the work", thread_id=thread)
         return stub, result
 

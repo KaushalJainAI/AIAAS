@@ -22,7 +22,7 @@ that before picking up a plan.
 | [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | The MCP runtime: sessions, pooling, memory budget, credentials |
 | [RAG_STRATEGY.md](RAG_STRATEGY.md) | How knowledge-base search works |
 | [EVALUATION.md](EVALUATION.md) | How agents are tested and scored |
-| [TESTING.md](TESTING.md) | How agent tests are written: the scripted model, what runs for real, what is still fake |
+| [TESTING.md](TESTING.md) | How tests are written: the scripted model, recorded provider HTTP, the frozen clock, what runs for real, what is still fake |
 | [NOTIFICATION_SERVICE.md](NOTIFICATION_SERVICE.md) | Notifications, HITL reminders, device push |
 | [WEBHOOK_TRIGGERS.md](WEBHOOK_TRIGGERS.md) | How a webhook starts an agent run |
 | [IMAGINE.md](IMAGINE.md) | Image / video / audio generation |

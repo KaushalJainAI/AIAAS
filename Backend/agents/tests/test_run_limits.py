@@ -25,6 +25,7 @@ from django.test import SimpleTestCase, TestCase
 
 from agents import admission, budget
 from agents.models import SubAgent
+from llm.testing import scripted_model
 from workflow_backend.thresholds import (
     DEFAULT_RUN_SECONDS,
     MAX_CONCURRENT_RUNS_PER_USER,
@@ -310,8 +311,6 @@ class QueuedTelemetryTests(TestCase):
     """
 
     def test_a_run_is_announced_queued_before_it_waits_for_a_slot(self):
-        import unittest.mock
-
         import agents.agent.runtime as runtime
         import agents.agent.stream as stream_module
         import workflow_backend.background as background
@@ -348,7 +347,7 @@ class QueuedTelemetryTests(TestCase):
         background.spawn = lambda coro, name='': spawned.append(coro)
         stream_module.AgentRunStream = _FakeStream
         try:
-            with unittest.mock.patch('llm.access.preflight', new=_noop):
+            with scripted_model():
                 execution_id = async_to_sync(runtime.start_agent_run)(
                     agent, 'do it', user=user,
                 )

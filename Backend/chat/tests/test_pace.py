@@ -2,14 +2,11 @@
 A turn runs at a pace, is told its budget, and is promoted when it plans.
 
 The unit tests pin the rules in `chat/turn/pace.py`. The graph tests drive the
-real loop with a stubbed model and assert on what actually left for the
+real loop with the model scripted at the wire and assert on what actually left for the
 provider and how many calls were made — a budget line nothing sends, or a cap
 nothing reads, would pass every unit test here.
 """
 from __future__ import annotations
-
-import json
-from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth.models import User
@@ -17,6 +14,7 @@ from django.test import SimpleTestCase, TestCase
 
 from chat.turn import pace
 from chat.turn.agent import TurnContext, run_turn
+from llm.testing import DEFAULT_MODEL, DEFAULT_PROVIDER, ScriptedModel, always, text as answer, tool_call
 from workflow_backend.thresholds import PACE_ITERATIONS
 
 
@@ -171,42 +169,34 @@ class _Model:
     """Calls `probe` for as long as tools are offered, then answers.
 
     `plan_on` is the 1-based model call on which it writes a plan instead.
-    Records the trailing system messages of every request it receives.
+    Underneath is a scripted model, so what is asserted on is the system
+    messages of each request as it went over the wire.
     """
 
     def __init__(self, *, plan_on: int | None = None):
         self.plan_on = plan_on
-        self.calls = 0
-        self.system_lines: list[list[str]] = []
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    def __call__(self, **kwargs):
-        self.calls += 1
-        index = self.calls
+    def _respond(self, request):
         # Callable tools: offered and not `tool_choice='none'` (the last pass).
-        offered = bool(kwargs.get("tools")) and kwargs.get("tool_choice") != "none"
-        self.system_lines.append([
-            str(m.get("content") or "") for m in kwargs.get("history") or []
-            if m.get("role") == "system"
-        ])
+        if not request.tools_offered:
+            return answer("Here is what I found.")
+        if request.index == self.plan_on:
+            return tool_call("update_todos",
+                             {"todos": [{"text": "step one", "status": "in_progress"}]},
+                             id=f"call-{request.index}")
+        return tool_call("probe", {}, id=f"call-{request.index}")
 
-        async def chunks():
-            if offered:
-                name = "update_todos" if index == self.plan_on else "probe"
-                args = ({"todos": [{"text": "step one", "status": "in_progress"}]}
-                        if name == "update_todos" else {})
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": f"call-{index}",
-                    "function": {"name": name, "arguments": json.dumps(args)},
-                }]}
-            else:
-                yield {"type": "content", "content": "Here is what I found."}
-            yield {"type": "metadata", "usage": {"total_tokens": 3}}
+    @property
+    def calls(self) -> int:
+        return len(self.scripted.requests)
 
-        return chunks()
+    def system_lines(self, call: int) -> list[str]:
+        return self.scripted.requests[call - 1].system_messages()
 
     def budget_line(self, call: int) -> str:
         return next(
-            (line for line in self.system_lines[call - 1] if line.startswith("PACE:")),
+            (line for line in self.system_lines(call) if line.startswith("PACE:")),
             "",
         )
 
@@ -234,14 +224,14 @@ class PaceInTheLoopTests(TestCase):
 
     def run_with(self, model, thread: str, tier: str | None):
         turn = TurnContext(
-            provider="stub", model="stub-model", system_message="test",
+            provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message="test",
             user_id=self.user.id, session_id=thread, intent="chat", user_text="go",
             memory_enabled=False, max_iterations=PACE_ITERATIONS[pace.DEEP],
             approval_policy=_never, sensitive_tools=frozenset(), sink=_sink,
             tool_source=_tools, tool_dispatch=_dispatch,
         )
         metadata = {"pace": pace.start(tier)} if tier else {}
-        with patch("llm.access.stream", new=model):
+        with model.scripted.installed():
             return async_to_sync(run_turn)(
                 turn, prompt="go", thread_id=thread, metadata=metadata)
 
@@ -280,7 +270,7 @@ class PaceInTheLoopTests(TestCase):
         self.run_with(model, "pace-run-budget", None)
 
         def budget(call):
-            return next((line for line in model.system_lines[call - 1]
+            return next((line for line in model.system_lines(call)
                          if line.startswith("BUDGET:")), "")
 
         limit = PACE_ITERATIONS[pace.DEEP]

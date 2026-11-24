@@ -185,23 +185,25 @@ def _read_injection_answer(content: object) -> str | None:
 
 async def _ask_injection(model: str, api_key: str, text: str) -> str | None:
     """One model call. Raises on a transport or HTTP failure; see `injection_check`."""
-    import httpx
+    # The pooled client every model call uses: no new TLS handshake per checked
+    # result, and the seam tests script the model at (`llm.testing`).
+    from workflow_backend.httpclient import shared_client
 
     timeout = float(getattr(settings, 'CONTENT_MODERATION_TIMEOUT_S', 4))
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(
-            ENDPOINT,
-            headers={'Authorization': f'Bearer {api_key}'},
-            json={
-                'model': model, 'temperature': 0, 'max_tokens': 600,
-                'reasoning': {'effort': 'low'},
-                'messages': [
-                    {'role': 'system', 'content': INJECTION_POLICY},
-                    {'role': 'user', 'content': '<text>\n'
-                     + text.replace('</text>', '</ text>') + '\n</text>'},
-                ],
-            },
-        )
+    response = await shared_client().post(
+        ENDPOINT,
+        headers={'Authorization': f'Bearer {api_key}'},
+        json={
+            'model': model, 'temperature': 0, 'max_tokens': 600,
+            'reasoning': {'effort': 'low'},
+            'messages': [
+                {'role': 'system', 'content': INJECTION_POLICY},
+                {'role': 'user', 'content': '<text>\n'
+                 + text.replace('</text>', '</ text>') + '\n</text>'},
+            ],
+        },
+        timeout=timeout,
+    )
     response.raise_for_status()
     content = ((response.json().get('choices') or [{}])[0].get('message') or {}).get('content')
     return _read_injection_answer(content)
