@@ -8,6 +8,7 @@ separator, `..` or a leading dot is refused before anything runs.
 """
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import unittest
@@ -18,10 +19,14 @@ if _SVC_DIR not in sys.path:
 
 import executor  # noqa: E402
 
+# Slot 1: as root (the image) a run must name the slot whose user it runs as;
+# as anyone else the slot is ignored.
+run = functools.partial(executor.execute, slot=1)
+
 
 class FileBridgeTests(unittest.TestCase):
     def test_inputs_are_readable_and_outputs_come_back(self):
-        env = executor.execute(
+        env = run(
             "with open('in.txt') as f:\n"
             "    data = f.read()\n"
             "with open('out.txt', 'w') as f:\n"
@@ -36,13 +41,13 @@ class FileBridgeTests(unittest.TestCase):
         self.assertEqual(env["unsaved"], [])
 
     def test_a_declared_output_never_written_is_missing(self):
-        env = executor.execute("result = 1", collect=['nope.txt'])
+        env = run("result = 1", collect=['nope.txt'])
         self.assertTrue(env["success"], env)
         self.assertEqual(env["missing"], ['nope.txt'])
         self.assertNotIn('nope.txt', env.get("files_out", {}))
 
     def test_an_undeclared_file_is_unsaved_not_collected(self):
-        env = executor.execute(
+        env = run(
             "with open('extra.log', 'w') as f:\n    f.write('x')",
             collect=['out.txt'],
         )
@@ -53,7 +58,7 @@ class FileBridgeTests(unittest.TestCase):
     def test_a_symlink_output_is_refused_not_followed(self):
         if os.name != "posix":
             self.skipTest("symlinks need POSIX")
-        env = executor.execute(
+        env = run(
             "import os\nos.symlink('/etc/hostname', 'link.txt')\nresult = 1",
             collect=['link.txt'],
         )
@@ -65,25 +70,25 @@ class FileBridgeTests(unittest.TestCase):
         for bad in ('../x', 'a/b', '.hidden', '', 'x' * 129):
             with self.subTest(name=bad):
                 with self.assertRaises(executor.FileSpecError):
-                    executor.execute("result = 1", files={bad: b'x'})
+                    run("result = 1", files={bad: b'x'})
                 with self.assertRaises(executor.FileSpecError):
-                    executor.execute("result = 1", collect=[bad])
+                    run("result = 1", collect=[bad])
 
     def test_too_many_files_are_refused(self):
         many = {f'f{i}.txt': b'x' for i in range(executor.MAX_FILES + 1)}
         with self.assertRaises(executor.FileSpecError):
-            executor.execute("result = 1", files=many)
+            run("result = 1", files=many)
 
     def test_an_oversized_input_is_refused(self):
         with self.assertRaises(executor.FileSpecError):
-            executor.execute(
+            run(
                 "result = 1",
                 files={'big.bin': b'x' * (executor.MAX_FILE_BYTES + 1)},
             )
 
     def test_binary_round_trips(self):
         blob = bytes(range(256)) * 100
-        env = executor.execute(
+        env = run(
             "with open('in.bin', 'rb') as f:\n"
             "    data = f.read()\n"
             "with open('out.bin', 'wb') as f:\n"

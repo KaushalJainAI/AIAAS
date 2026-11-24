@@ -16,11 +16,11 @@ Design and threat model: [`docs/SANDBOX_EXECUTION.md`](../docs/SANDBOX_EXECUTION
 | File | What it does |
 |---|---|
 | `server.py` | A small HTTP server with three routes: `GET /health`, `POST /execute`, `POST /commands`. Runs only a few jobs at once |
-| `executor.py` | Starts a fresh restricted process per run: memory and CPU limits, a throwaway working folder, and the whole process group killed on timeout |
+| `executor.py` | Starts a fresh restricted process per run, as the Unix user of the run's slot: memory, CPU and process limits, a private throwaway folder, and every process of that user killed before and after the run |
 | `runner.py` | The code that runs inside that process for Python. Prints one JSON result. Blocks network calls and starting any other program |
 | `launch.py` | The same for Node and for commands. Each process it starts may start exactly one program, the one we chose |
 | `commands.py` | The list of commands `run_command` may use, and the check that refuses everything else |
-| `Dockerfile` | The image: Python 3.12 slim, numpy and pandas, the `node` binary (no npm), the commands, non-root user |
+| `Dockerfile` | The image: Python 3.12 slim, numpy and pandas, the `node` binary (no npm), the commands, and one user per slot (`sbx1`..`sbx8`) |
 | `requirements.txt` | Kept very small, because this process runs untrusted code |
 
 ## Request and reply
@@ -76,18 +76,21 @@ curl -s -XPOST localhost:8100/execute -H 'Content-Type: application/json' -d '{"
 - The container is the real wall. Process limits and seccomp are extra depth. See the design doc for the layers.
 - The service has no authentication. It relies on its network having no route in from outside.
 - No process may start a program we did not choose. Python cannot start one at all; each Node or command process can start only its own.
+- Users are kept apart by slot. Each run executes as its slot's own Unix user in a folder only that user can open, and nothing it started is left alive for the next run. The server runs as root with four capabilities and never runs model code; root without a slot is refused. A concurrent run can still read the other slot's command-line arguments (see the design doc).
 
 ## Tests
 
 `sandbox_service/tests/`: `test_executor.py` (runs real processes), `test_files.py`,
-`test_concurrency.py`, `test_commands.py` (the allowlist, any platform) and
-`test_languages.py` (Node, commands and the exec guard, run for real). Run from
-`Backend/` with `python -m pytest sandbox_service/tests`; on Windows
-`test_languages.py` skips, so run it in the image:
+`test_concurrency.py`, `test_commands.py` (the allowlist, any platform),
+`test_languages.py` (Node, commands and the exec guard, run for real) and
+`test_isolation.py` (one user per slot). Run from `Backend/` with
+`python -m pytest sandbox_service/tests`; on Windows the last two skip, so run
+them in the image with the same flags production uses:
 
 ```bash
 docker build -t aiaas-sandbox Backend/sandbox_service
-docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
+docker run --rm --init --read-only --tmpfs /tmp:mode=0711 --cap-drop ALL \
+    --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE \
     --security-opt no-new-privileges --network none \
     -v "$PWD/Backend/sandbox_service/tests:/srv/tests:ro" \
     aiaas-sandbox python -m unittest discover -s tests -v

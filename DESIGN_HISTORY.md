@@ -3746,3 +3746,23 @@ The sidecar ran only Python. It now also runs JavaScript/TypeScript (`execute_ja
 **Known gap, not new:** all runs share one uid in one container, so a run could read a *concurrent* run's `/tmp/sbx-*` folder. Same for Python before this change. Fixing it needs a uid per slot or a container per run.
 
 Tests run in the real image with prod's flags (read-only, cap_drop ALL, no-new-privileges, no network): `sandbox_service/tests/test_languages.py`. They skip on Windows.
+
+## H-170 · A Unix user per sandbox slot, and nothing alive between runs (2026-11-24)
+
+Files: Backend/sandbox_service/executor.py, Backend/sandbox_service/server.py, Backend/sandbox_service/Dockerfile, docker-compose.yml, docker-compose.prod.yml, Backend/sandbox_service/tests/test_isolation.py
+
+**The leak, measured.** Every sandbox run used to execute as the same user in one container. A Python run forked a child that called `setsid` (leaving the process group, so the timeout `killpg` missed it) and closed its pipes, so the run finished normally. The child lived on and read the *next* run's input file out of `/tmp/sbx-*`. That is one user reading another's documents, and it predates `run_command` (H-169 called it a concurrent-only gap; it was worse).
+
+**The fix: a user per slot.** The server's concurrency semaphore became a queue of slot numbers. Slot *n* runs as uid/gid `20000 + n` (`sbx1`..`sbx8` in the Dockerfile):
+- The run's folder (`work/` as cwd, `tmp/` as HOME and TMPDIR) is chowned to that user with mode 0700, and `/tmp` is 0711 (set by compose, and by the executor on first use), so a run cannot list `/tmp` or write to it.
+- Before and after every run, `_reap` runs `kill(-1, SIGKILL)` *as the slot's user*. Linux reaches every process that user owns, setsid or not, and nothing of anyone else's, so the server needs no `CAP_KILL`. A timeout reaps the same way.
+- `RLIMIT_NPROC` caps a slot at 64 processes, so a fork bomb is bounded per slot.
+- `init: true` makes tini PID 1, so killed orphans are reaped instead of piling up against `pids_limit`.
+
+**Root with four capabilities.** Switching users needs privilege, so the server now runs as root with `cap_drop: ALL` plus `SETUID`, `SETGID`, `CHOWN` and `DAC_OVERRIDE` (to read outputs and delete the folder). It never runs model code: `subprocess` switches the child to the slot's user before `preexec_fn`, and leaving uid 0 clears every capability. `_slot_user` refuses to run anything as root without a valid slot, so forgetting the argument fails instead of running untrusted code as root. Off the image (Windows, a non-root Linux dev box) there is no user to switch to, and runs execute as the caller, as before.
+
+**Still not isolated** (measured, documented in SANDBOX_EXECUTION.md and SAFETY_AND_GUARDRAILS.md gap 11): `/proc` has no `hidepid`, so a run can read the *command line* of a `run_command` stage in the other slot at the same moment, for example a grep pattern. Files, stdin, environment and open files stay private. Python and JavaScript code travels on stdin, not argv. The kernel is shared. The next steps are gVisor (`runtime: runsc`) or a microVM per user (`COMPUTE_ISOLATION_PLAN.md`). A userns/pid-namespace sandbox like bubblewrap would hide `/proc`, but it needs a custom seccomp profile allowing `unshare`, which widens the kernel attack surface.
+
+**Deploy:** the image and `docker-compose.prod.yml` must ship together. The new image without `cap_add` cannot switch users and every run fails. The old image with the new compose works, but it is not isolated.
+
+Tests: `sandbox_service/tests/test_isolation.py` (image only, as root): a run's uid, `/tmp` closed, another slot refused a run's file even given the exact path, the setsid spy dead before the next run, the fork bomb capped and cleaned up.

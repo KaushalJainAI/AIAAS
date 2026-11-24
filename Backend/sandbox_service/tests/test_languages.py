@@ -5,13 +5,15 @@ binaries, pyseccomp and a Linux kernel. They skip anywhere else (local Windows
 dev). Run them in the image:
 
     docker build -t aiaas-sandbox Backend/sandbox_service
-    docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
+    docker run --rm --init --read-only --tmpfs /tmp:mode=0711 --cap-drop ALL \
+        --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add DAC_OVERRIDE \
         --security-opt no-new-privileges --network none \
         -v "$PWD/Backend/sandbox_service/tests:/srv/tests:ro" \
         aiaas-sandbox python -m unittest discover -s tests -v
 """
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import unittest
@@ -21,6 +23,11 @@ if _SVC_DIR not in sys.path:
     sys.path.insert(0, _SVC_DIR)
 
 import executor  # noqa: E402
+
+# Slot 1: as root (the image) a run must name the slot whose user it runs as;
+# as anyone else the slot is ignored.
+run = functools.partial(executor.execute, slot=1)
+run_commands = functools.partial(executor.execute_commands, slot=1)
 from commands import CommandRefused  # noqa: E402
 
 try:
@@ -41,17 +48,17 @@ def _cmd(command, *args):
 @_needs_image
 class JavaScriptTests(unittest.TestCase):
     def test_prints_come_back(self):
-        env = executor.execute("console.log(6 * 7)", language="javascript")
+        env = run("console.log(6 * 7)", language="javascript")
         self.assertTrue(env["success"], env)
         self.assertEqual(env["output"].strip(), "42")
         # The backend uses this echo to tell a current image from an old one.
         self.assertEqual(env["language"], "javascript")
 
     def test_commonjs_and_es_modules_both_work(self):
-        env = executor.execute("const os = require('node:os'); console.log(typeof os.EOL)",
+        env = run("const os = require('node:os'); console.log(typeof os.EOL)",
                                language="javascript")
         self.assertTrue(env["success"], env)
-        env = executor.execute("import { EOL } from 'node:os'; console.log(typeof EOL)",
+        env = run("import { EOL } from 'node:os'; console.log(typeof EOL)",
                                language="javascript")
         self.assertTrue(env["success"], env)
 
@@ -60,24 +67,24 @@ class JavaScriptTests(unittest.TestCase):
                 "interface P { x: number }\n"
                 "const p: P = { x: 41 };\n"
                 "console.log(p.x + Colour.Green)")
-        env = executor.execute(code, language="typescript")
+        env = run(code, language="typescript")
         self.assertTrue(env["success"], env)
         self.assertEqual(env["output"].strip(), "42")
         self.assertNotIn("ExperimentalWarning", env["stderr"])
 
     def test_a_thrown_error_is_a_failure_with_its_message(self):
-        env = executor.execute("throw new Error('boom')", language="javascript")
+        env = run("throw new Error('boom')", language="javascript")
         self.assertFalse(env["success"])
         self.assertIn("boom", env["error"])
 
     def test_child_process_is_refused(self):
-        env = executor.execute(
+        env = run(
             "require('node:child_process').execSync('id')", language="javascript")
         self.assertFalse(env["success"])
         self.assertIn("child-process", env["error"])
 
     def test_files_outside_the_run_are_refused(self):
-        env = executor.execute(
+        env = run(
             "require('node:fs').readFileSync('/etc/passwd')", language="javascript")
         self.assertFalse(env["success"])
         self.assertIn("allow-fs-read", env["error"])
@@ -85,39 +92,39 @@ class JavaScriptTests(unittest.TestCase):
     def test_network_is_refused(self):
         code = ("require('node:net').connect(80, '1.1.1.1')"
                 ".on('error', e => { console.log('blocked', e.code); });")
-        env = executor.execute(code, language="javascript")
+        env = run(code, language="javascript")
         self.assertIn("blocked", env["output"])
 
     def test_files_in_and_out(self):
         code = ("const fs = require('node:fs');"
                 "const n = fs.readFileSync('in.txt', 'utf8').trim().split('\\n').length;"
                 "fs.writeFileSync('count.txt', String(n));")
-        env = executor.execute(code, language="javascript",
+        env = run(code, language="javascript",
                                files={"in.txt": b"a\nb\nc\n"}, collect=["count.txt"])
         self.assertTrue(env["success"], env)
         self.assertEqual(env["files_out"], {"count.txt": b"3"})
 
     def test_memory_cap_holds(self):
         code = "const a = []; while (true) a.push(new Array(1e6).fill(1));"
-        env = executor.execute(code, language="javascript",
+        env = run(code, language="javascript",
                                mem_bytes=128 * 1024 * 1024, wall_seconds=20)
         self.assertFalse(env["success"])
         self.assertFalse(env["timed_out"], env)
 
     def test_runaway_loop_is_killed(self):
-        env = executor.execute("while (true) {}", language="javascript", wall_seconds=2)
+        env = run("while (true) {}", language="javascript", wall_seconds=2)
         self.assertTrue(env["timed_out"])
 
     def test_unknown_language_is_refused(self):
         with self.assertRaises(executor.FileSpecError):
-            executor.execute("puts 1", language="ruby")
+            run("puts 1", language="ruby")
 
 
 @_needs_image
 class CommandTests(unittest.TestCase):
     def test_a_pipeline_over_an_input_file(self):
         log = b"ok\nERROR disk\nok\nERROR net\nERROR disk\n"
-        env = executor.execute_commands(
+        env = run_commands(
             [_cmd("grep", "ERROR", "app.log"), _cmd("sort"), _cmd("uniq", "-c"),
              _cmd("sort", "-rn")],
             files={"app.log": log})
@@ -126,22 +133,22 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(env["output"].split(), ["2", "ERROR", "disk", "1", "ERROR", "net"])
 
     def test_stdin_and_jq(self):
-        env = executor.execute_commands([_cmd("jq", "-r", ".items[].name")],
+        env = run_commands([_cmd("jq", "-r", ".items[].name")],
                                         stdin='{"items": [{"name": "a"}, {"name": "b"}]}')
         self.assertTrue(env["success"], env)
         self.assertEqual(env["output"].split(), ["a", "b"])
 
     def test_no_match_is_an_exit_code_not_a_failure(self):
-        env = executor.execute_commands([_cmd("grep", "zzz")], stdin="abc\n")
+        env = run_commands([_cmd("grep", "zzz")], stdin="abc\n")
         self.assertTrue(env["success"], env)
         self.assertEqual(env["exit_codes"], [1])
 
     def test_shell_syntax_is_inert(self):
-        env = executor.execute_commands([_cmd("echo", "$(id); `id` | sh")])
+        env = run_commands([_cmd("echo", "$(id); `id` | sh")])
         self.assertEqual(env["output"].strip(), "$(id); `id` | sh")
 
     def test_sed_cannot_execute(self):
-        env = executor.execute_commands([_cmd("sed", "1e id")], stdin="x\n")
+        env = run_commands([_cmd("sed", "1e id")], stdin="x\n")
         self.assertNotEqual(env["exit_codes"], [0])
         self.assertIn("sandbox", env["stderr"])
         self.assertNotIn("uid=", env["output"])
@@ -150,7 +157,7 @@ class CommandTests(unittest.TestCase):
         for program in ('BEGIN { system("id") }', 'BEGIN { "id" | getline x; print x }',
                         'BEGIN { print "x" | "sh" }'):
             with self.subTest(program=program):
-                env = executor.execute_commands([_cmd("awk", program)])
+                env = run_commands([_cmd("awk", program)])
                 self.assertNotEqual(env["exit_codes"], [0])
                 self.assertNotIn("uid=", env["output"])
 
@@ -162,9 +169,18 @@ class CommandTests(unittest.TestCase):
         import subprocess
         request = {"stages": [["/usr/bin/gawk", 'BEGIN { r = system("id"); print "rc=" r }']],
                    "stdin": "", "max_output": 10_000}
+        import shutil
+        import tempfile
+        scratch = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, scratch, True)
+        as_slot = {"env": {"TMPDIR": scratch}}
+        if os.geteuid() == 0:
+            slot_user = executor.SLOT_ID_BASE + 1
+            os.chown(scratch, slot_user, slot_user)
+            as_slot.update(user=slot_user, group=slot_user, extra_groups=[], cwd=scratch)
         proc = subprocess.run([sys.executable, "-I", "-B", executor.LAUNCHER],
                               input=json.dumps(request).encode(), capture_output=True,
-                              timeout=20)
+                              timeout=20, **as_slot)
         env = json.loads(proc.stdout)
         self.assertTrue(env["success"], env)
         self.assertNotIn("uid=", env["output"])
@@ -172,17 +188,17 @@ class CommandTests(unittest.TestCase):
 
     def test_refused_command_raises(self):
         with self.assertRaises(CommandRefused):
-            executor.execute_commands([_cmd("bash", "-c", "id")])
+            run_commands([_cmd("bash", "-c", "id")])
 
     def test_runaway_is_killed(self):
-        env = executor.execute_commands([_cmd("tail", "-f", "/dev/null")], wall_seconds=2)
+        env = run_commands([_cmd("tail", "-f", "/dev/null")], wall_seconds=2)
         self.assertTrue(env["timed_out"])
 
 
 @_needs_image
 class PythonCannotStartProgramsTests(unittest.TestCase):
     def test_subprocess_is_denied(self):
-        env = executor.execute(
+        env = run(
             "import subprocess\n"
             "try:\n"
             "    subprocess.run(['/bin/sh', '-c', 'id'], capture_output=True)\n"
@@ -193,7 +209,7 @@ class PythonCannotStartProgramsTests(unittest.TestCase):
         self.assertEqual(env["result"], "denied")
 
     def test_numpy_and_pandas_still_import(self):
-        env = executor.execute("import numpy, pandas\nresult = int(numpy.arange(4).sum())")
+        env = run("import numpy, pandas\nresult = int(numpy.arange(4).sum())")
         self.assertTrue(env["success"], env)
         self.assertEqual(env["result"], 6)
 
