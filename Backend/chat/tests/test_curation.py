@@ -587,22 +587,17 @@ class SummaryModelChoiceTests(TestCase):
             session_id="s1", intent="research", user_text="g",
             curation=curation.CurationPolicy(enabled=True),
         )
-        captured = {}
+        from llm.testing import scripted_model, text, usage
 
-        async def fake_complete(**kwargs):
-            captured.update(kwargs)
-            from llm.access import Completion
-            return Completion(content="note", tokens=7)
-
-        with patch("llm.access.complete", new=fake_complete):
+        with scripted_model(text("note", usage=usage(7, 0)), provider="nvidia") as model:
             summarise = async_to_sync(_summariser_for)(turn)
             self.assertEqual(async_to_sync(summarise)("text"), ("note", 7))
 
-        self.assertEqual(captured["model"], "run-model")
+        self.assertEqual([r.model for r in model.requests], ["run-model"])
 
     def test_an_unusable_fold_model_falls_back_rather_than_losing_the_note(self):
         from chat.turn.agent import TurnContext, _summariser_for
-        from llm.access import Completion, LLMNoCredential
+        from llm.testing import scripted_model, text, usage
 
         turn = TurnContext(
             provider="nvidia", model="run-model", system_message="s", user_id=1,
@@ -612,17 +607,12 @@ class SummaryModelChoiceTests(TestCase):
                 summary_model="pinned-model",
             ),
         )
-        tried = []
-
-        async def fake_complete(**kwargs):
-            tried.append(kwargs["model"])
-            if kwargs["model"] == "pinned-model":
-                raise LLMNoCredential("no key")
-            return Completion(content="note", tokens=3)
-
-        with patch("llm.access.complete", new=fake_complete):
+        # No OpenRouter key anywhere: the pinned model is refused by the real
+        # credential lookup before any request, and the run's own model answers.
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": ""}), \
+                scripted_model(text("note", usage=usage(3, 0)), provider="nvidia") as model:
             summarise = async_to_sync(_summariser_for)(turn)
             content, tokens = async_to_sync(summarise)("text")
 
-        self.assertEqual(tried, ["pinned-model", "run-model"])
+        self.assertEqual([r.model for r in model.requests], ["run-model"])
         self.assertEqual((content, tokens), ("note", 3))
