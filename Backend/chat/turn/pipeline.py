@@ -699,15 +699,29 @@ async def persist_interrupted_answer(
     Whatever reached the client is kept instead, flagged so the UI can mark it
     as incomplete. Nothing is written when nothing was streamed.
     """
+    # The stopped turn is over, so its change set closes whether or not any text
+    # was streamed (docs/UNDO_PLAN.md §6.7). The stop route has no message id;
+    # the turn's user message is the session's latest one.
+    from logs import changes
+
+    user_message = await ChatMessage.objects.filter(session=session, role="user").alast()
+    changes_summary = (
+        await sync_to_async(changes.close_chat)(user.id, user_message.id)
+        if user_message is not None else None
+    )
+
     if not text.strip():
         return None
 
+    metadata: dict[str, Any] = {"interrupted": True, "model": session.llm_model}
+    if changes_summary is not None:
+        metadata["changes"] = changes_summary
     message = await ChatMessage.objects.acreate(
         session=session,
         role="assistant",
         content=text,
         message_type="chat",
-        metadata={"interrupted": True, "model": session.llm_model},
+        metadata=metadata,
     )
     await _notify(user, session, message)
     return message
@@ -1224,6 +1238,10 @@ async def run_chat_turn(
         # treatment either way: report it as an error, never as the assistant's
         # reply.
         logger.warning("[Turn] Provider error for user %s: %s", user.id, exc)
+        # The turn ended here, so its change set closes (docs/UNDO_PLAN.md §6.7).
+        from logs import changes
+
+        await sync_to_async(changes.close_chat)(user.id, user_message.id)
         raise TurnError(str(exc)) from exc
     turn_elapsed_s = time.monotonic() - turn_started
     # One line per turn: the pace it started at, where it ended, and what that
@@ -1236,7 +1254,8 @@ async def run_chat_turn(
     )
 
     assistant_message = await _persist_answer(
-        session=session, user=user, turn=turn, result=result,
+        session=session, user=user, chat_message_id=user_message.id,
+        turn=turn, result=result,
         question=question, intent=intent, elapsed_s=turn_elapsed_s,
         command_json=(
             command_resolution.command_json
@@ -1348,6 +1367,7 @@ async def _persist_answer(
     *,
     session: ChatSession,
     user,
+    chat_message_id: int,
     turn: TurnContext,
     result: TurnResult,
     question: str,
@@ -1355,7 +1375,11 @@ async def _persist_answer(
     elapsed_s: float = 0,
     command_json: dict[str, Any] | None = None,
 ) -> ChatMessage:
-    """Store the assistant's reply and everything the UI needs alongside it."""
+    """Store the assistant's reply and everything the UI needs alongside it.
+
+    `chat_message_id` is the user message this turn answers: its change set is
+    closed here, unless the turn paused for an approval (docs/UNDO_PLAN.md §6.7).
+    """
     answer = _INTERNAL_TAGS.sub("", result.answer or "").strip()
 
     if not answer and result.awaiting_approval:
@@ -1458,6 +1482,16 @@ async def _persist_answer(
     paid_by = await llm.payer(
         provider=turn.provider, model=turn.model, user_id=turn.user_id,
     )
+
+    # A pause for approval is not the end of the turn: the set stays open, and
+    # the resumed turn records into it (D6). Workers still running at the close
+    # may add changes later; the chip shows the count at close time.
+    if not result.awaiting_approval:
+        from logs import changes
+
+        changes_summary = await sync_to_async(changes.close_chat)(user.id, chat_message_id)
+        if changes_summary is not None:
+            metadata["changes"] = changes_summary
 
     message = await ChatMessage.objects.acreate(
         session=session,
