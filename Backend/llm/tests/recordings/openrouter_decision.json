@@ -1,0 +1,57 @@
+{
+  "source": "from-docs",
+  "note": "Written from OpenRouter's Decisions API reference (POST /api/alpha/decisions; answer types choice, noul and score; usage with cost). Re-record with a key: RECORD_BEARER_TOKEN=sk-or-... RECORD_PROVIDER_FIXTURES=overwrite pytest llm/tests/test_recorded_providers.py -k decision_call (one paid call, about $0.00002).",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/alpha/decisions"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "json": {
+          "id": "dec-1763888400-XyZ",
+          "model": "typesafe/jev-1.14-20261014",
+          "answers": {
+            "team": {
+              "type": "choice",
+              "choice": "payments",
+              "confidence": 0.85,
+              "probabilities": {
+                "payments": 0.9,
+                "frontend": 0.1
+              }
+            },
+            "is_bug": {
+              "type": "noul",
+              "noul": 0.86
+            },
+            "urgency": {
+              "type": "score",
+              "score": 1.99,
+              "confidence": 1,
+              "legend": {
+                "0": "can wait",
+                "1": "this week",
+                "2": "blocking"
+              },
+              "probabilities": {
+                "0": 0,
+                "1": 0,
+                "2": 1
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 380,
+            "output_tokens": 70,
+            "cost": 1.596e-05
+          }
+        }
+      }
+    }
+  ]
+}

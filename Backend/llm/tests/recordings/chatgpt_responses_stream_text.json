@@ -1,0 +1,59 @@
+{
+  "source": "from-docs",
+  "note": "Written from OpenAI's Responses API streaming reference (event types, item shapes, usage). The ChatGPT plan has not been run against a real account yet (Backend/docs/CHATGPT_PLAN_PROVIDER_PLAN.md). Re-record with a signed-in plan: set RECORD_BEARER_TOKEN to its access token and run with RECORD_PROVIDER_FIXTURES=overwrite -k chatgpt",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body_lines": [
+          "event: response.created",
+          "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_67ccd2bed1ec8190\",\"object\":\"response\",\"created_at\":1741476542,\"status\":\"in_progress\",\"model\":\"gpt-5.5\",\"output\":[]}}",
+          "",
+          "event: response.in_progress",
+          "data: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_67ccd2bed1ec8190\",\"object\":\"response\",\"created_at\":1741476542,\"status\":\"in_progress\",\"model\":\"gpt-5.5\",\"output\":[]}}",
+          "",
+          "event: response.output_item.added",
+          "data: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"summary\":[]}}",
+          "",
+          "event: response.reasoning_summary_text.delta",
+          "data: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":3,\"item_id\":\"rs_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"Greeting the user.\"}",
+          "",
+          "event: response.output_item.done",
+          "data: {\"type\":\"response.output_item.done\",\"sequence_number\":4,\"output_index\":0,\"item\":{\"id\":\"rs_1\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Greeting the user.\"}]}}",
+          "",
+          "event: response.output_item.added",
+          "data: {\"type\":\"response.output_item.added\",\"sequence_number\":5,\"output_index\":1,\"item\":{\"id\":\"msg_67ccd2bf17f0\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}",
+          "",
+          "event: response.content_part.added",
+          "data: {\"type\":\"response.content_part.added\",\"sequence_number\":6,\"item_id\":\"msg_67ccd2bf17f0\",\"output_index\":1,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}",
+          "",
+          "event: response.output_text.delta",
+          "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":7,\"item_id\":\"msg_67ccd2bf17f0\",\"output_index\":1,\"content_index\":0,\"delta\":\"Hello\"}",
+          "",
+          "event: response.output_text.delta",
+          "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":8,\"item_id\":\"msg_67ccd2bf17f0\",\"output_index\":1,\"content_index\":0,\"delta\":\" there.\"}",
+          "",
+          "event: response.output_text.done",
+          "data: {\"type\":\"response.output_text.done\",\"sequence_number\":9,\"item_id\":\"msg_67ccd2bf17f0\",\"output_index\":1,\"content_index\":0,\"text\":\"Hello there.\"}",
+          "",
+          "event: response.content_part.done",
+          "data: {\"type\":\"response.content_part.done\",\"sequence_number\":10,\"item_id\":\"msg_67ccd2bf17f0\",\"output_index\":1,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"Hello there.\",\"annotations\":[]}}",
+          "",
+          "event: response.output_item.done",
+          "data: {\"type\":\"response.output_item.done\",\"sequence_number\":11,\"output_index\":1,\"item\":{\"id\":\"msg_67ccd2bf17f0\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello there.\",\"annotations\":[]}]}}",
+          "",
+          "event: response.completed",
+          "data: {\"type\":\"response.completed\",\"sequence_number\":12,\"response\":{\"id\":\"resp_67ccd2bed1ec8190\",\"object\":\"response\",\"created_at\":1741476542,\"status\":\"completed\",\"model\":\"gpt-5.5\",\"output\":[{\"id\":\"msg_67ccd2bf17f0\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello there.\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":36,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":87,\"output_tokens_details\":{\"reasoning_tokens\":64},\"total_tokens\":123}}}",
+          ""
+        ]
+      }
+    }
+  ]
+}
