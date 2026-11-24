@@ -11,7 +11,6 @@ half passes its own unit tests while the two together sent everything twice.
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
@@ -20,6 +19,7 @@ from django.test import TestCase
 
 from chat.models import ChatMessage, ChatSession
 from chat.turn.pipeline import TurnRequest, run_chat_turn
+from llm.testing import ScriptedModel, ScriptedRequest, always, scripted_model, text, tool_call
 
 User = get_user_model()
 
@@ -32,24 +32,24 @@ class _Sink:
 
 
 class _Provider:
-    """Records every request; the first call of turn 1 asks for a tool."""
+    """The first call of a turn asks for a tool when `tool_once` is set; every
+    other call answers. Underneath is a scripted model, so `requests` are the
+    requests as they went over the wire, across every turn it is installed for.
+    """
 
     def __init__(self) -> None:
-        self.requests: list[dict[str, Any]] = []
         self.tool_once = True
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    async def __call__(self, **kwargs):
-        self.requests.append(kwargs)
+    def _respond(self, request: ScriptedRequest):
         if self.tool_once:
             self.tool_once = False
-            yield {"type": "tool_calls", "tool_calls": [{
-                "index": 0, "id": "call_z",
-                "function": {"name": "web_search",
-                             "arguments": json.dumps({"query": "zebras"})},
-            }]}
-        else:
-            yield {"type": "content", "content": "Answer."}
-        yield {"type": "metadata", "usage": {"total_tokens": 5}}
+            return tool_call("web_search", {"query": "zebras"}, id="call_z")
+        return text("Answer.")
+
+    @property
+    def requests(self) -> list[ScriptedRequest]:
+        return self.scripted.requests
 
 
 class ChatTranscriptTests(TestCase):
@@ -88,15 +88,15 @@ class ChatTranscriptTests(TestCase):
                            "sources": []})
 
     def _turn(self, text: str, provider: _Provider) -> None:
-        with patch("llm.access.stream", provider):
+        with provider.scripted.installed():
             async_to_sync(run_chat_turn)(
                 session=self.session, user=self.user,
                 request=TurnRequest.parse({"content": text}), sink=_Sink(),
             )
 
-    def _payload(self, request: dict[str, Any]) -> str:
-        return json.dumps(request.get("history") or []) + "\n" + str(
-            request.get("prompt") or "")
+    def _payload(self, request: ScriptedRequest) -> str:
+        """Every message of one request, as sent."""
+        return json.dumps(request.messages)
 
     def test_earlier_turns_are_sent_once_and_without_their_tool_results(self):
         provider = _Provider()
@@ -125,7 +125,7 @@ class ChatTranscriptTests(TestCase):
             before = len(provider.requests)
             provider.tool_once = True
             self._turn("last question", provider)
-        self.assertTrue(provider.requests[before].get("tools"))
+        self.assertTrue(provider.requests[before].tools_offered)
 
     def test_a_long_chat_turn_compacts_old_tool_results(self):
         # Chat is the orchestrator now, so one turn can run many tool calls.
@@ -133,43 +133,54 @@ class ChatTranscriptTests(TestCase):
         # an archive id, and the text stays reachable.
         from chat.turn.curation import RECORD_PREFIX
 
-        budget = 9_000
+        # Room for the system prompt (~2.8k), the two newest results whole
+        # (~2.6k each) and the records of the rest, and not for eight whole
+        # results (~21k). At 9k, which this test used while it read the history
+        # handed to the funnel, the final guard in `llm.access` dropped the
+        # records (the oldest segments) on every call, so none reached the model.
+        budget = 12_000
 
         async def small_budget(model, *, reserve_output=0):
             return budget
 
-        calls = {"n": 0}
-
-        async def provider(**kwargs):
-            calls["n"] += 1
-            requests.append(kwargs)
-            if calls["n"] <= 8:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": f"call_{calls['n']}",
-                    "function": {"name": "web_search",
-                                 "arguments": json.dumps({"query": f"q{calls['n']}"})},
-                }]}
-            else:
-                yield {"type": "content", "content": "Done."}
-            yield {"type": "metadata", "usage": {"total_tokens": 5}}
+        def respond(request: ScriptedRequest):
+            if request.index <= 8:
+                return tool_call("web_search", {"query": f"q{request.index}"},
+                                 id=f"call_{request.index}")
+            return text("Done.")
 
         async def big_tool(name, args, context) -> str:
             return json.dumps({"type": "search_results",
                                "text": f"{args.get('query')} " + "fact " * 2_000,
                                "sources": []})
 
-        requests: list[dict[str, Any]] = []
+        async def search_only(*_a, **_k):
+            # One tool, so the small budget is spent on the transcript. With
+            # the whole catalogue (~33k tokens of schemas) the definitions
+            # alone exceed it, and the final guard in `llm.access` drops every
+            # message: the history handed to the funnel had the records, the
+            # request that left had none. Only the wire shows that.
+            from chat.tools import AVAILABLE_TOOLS
+
+            return [t for t in AVAILABLE_TOOLS if t["function"]["name"] == "web_search"]
+
         with patch("llm.budget.input_budget_for", new=small_budget), \
              patch("llm.budget.cached_input_budget",
                    new=lambda model, reserve_output=0: budget), \
+             patch("chat.tools.get_available_tools", search_only), \
              patch("chat.tools.execute_tool", big_tool), \
-             patch("llm.access.stream", provider):
+             scripted_model(always(respond)) as model:
             async_to_sync(run_chat_turn)(
                 session=self.session, user=self.user,
                 request=TurnRequest.parse({"content": "gather a lot"}),
                 sink=_Sink(),
             )
-        self.assertIn(RECORD_PREFIX, json.dumps(requests[-1].get("history") or []))
+        last = model.requests[-1]
+        self.assertIn(RECORD_PREFIX, json.dumps(last.messages))
+        # The records arrived with the calls they answer, and the newest
+        # result is still whole.
+        self.assertTrue(last.tool_results())
+        self.assertIn("fact fact", json.dumps(last.tool_results()[-1]))
 
     def test_a_long_earlier_answer_arrives_as_its_summary(self):
         provider = _Provider()
