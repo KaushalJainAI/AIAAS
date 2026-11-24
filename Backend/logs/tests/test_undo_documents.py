@@ -391,6 +391,25 @@ class RevertEngineTests(UndoCase):
             self.revert(log)
         self.assertIn('already being undone', str(ctx.exception))
 
+    def test_a_lock_left_by_a_dead_revert_is_taken_over(self):
+        # A revert whose process died never settles its set; after
+        # STALE_REVERT_LOCK the next press must be able to finish the job.
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        log = self.new_run()
+        with self.in_run(log):
+            vfs.write_file(self.scope, '/a.md', 'x')
+        self.end(log)
+        ChangeSet.objects.filter(execution=log).update(
+            status='reverting',
+            updated_at=timezone.now() - undo.STALE_REVERT_LOCK - timedelta(seconds=1))
+
+        result = self.revert(log)
+        self.assertEqual(result['reverted'], 1)
+        self.assertIsNotNone(self.any_doc('a.md').deleted_at)
+
     def test_an_open_chat_set_is_refused_while_fresh_and_allowed_once_idle(self):
         session = ChatSession.objects.create(user=self.user, title='work')
         message = ChatMessage.objects.create(

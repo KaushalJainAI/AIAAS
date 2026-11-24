@@ -62,6 +62,8 @@ FINISHED_RUN_STATUSES = frozenset({'completed', 'failed', 'cancelled', 'timeout'
 #: retries what was skipped the first time. Without it the second press would
 #: be refused, and a skipped change could never be retried.
 _REVERT_FROM = ['open', 'closed', 'partial', 'reverted']
+#: How old a `reverting` lock must be before a new revert may take it over.
+STALE_REVERT_LOCK = timedelta(minutes=10)
 
 #: Plain-words notes (docs/UNDO_PLAN.md §6.4), one place so the UI and the tests agree.
 NOTE_GONE_FILE = 'This file is gone for good (the bin was emptied).'
@@ -269,8 +271,17 @@ def revert(change_set: ChangeSet, user, *, change_ids: list[int] | None = None) 
             raise ChangeNotFound()
 
     # The lock: one conditional UPDATE, so two presses at once cannot both run.
+    # A lock older than STALE_REVERT_LOCK is a revert whose process died (a
+    # deploy, an OOM kill) before `finally` could settle it; without the
+    # take-over the set could never be undone again. A live revert takes
+    # seconds, so a fresh lock still refuses the second press.
+    from django.db.models import Q
+
+    stale = timezone.now() - STALE_REVERT_LOCK
     locked = (ChangeSet.objects
-              .filter(pk=change_set.pk, user_id=user.id, status__in=_REVERT_FROM)
+              .filter(pk=change_set.pk, user_id=user.id)
+              .filter(Q(status__in=_REVERT_FROM)
+                      | Q(status='reverting', updated_at__lt=stale))
               .update(status='reverting', updated_at=timezone.now()))
     if not locked:
         raise RevertRefused('This change set is already being undone.')
