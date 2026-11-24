@@ -18,6 +18,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -235,3 +236,46 @@ class RowCapTests(RecordCase):
         target = self.set_of(log)
         self.assertEqual(self.rows(target.pk).count(), 3)
         self.assertTrue(ChangeSet.objects.get(pk=target.pk).incomplete)
+
+
+class ParallelWriteTests(RecordCase):
+    def test_a_lost_create_race_updates_the_row_the_other_call_made(self):
+        # Two calls of one set write one new file at once (a parallel batch).
+        # The other call's insert lands first; ours hits the unique constraint
+        # and must retry as an update, not mark the set incomplete.
+        log = self.new_run()
+        real = changes._upsert_row
+        seen = {'calls': 0}
+
+        def other_call_wins_first(*args, **kwargs):
+            seen['calls'] += 1
+            if seen['calls'] == 1:
+                real(*args, **kwargs)  # the other call's row is written first
+                raise IntegrityError('UNIQUE constraint failed: change_one_row_per_target')
+            return real(*args, **kwargs)
+
+        with self.in_run(log), mock.patch.object(
+                changes, '_upsert_row', side_effect=other_call_wins_first):
+            vfs.write_file(self.scope, '/race.md', 'one')
+        target = self.set_of(log)
+        rows = list(self.rows(target.pk))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(seen['calls'], 2)
+        self.assertIsNone(rows[0].before)
+        self.assertTrue(rows[0].content_changed)
+        self.assertFalse(ChangeSet.objects.get(pk=target.pk).incomplete)
+
+
+class InlineChildTests(RecordCase):
+    def test_a_child_bound_to_no_owner_writes_nothing_into_the_parent_set(self):
+        # `invoke_subagent` awaits its child inline; the child binds None (D18),
+        # so its writes must not land in the parent's set.
+        log = self.new_run()
+        with self.in_run(log):
+            child = changes.bind(None)
+            try:
+                vfs.write_file(self.scope, '/child.md', 'from the child')
+            finally:
+                changes.unbind(child)
+        self.assertEqual(ChangeSet.objects.filter(execution=log).count(), 0)
+        self.assertEqual(Change.objects.count(), 0)

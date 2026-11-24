@@ -220,17 +220,6 @@ FILE_VERSION_COALESCE_SECONDS = 300
 #: A file bigger than this is overwritten without a version. Versions are for
 #: documents people edit; a 200 MB video replaced by another is not one.
 FILE_VERSION_MAX_BYTES = 25 * 1024 * 1024
-
-# ==================== Change log (logs/changes.py, docs/UNDO_PLAN.md §6) ====================
-#: Rows (one per touched target) one change set may hold. Past it a change is
-#: not recorded and the set says `incomplete`: a run that edits 5,000 files must
-#: not write 5,000 rows, and the list must say it is not the whole story.
-MAX_CHANGES_PER_SET = 500
-#: A chat set with no writes for this long counts as abandoned, so it can be
-#: reverted. A turn paused for approval stays open until then.
-CHANGE_SET_IDLE_SECONDS = 600
-#: Rows one change list (the tree of a set and its children) returns.
-CHANGE_LIST_LIMIT = 500
 #: Quiet after an office draft save before the background task rebuilds the
 #: real bytes (`inference/drafts.py`). Rebuilding a `.docx` / `.pptx` / `.xlsx`
 #: on every autosave is too heavy for the 913 MB box; reads that need the
@@ -593,3 +582,14 @@ INJECTION_CHECK_MAX_RESULTS = 8
 INJECTION_CHECK_CONCURRENCY = 4
 #: Verdicts kept in memory, least recently used out first.
 INJECTION_CHECK_CACHE_ENTRIES = 512
+
+# ==================== Change log (logs/changes.py, docs/UNDO_PLAN.md §6) ====================
+#: Rows (one per touched target) one change set may hold. Past it a change is
+#: not recorded and the set says `incomplete`: a run that edits 5,000 files must
+#: not write 5,000 rows, and the list must say it is not the whole story.
+MAX_CHANGES_PER_SET = 500
+#: A chat set with no writes for this long counts as abandoned, so it can be
+#: reverted. A turn paused for approval stays open until then.
+CHANGE_SET_IDLE_SECONDS = 600
+#: Rows one change list (the tree of a set and its children) returns.
+CHANGE_LIST_LIMIT = 500

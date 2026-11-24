@@ -276,43 +276,56 @@ def _journal(b: Binding, target_type: str, target_id: int | None, *, before: dic
              after_fn, content: bool, label: str) -> None:
     """Record one target's net effect in the current set (D1)."""
     try:
-        after = after_fn()
         set_id = current_set_id(create=True)
         if set_id is None:
             return
+        after = after_fn()
         # Counted even when the cap stops the row, so the fallback in
         # `_dispatch_one` does not add an "untracked" row for a write we did see.
         b.recorded += 1
-        with transaction.atomic():
-            row = None
-            if target_id is not None:
-                row = (Change.objects.select_for_update()
-                       .filter(change_set_id=set_id, target_type=target_type,
-                               target_id=target_id)
-                       .first())
-            if row is None:
-                if _is_full(set_id):
-                    _mark_incomplete(set_id)
-                    return
-                Change.objects.create(
-                    change_set_id=set_id, seq=_next_seq(set_id),
-                    target_type=target_type, target_id=target_id,
-                    tool=b.tool[:100], call_id=b.call_id[:100],
-                    label=label[:300], before=before, after=after,
-                    content_changed=content, revertible=True,
-                )
-            else:
-                # The first touch keeps `before`, `tool` and `call_id`; every
-                # touch moves `after` on and can only add to `content_changed`.
-                row.after = after
-                row.label = label[:300]
-                row.content_changed = row.content_changed or content
-                row.save(update_fields=['after', 'label', 'content_changed', 'updated_at'])
-            _touch(set_id)
+        try:
+            _upsert_row(b, set_id, target_type, target_id, before=before, after=after,
+                        content=content, label=label)
+        except IntegrityError:
+            # Two calls of one set wrote this target at the same moment (a
+            # parallel tool batch): the other one created the row first. The
+            # second attempt finds it and updates it.
+            _upsert_row(b, set_id, target_type, target_id, before=before, after=after,
+                        content=content, label=label)
     except Exception:  # noqa: BLE001 — see module note
         logger.exception('[Changes] Could not record %s %s for %s',
                          target_type, target_id, b.tool)
         _mark_incomplete(b.set_id)
+
+
+def _upsert_row(b: Binding, set_id: int, target_type: str, target_id: int | None, *,
+                before: dict | None, after: dict | None, content: bool, label: str) -> None:
+    with transaction.atomic():
+        row = None
+        if target_id is not None:
+            row = (Change.objects.select_for_update()
+                   .filter(change_set_id=set_id, target_type=target_type,
+                           target_id=target_id)
+                   .first())
+        if row is None:
+            if _is_full(set_id):
+                _mark_incomplete(set_id)
+                return
+            Change.objects.create(
+                change_set_id=set_id, seq=_next_seq(set_id),
+                target_type=target_type, target_id=target_id,
+                tool=b.tool[:100], call_id=b.call_id[:100],
+                label=label[:300], before=before, after=after,
+                content_changed=content, revertible=True,
+            )
+        else:
+            # The first touch keeps `before`, `tool` and `call_id`; every touch
+            # moves `after` on and can only add to `content_changed`.
+            row.after = after
+            row.label = label[:300]
+            row.content_changed = row.content_changed or content
+            row.save(update_fields=['after', 'label', 'content_changed', 'updated_at'])
+        _touch(set_id)
 
 
 def _is_full(set_id: int) -> bool:
