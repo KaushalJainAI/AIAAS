@@ -1,19 +1,29 @@
 """Spawn one locked-down subprocess per snippet and collect its envelope.
 
-This is the parent side of `runner.py`. It is importable and testable on its
-own (the tests exercise it directly), and it is what `server.py` calls per
-request.
+This is the parent side of `runner.py` and `launch.py`. It is importable and
+testable on its own (the tests exercise it directly), and it is what
+`server.py` calls per request.
 
 What confines a run, from outermost to innermost:
 
-1. The *container* (Dockerfile + compose): no network egress, `cap_drop: ALL`,
-   read-only root, non-root user, memory + pids caps. This is the real boundary
-   — a full breakout of the interpreter still lands in a throwaway container
-   with no secrets and nowhere to go.
-2. This module: a fresh process in its own session (so a fork bomb dies with
-   `killpg`), `setrlimit` for CPU/address-space/file-size/core, a scrubbed
-   environment, and an ephemeral cwd removed afterwards.
-3. `runner.py` (Python): a best-effort seccomp filter blocking socket
+1. The *container* (Dockerfile + compose): no network egress, every
+   capability dropped except the four this module needs to switch users and
+   manage the run's folder, read-only root, memory + pids caps. This is the
+   real boundary — a full breakout of the interpreter still lands in a
+   throwaway container with no secrets and nowhere to go.
+2. **A Unix user per slot.** The server holds a few concurrency slots; slot
+   *n* runs as uid/gid `20000 + n` (`sbxN` in the Dockerfile), never as the
+   server's own user. The run's folder belongs to that user alone (mode 0700)
+   and `/tmp` itself cannot be listed, so a run cannot see another slot's
+   files. Before and after every run, every process that user owns is killed
+   (`_reap`), so nothing a run started — a daemon that `setsid`-ed out of its
+   process group, say — survives to watch the next person's run in that slot.
+   This closes a measured leak: before slots, a forked background process
+   from one run read the next run's input files.
+3. This module: a fresh process in its own session (so a fork bomb dies with
+   `killpg`), `setrlimit` for CPU/memory/file-size/core and a per-user process
+   count, a scrubbed environment, and an ephemeral folder removed afterwards.
+4. `runner.py` (Python): a best-effort seccomp filter blocking socket
    creation and `execve`, so a snippet cannot start a shell or any other
    program. `launch.py` (Node and command pipelines): the same network block,
    plus a filter that lets each process `execve` exactly once — to start the
@@ -30,6 +40,14 @@ told its extra file was not kept rather than left to believe it was. Names are
 bare file names: a separator, `..` or a leading dot is refused before anything
 is written.
 
+**Who runs what.** In the image the server is root with only `SETUID`,
+`SETGID`, `CHOWN` and `DAC_OVERRIDE`; it never runs model-written code itself.
+A child switches to its slot's user before anything else, which clears every
+capability it had. Running as root *without* a slot is refused, so a caller
+can never run untrusted code as root by forgetting the argument. Run as an
+ordinary user (local Linux dev, the test suite outside the image) there is no
+user to switch to and runs execute as that user, as they always did.
+
 `setrlimit`, `setsid` and `killpg` are POSIX-only; on Windows (local dev, where
 the service does not run) they degrade to a plain timeout-and-kill so the tests
 still exercise the envelope plumbing.
@@ -44,6 +62,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 
 from commands import validate
 
@@ -60,10 +79,19 @@ NODE = "/usr/local/bin/node"
 #: What `execute` accepts as `language`.
 LANGUAGES = ("python", "javascript", "typescript")
 
+#: Slot n runs as uid and gid SLOT_ID_BASE + n. The Dockerfile creates
+#: MAX_SLOTS such users; the server never hands out more slots than that.
+SLOT_ID_BASE = 20000
+MAX_SLOTS = 8
+#: Processes (threads count) one slot's user may have at once. Node alone
+#: starts about ten threads; a pipeline is up to five stages plus the launcher.
+NPROC_PER_SLOT = 64
+
 # The env a snippet is allowed to see. Nothing from the service's own
 # environment leaks in — not that the container holds secrets, but a scrubbed
 # env is one less thing to reason about. Threads pinned to 1 so a BLAS call in
-# numpy cannot fan out across every core on a shared box.
+# numpy cannot fan out across every core on a shared box. HOME and TMPDIR are
+# set per run, to the run's own private folder.
 _BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "PYTHONHASHSEED": "0",
@@ -71,8 +99,6 @@ _BASE_ENV = {
     "OPENBLAS_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
     "NUMEXPR_NUM_THREADS": "1",
-    "HOME": "/tmp",
-    "TMPDIR": "/tmp",
     "LANG": "C.UTF-8",
 }
 
@@ -106,14 +132,99 @@ _TIMEOUT_ENVELOPE = {
 }
 
 
-def _limits(cpu_seconds: int, mem_bytes: int, fsize_bytes: int, *, data_limit: bool = False):
+# -- users --------------------------------------------------------------------
+
+_tmp_locked = False
+
+
+def _slot_user(slot: int | None) -> int | None:
+    """The uid (= gid) this run executes as, or None to run as ourselves.
+
+    None off POSIX and when we are not root (nothing to switch to). As root a
+    valid slot is required: untrusted code never runs as root.
+    """
+    global _tmp_locked
+    if not _POSIX or os.geteuid() != 0:
+        return None
+    if not isinstance(slot, int) or not 1 <= slot <= MAX_SLOTS:
+        raise RuntimeError(
+            f"Refusing to run untrusted code as root without a slot (1-{MAX_SLOTS}).")
+    if not _tmp_locked:
+        # /tmp keeps its execute bit for the run folders' paths but loses
+        # read and write for everyone else: a run cannot list it to find
+        # another run's folder, and cannot leave files in it for the next one.
+        os.chmod(tempfile.gettempdir(), 0o711)
+        _tmp_locked = True
+    return SLOT_ID_BASE + slot
+
+
+def _reap(uid: int) -> None:
+    """Kill every process `uid` owns, as `uid`.
+
+    `kill(-1, SIGKILL)` from a process running as that user reaches all of that
+    user's processes (Linux skips only init and the caller), including any that
+    left the run's process group with `setsid`. Done as the user, not as root,
+    so the server needs no `CAP_KILL` and cannot hit anyone else's processes.
+    Twice, in case one was mid-fork during the first sweep.
+    """
+    script = (
+        "import os, signal\n"
+        "for _ in range(2):\n"
+        "    try:\n"
+        "        os.kill(-1, signal.SIGKILL)\n"
+        "    except ProcessLookupError:\n"
+        "        break\n"
+    )
+    subprocess.run(
+        [sys.executable, "-I", "-S", "-c", script],
+        user=uid, group=uid, extra_groups=[], env={}, cwd="/",
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        timeout=10, check=False,
+    )
+
+
+@contextmanager
+def _run_folder(uid: int | None, files: dict[str, bytes]):
+    """A private folder for one run: `work/` (the cwd) and `tmp/` (TMPDIR).
+
+    Owned by the slot's user with mode 0700, so no other slot can read it.
+    Removed afterwards, after every process of that user is gone.
+    """
+    root = tempfile.mkdtemp(prefix="run-")
+    work = os.path.join(root, "work")
+    tmp = os.path.join(root, "tmp")
+    try:
+        os.mkdir(work, 0o700)
+        os.mkdir(tmp, 0o700)
+        for name, data in files.items():
+            with open(os.path.join(work, name), 'wb') as handle:
+                handle.write(data)
+        if uid is not None:
+            _reap(uid)  # nothing left over from an earlier run in this slot
+            for path in [root, work, tmp] + [os.path.join(work, n) for n in files]:
+                os.chown(path, uid, uid)
+        yield work, tmp
+    finally:
+        if uid is not None:
+            _reap(uid)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _limits(cpu_seconds: int, mem_bytes: int, fsize_bytes: int, *,
+            data_limit: bool = False, nproc: int | None = None):
     """Return a preexec_fn applying rlimits, or None off POSIX.
+
+    It runs in the child after `subprocess` has switched it to the slot's
+    user, so lowering limits needs no privilege.
 
     `data_limit` caps memory with `RLIMIT_DATA` instead of `RLIMIT_AS`. Node
     needs it: V8 reserves far more address space than it ever touches, so a
     256 MB `RLIMIT_AS` kills it before it prints a line (measured: it needs
     ~1 GB of address space to start). `RLIMIT_DATA` counts what is actually
     allocated, and a 600 MB allocation under a 256 MB cap fails as it should.
+
+    `nproc` caps how many processes the slot's user may have, which bounds a
+    fork bomb per slot instead of only per container.
     """
     if not _POSIX:
         return None
@@ -127,6 +238,8 @@ def _limits(cpu_seconds: int, mem_bytes: int, fsize_bytes: int, *, data_limit: b
         resource.setrlimit(memory, (mem_bytes, mem_bytes))
         resource.setrlimit(resource.RLIMIT_FSIZE, (fsize_bytes, fsize_bytes))
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        if nproc is not None:
+            resource.setrlimit(resource.RLIMIT_NPROC, (nproc, nproc))
 
     return _set
 
@@ -158,23 +271,31 @@ def _linux_only(what: str) -> dict:
     }
 
 
-def _spawn(argv: list[str], stdin_bytes: bytes, workdir: str, *, wall_seconds: int,
-           preexec, max_output: int) -> dict:
-    """Run one harness process in `workdir`; the envelope it wrote, or a timeout."""
+def _spawn(argv: list[str], stdin_bytes: bytes, work: str, tmp: str, *, uid: int | None,
+           wall_seconds: int, max_output: int, cpu_seconds: int, mem_bytes: int,
+           fsize_bytes: int, data_limit: bool = False) -> dict:
+    """Run one harness process in `work` as `uid`; its envelope, or a timeout."""
+    env = dict(_BASE_ENV, HOME=tmp, TMPDIR=tmp)
+    as_user = {"user": uid, "group": uid, "extra_groups": []} if uid is not None else {}
     proc = subprocess.Popen(
         argv,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=workdir,
-        env=_BASE_ENV,
-        preexec_fn=preexec,
+        cwd=work,
+        env=env,
+        preexec_fn=_limits(cpu_seconds, mem_bytes, fsize_bytes, data_limit=data_limit,
+                           nproc=NPROC_PER_SLOT if uid is not None else None),
         start_new_session=not _POSIX,  # POSIX uses setsid in preexec instead
+        **as_user,
     )
     try:
         stdout, stderr = proc.communicate(input=stdin_bytes, timeout=wall_seconds)
     except subprocess.TimeoutExpired:
-        _kill(proc)
+        if uid is not None:
+            _reap(uid)  # the whole slot, including anything that left the group
+        else:
+            _kill(proc)
         stdout, stderr = proc.communicate()
         env = dict(_TIMEOUT_ENVELOPE)
         env["error"] = f"Execution timed out after {wall_seconds}s and was killed."
@@ -216,6 +337,7 @@ def execute(
     code: str,
     *,
     language: str = "python",
+    slot: int | None = None,
     wall_seconds: int = 10,
     cpu_seconds: int = 8,
     mem_bytes: int = 512 * 1024 * 1024,
@@ -234,37 +356,32 @@ def execute(
 
     `language` is `python` (runner.py) or `javascript`/`typescript` (Node,
     through launch.py's exec guard). A JavaScript run has no `result`
-    variable: what it prints is the answer.
+    variable: what it prints is the answer. `slot` is the concurrency slot the
+    server gave this run; it picks the Unix user the run executes as.
     """
     if language not in LANGUAGES:
         raise FileSpecError(f'Unknown language {language!r}. Supported: {", ".join(LANGUAGES)}.')
     files, collect = _check_files(files, collect)
     if language != "python" and not _POSIX:
         return _linux_only("JavaScript")
+    uid = _slot_user(slot)
 
-    workdir = tempfile.mkdtemp(prefix="sbx-")
-    try:
-        for name, data in files.items():
-            with open(os.path.join(workdir, name), 'wb') as handle:
-                handle.write(data)
-
+    with _run_folder(uid, files) as (work, tmp):
+        limits = {"uid": uid, "wall_seconds": wall_seconds, "max_output": max_output,
+                  "cpu_seconds": cpu_seconds, "mem_bytes": mem_bytes,
+                  "fsize_bytes": fsize_bytes}
         if language == "python":
-            env = _spawn(
-                [sys.executable, "-I", "-B", RUNNER], code.encode("utf-8"), workdir,
-                wall_seconds=wall_seconds, max_output=max_output,
-                preexec=_limits(cpu_seconds, mem_bytes, fsize_bytes),
-            )
+            env = _spawn([sys.executable, "-I", "-B", RUNNER], code.encode("utf-8"),
+                         work, tmp, **limits)
         else:
             request = {
-                "stages": [_node_argv(language, workdir, mem_bytes)],
+                "stages": [_node_argv(language, work, mem_bytes)],
                 "stdin": code,
                 "max_output": max_output,
             }
-            env = _spawn(
-                [sys.executable, "-I", "-B", LAUNCHER], json.dumps(request).encode("utf-8"),
-                workdir, wall_seconds=wall_seconds, max_output=max_output,
-                preexec=_limits(cpu_seconds, mem_bytes, fsize_bytes, data_limit=True),
-            )
+            env = _spawn([sys.executable, "-I", "-B", LAUNCHER],
+                         json.dumps(request).encode("utf-8"), work, tmp,
+                         data_limit=True, **limits)
             env = _program_outcome(env)
             # Echoed so the backend can tell this sidecar from one that
             # predates `language`, which would ignore the field and run the
@@ -272,10 +389,8 @@ def execute(
             env["language"] = language
 
         if collect and env.get("success"):
-            env.update(_collect(workdir, collect, set(files)))
+            env.update(_collect(work, collect, set(files)))
         return env
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def _program_outcome(env: dict) -> dict:
@@ -297,6 +412,7 @@ def execute_commands(
     pipeline,
     *,
     stdin: str = "",
+    slot: int | None = None,
     wall_seconds: int = 10,
     cpu_seconds: int = 8,
     mem_bytes: int = 512 * 1024 * 1024,
@@ -307,31 +423,25 @@ def execute_commands(
     """Run a pipeline of allowlisted commands over `files` and `stdin`.
 
     `commands.validate` turns the request into argv lists or raises
-    `CommandRefused`; `launch.py` runs them with no shell and the exec guard.
-    `success` means the pipeline ran; each stage's exit status is in
-    `exit_codes` (grep finding nothing exits 1, which is an answer, not a
-    failure — the caller decides).
+    `CommandRefused`; `launch.py` runs them with no shell and the exec guard,
+    as the slot's user. `success` means the pipeline ran; each stage's exit
+    status is in `exit_codes` (grep finding nothing exits 1, which is an
+    answer, not a failure — the caller decides).
     """
     stages = validate(pipeline)
     files, _ = _check_files(files, ())
     if not _POSIX:
         return _linux_only("A command")
+    uid = _slot_user(slot)
 
-    workdir = tempfile.mkdtemp(prefix="sbx-")
-    try:
-        for name, data in files.items():
-            with open(os.path.join(workdir, name), 'wb') as handle:
-                handle.write(data)
+    with _run_folder(uid, files) as (work, tmp):
         request = {"stages": stages, "stdin": stdin or "", "max_output": max_output}
-        env = _spawn(
-            [sys.executable, "-I", "-B", LAUNCHER], json.dumps(request).encode("utf-8"),
-            workdir, wall_seconds=wall_seconds, max_output=max_output,
-            preexec=_limits(cpu_seconds, mem_bytes, fsize_bytes),
-        )
+        env = _spawn([sys.executable, "-I", "-B", LAUNCHER],
+                     json.dumps(request).encode("utf-8"), work, tmp, uid=uid,
+                     wall_seconds=wall_seconds, max_output=max_output,
+                     cpu_seconds=cpu_seconds, mem_bytes=mem_bytes, fsize_bytes=fsize_bytes)
         env.setdefault("exit_codes", [])
         return env
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def _collect(workdir: str, collect: list[str], inputs: set[str]) -> dict:

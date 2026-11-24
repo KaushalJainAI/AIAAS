@@ -37,11 +37,23 @@ COPY runner.py launch.py commands.py executor.py server.py ./
 RUN python -c "import commands, os, sys; missing = [n for n, c in commands.COMMANDS.items() if not os.access(c.path, os.X_OK)]; sys.exit('allowlisted but not installed: ' + ', '.join(missing) if missing else 0)" \
     && node --version
 
-# A non-root user with no home and no shell. Combined with compose's
-# `read_only: true` + a small tmpfs on /tmp, the process can write only to
-# scratch space that vanishes with the container.
-RUN useradd --no-create-home --shell /usr/sbin/nologin sandbox
-USER sandbox
+# One user per concurrency slot (sbx1..sbx8, uid = gid = 20000 + slot), no
+# home, no shell. Every run executes as its slot's user, so runs at the same
+# time cannot read each other's folders, and everything a slot's user owns is
+# killed between runs (executor.py).
+#
+# The server itself therefore runs as root, but a root with almost nothing:
+# compose drops every capability except SETUID/SETGID (to become a slot user),
+# CHOWN (to hand the run folder to it) and DAC_OVERRIDE (to read outputs back
+# and delete the folder). It never runs model-written code; a child becomes
+# its slot's user before anything else, which clears all of those. Combined
+# with `read_only: true` + a small tmpfs on /tmp, a run can write only to its
+# own folder, which vanishes with the run.
+RUN for n in 1 2 3 4 5 6 7 8; do \
+        groupadd --gid $((20000 + n)) sbx$n \
+        && useradd --uid $((20000 + n)) --gid $((20000 + n)) \
+            --no-create-home --shell /usr/sbin/nologin sbx$n ; \
+    done
 
 ENV SANDBOX_HOST=0.0.0.0 \
     SANDBOX_PORT=8100 \

@@ -27,13 +27,14 @@ import base64
 import binascii
 import json
 import os
-import threading
+import queue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from commands import CommandRefused
 from executor import (
     MAX_FILE_BYTES,
     MAX_FILES,
+    MAX_SLOTS,
     FileSpecError,
     execute,
     execute_commands,
@@ -46,9 +47,15 @@ MAX_WALL_SECONDS = int(os.environ.get("SANDBOX_MAX_WALL_SECONDS", "30"))
 MAX_CPU_SECONDS = int(os.environ.get("SANDBOX_MAX_CPU_SECONDS", "25"))
 MAX_MEM_MB = int(os.environ.get("SANDBOX_MAX_MEM_MB", "512"))
 MAX_CODE_BYTES = int(os.environ.get("SANDBOX_MAX_CODE_BYTES", str(256 * 1024)))
-MAX_CONCURRENCY = int(os.environ.get("SANDBOX_MAX_CONCURRENCY", "2"))
+MAX_CONCURRENCY = min(int(os.environ.get("SANDBOX_MAX_CONCURRENCY", "2")), MAX_SLOTS)
 
-_slots = threading.Semaphore(MAX_CONCURRENCY)
+#: The free slots. A slot is both a concurrency permit and an identity: slot n
+#: runs as its own Unix user (`executor._slot_user`), so two runs at once can
+#: never share a user, and a slot is only handed out again after the
+#: executor has killed everything the previous run in it left behind.
+_slots: "queue.Queue[int]" = queue.Queue()
+for _n in range(1, MAX_CONCURRENCY + 1):
+    _slots.put(_n)
 
 #: Body ceiling: the code, plus every input file base64-encoded (4/3), plus JSON.
 MAX_BODY_BYTES = MAX_CODE_BYTES + (MAX_FILES * MAX_FILE_BYTES * 4) // 3 + 64 * 1024
@@ -126,11 +133,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "collect must be a list of names"})
             return
 
-        acquired = _slots.acquire(timeout=MAX_WALL_SECONDS)
-        if not acquired:
+        try:
+            slot = _slots.get(timeout=MAX_WALL_SECONDS)
+        except queue.Empty:
             self._send(503, {"error": "sandbox busy, try again"})
             return
         limits = {
+            "slot": slot,
             "wall_seconds": wall,
             "cpu_seconds": cpu,
             "mem_bytes": mem_mb * 1024 * 1024,
@@ -150,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": str(exc)})
             return
         finally:
-            _slots.release()
+            _slots.put(slot)
 
         if "files_out" in result:
             result["files_out"] = {

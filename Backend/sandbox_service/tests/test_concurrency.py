@@ -56,11 +56,11 @@ class ConcurrencyCapTests(unittest.TestCase):
             thread = threading.Thread(target=httpd.serve_forever, daemon=True)
             thread.start()
             try:
-                server._slots.acquire()  # the running execution's slot
+                slot = server._slots.get()  # the running execution's slot
                 try:
                     status, body = _post(port, {'code': 'result = 1'})
                 finally:
-                    server._slots.release()
+                    server._slots.put(slot)
             finally:
                 httpd.shutdown()
                 httpd.server_close()
