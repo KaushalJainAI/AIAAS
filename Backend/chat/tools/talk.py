@@ -423,11 +423,14 @@ async def message_send(args: Dict, context: Dict) -> str:
     if holds.should_hold(context):
         # A person is watching: the send waits so they can cancel it. The
         # timer in `holds.deliver_after` sends it later.
+        # The call id rides on the payload so the cost, filed only once the
+        # message really goes (`record_held_cost`), names the call that asked.
+        # Charging here would bill a message the user then cancelled.
+        payload = {**payload, 'call_id': str(context.get('call_id') or '')}
         row = await sync_to_async(holds.create)(
             user_id, 'message_send', payload, f'{channel.title()} to {to}', context)
         spawn(holds.deliver_after(row.id, holds.hold_seconds()), name=f'hold:{row.id}')
         _sent_counts(context)[to] = _sent_counts(context).get(to, 0) + 1
-        await _record_message_cost(context, channel)
         return json.dumps({
             'queued': True, 'hold_id': row.id, 'send_at': row.send_at.isoformat(),
             'channel': channel, 'to': to,
@@ -505,6 +508,13 @@ async def deliver_message(user_id: int, payload: dict) -> dict:
         'provider_message_id': provider_id,
         'rendered': f'Sent to {to} on {channel}.',
     }
+
+
+async def record_held_cost(user_id: int, payload: dict) -> None:
+    """File the cost of a held message once it has actually been delivered."""
+    await _record_message_cost(
+        {'user_id': user_id, 'call_id': payload.get('call_id') or ''},
+        str(payload.get('channel') or ''))
 
 
 async def _record_message_cost(context: Dict, channel: str) -> None:

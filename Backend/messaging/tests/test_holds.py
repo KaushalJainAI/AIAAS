@@ -148,6 +148,25 @@ class DeliverTests(HoldBase):
         self.assertEqual(row.result['provider_message_id'], 'ts-2')
         self.assertEqual(OutboundMessage.objects.filter(status='sent').count(), 1)
 
+    def test_a_held_send_is_charged_on_delivery_never_on_queueing(self):
+        # A cancelled hold must cost nothing, so the ledger write happens in
+        # deliver(), once, with the call id that asked for the message.
+        cost = mock.AsyncMock()
+        with mock.patch('chat.tools.talk._record_message_cost', new=cost), \
+                mock.patch(SLACK_SEND, new=mock.AsyncMock(return_value='ts-7')), \
+                mock.patch(SPAWN) as start:
+            out = self.call('message_send', {
+                'channel': 'slack', 'to': '#team-ops', 'body': 'Deploy?'},
+                call_id='call-42')
+            start.call_args.args[0].close()
+            cost.assert_not_awaited()
+
+            PendingSend.objects.filter(id=out['hold_id']).update(
+                send_at=timezone.now() - timedelta(seconds=1))
+            self.assertEqual(async_to_sync(holds.deliver)(out['hold_id']), 'sent')
+        cost.assert_awaited_once_with(
+            {'user_id': self.user.id, 'call_id': 'call-42'}, 'slack')
+
     def test_a_hold_not_yet_due_is_left_alone(self):
         row = self.hold(send_at=timezone.now() + timedelta(seconds=30))
         slack = mock.AsyncMock(return_value='ts-x')

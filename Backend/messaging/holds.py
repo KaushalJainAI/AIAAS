@@ -116,9 +116,12 @@ async def deliver(hold_id: int) -> str:
 
 async def _send(row) -> dict:
     if row.tool == 'message_send':
-        from chat.tools.talk import deliver_message
+        from chat.tools.talk import deliver_message, record_held_cost
 
-        return await deliver_message(row.user_id, row.payload)
+        result = await deliver_message(row.user_id, row.payload)
+        # Charged on delivery, not on queueing: a cancelled hold costs nothing.
+        await record_held_cost(row.user_id, row.payload)
+        return result
     if row.tool == 'gmail_send_message':
         from chat.tools.google.gmail import deliver_gmail
 
