@@ -68,10 +68,14 @@ platform needs `OPENROUTER_API_KEY`.
 
 `llm/tests/`: `test_effort.py`, `test_effort_funnel.py`, `test_stream_retry.py`,
 `test_seed_catalogue.py`, `test_decisions.py`, `test_responses_handler.py`,
-`test_scripted_model.py` (the scripted-model kit).
+`test_scripted_model.py` (the scripted-model kit), `test_recorded_providers.py`
+(each provider's wire format, replayed), `test_no_model_fakes.py` (fails if a
+test fakes the model above the wire).
 
-`testing.py` is the scripted model for every app's tests: it replaces the HTTP
-client at the OpenAI-compatible handler, so the funnel runs for real. See
+`testing.py` is the scripted model for every app's tests: it replaces the
+shared HTTP client, so the funnel runs for real. `recorded.py` replays a saved
+provider exchange from `tests/recordings/`, for the formats the scripted model
+does not speak (Ollama, the ChatGPT plan, Decisions). See
 `Backend/docs/TESTING.md`.
 
 The catalogue is `Backend/populate_models.py`, a boot script, not a migration.
