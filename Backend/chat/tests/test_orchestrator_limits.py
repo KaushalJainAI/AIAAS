@@ -9,8 +9,6 @@ the account settings that replaced the constants (Settings → Orchestrator,
 """
 from __future__ import annotations
 
-import json
-from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth.models import User
@@ -23,6 +21,9 @@ from agents.models import SubAgent
 from chat.turn import limits, pace
 from chat.turn.agent import TurnContext, run_turn
 from core.models import UserProfile
+from llm.testing import (
+    DEFAULT_MODEL, DEFAULT_PROVIDER, ScriptedModel, always, text, tool_call, usage,
+)
 from workflow_backend.thresholds import (
     DEFAULT_CHAT_SPEND_RUPEES,
     DEFAULT_CHAT_TURN_SECONDS,
@@ -137,67 +138,61 @@ class AgentStepLimitTests(TestCase):
             KNOBS['maxIterations'].coerce(999, None)
 
 
-class _ToolLoopProvider:
+class _Wire:
+    """What a scripted model was sent, read back per request."""
+
+    scripted: ScriptedModel
+
+    @property
+    def offered(self) -> list[bool]:
+        # Callable tools: offered and not `tool_choice='none'` (the last pass).
+        return [r.tools_offered for r in self.scripted.requests]
+
+    @property
+    def tool_lists(self) -> list[list]:
+        return [[(t.get("function") or {}).get("name") for t in r.tools]
+                for r in self.scripted.requests]
+
+    @property
+    def choices(self) -> list:
+        return [r.tool_choice for r in self.scripted.requests]
+
+    @property
+    def calls(self) -> int:
+        return len(self.scripted.requests)
+
+
+class _ToolLoopProvider(_Wire):
     """Asks for a tool every call (never answers on its own); each call costs
-    `cost` tokens. Records whether each request offered tools."""
+    `cost` tokens. The model is scripted at the wire, so what is recorded is
+    what each request actually offered."""
 
     def __init__(self, cost: int) -> None:
         self.cost = cost
-        self.offered: list[bool] = []
-        self.tool_lists: list[list] = []
-        self.choices: list = []
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    def __call__(self, **kwargs):
-        # Callable tools: offered and not `tool_choice='none'` (the last pass).
-        offered = bool(kwargs.get("tools")) and kwargs.get("tool_choice") != "none"
-        self.offered.append(offered)
-        self.tool_lists.append(
-            [(t.get("function") or {}).get("name") for t in kwargs.get("tools") or []])
-        self.choices.append(kwargs.get("tool_choice"))
-        step = len(self.offered)
-
-        async def chunks():
-            if offered:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": f"c{step}",
-                    "function": {"name": "read_file", "arguments": json.dumps({"path": "/x"})},
-                }]}
-            else:
-                yield {"type": "content", "content": "final answer"}
-            yield {"type": "metadata", "usage": {"total_tokens": self.cost}}
-
-        return chunks()
+    def _respond(self, request):
+        spent = usage(prompt_tokens=self.cost, completion_tokens=0)
+        if request.tools_offered:
+            return tool_call("read_file", {"path": "/x"}, id=f"c{request.index}") + \
+                text("", usage=spent)
+        return text("final answer", usage=spent)
 
 
-class _PlanningProvider:
+class _PlanningProvider(_Wire):
     """Writes a plan on its first call (which promotes the pace), then keeps
     calling a tool until tool calls are forbidden."""
 
     def __init__(self) -> None:
-        self.calls = 0
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    def __call__(self, **kwargs):
-        self.calls += 1
-        step = self.calls
-        callable_ = bool(kwargs.get("tools")) and kwargs.get("tool_choice") != "none"
-
-        async def chunks():
-            if not callable_:
-                yield {"type": "content", "content": "done"}
-            elif step == 1:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": "plan",
-                    "function": {"name": "update_todos", "arguments": json.dumps(
-                        {"todos": [{"text": "the job", "status": "in_progress"}]})},
-                }]}
-            else:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": f"c{step}",
-                    "function": {"name": "read_file", "arguments": json.dumps({"path": "/x"})},
-                }]}
-            yield {"type": "metadata", "usage": {"total_tokens": 1}}
-
-        return chunks()
+    def _respond(self, request):
+        if not request.tools_offered:
+            return text("done")
+        if request.index == 1:
+            return tool_call("update_todos",
+                             {"todos": [{"text": "the job", "status": "in_progress"}]}, id="plan")
+        return tool_call("read_file", {"path": "/x"}, id=f"c{request.index}")
 
 
 async def _ok(name, args, context):
@@ -218,11 +213,11 @@ class TurnObeysTheLimitsTests(TestCase):
 
     def _run(self, provider, thread, **turn_kwargs):
         turn = TurnContext(
-            provider="stub", model="stub", system_message="test", user_id=self.user.id,
-            session_id=thread, intent="chat", user_text="go", memory_enabled=False,
+            provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message="test",
+            user_id=self.user.id, session_id=thread, intent="chat", user_text="go", memory_enabled=False,
             tool_dispatch=_ok, approval_policy=_never, **turn_kwargs,
         )
-        with patch("llm.access.stream", new=provider):
+        with provider.scripted.installed():
             return async_to_sync(run_turn)(turn, prompt="go", thread_id=thread)
 
     def test_the_step_limit_ends_with_an_answer(self):
@@ -249,9 +244,9 @@ class TurnObeysTheLimitsTests(TestCase):
         from agents.agent.runtime import _starting_pace
 
         provider = _ToolLoopProvider(cost=1)
-        with patch("llm.access.stream", new=provider):
+        with provider.scripted.installed():
             turn = TurnContext(
-                provider="stub", model="stub", system_message="test", user_id=self.user.id,
+                provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message="test", user_id=self.user.id,
                 session_id="agent-pace", intent="research", user_text="go",
                 memory_enabled=False, tool_dispatch=_ok, approval_policy=_never,
                 max_iterations=30,
@@ -264,9 +259,9 @@ class TurnObeysTheLimitsTests(TestCase):
         from agents.agent.runtime import _starting_pace
 
         provider = _PlanningProvider()
-        with patch("llm.access.stream", new=provider):
+        with provider.scripted.installed():
             turn = TurnContext(
-                provider="stub", model="stub", system_message="test", user_id=self.user.id,
+                provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message="test", user_id=self.user.id,
                 session_id="agent-plan", intent="research", user_text="go",
                 memory_enabled=False, tool_dispatch=_ok, approval_policy=_never,
                 max_iterations=30,
