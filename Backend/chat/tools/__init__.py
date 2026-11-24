@@ -354,6 +354,10 @@ async def _requirement_met(
         from workspaces.engine import workspace_available
 
         return workspace_available()
+    if requirement == "sidecar":
+        from sandbox.engine import sidecar_available
+
+        return sidecar_available()
     if requirement == "vision":
         if user_id is None:
             return False  # no user, no credential, no witness

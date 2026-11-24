@@ -108,6 +108,8 @@ _BUILTIN_PHRASES = {
     'get_eval_results': 'Show one eval sweep’s results',
     'run_eval_suite': 'Run an eval suite (spends credits)',
     'execute_python': 'Run Python code',
+    'execute_javascript': 'Run JavaScript code',
+    'run_command': 'Run a command',
     'generate_image': 'Generate an image (this costs money)',
     'download_file': 'Download a file from the web',
     'edit_deck': 'Change a presentation',

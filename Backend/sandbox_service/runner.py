@@ -11,7 +11,7 @@ compose). This harness adds the two things a container does not: per-run
 resource limits so one snippet cannot starve the others, and a best-effort
 seccomp filter that blocks socket creation so a snippet cannot reach the
 backend over the internal network (defence in depth on top of the network
-having no egress at all).
+having no egress at all), and blocks `execve` so it cannot start a shell.
 
 The user's own stdout/stderr are captured into the envelope; the *only* thing
 written to the process's real stdout is the JSON envelope, so the parent reads
@@ -27,12 +27,18 @@ from contextlib import redirect_stderr, redirect_stdout
 
 
 def _apply_seccomp() -> None:
-    """Block socket()/connect() etc. for this process, best-effort.
+    """Block socket()/connect() etc. and execve for this process, best-effort.
 
     Only tightens; runs under no_new_privs, so it needs no capability. If
     pyseccomp is absent (or the kernel refuses), we fall through — the
     container's network has no route out regardless, so this is the inner of
     two layers, not the only one.
+
+    `execve`/`execveat` are denied because the interpreter is already
+    running and nothing a snippet legitimately does starts a program. Without
+    this, `subprocess.run(["bash", "-c", ...])` would run any command at all
+    and make the `run_command` allowlist (`commands.py`) meaningless. A
+    `fork` still works; the child just cannot become anything else.
     """
     try:
         import pyseccomp as seccomp  # type: ignore
@@ -43,7 +49,8 @@ def _apply_seccomp() -> None:
         # acceptable here precisely because it is not the only control.
         f = seccomp.SyscallFilter(defaction=seccomp.ALLOW)
         for name in ("socket", "socketpair", "connect", "bind",
-                     "listen", "accept", "accept4", "sendto", "sendmsg"):
+                     "listen", "accept", "accept4", "sendto", "sendmsg",
+                     "execve", "execveat"):
             try:
                 f.add_rule(seccomp.ERRNO(1), name)  # EPERM
             except Exception:
