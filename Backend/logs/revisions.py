@@ -165,3 +165,81 @@ def current(agent) -> SubAgentRevision | None:
         logger.exception('[Revisions] Could not backfill a revision for agent %s',
                          agent.id)
         return None
+
+
+#: Keys a revision snapshot carries that are observations or identity, not
+#: configuration — restoring them would be restoring the past's statistics.
+#: `status` is left out too: rolling a configuration back is not a request to
+#: pause or unpause the agent. (Moved from `agents/views/agents.py` in Phase 7,
+#: so the undo engine and the view share one list.)
+NOT_RESTORED = frozenset({
+    'id', 'status', 'runs', 'unattended', 'spend', 'created_at', 'updated_at',
+    'extraSchedules', 'trigger',
+})
+
+
+class RestoreRefused(Exception):
+    """The old configuration cannot be saved as it is.
+
+    `detail` is the body a 400 should carry: the serializer's field errors, or
+    `{'error': ...}` for a name clash. Nothing was written when this is raised.
+    """
+
+    def __init__(self, detail):
+        super().__init__(detail)
+        self.detail = detail
+
+
+class _RequestLike:
+    """The one attribute `AgentSerializer` reads from a request: `.user`.
+
+    Ownership checks (knowledge bases, connections, delegation targets, orgs)
+    all key on `context['request'].user`, so restoring as `user` runs exactly
+    the checks a request by `user` would.
+    """
+
+    def __init__(self, user):
+        self.user = user
+
+
+def restore(agent, number: int, *, user) -> SubAgentRevision:
+    """Roll `agent` back to revision `number`, as a new revision.
+
+    A revision is a full `to_config` snapshot, so this is an ordinary save of
+    that snapshot — through the same serializer, ownership checks and schedule
+    reconcile as every other save. That matters more than it looks: a
+    connection or knowledge base the old config named may since have been
+    deleted or switched off, and the answer then is the serializer's own
+    `RestoreRefused` naming it, not a restore that silently re-grants access to
+    something the user can no longer see. History is never rewritten: the
+    restore is recorded as the next revision, with source `restore`.
+
+    Raises `SubAgentRevision.DoesNotExist` when the agent has no such revision,
+    and `RestoreRefused` when the old configuration no longer validates or its
+    name is taken. Returns the newest revision afterwards: the one this restore
+    recorded, or the current one when the agent already had that configuration.
+    """
+    from agents.config import AgentSerializer
+    from agents.models import SubAgent
+
+    revision = SubAgentRevision.objects.get(subagent=agent, number=number)
+
+    current = AgentSerializer.to_config(agent)
+    restored = {k: v for k, v in (revision.config or {}).items() if k not in NOT_RESTORED}
+    merged = {k: v for k, v in current.items() if k not in NOT_RESTORED}
+    merged.update(restored)
+
+    serializer = AgentSerializer(data=merged, context={'request': _RequestLike(user)})
+    if not serializer.is_valid():
+        raise RestoreRefused(serializer.errors)
+    name = serializer.validated_data['name']
+    if SubAgent.objects.filter(user=user, name=name).exclude(id=agent.id).exists():
+        raise RestoreRefused(
+            {'error': f'Another agent is now called "{name}"; rename one first.'})
+
+    AgentSerializer.apply(agent, serializer.validated_data).save()
+    AgentSerializer.sync_schedule(agent, serializer.validated_data)
+    recorded = record(agent, user=user, source='restore')
+    if recorded is not None:
+        return recorded
+    return SubAgentRevision.objects.filter(subagent=agent).order_by('-number').first()
