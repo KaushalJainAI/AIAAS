@@ -145,6 +145,24 @@ class FileRecordingTests(RecordCase):
         self.assertEqual(ChangeSet.objects.count(), 0)
         self.assertEqual(Change.objects.count(), 0)
 
+    def test_an_app_copy_inside_a_tool_call_is_never_stamped(self):
+        # Inside a tool call an 'app' copy is the render of the user's pending
+        # draft, taken before the draft lands. If it carried the set id, revert
+        # would pick it as "before this run" and drop the user's draft edits.
+        # The run's own 'agent' copy, taken after the render, must be the one.
+        from inference.office_edit import save_text
+
+        vfs.write_file(self.scope, '/a.md', 'saved')
+        log = self.new_run()
+        with self.in_run(log):
+            save_text(self.doc('/a.md'), 'draft rendered', version_source='app')
+            vfs.write_file(self.scope, '/a.md', 'agent wrote this')
+        target = self.set_of(log)
+        app_copy = DocumentVersion.objects.get(document=self.doc('/a.md'), source='app')
+        self.assertIsNone(app_copy.change_set_id)
+        stamped = DocumentVersion.objects.get(change_set_id=target.pk)
+        self.assertEqual(stamped.content_text, 'draft rendered')
+
     def test_a_delete_records_the_file_as_trashed(self):
         vfs.write_file(self.scope, '/gone.md', 'bye')
         log = self.new_run()

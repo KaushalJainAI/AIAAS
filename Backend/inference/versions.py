@@ -61,13 +61,18 @@ def snapshot(doc: Document, source: str = 'app', *, force: bool = False) -> Docu
         return None
     kept, window, max_bytes = _limits()
     try:
-        # The change set writing this copy, if a tool call is bound (D3). An
-        # app save has no binding, so this is None and it coalesces as before.
-        # Stamped for every source, not only 'agent': a restore or a conversion
-        # made by a tool also needs its before-copy findable by set.
-        from logs import changes
+        # The change set writing this copy, if a tool call is bound (D3). Only
+        # the tool's own writes are stamped: 'agent', and 'restore' (an agent's
+        # restore_file_version). Never 'app': inside a tool call an 'app' copy
+        # is the render of the user's pending draft (drafts.ensure_rendered),
+        # taken *before* their draft lands. Stamping it would make revert put
+        # back the file without the user's draft and lose their edits. An app
+        # save outside a tool call has no binding either way.
+        set_id = None
+        if source in ('agent', 'restore'):
+            from logs import changes
 
-        set_id = changes.current_set_id(create=True)
+            set_id = changes.current_set_id(create=True)
         if not force:
             # Coalesce only into a burst that is still running: the file's
             # newest version must be this source's and recent, and written by
