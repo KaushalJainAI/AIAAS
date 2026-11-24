@@ -139,13 +139,16 @@ class CloseChatTests(ChangeCase):
 
 class ApprovalPauseTests(ChangeCase):
     def turn(self):
+        # `change_owner` is what `run_chat_turn` builds: the close reads it.
         return SimpleNamespace(provider='openrouter', model='stub/model',
-                               user_id=self.user.id)
+                               user_id=self.user.id,
+                               change_owner={'user_id': self.user.id, 'owner_kind': 'chat',
+                                             'chat_message_id': self.message.id})
 
     def persist(self, *, awaiting_approval: bool, answer: str = 'done'):
         result = TurnResult(answer=answer, awaiting_approval=awaiting_approval)
         return async_to_sync(pipeline._persist_answer)(
-            session=self.session, user=self.user, chat_message_id=self.message.id,
+            session=self.session, user=self.user,
             turn=self.turn(), result=result, question='go', intent='chat')
 
     def test_a_pause_leaves_the_set_open_and_the_resumed_turn_records_into_it(self):

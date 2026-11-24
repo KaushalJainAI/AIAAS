@@ -1254,7 +1254,7 @@ async def run_chat_turn(
     )
 
     assistant_message = await _persist_answer(
-        session=session, user=user, chat_message_id=user_message.id,
+        session=session, user=user,
         turn=turn, result=result,
         question=question, intent=intent, elapsed_s=turn_elapsed_s,
         command_json=(
@@ -1367,7 +1367,6 @@ async def _persist_answer(
     *,
     session: ChatSession,
     user,
-    chat_message_id: int,
     turn: TurnContext,
     result: TurnResult,
     question: str,
@@ -1375,11 +1374,7 @@ async def _persist_answer(
     elapsed_s: float = 0,
     command_json: dict[str, Any] | None = None,
 ) -> ChatMessage:
-    """Store the assistant's reply and everything the UI needs alongside it.
-
-    `chat_message_id` is the user message this turn answers: its change set is
-    closed here, unless the turn paused for an approval (docs/UNDO_PLAN.md §6.7).
-    """
+    """Store the assistant's reply and everything the UI needs alongside it."""
     answer = _INTERNAL_TAGS.sub("", result.answer or "").strip()
 
     if not answer and result.awaiting_approval:
@@ -1483,13 +1478,17 @@ async def _persist_answer(
         provider=turn.provider, model=turn.model, user_id=turn.user_id,
     )
 
+    # The turn's change owner is the user message it answers (D6): the same
+    # owner the writes were recorded under, so the close cannot miss them.
     # A pause for approval is not the end of the turn: the set stays open, and
-    # the resumed turn records into it (D6). Workers still running at the close
-    # may add changes later; the chip shows the count at close time.
-    if not result.awaiting_approval:
+    # the resumed turn records into it. Workers still running at the close may
+    # add changes later; the chip shows the count at close time.
+    owner = getattr(turn, "change_owner", None) or {}
+    if not result.awaiting_approval and owner.get("chat_message_id") is not None:
         from logs import changes
 
-        changes_summary = await sync_to_async(changes.close_chat)(user.id, chat_message_id)
+        changes_summary = await sync_to_async(changes.close_chat)(
+            user.id, owner["chat_message_id"])
         if changes_summary is not None:
             metadata["changes"] = changes_summary
 
