@@ -2179,6 +2179,17 @@ async def run_agent(agent, goal: str, *, user, sink=None,
     stream = AgentRunStream(log)
     await stream.run_started(goal)
 
+    # A worker's change set exists from the start, so its parent link is on the
+    # row before any pause (docs/UNDO_PLAN.md §7 Phase 5). Evals never journal.
+    if change_parent_id is not None and caller != 'eval':
+        from logs import changes
+
+        await sync_to_async(changes.open_run_set)({
+            'user_id': user.id, 'owner_kind': 'run',
+            'execution_id': str(log.execution_id),
+            'parent_set_id': change_parent_id,
+        })
+
     # Resolved here — the one place every run passes — so the picker, the
     # preflight and the turn cannot disagree. A retired or unknown model id
     # is substituted with the platform fallback up front (recorded on the log
@@ -2770,7 +2781,8 @@ async def start_agent_run(agent, goal: str, *, user,
 async def start_agent_run_and_wait(agent, goal: str, *, user,
                                    trigger_type: str = 'schedule',
                                    caller: str = 'trigger',
-                                   mission_id: int | None = None) -> str:
+                                   mission_id: int | None = None,
+                                   change_parent_id: int | None = None) -> str:
     """Start a run and wait for its background task to finish (blocking).
 
     The sync-context twin of `start_agent_run`, for callers with no persistent
@@ -2789,7 +2801,7 @@ async def start_agent_run_and_wait(agent, goal: str, *, user,
     """
     execution_id = await start_agent_run(
         agent, goal, user=user, trigger_type=trigger_type, caller=caller,
-        mission_id=mission_id,
+        mission_id=mission_id, change_parent_id=change_parent_id,
     )
     task = _live_task(execution_id)
     if task is not None:
@@ -2807,6 +2819,9 @@ async def resume_agent_run(agent, *, user, thread_id: str) -> str | None:
     Reuses the paused `ExecutionLog` rather than opening a new one: the canvas
     subscribes per execution, and a resumed half arriving on a second id would
     leave the trace split across two runs with no way to join them.
+
+    Its change set is found by execution, not re-made, so the parent link the
+    run opened with (`change_parent_id`) is kept (docs/UNDO_PLAN.md §7 Phase 5).
     """
     from workflow_backend.background import spawn
 

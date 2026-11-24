@@ -332,6 +332,18 @@ export interface ChatMessageMetadata {
   elapsed_ms?: number;
   /** Number of tool calls the turn made. Absent on older messages. */
   steps?: number;
+  /**
+   * What this turn changed, counted over its change set and the workers it
+   * started, at the moment the turn closed (`logs/changes.py::summary`). Absent
+   * when nothing changed. The live tree is fetched when the chip is opened.
+   */
+  changes?: {
+    set_id: number;
+    total: number;
+    revertible: number;
+    not_revertible: number;
+    incomplete: boolean;
+  };
   [key: string]: unknown;
 }
 
