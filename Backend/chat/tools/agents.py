@@ -564,10 +564,16 @@ async def run_agent(args: Dict, context: Dict) -> str:
         return json.dumps({"error": "User not found."})
 
     caller, gated_calls = worker_caller(context, default="chat")
+    # The delegating call's change set: the worker's set hangs under it, so a
+    # revert of this chat reverts the worker first (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
     try:
         execution_id = await start_agent_run(
             agent, goal, user=user, trigger_type="api", caller=caller,
             gated_calls=gated_calls,
+            change_parent_id=change_parent_id,
             # The step that asked for this run. It is what makes the run
             # traceable back to the reasoning that chose to start it, instead
             # of appearing in the history with no explanation of who wanted it.
@@ -1032,6 +1038,11 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             return json.dumps({"error": str(exc), "refused": True})
 
     parent_step_id = await _parent_step_id(context)
+    # The delegating call's change set, read once here where the binding is
+    # live, and handed to every worker (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
 
     # The folder this run writes to, handed down so workers can write there
     # too. Derived from the caller's own scope rather than from its name: the
@@ -1096,6 +1107,7 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             org_id=context.get("org_id"),
             share_solutions=bool(context.get("share_solutions")),
             inherited_taint=inherited_taint,
+            change_parent_id=change_parent_id,
         )
         return WorkerResult(
             index=index, task=task, answer=run.answer or "",

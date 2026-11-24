@@ -111,6 +111,22 @@ async def acurrent_set_id(*, create: bool) -> int | None:
     return await sync_to_async(current_set_id)(create=create)
 
 
+def open_run_set(owner: dict) -> None:
+    """Create a run's set now, before its first change (docs/UNDO_PLAN.md §7).
+
+    A run's set is otherwise made at its first change. A worker that pauses for
+    approval before it writes anything would then resume with no set, and the
+    resumed run would make one with no parent: the link to the run that
+    delegated it would be lost. Making the set at the start keeps the link.
+    `owner` is the run's `change_owner` dict. Never raises (module note).
+    """
+    try:
+        _run_set(Binding(**owner), create=True)
+    except Exception:  # noqa: BLE001 — recording must never fail the run
+        logger.exception('[Changes] Could not open the change set for run %s',
+                         owner.get('execution_id'))
+
+
 def _set_for(b: Binding, *, create: bool) -> int | None:
     if b.owner_kind == 'run':
         return _run_set(b, create=create)
