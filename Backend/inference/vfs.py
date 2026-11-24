@@ -1100,6 +1100,8 @@ def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: 
                        *, append: bool, overwrite: bool, max_chars: int,
                        expected_version: str | None) -> dict:
     """`write_file`'s look-up-then-write, run under `_name_lock`."""
+    from logs import changes
+
     doc = _document_in(scope, folder, name)
     _require_fresh(scope, doc, expected_version, render(scope, list(parent_parts) + [name]))
     if doc is not None and not overwrite and not append:
@@ -1126,6 +1128,8 @@ def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: 
             metadata={'created_by': 'agent', **_author_meta(scope)},
         )
         created = True
+        changes.record_document(doc.id, before=None, content=True,
+                                label=render(scope, list(parent_parts) + [name]))
     else:
         text = (doc.content_text or '') + text if append else text
         if len(text) > max_chars:
@@ -1138,7 +1142,10 @@ def _write_text_locked(scope: FileScope, parent_parts, folder, name: str, text: 
         # `content_text` left an uploaded file downloading its old contents.
         from .office_edit import save_text
 
+        before = changes.doc_state(doc)
         doc = save_text(doc, text, version_source='agent', author=scope.author)
+        changes.record_document(doc.id, before=before, content=True,
+                                label=render(scope, list(parent_parts) + [name]))
         created = False
 
     return {
@@ -1252,6 +1259,10 @@ def _create_binary(scope: FileScope, parent_parts, folder, name: str, requested:
         doc.file.delete(save=False)
         raise
 
+    from logs import changes
+
+    changes.record_document(doc.id, before=None, content=True,
+                            label=render(scope, list(parent_parts) + [name]))
     return {
         'path': render(scope, list(parent_parts) + [name]),
         'document_id': doc.id,
@@ -1269,18 +1280,23 @@ def _create_binary(scope: FileScope, parent_parts, folder, name: str, requested:
 def _replace_in_place(scope: FileScope, parent_parts: Sequence[str], doc: Document,
                       data: bytes, text: str, spec: dict | None) -> dict:
     """`write_binary(overwrite=True)` onto an existing file of the same type."""
+    from logs import changes
+
     from . import drafts
     from .office_edit import replace_bytes
 
     # A pending office draft renders first, so the version this overwrite
     # keeps holds the file as the app left it rather than a stale render.
     doc = drafts.ensure_rendered(doc)
+    before = changes.doc_state(doc)
     doc = replace_bytes(doc, data, text=text or '', spec=spec, version_source='agent',
                         author=scope.author)
     if spec is None and (doc.metadata or {}).get('spec') is not None:
         # The old spec described the old bytes; the preview would draw them.
         doc.metadata = {k: v for k, v in doc.metadata.items() if k != 'spec'}
         doc.save(update_fields=['metadata', 'updated_at'])
+    changes.record_document(doc.id, before=before, content=True,
+                            label=render(scope, list(parent_parts) + [doc.name]))
     return {
         'path': render(scope, list(parent_parts) + [doc.name]),
         'document_id': doc.id,
@@ -1389,9 +1405,14 @@ def _edit_locked(scope: FileScope, parent_parts, name: str, doc: Document,
             f'the {max_chars:,} limit.'
         )
 
+    from logs import changes
+
     from .office_edit import save_text
 
+    before = changes.doc_state(doc)
     doc = save_text(doc, updated, version_source='agent', author=scope.author)
+    changes.record_document(doc.id, before=before, content=True,
+                            label=render(scope, parent_parts + [name]))
 
     return {
         'path': render(scope, parent_parts + [name]),
@@ -1451,10 +1472,15 @@ def restore_file_version(scope: FileScope, path: str, version_id: int) -> dict:
         raise VfsError(
             f'{doc.name} has no version {version_id}. Call file_versions to list them.'
         )
+    from logs import changes
+
+    before = changes.doc_state(doc)
     try:
         doc = versions.restore(doc, version)
     except EditError as exc:
         raise VfsError(str(exc)) from exc
+    changes.record_document(doc.id, before=before, content=True,
+                            label=render(scope, parent_parts + [doc.name]))
     _stamp_author(doc, scope)
     return {
         'path': render(scope, parent_parts + [doc.name]),
@@ -1560,12 +1586,17 @@ def edit_document(scope: FileScope, path: str, ops: list) -> dict:
             raise VfsError(f'Op {n}: op must be insert, replace, delete or find_replace.')
     if not blocks:
         raise VfsError('That would leave the document with no blocks.')
+    from logs import changes
+
+    before = changes.doc_state(doc)
     try:
         doc = office_edit.edit_spec(doc, {'title': spec.get('title'), 'subtitle': spec.get('subtitle'),
                                           'theme': spec.get('theme'), 'blocks': blocks},
                                     version_source='agent', author=scope.author)
     except (SpecError, EditError) as exc:
         raise VfsError(str(exc)) from exc
+    changes.record_document(doc.id, before=before, content=True,
+                            label=render(scope, parent_parts + [doc.name]))
     out = {'path': render(scope, parent_parts + [doc.name]), 'document_id': doc.id,
            'applied': applied}
     if imported:
@@ -1679,12 +1710,17 @@ def edit_deck(scope: FileScope, path: str, ops: list) -> dict:
             raise VfsError(f'Op {n}: op must be add, remove, move, duplicate or set.')
     if not slides:
         raise VfsError('That would leave the deck with no slides.')
+    from logs import changes
+
+    before = changes.doc_state(doc)
     try:
         doc = office_edit.edit_spec(doc, {'title': spec.get('title'), 'theme': spec.get('theme'),
                                           'slides': slides},
                                     version_source='agent', author=scope.author)
     except (SpecError, EditError) as exc:
         raise VfsError(str(exc)) from exc
+    changes.record_document(doc.id, before=before, content=True,
+                            label=render(scope, parent_parts + [doc.name]))
     out = {'path': render(scope, parent_parts + [doc.name]), 'document_id': doc.id,
            'applied': applied}
     if imported:
@@ -1906,6 +1942,8 @@ def delete(scope: FileScope, path: str) -> dict:
         raise VfsError(f'Refusing to delete {scope.label} itself.')
     _require_write_at(scope, parts, 'delete')
 
+    from logs import changes
+
     from . import recycle
 
     parent = _folder_at(scope, parts[:-1])
@@ -1913,13 +1951,18 @@ def delete(scope: FileScope, path: str) -> dict:
 
     doc = _document_in(scope, parent, leaf)
     if doc is not None:
+        before = changes.doc_state(doc)
         recycle.trash(scope.user, documents=[doc])
+        changes.record_document(doc.id, before=before, content=False,
+                                label=render(scope, parts))
         return {'path': render(scope, parts), 'deleted': 'file',
                 'restorable': True}
 
     folder = fs.child_by_name(scope.user, parent, leaf)
     if folder is not None:
+        before = changes.folder_state(folder)
         recycle.trash(scope.user, folders=[folder])
+        changes.record_folder(folder.id, before=before, label=render(scope, parts))
         return {'path': render(scope, parts), 'deleted': 'directory',
                 'restorable': True}
 
@@ -1986,6 +2029,8 @@ def move(scope: FileScope, src: str, dst: str) -> dict:
     """
     from django.db import transaction
 
+    from logs import changes
+
     src_parent, src_name = _split_leaf(scope, src)
     src_parts = src_parent + [src_name]
     _require_write_at(scope, src_parent, 'move things out of here')
@@ -2010,6 +2055,7 @@ def move(scope: FileScope, src: str, dst: str) -> dict:
 
         if doc is not None:
             file_type = _check_extension(doc, name)
+            before = changes.doc_state(doc)
             with _name_lock(scope.user, target, name):
                 if (Document.objects.filter(user=scope.user, folder=target, name=name)
                         .exclude(pk=doc.pk).exists()):
@@ -2019,11 +2065,14 @@ def move(scope: FileScope, src: str, dst: str) -> dict:
                 # move is not a content change (office_edit.rename's rule).
                 Document.objects.filter(pk=doc.pk).update(
                     folder=target, name=name, file_type=file_type)
+            changes.record_document(doc.id, before=before, content=False, label=shown)
             return {'from': render(scope, src_parts), 'to': shown,
                     'kind': 'file', 'document_id': doc.id}
 
         if fs.folder_name_taken(scope.user, target, name, exclude_pk=folder.pk):
             raise VfsError(f'{shown} already exists. Pick another name.')
+        # Before the rename or move: both change `folder` in place.
+        before = changes.folder_state(folder)
         try:
             if (target.pk if target else None) == folder.parent_id:
                 fs.rename_folder(folder, name)
@@ -2032,6 +2081,7 @@ def move(scope: FileScope, src: str, dst: str) -> dict:
                 fs.move(scope.user, folders=[folder], target=target)
         except fs.FilesystemError as e:
             raise VfsError(str(e)) from e
+        changes.record_folder(folder.id, before=before, label=shown)
         return {'from': render(scope, src_parts), 'to': shown + '/',
                 'kind': 'directory'}
 
@@ -2044,6 +2094,8 @@ def copy(scope: FileScope, src: str, dst: str) -> dict:
     storage in one call, and nothing the tools do needs it.
     """
     from django.db import transaction
+
+    from logs import changes
 
     from . import drafts
     from .office_edit import EditError
@@ -2079,6 +2131,7 @@ def copy(scope: FileScope, src: str, dst: str) -> dict:
                 name=name, file_type=file_type,
                 metadata={**(clone.metadata or {}), 'created_by': 'agent',
                           **_author_meta(scope)})
+            changes.record_document(clone.pk, before=None, content=True, label=shown)
     return {'from': render(scope, src_parent + [src_name]), 'to': shown,
             'document_id': clone.pk}
 
@@ -2142,12 +2195,16 @@ def _make_dirs(scope: FileScope, parts: Sequence[str],
     differ from `parts` where a folder was reused under its existing case, and
     are what a caller should render back to the model.
     """
+    from logs import changes
+
     node = scope.root
+    walked: list[str] = []
     for raw in parts:
         name = safe_name(raw)
         if not name:
             raise VfsError(f'"{raw}" is not a usable directory name.')
-        if fs.child_by_name(scope.user, node, name) is None:
+        missing = fs.child_by_name(scope.user, node, name) is None
+        if missing:
             # `reports/` when only `Reports/` exists: reuse it rather than
             # create a sibling differing only in case. Only when exactly one
             # candidate exists — two is ambiguous, and guessing would file the
@@ -2155,12 +2212,19 @@ def _make_dirs(scope: FileScope, parts: Sequence[str],
             others = _other_case_folders(scope.user, node, name)
             if len(others) == 1:
                 name = others[0]
+                missing = False
         try:
             node = fs.ensure_folder(scope.user, name, node)
         except fs.FilesystemError as e:
             # A depth or per-user folder cap. Surfaced verbatim: the message
             # already names the limit, and the model can act on it.
             raise VfsError(str(e)) from e
+        walked.append(node.name)
+        # Only the folders this call made (D17). The platform's own roots
+        # (`/Chat`, `/Agents`) are not recorded even when a whole-tree scope
+        # creates them by path: undoing a run must not remove them.
+        if missing and not _protected(scope, walked):
+            changes.record_folder(node.id, before=None, label=render(scope, walked))
         if names_out is not None:
             names_out.append(node.name)
     return node

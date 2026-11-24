@@ -1168,6 +1168,11 @@ async def run_chat_turn(
         )) if command_resolution is not None else {}),
         approval_modes=_approval_modes,
         autonomy=session_autonomy,
+        # The change log's owner is the user's message, not `turn_id`: an
+        # approval reuses this same message, so the set survives a pause (D6).
+        # Closing the set happens at the end of the turn, in a later phase.
+        change_owner={'user_id': user.id, 'owner_kind': 'chat',
+                      'chat_message_id': user_message.id},
     )
 
     # A command that starts a run directly (`/agent`): the typed command is

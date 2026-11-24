@@ -446,6 +446,12 @@ class TurnContext:
     #: every one of them answered "This run is not part of a mission".
     mission_id: int | None = None
 
+    #: Who owns the changes this turn's tool calls make (docs/UNDO_PLAN.md §6.2):
+    #: `{'user_id', 'owner_kind': 'chat' | 'run', 'chat_message_id',
+    #: 'execution_id', 'parent_set_id'}`, or None for a turn nobody journals
+    #: (eval, D11). Read per tool call in `_dispatch_one`.
+    change_owner: dict[str, Any] | None = None
+
     @property
     def max_tokens(self) -> int:
         return _MAX_TOKENS_BY_INTENT.get(self.intent, _DEFAULT_MAX_TOKENS)
@@ -2164,6 +2170,8 @@ def _tool_context(turn: TurnContext, state: AgentState) -> dict[str, Any]:
         "worker_label": turn.worker_label,
         "execution_id": turn.execution_id,
         "mission_id": turn.mission_id,
+        # Whose change set a tool call's writes belong to (`_dispatch_one`).
+        "change_owner": turn.change_owner,
         # The lead's live sink, so detached workers can publish plan-panel
         # frames (task/lease/change updates) to whoever is watching the lead.
         # None in unit tests that build a bare TurnContext.
@@ -2501,23 +2509,107 @@ async def _dispatch_one(batch: _Batch, call: ToolCall, arguments: dict) -> tuple
            "user_answer": batch.answers.get(call.id),
            "decided_by_user": call.id in batch.decided}
     from chat.tools.registry import timeout_of
+    from logs import changes
 
-    # A tool whose job is to wait on other agents declares its own limit; the
-    # flat one reported a delegation as failed while its workers kept going.
-    limit = timeout_of(call.name, TOOL_CALL_TIMEOUT)
-    started = time.monotonic()
+    # Always bind, None included (D18): a child run that awaits inline (an
+    # eval, or `invoke_subagent`'s worker) must never record into the parent's
+    # change set. The owner is read from the batch, so one call here is one
+    # binding and the unbind below restores whatever was bound before.
+    owner = batch.tool_context.get("change_owner")
+    binding = None
+    if owner:
+        binding = changes.Binding(
+            user_id=owner["user_id"], owner_kind=owner["owner_kind"],
+            chat_message_id=owner.get("chat_message_id"),
+            execution_id=owner.get("execution_id"),
+            parent_set_id=owner.get("parent_set_id"),
+            tool=call.name, call_id=call.id,
+        )
+    token = changes.bind(binding)
     try:
-        async with asyncio.timeout(limit):
-            output = await batch.dispatch(call.name, arguments, ctx)
-        status = "completed"
-    except asyncio.TimeoutError:
-        status = "failed"
-        output = f"Error: {call.name} timed out after {limit:g}s."
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("[Tools] %s raised", call.name)
-        status = "failed"
-        output = f"Error running {call.name}: {exc}"
-    return output, status, int((time.monotonic() - started) * 1000)
+        # A tool whose job is to wait on other agents declares its own limit;
+        # the flat one reported a delegation as failed while its workers kept
+        # going.
+        limit = timeout_of(call.name, TOOL_CALL_TIMEOUT)
+        started = time.monotonic()
+        try:
+            async with asyncio.timeout(limit):
+                output = await batch.dispatch(call.name, arguments, ctx)
+            status = "completed"
+        except asyncio.TimeoutError:
+            status = "failed"
+            output = f"Error: {call.name} timed out after {limit:g}s."
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[Tools] %s raised", call.name)
+            status = "failed"
+            output = f"Error running {call.name}: {exc}"
+        duration_ms = int((time.monotonic() - started) * 1000)
+
+        # A call that did something the change log did not see is listed as
+        # untracked, so the list says so rather than leaving it out (D8).
+        if binding is not None and status == "completed" and binding.recorded == 0:
+            await _journal_untracked(call, arguments, output)
+        return output, status, duration_ms
+    finally:
+        changes.unbind(token)
+
+
+async def _journal_untracked(call: ToolCall, arguments: dict, output: str) -> None:
+    """Add the "can't be undone from here" row for a call that recorded nothing."""
+    from chat.tools.registry import effect_of, external_of, get, journal_of
+    from logs import changes
+
+    try:
+        effect = effect_of(call.name)
+        if effect == "read" or not journal_of(call.name) or _looks_like_error(output):
+            return
+        # An MCP tool has no registry entry; its own name is the label.
+        entry = get(call.name)
+        verb = (entry.action_label if entry is not None and entry.action_label
+                else call.name)
+        target = _journal_target(arguments)
+        label = f"{verb}: {target}" if target else verb
+        await sync_to_async(changes.record_untracked)(
+            label=label, external=external_of(call.name), effect=effect)
+    except Exception:  # noqa: BLE001 — journaling must not fail the call
+        logger.exception("[Changes] Could not journal %s", call.name)
+
+
+#: The arguments that say what a call acted on, first match wins. Used only to
+#: label an untracked row, so the list can say "Send email: ana@example.com".
+_JOURNAL_TARGET_KEYS = ("path", "to", "subject", "name", "title", "url", "channel")
+
+
+def _journal_target(arguments: dict) -> str:
+    for key in _JOURNAL_TARGET_KEYS:
+        value = arguments.get(key)
+        if isinstance(value, (list, tuple)):
+            value = ", ".join(str(v) for v in value)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:80]
+    return ""
+
+
+def _looks_like_error(output: str) -> bool:
+    """Whether a tool's result says it failed. A failed call changed nothing.
+
+    Three shapes reach us: a plain failure string (the loop's own "Error: ..." and
+    "Error running ..."), a JSON object with a truthy `error`, and a JSON object
+    with `status == "error"`. Anything else is taken as success. The prefix is
+    exact on purpose: a bare "Error" prefix would also hide a result that starts
+    "Errors found: none", and a hidden change is worse than a listed one.
+    """
+    text = (output or "").lstrip()
+    if text.startswith(("Error:", "Error running")):
+        return True
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return False
+        if isinstance(data, dict):
+            return bool(data.get("error")) or data.get("status") == "error"
+    return False
 
 
 async def _dispatch_calls(batch: _Batch) -> None:
