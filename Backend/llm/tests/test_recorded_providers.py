@@ -194,6 +194,55 @@ class OllamaTests(TestCase):
         self.assertEqual(result.content, "Hello there.")
         self.assertNotIn("tools", tape.requests[0].json)
 
+    def test_ollama_image_rides_in_the_images_field(self):
+        # /api/chat takes `content` as a string and base64 images beside it.
+        # Content parts are the shape of Ollama's /v1 route, not this one.
+        import base64
+        import shutil
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        path = Path(media) / "chart.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n a small picture")
+        image = SimpleNamespace(id="att-1", file_type="image", filename="chart.png",
+                                file=SimpleNamespace(path=str(path), name=str(path)))
+        with override_settings(MEDIA_ROOT=media), replay("ollama_chat_stream") as tape:
+            _stream(**self._kwargs(attachments=[image]))
+        question = tape.requests[0].json["messages"][-1]
+        self.assertEqual(question["content"], "Say hello.")
+        self.assertEqual(question["images"],
+                         [base64.b64encode(path.read_bytes()).decode("ascii")])
+
+    def test_ollama_second_pass_replays_the_tool_call_as_an_object(self):
+        # A real two-pass agent turn. The transcript is kept in the OpenAI
+        # shape (arguments as a JSON string); Ollama takes an object.
+        from chat.turn.agent import TurnContext, run_turn
+
+        async def dispatch(name, args, context):
+            return f"contents of {args.get('path')}"
+
+        async def never(*_a, **_k):
+            return False
+
+        turn = TurnContext(
+            provider="ollama", model="qwen3:8b", system_message="You are a test.",
+            user_id=self.user.id, session_id="ollama-two-pass", intent="chat",
+            user_text="read it", memory_enabled=False, max_iterations=4,
+            tool_dispatch=dispatch, approval_policy=never,
+        )
+        with replay("ollama_chat_tool_then_answer") as tape:
+            result = async_to_sync(run_turn)(turn, prompt="read it", thread_id="ollama-two-pass")
+        self.assertEqual(result.answer, "done")
+        self.assertEqual(result.error, "")
+        second = tape.requests[1].json["messages"]
+        call = next(m for m in second if m.get("tool_calls"))["tool_calls"][0]
+        self.assertEqual(call["function"]["arguments"], {"path": "/step-1.md"})
+        tool = next(m for m in second if m["role"] == "tool")
+        self.assertIn("contents of /step-1.md", tool["content"])
+
     def test_ollama_non_streamed_tool_call_with_object_arguments(self):
         with replay("ollama_chat_complete_tool_call") as tape:
             completion = async_to_sync(access.complete)(**self._kwargs(tools=WEATHER_TOOL))

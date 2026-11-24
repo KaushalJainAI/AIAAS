@@ -185,9 +185,9 @@ def _build_ollama_messages(config: dict[str, Any], prompt: str,
 
     history = config.get("history", [])
     if history:
-        messages.extend(history)
+        messages.extend(_ollama_history_entry(entry) for entry in history)
 
-    parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    images: list[str] = []
     for att in config.get("attachments", []) or []:
         try:
             # Ollama's multimodal models take images only.
@@ -200,20 +200,43 @@ def _build_ollama_messages(config: dict[str, Any], prompt: str,
                 logger.warning("Blocked path traversal in Ollama attachment")
                 continue
             with open(file_path, "rb") as handle:
-                parts.append({
-                    "type": "image",
-                    "image": base64.b64encode(handle.read()).decode('utf-8'),
-                })
+                images.append(base64.b64encode(handle.read()).decode('utf-8'))
         except Exception as exc:  # noqa: BLE001 - one bad file is not a failed request
             logger.warning("Skipping unreadable Ollama attachment: %s", exc)
 
-    # A lone text part goes as a plain string: that is the shape Ollama's
-    # text-only models expect, and the multipart form is only for images.
-    messages.append({
-        "role": "user",
-        "content": parts if len(parts) > 1 else prompt,
-    })
+    # Ollama's /api/chat takes `content` as a string and images beside it in
+    # `images` (base64, no data: prefix). This used to send OpenAI-style
+    # content parts, which is the shape of Ollama's /v1 compatibility route,
+    # not of this one.
+    question: dict[str, Any] = {"role": "user", "content": prompt}
+    if images:
+        question["images"] = images
+    messages.append(question)
     return messages
+
+
+def _ollama_history_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """One transcript entry in Ollama's spelling.
+
+    The agent keeps its transcript in the OpenAI shape, where a tool call's
+    `arguments` is a JSON *string*. Ollama's /api/chat takes it as an object,
+    so a run's second pass, which replays the first pass's call, has to be
+    translated. Anything else passes through unchanged.
+    """
+    calls = entry.get("tool_calls")
+    if entry.get("role") != "assistant" or not calls:
+        return entry
+    translated = []
+    for call in calls:
+        function = dict(call.get("function") or {})
+        arguments = function.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                function["arguments"] = json.loads(arguments) if arguments.strip() else {}
+            except ValueError:
+                function["arguments"] = {}
+        translated.append({**call, "function": function})
+    return {**entry, "tool_calls": translated}
 
 
 class OllamaNode(BaseNodeHandler):

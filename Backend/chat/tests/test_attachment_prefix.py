@@ -8,25 +8,25 @@ and at a position no provider can cache. From the second pass on, the file now
 rides on the question inside the transcript: the same position and the same
 bytes on every pass, so it falls inside the cached prefix.
 
-Drives the real graph with a stub model (as `test_curation_e2e.py` does) and
-asserts what actually left for the provider.
+Drives the real graph with the model scripted at the wire (as
+`test_curation_e2e.py` does) and asserts on the requests that actually left.
 """
 from __future__ import annotations
 
 import base64
-import json
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from chat.turn.agent import TurnContext, run_turn
+from llm.recorded import replay
+from llm.testing import ScriptedModel, ScriptedRequest, always, provider_error, text, tool_call
 
 User = get_user_model()
 
@@ -46,40 +46,36 @@ OVERFLOW_MODEL = "stub-prefix-overflow-model"
 
 
 class _StubProvider:
-    """Calls a tool for `turns` passes, then answers. Records every request."""
+    """Calls a tool for `turns` passes, then answers; refuses pass `overflow_on`
+    with a context-length error. Records every request as it went over the wire.
+    """
 
     def __init__(self, turns: int, *, overflow_on: int | None = None) -> None:
         self.turns = turns
         self.overflow_on = overflow_on
-        self.calls: list[dict] = []
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    def __call__(self, **kwargs):
-        self.calls.append(kwargs)
-        step = len(self.calls)
-        overflow = step == self.overflow_on
-        answering = step > self.turns
+    def _respond(self, request: ScriptedRequest):
+        if request.index == self.overflow_on:
+            return provider_error(400, "This model's maximum context length is 4096 tokens.")
+        if request.index > self.turns:
+            return text("done")
+        return tool_call("read_file", {"path": f"/step-{request.index}.md"},
+                         id=f"call-{request.index}")
 
-        async def chunks():
-            if overflow:
-                yield {
-                    "type": "error", "status": 400,
-                    "message": "This model's maximum context length is 4096 tokens.",
-                }
-                return
-            if answering:
-                yield {"type": "content", "content": "done"}
-            else:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0,
-                    "id": f"call-{step}",
-                    "function": {
-                        "name": "read_file",
-                        "arguments": json.dumps({"path": f"/step-{step}.md"}),
-                    },
-                }]}
-            yield {"type": "metadata", "usage": {"total_tokens": 10}}
+    @property
+    def calls(self) -> list[list[dict]]:
+        """The messages of each request."""
+        return [r.messages for r in self.scripted.requests]
 
-        return chunks()
+
+async def _read_file_only() -> list[dict]:
+    """The one tool these runs call. With the whole chat catalogue the schemas
+    alone outgrow the 4,096-token window the overflow test teaches, and the
+    run rightly gives up instead of retrying."""
+    from chat.tools import AVAILABLE_TOOLS
+
+    return [t for t in AVAILABLE_TOOLS if t["function"]["name"] == "read_file"]
 
 
 async def _dispatch(name: str, args: dict, context: dict) -> str:
@@ -90,8 +86,20 @@ async def _never(name, args, context) -> bool:
     return False
 
 
-def _list_entries(history: list[dict]) -> list[dict]:
-    return [e for e in history if isinstance(e.get("content"), list)]
+def _list_entries(messages: list[dict]) -> list[dict]:
+    """The messages whose content is a list of parts: the ones that carry a file."""
+    return [e for e in messages if isinstance(e.get("content"), list)]
+
+
+def _conversation(messages: list[dict]) -> list[dict]:
+    """The messages after the leading system prompt(s)."""
+    start = 0
+    while start < len(messages) and messages[start].get("role") == "system":
+        start += 1
+    return messages[start:]
+
+
+QUESTION_WITH_FILE = [{"type": "text", "text": QUESTION}, PDF_PART]
 
 
 class AttachmentPrefixTests(TestCase):
@@ -123,9 +131,9 @@ class AttachmentPrefixTests(TestCase):
             intent="research", user_text=QUESTION,
             history=tuple(prior), attachments=(self.attachment,),
             memory_enabled=False, max_iterations=10,
-            tool_dispatch=_dispatch, approval_policy=_never,
+            tool_dispatch=_dispatch, tool_source=_read_file_only, approval_policy=_never,
         )
-        with patch("llm.access.stream", new=stub):
+        with stub.scripted.installed():
             async_to_sync(run_turn)(
                 turn, prompt=QUESTION, thread_id=f"thread-{uuid.uuid4()}",
             )
@@ -137,12 +145,10 @@ class AttachmentPrefixTests(TestCase):
         stub = self._run("openrouter", turns=2)
 
         first = stub.calls[0]
-        self.assertEqual(first["prompt"], QUESTION)
-        self.assertEqual(len(first["attachments"]), 1)
-        self.assertEqual(
-            _list_entries(first["history"]), [],
-            "the question is the prompt on pass 0, so the transcript has no file",
-        )
+        self.assertEqual(first[-1]["role"], "user")
+        self.assertEqual(first[-1]["content"], QUESTION_WITH_FILE)
+        self.assertEqual(_list_entries(first[:-1]), [],
+                         "the question is the last message on pass 0; nothing before it has the file")
 
     # ── later passes carry the file inside the transcript ───────────────────
 
@@ -156,27 +162,26 @@ class AttachmentPrefixTests(TestCase):
 
         self.assertGreaterEqual(len(stub.calls), 3, "the run should have gone on")
         for call in stub.calls[1:]:
-            self.assertEqual(call["attachments"], [],
-                             "raw files must not ride the trailing prompt")
-            self.assertNotEqual(call["prompt"], QUESTION,
+            last = call[-1]
+            self.assertIsInstance(last["content"], str,
+                                  "raw files must not ride the trailing prompt")
+            self.assertNotEqual(last["content"], QUESTION,
                                 "a later pass prompts with the continuation nudge")
-            self.assertEqual(call["history"][:2], list(prior),
-                             "earlier turns are untouched")
-            question = call["history"][2]
+            conversation = _conversation(call)
+            self.assertEqual(conversation[:2], list(prior), "earlier turns are untouched")
+            question = conversation[2]
             self.assertEqual(question["role"], "user")
-            self.assertEqual(
-                question["content"],
-                [{"type": "text", "text": QUESTION}, PDF_PART],
-            )
+            self.assertEqual(question["content"], QUESTION_WITH_FILE)
 
     def test_the_question_entry_is_identical_on_every_later_pass(self):
         """The point of the change: the same bytes at the same place, so the
         provider's prefix cache can cover them from pass to pass."""
         stub = self._run("openrouter", turns=3)
 
-        later = [call["history"] for call in stub.calls[1:]]
+        later = stub.calls[1:]
         self.assertGreaterEqual(len(later), 2)
-        questions = [history[0] for history in later]
+        questions = [(call.index(_list_entries(call)[0]), _list_entries(call)[0])
+                     for call in later]
         for question in questions[1:]:
             self.assertEqual(question, questions[0])
 
@@ -188,18 +193,25 @@ class AttachmentPrefixTests(TestCase):
         )
 
         retry = stub.calls[2]
-        self.assertEqual(retry["attachments"], [])
-        self.assertEqual(
-            _list_entries(retry["history"])[0]["content"],
-            [{"type": "text", "text": QUESTION}, PDF_PART],
-        )
+        self.assertIsInstance(retry[-1]["content"], str)
+        self.assertEqual(_list_entries(retry)[0]["content"], QUESTION_WITH_FILE)
 
     # ── providers that cannot take list history keep the old shape ──────────
 
     def test_a_provider_without_list_history_keeps_the_file_on_the_prompt(self):
-        stub = self._run("ollama", turns=2)
-
-        for call in stub.calls:
-            self.assertEqual(len(call["attachments"]), 1)
-        for call in stub.calls:
-            self.assertEqual(_list_entries(call["history"]), [])
+        # Ollama, replayed from a recording: two passes (a tool call, then the
+        # answer). Its /api/chat takes string content only, so no request may
+        # carry a list of parts; a PDF is not something it takes at all.
+        turn = TurnContext(
+            provider="ollama", model="qwen3:8b", system_message="You are a test.",
+            user_id=self.user.id, session_id=f"prefix-{uuid.uuid4()}",
+            intent="research", user_text=QUESTION, attachments=(self.attachment,),
+            memory_enabled=False, max_iterations=10,
+            tool_dispatch=_dispatch, tool_source=_read_file_only, approval_policy=_never,
+        )
+        with replay("ollama_chat_tool_then_answer") as tape:
+            async_to_sync(run_turn)(turn, prompt=QUESTION, thread_id=f"thread-{uuid.uuid4()}")
+        self.assertEqual(len(tape.requests), 2)
+        for request in tape.requests:
+            self.assertEqual(_list_entries(request.json["messages"]), [])
+        self.assertEqual(tape.requests[0].json["messages"][-1]["content"], QUESTION)
