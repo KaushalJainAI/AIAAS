@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
@@ -187,10 +186,10 @@ class GeneratedDataApiTests(TestCase):
         self.client.force_authenticate(self.user)
 
     def _completion(self, cases):
-        from types import SimpleNamespace
+        """The generator model's reply, as a scripted step at the wire."""
+        from llm.testing import text
 
-        return SimpleNamespace(content=json.dumps({"cases": cases}), tokens=100,
-                               usage=None)
+        return text(json.dumps({"cases": cases}))
 
     def test_generate_saves_drafts_the_runner_skips(self):
         cases = [
@@ -199,7 +198,9 @@ class GeneratedDataApiTests(TestCase):
             {"name": "bad", "category": "normal", "goal": "Run code.",
              "graders": [{"type": "tool_used", "tool": "execute_python"}]},
         ]
-        with patch("llm.access.complete", AsyncMock(return_value=self._completion(cases))):
+        from llm.testing import scripted_model
+
+        with scripted_model(self._completion(cases)):
             res = self.client.post(f"/api/eval/suites/{self.suite.id}/generate/",
                                    {"count": 2}, format="json")
         self.assertEqual(res.status_code, 201, res.content)

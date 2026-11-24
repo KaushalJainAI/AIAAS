@@ -55,22 +55,18 @@ class EvalCallerTests(TestCase):
         self.assertIn('ceiling', run.error_message)
 
     def test_judge_cost_summed_onto_result_and_run(self):
-        from llm.access import Completion
-        from llm.usage import TokenUsage
+        from llm.testing import scripted_model, text, usage
 
         EvalCase.objects.create(
             suite=self.suite, goal='g', reference='rubric',
             graders=[{'type': 'llm_judge'}])
 
-        async def fake_judge(**kwargs):
-            return Completion(content='{"score": 1.0, "reason": "good"}',
-                              usage=TokenUsage(input=10, output=5, total=15), tokens=15)
-
         run = async_to_sync(runner.open_run)(self.suite, self.agent, self.user, '')
         with patch('agents.agent.runtime.run_agent', stub(agent_run('answer'))):
-            with patch('llm.access.complete', fake_judge):
+            with scripted_model(text('{"score": 1.0, "reason": "good"}',
+                                     usage=usage(10, 5))):
                 async_to_sync(runner.sweep)(run, self.suite, self.agent, self.user)
         run.refresh_from_db()
         result = run.results.get()
-        self.assertGreaterEqual(result.judge_tokens, 0)
+        self.assertEqual(result.judge_tokens, 15)
         self.assertGreaterEqual(run.tokens_used, 100)

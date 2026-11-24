@@ -270,25 +270,19 @@ class JudgeEvidenceTests(TestCase):
     """The judge sees how an answer was produced, and still fails closed."""
 
     def test_prompt_carries_real_tool_calls_and_reasoning(self):
-        seen = {}
+        from llm.testing import scripted_model, text
 
-        class Reply:
-            content = '{"score": 1, "reason": "ok"}'
-
-        async def fake_complete(**kwargs):
-            seen.update(kwargs)
-            return Reply()
-
-        with patch('llm.access.complete', fake_complete):
+        with scripted_model(text('{"score": 1, "reason": "ok"}')) as model:
             graded = async_to_sync(evals.grade_answer)(
                 'The rate is 83.1', [{'type': 'llm_judge', 'rubric': 'labels expectations'}],
                 user_id=1, reasoning='I will pretend I searched.',
                 tool_trace=[{'tool': 'web_search', 'args': {'query': 'usd inr'}}],
             )
         self.assertTrue(graded['passed'])
-        self.assertIn('web_search {"query": "usd inr"}', seen['prompt'])
-        self.assertIn('I will pretend I searched.', seen['prompt'])
-        self.assertIn('fabrication', seen['system_message'])
+        sent = model.requests[0]
+        self.assertIn('web_search {"query": "usd inr"}', sent.last_user_text())
+        self.assertIn('I will pretend I searched.', sent.last_user_text())
+        self.assertIn('fabrication', sent.system_text())
 
     def test_no_calls_and_no_reasoning_are_said_plainly(self):
         from eval import graders
@@ -298,10 +292,9 @@ class JudgeEvidenceTests(TestCase):
         self.assertIn('(not recorded)', evidence)
 
     def test_judge_failure_is_still_a_failed_grade(self):
-        async def boom(**kwargs):
-            raise RuntimeError('provider down')
+        from llm.testing import provider_error, scripted_model
 
-        with patch('llm.access.complete', boom):
+        with scripted_model(provider_error(503, 'provider down')):
             graded = async_to_sync(evals.grade_answer)(
                 'x', [{'type': 'llm_judge', 'rubric': 'r'}], user_id=1, reasoning='r')
         self.assertFalse(graded['passed'])
