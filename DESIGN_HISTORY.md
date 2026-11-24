@@ -3730,7 +3730,7 @@ The search_solutions rule moved into `AGENT_CORE_RULES`, so it is not said twice
 
 Rule: nothing in `PLATFORM_OPENER`, `CORE_RULES` or `AGENT_CORE_RULES` may depend on the user, agent, run or clock. `CacheOrderTests` and `test_the_fixed_rules_lead_and_the_date_is_last` pin the order.
 
-## H-169 · Tests script the model at the wire; recordings, a frozen clock, and CI running again (2026-11-24)
+## H-171 · Tests script the model at the wire; recordings, a frozen clock, and CI running again (2026-11-24)
 
 Files: .github/workflows/backend.yml, .github/workflows/frontend.yml, Backend/llm/testing.py, Backend/llm/recorded.py, Backend/llm/tests/recordings/, Backend/llm/tests/test_recorded_providers.py, Backend/llm/tests/test_no_model_fakes.py, Backend/llm/tests/test_scripted_model.py, Backend/llm/handlers/llm_nodes.py, Backend/core/safety/moderation.py, Backend/workflow_backend/testclock.py, Backend/workflow_backend/tests/test_testclock.py, Backend/inference/tests/test_vfs_hardening.py, Backend/chat/tests/test_chat_transcript.py, Backend/chat/tests/test_curation_e2e.py, Backend/chat/tests/test_context_overflow.py, Backend/chat/tests/test_attachment_prefix.py, Backend/chat/tests/test_auto_reviewer.py, Backend/chat/tests/test_auto_mode.py, Backend/chat/tests/test_injection_model_check.py, Backend/requirements.txt, Backend/requirements-linux.txt, Backend/.gitignore, Backend/docs/TESTING.md
 
