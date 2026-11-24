@@ -42,7 +42,7 @@ import json
 import os
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Union
+from typing import Any, Callable, Iterator, Union
 from unittest import mock
 
 import httpx
@@ -155,7 +155,19 @@ class Hang:
     """The provider never answers. Ends only when the caller cancels."""
 
 
-Step = Union[Reply, Failure, ProviderError, Hang]
+@dataclass(frozen=True)
+class Always:
+    """Answers every remaining call by asking `respond(request)` for a step.
+
+    For a model whose answer depends on what it was sent, for as many calls
+    as the code makes: "call a tool while tools are offered, answer once they
+    are withheld". It is never used up, so it goes last in a script.
+    """
+
+    respond: Callable[["ScriptedRequest"], Any]
+
+
+Step = Union[Reply, Failure, ProviderError, Hang, Always]
 
 
 def text(content: str, *, usage: Usage | None = None,
@@ -189,15 +201,33 @@ def hang() -> Hang:
     return Hang()
 
 
+def always(respond: Callable[["ScriptedRequest"], Any]) -> Always:
+    """Answer every remaining call with `respond(request)`, which returns a step.
+
+        def relentless(request):
+            if request.tools_offered:
+                return tool_call("update_todos", {...})
+            return text("Stopped at the limit.")
+
+        with scripted_model(always(relentless)) as model: ...
+    """
+    return Always(respond)
+
+
+_ONE_SHOT = (Reply, Failure, ProviderError, Hang)
+
+
 def _flatten(steps: tuple[Any, ...]) -> list[Step]:
     if len(steps) == 1 and isinstance(steps[0], (list, tuple)):
         steps = tuple(steps[0])
-    for step in steps:
-        if not isinstance(step, (Reply, Failure, ProviderError, Hang)):
+    for position, step in enumerate(steps):
+        if not isinstance(step, (*_ONE_SHOT, Always)):
             raise TypeError(
                 f"not a scripted step: {step!r}. Use text(), reasoning(), "
-                "tool_call(), fail(), provider_error() or hang()."
+                "tool_call(), fail(), provider_error(), hang() or always()."
             )
+        if isinstance(step, Always) and position != len(steps) - 1:
+            raise TypeError("always() answers every remaining call, so it must come last")
     return list(steps)
 
 
@@ -309,10 +339,14 @@ class ScriptedModel:
         self._steps.extend(_flatten(steps))
 
     def assert_consumed(self) -> None:
-        """Fail if the script has steps the model never asked for."""
-        if self._steps:
+        """Fail if the script has steps the model never asked for.
+
+        A trailing `always()` is open-ended, so it never counts as unused.
+        """
+        unused = [s for s in self._steps if not isinstance(s, Always)]
+        if unused:
             raise AssertionError(
-                f"{len(self._steps)} scripted step(s) were never used; "
+                f"{len(unused)} scripted step(s) were never used; "
                 f"the model was called {len(self.requests)} time(s)"
             )
 
@@ -372,7 +406,14 @@ class ScriptedModel:
             # reaches check() through `_problem`.
             raise AssertionError(message)
 
-        step = self._steps.pop(0)
+        if isinstance(self._steps[0], Always):
+            step = self._steps[0].respond(self.requests[-1])
+            if not isinstance(step, _ONE_SHOT):
+                message = f"always(): call {index} was answered with {step!r}, not a step"
+                self._problem = self._problem or message
+                raise AssertionError(message)
+        else:
+            step = self._steps.pop(0)
         if isinstance(step, Hang):
             await asyncio.Event().wait()  # never set: ends only when cancelled
         if isinstance(step, Failure):
