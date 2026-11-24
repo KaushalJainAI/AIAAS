@@ -14,9 +14,9 @@ from django.core.cache import cache
 from django.test import TestCase
 
 from chat.models import ChatSession
-from chat.turn.agent import TurnResult
 from chat.turn.pipeline import TurnRequest, run_chat_turn
 from llm.models import AIModel, AIProvider
+from llm.testing import scripted_model, text
 
 
 class ChatFallbackTests(TestCase):
@@ -45,23 +45,20 @@ class ChatFallbackTests(TestCase):
         return []
 
     def _run(self):
-        async def capture_turn(turn, *, prompt, thread_id, **kwargs):
-            self.seen['model'] = turn.model
-            self.seen['provider'] = turn.provider
-            return TurnResult(answer='hi')
-
-        async def no_preflight(**kwargs):
-            return None
-
-        with patch('chat.turn.agent.run_turn', capture_turn), \
-                patch('llm.access.preflight', no_preflight), \
+        # The real graph and the real preflight; the model is scripted at the
+        # wire, so what is checked is the model the request actually named.
+        with scripted_model(text('hi')) as model, \
                 patch('chat.turn.agent.suggest_follow_ups', self._none):
-            return async_to_sync(run_chat_turn)(
+            outcome = async_to_sync(run_chat_turn)(
                 session=self.session,
                 user=self.user,
                 request=TurnRequest.parse({'content': 'hello'}),
                 sink=self._sink,
             )
+        if model.requests:
+            self.seen['model'] = model.requests[0].model
+            self.seen['provider'] = model.requests[0].provider
+        return outcome
 
     def test_a_retired_session_model_answers_on_the_fallback(self):
         outcome = self._run()

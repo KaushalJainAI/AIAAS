@@ -7,7 +7,6 @@ preflight, so a retired id never reaches the wire; and the stored
 configuration is never rewritten, so the run record (`model_used` /
 `fallback_from`) is the honest account of what the run did about it.
 """
-from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 from django.contrib.auth.models import User
@@ -15,18 +14,12 @@ from django.core.cache import cache
 from django.test import TransactionTestCase
 
 from agents.models import SubAgent
-from chat.turn.agent import TurnResult
 from llm.models import AIModel, AIProvider
+from llm.testing import provider_error, scripted_model, text
 from logs.models import ExecutionLog
 from notifications.models import Notification
 
 
-async def completed_turn(turn, *, prompt, thread_id, **_):
-    return TurnResult(answer='done')
-
-
-async def no_preflight(**kwargs):
-    return None
 
 
 class FallbackRunTests(TransactionTestCase):
@@ -59,11 +52,13 @@ class FallbackRunTests(TransactionTestCase):
             events.append((str(event), payload))
 
         kwargs.setdefault('sink', sink)
-        with patch('chat.turn.agent.run_turn', completed_turn), \
-                patch('llm.access.preflight', no_preflight):
+        # The real graph and the real preflight; the model is scripted at the
+        # wire, so the model a run fell back to is the one actually called.
+        with scripted_model(text('done')) as model:
             result = await run_agent(
                 self.agent, 'go', user=self.user,
                 thread_id='thread-fallback', **kwargs)
+        self.sent = model.requests
         return result, events
 
     async def test_a_retired_model_runs_on_the_fallback(self):
@@ -75,6 +70,7 @@ class FallbackRunTests(TransactionTestCase):
         self.assertEqual(log.status, 'completed')
         self.assertEqual(log.model_used, 'openrouter/free')
         self.assertEqual(log.fallback_from, 'old/busted')
+        self.assertEqual([r.model for r in self.sent], ['openrouter/free'])
 
         # The watching caller is told on the stream, in the existing STATUS
         # vocabulary — no new wire event for old clients to choke on.
@@ -128,13 +124,10 @@ class FallbackRunTests(TransactionTestCase):
             lambda: setattr(self.agent, 'llm_model', 'new/shiny') or
             self.agent.save(update_fields=['llm_model']))()
 
-        async def refused_turn(turn, *, prompt, thread_id, **_):
-            raise LLMModelUnavailable('"new/shiny" is no longer available.')
-
         from agents.agent.runtime import run_agent
 
-        with patch('chat.turn.agent.run_turn', refused_turn), \
-                patch('llm.access.preflight', no_preflight):
+        gone = provider_error(410, '"new/shiny" is no longer available.')
+        with scripted_model(gone):
             with self.assertRaises(LLMModelUnavailable):
                 await run_agent(self.agent, 'go', user=self.user,
                                 thread_id='thread-race')
