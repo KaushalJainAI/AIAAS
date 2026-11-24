@@ -290,12 +290,15 @@ migration list: `better-n8n-frontend/FRONTEND_STRUCTURE.md`.
 - `features/chat/components/` — Chat interface with code execution tracking, live state management, responsive sidebar
 - `pages/Connections.tsx` — the one page for external capability. It merged the former
   "Tools" (`/mcp-servers`) and "Data sources" (`/connectors`), which were two views of
-  the same two tables; both paths now redirect to `/connections`. Raw MCP config lives
-  behind its Advanced disclosure, and connector presentation comes from the backend
+  the same two tables; both paths now redirect to `/connections`. Its Advanced disclosure
+  (raw MCP config, "Add custom server") is hidden since 2026-11-23 behind
+  `lib/features.ts::CUSTOM_MCP_SERVERS`, mirroring the backend's
+  `MCP_CUSTOM_SERVERS_ENABLED` (H-169), and connector presentation comes from the backend
   (`icon_slug` → `lib/connectorIcons.ts`), never from a name-keyed map in this app
 - `pages/OAuthCallback.tsx` — `/oauth/callback`, the credential OAuth popup landing page
   (distinct from `GoogleCallback`, which logs a user *in*)
-- `components/mcp/` — the custom MCP server modal, used by the Connections Advanced section
+- `components/mcp/` — the custom MCP server modal (kept, unmounted while custom servers are
+  retired) and `HeldToolsPanel`
 - `components/pane/` (2026-11-17) — the side pane with tabs: `SidePane` (layout, resize, Escape,
   phone Back, per-conversation `sessionStorage` via `storageKey`), `PaneTabStrip` / `PaneTabMenu` /
   `PaneBody` (props only; only the active body is mounted). The tab rules are the pure reducer in
@@ -462,6 +465,7 @@ MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once
 MCP_MAX_POOLED_SESSIONS=6          # Live sessions kept (cache policy under the budget)
 MCP_SESSION_TTL=300                # How long an idle connector holds its subprocess
 MCP_ALLOW_STDIO=True               # Local-process MCP servers; deployment defaults False (no Node in image)
+MCP_CUSTOM_SERVERS_ENABLED=False   # Users adding their own MCP servers; off everywhere (test settings turn it on for engine suites)
 SESSION_NOTES_ENABLED=True         # Per-conversation notes file, updated after every chat turn
 SESSION_NOTES_PROVIDER=            # Blank = CONTEXT_SUMMARY_PROVIDER (platform key)
 SESSION_NOTES_MODEL=               # Blank = CONTEXT_SUMMARY_MODEL

@@ -27,6 +27,7 @@ import { ConnectionToolsError } from './errors';
 import { isPlatformOff, statusIsWorking, statusOf, STATUS_LABEL } from './status';
 import { useCredentialIndex } from './useCredentialIndex';
 import type { MCPServer, MCPTool } from './types';
+import { CUSTOM_MCP_SERVERS } from '../../lib/features';
 
 /** The web's humanizeToolName: `search_files` -> `Search files`. */
 function humanizeToolName(name: string): string {
@@ -341,12 +342,14 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
 
         {!srv.is_system ? (
           <Section title="Manage" footer={connectionAddress(server) || undefined}>
-            <ListRow
-              icon="create-outline"
-              title="Edit"
-              chevron
-              onPress={() => router.push({ pathname: '/more/connections/server-form', params: { id: String(id) } })}
-            />
+            {CUSTOM_MCP_SERVERS ? (
+              <ListRow
+                icon="create-outline"
+                title="Edit"
+                chevron
+                onPress={() => router.push({ pathname: '/more/connections/server-form', params: { id: String(id) } })}
+              />
+            ) : null}
             <ListRow icon="trash-outline" title="Remove" destructive chevron={false} onPress={() => void removeServer()} />
           </Section>
         ) : null}

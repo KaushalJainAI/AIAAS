@@ -32,6 +32,16 @@ it.
 Every connector starts **read-only**. Writes are added per connector later, and
 always go through an agent's grant and the approval gate.
 
+**Standard sign-in steps (S1)**, used by every MCP card whose vendor lets us
+register automatically and needs nothing else from the user:
+1. Click **Connect**.
+2. Sign in to the vendor in the window that opens.
+3. Review what AIAAS may see and click **Allow** (or **Approve**). Done.
+
+Sections 1–13 were researched first; §14–§20 (added 2026-11-24) cover the
+second sweep: design, finance and HR, analytics, more developer tools, social
+networks and more Indian services.
+
 ---
 
 ## 1. Developer and engineering
@@ -687,3 +697,97 @@ One integration that brings thousands of apps. Researched options:
 Recommendation: **wait.** Ship our own cards first; revisit Pipedream Connect
 only if users ask for apps we do not have. Every aggregator means a third party
 holds every user's tokens.
+
+---
+
+## 14. Design and whiteboards
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **Miro** | MCP · 1 | Nothing: automatic registration (verified live, `mcp.miro.com`), scope `boards:read` | Any Miro plan, free included | S1, then pick your Miro team |
+| **Figma** | MCP · 3 | Registration is advertised (`mcp.figma.com/mcp`), but Figma reportedly accepts only clients on its **MCP Catalog** (U). Apply to be listed | A Figma account; writing needs a full seat | S1, once listed |
+| **Canva** | MCP · 3 | `mcp.canva.com/mcp` advertises registration, but Canva **reviews each app before launch**. Apply | A Canva account | S1, once approved |
+| **Coda / Superhuman Docs** | MCP · 2 | Coda's MCP (registration verified) is being replaced by the Superhuman Docs MCP; build on the new one. OAuth grants read **and** write, so our tool list keeps reads | A Coda account | S1 |
+
+## 15. Files, meetings and office suites
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **Microsoft 365** (Outlook, OneDrive, Teams, Excel, SharePoint) | OAuth API card · 3 | A multi-tenant Entra app plus **publisher verification** (free Microsoft partner account) so users see no "unverified" warning; Graph OpenAPI spec (`msgraph-metadata`, verified). Microsoft's own MCP covers directory data only, not mail or files | A work or school account; some companies need an admin to approve the app | 1. Click **Connect**. 2. Sign in with your work account. 3. Accept the read permissions (mail, files, calendar). 4. If it says "Need admin approval", ask IT to grant consent for AIAAS |
+| **Dropbox** | MCP · 3 (spike) | `mcp.dropbox.com/mcp` (beta; rate-limited when probed). Registration (U) | A Dropbox account | S1 |
+| **Box** | MCP · 3 | `mcp.box.com`. A Box **admin** enables it in **Admin Console → Integrations** and creates the client id and secret. No read-only scope, so our list keeps reads | A Box admin | 1. Admin enables Box MCP and gives us the client details. 2. S1 |
+| **Zoom** | MCP · 3 | No automatic registration: register a **General app** in the Zoom App Marketplace (OAuth + PKCE). Regional endpoint, exact path (U) | A Zoom account | S1, after our app is published |
+| **Webex** | MCP · 3 | No automatic registration; register a Webex integration. The **org admin** enables it in Control Hub | Webex org admin approval | 1. Admin enables AIAAS in **Control Hub**. 2. S1 |
+| **Loom** | via Atlassian | Loom's tools sit inside the Atlassian MCP (§2) | — | — |
+
+## 16. Finance, payroll, HR and legal
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **Xero** | MCP · 2 | `api.xero.com/mcp/v1`, OAuth + PKCE, no client secret; registration (U). Its V1 tools **don't ask before writing**, so request granular read scopes only (e.g. `accounting.transactions.read`) | Xero **Core plan or higher** (Starter: demo company only); 5,000 calls/day per company | S1, then pick your organisation |
+| **QuickBooks Online** | OAuth API card · 3 | No hosted MCP (Intuit's is local-only). Register an Intuit app; production keys need Intuit's **app assessment** | A QuickBooks Online subscription | 1. Click **Connect**. 2. Sign in to Intuit, pick your company, **Connect** |
+| **Gusto** | MCP · 3 (spike) | `mcp.api.gusto.com`, registration verified. It has **run_payroll**, **file_ein** and other writes; reads only, and the spike must prove writes can't be reached | Company **admin** | S1, choosing data categories on the consent screen |
+| **BambooHR** | MCP · 3 | Per company `https://{subdomain}.bamboohr.com/api/mcp` (beta). No automatic registration: register an app in BambooHR's developer portal | An **admin** turns on **Settings → Apps → AI Connectors** | 1. Admin turns on AI Connectors. 2. Enter your subdomain, then S1 |
+| **Greenhouse** | MCP · 3 | `mcp.us.greenhouse.io` (US only) advertises registration, but **custom clients must be added to Greenhouse's redirect allow-list by contacting them** | Admin sets **Dev Center → MCP Access** with read scopes | 1. Admin creates MCP access with read scopes. 2. S1 |
+| **Salesforce** | MCP · 3 | Hosted MCP needs an **External Client App** (not a Connected App), scope `mcp_api` | Admin enables **Setup → MCP Service** | 1. Admin enables the MCP service. 2. S1 |
+| **DocuSign** | ✗ for now | `mcp.docusign.com` exists but its discovery is broken (DocuSign community, Sept 2026). Our `esign` app already sends for signature | — | — |
+| **FreshBooks** | ✗ | No official MCP or confirmed third-party API route | — | — |
+
+## 17. Product analytics and monitoring
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **Mixpanel** | MCP · 1 | Registration verified. Region field: US `mcp.mixpanel.com/mcp`, EU `mcp-eu.mixpanel.com/mcp`, India `mcp-in.mixpanel.com/mcp`. No read-only mode, so reads only in our list. 600 calls/hour per user | An **org admin** turns on MCP (**Settings → Org → AI Settings**); on by default for free/growth accounts made after 2026-08-01 | 1. Pick your region. 2. S1 |
+| **Amplitude** | MCP · 1 | Registration verified; US `mcp.amplitude.com/mcp`, EU `mcp.eu.amplitude.com/mcp`; scope `all:read` | **Plus add-on or Enterprise**. For read-only, an admin gives you a role with MCP write off | 1. Pick your region. 2. S1 |
+| **PostHog** | MCP · 1 | `mcp.posthog.com/mcp`; registration via `oauth.posthog.com` (verified) | A PostHog account | S1. Or **Settings → Personal API keys → Create** with read scopes (e.g. `insight:read`) and paste it |
+| **Grafana Cloud** | MCP · 1 | `mcp.grafana.com/mcp`, registration verified; tokens 1 hour, refresh up to 30 days | Grafana Cloud with the Assistant on; role **Assistant Cloud MCP User** | 1. S1. 2. On the consent page keep **Read** on; turn **Write** and **Query** off |
+| **New Relic** | MCP · 2 | US `mcp.newrelic.com/mcp/`, EU `mcp.eu.newrelic.com/mcp/` (U); scope `observability:read`; registration (U) | A **paid** New Relic plan | S1, or paste a **User API key** (`NRAK-…`) |
+| **Google Analytics 4** | API card (Google sign-in) · 2 | Our Google OAuth client with `analytics.readonly`; Google may require app verification for it (U) | Access to the GA4 property | 1. Click **Connect**, sign in with Google. 2. Enter the GA4 **property id** (Admin → Property details) |
+| **Google Search Console** | API card (Google sign-in) · 2 | Scope `webmasters.readonly` (verified) | Access to the property | 1. Click **Connect**, sign in with Google. 2. Pick the site |
+| **YouTube (public data)** | API card · 1 | API key as `key=`; base `www.googleapis.com/youtube/v3`; 10,000 quota units/day per key | A Google Cloud project | 1. **Cloud console → APIs & Services → enable YouTube Data API v3 → Credentials → Create API key**, restrict it to that API. 2. Paste it |
+| **Segment** | API card · 2 | `Authorization: Bearer <token>`; API host (U) | **Team or Business** plan; a workspace owner makes the token | 1. Owner: **Settings → Workspace settings → Access Management → Tokens → Create Token**. 2. Paste it |
+
+## 18. More developer and business tools
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **GitLab** | MCP · 1 | `gitlab.com/api/v4/mcp` (GA), automatic registration per GitLab's docs. No read-only mode: narrow with header `X-Gitlab-Enabled-Mcp-Server-Toolsets`, reads only in our list | Any plan; a group owner may need to allow MCP for the top-level group | S1 |
+| **Bitbucket** | API card · 2 | App passwords ended June 2026; use **scoped API tokens**. Auth Basic `email:token` (U), base `api.bitbucket.org/2.0` (U) | An Atlassian account | 1. **Atlassian account → Security → Create API token with scopes → Bitbucket**, read scopes. 2. Paste email and token |
+| **CircleCI** | API card · 2 | MCP `mcp.circleci.com/v1/mcp` exists, but its OAuth metadata path 404'd, so start with the personal token | A CircleCI account | 1. **User settings → Personal API Tokens → Create**. 2. Paste it |
+| **Azure DevOps** | MCP · 3 | `mcp.dev.azure.com/{org}`, Entra sign-in only (no automatic registration); headers `X-MCP-Readonly: true`, `X-MCP-Toolsets` | An Entra-backed Azure DevOps org | 1. Enter your organisation name. 2. Sign in with your work account |
+| **Postman** | MCP · 1 | US `mcp.postman.com/minimal`, registration verified. EU is API-key only | A Postman account | S1 (EU: **Settings → API keys → Generate**, paste) |
+| **Hugging Face** | MCP · 1 | `huggingface.co/mcp`, registration verified; leave Jobs and repo-writing tool groups off | A Hugging Face account | S1 |
+| **BrowserStack** | MCP · 2 | `mcp.browserstack.com/mcp`, OAuth; registration (U). Test sessions use paid minutes: reads only | A BrowserStack plan | S1 |
+| **Mapbox** | MCP · 1 | `mcp.mapbox.com/mcp`, registration verified | A Mapbox account | S1 |
+| **Freshsales** | API card · 1 | `https://{domain}.freshsales.io/api/`, header `Authorization: Token token=<key>`; 1,000 calls/hour | A Freshsales account | 1. **Profile picture → Profile Settings → API Settings**, copy **Your API key**. 2. Enter your domain and the key |
+| **Chargebee** | API card · 1 | `https://{site}.chargebee.com/api/v2`, Basic auth with the key as username. Chargebee also has hosted MCP servers per site (U: auth) | An **admin** creates a **read-only** key | 1. **Settings → Configure Chargebee → API Keys and Webhooks → Add API key → Read-only key**. 2. Enter your site name and the key |
+| **NewsAPI** | API card · 2 | Base `newsapi.org/v2`, key header (U). Free plan is development-only (24-hour delay); production needs a paid plan | A NewsAPI account | 1. Register at **newsapi.org**, copy the key from your account page. 2. Paste it |
+
+## 19. Social networks
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **X (Twitter)** | MCP · 3 | `api.x.com/mcp?read_only=true` (write tools removed). No automatic registration: we register an X app and supply its Client ID. **X bills per read** (pay-per-use credits, e.g. $0.005 per post read): decide who pays | An X account | S1, once our app is registered and funded |
+| **LinkedIn** | ✗ | No official MCP; useful APIs need partner programs with review | — | — |
+| **Meta (Instagram, Facebook Pages)** | ✗ for now | Meta's hosted MCP covers Ads, DevTools and WhatsApp Business only; organic reads need **App Review + Business Verification** | — | — |
+| **Reddit** | ✗ | Self-serve API apps closed; access by request; commercial use needs a contract | — | — |
+
+## 20. More Indian services
+
+| Connector | Engine · Wave | We need | User needs | Steps |
+|---|---|---|---|---|
+| **Exotel** | MCP · 2 | `mcp.exotel.com/mcp` (62 tools); credentials go in a JSON `Authorization` header (key, token, account SID). Calls and SMS cost money and reach people: reads only (call and SMS logs, number lookup) | An Exotel account; only **admins** see the API token | 1. **my.exotel.com → Settings → API Settings → API Credentials**. 2. Paste key, token and account SID |
+| **WATI** (WhatsApp) | MCP · 2 | `mcp.wati.io/mcp` (EU and KSA hosts too), OAuth. Send and broadcast reach customers: reads only (contacts, conversations, templates, credits) | A WATI subscription | 1. Pick your region. 2. S1 |
+| **MoEngage** | MCP · 2 | `mcp.moengage.com`, OAuth. It can pause or stop live campaigns: reads only (stats, segments, dashboards) | A MoEngage workspace | S1 |
+| **Setu BillPay** | MCP · 3 | `billpay-mcp.setu.co/mcp`, OAuth + phone OTP. **Paying bills moves money**: view bills and history only | A phone number on Setu | 1. S1. 2. Enter the OTP Setu sends |
+| **Juspay** | API card · 2 | `api.juspay.in`, Basic auth (key as username) + header `x-merchantid`. Their MCP is local-only. Reads only (order status, gateways) | A Juspay merchant account | 1. **Dashboard → Settings → Security → Create API Key** (U). 2. Paste key and merchant id |
+| **Ola Maps** | API card · 1 | API key; geocoding, places, directions (all reads). Prepaid credits since 2026-09-01 | An Ola Maps account with credits | 1. Create a key in the Ola Maps console (path (U)). 2. Paste it |
+| **Mappls (MapmyIndia)** | API card · 2 | REST key from `apis.mappls.com/console` (auth details (U)) | A Mappls developer account | 1. Create a key in the console. 2. Paste it |
+| **Bhashini** | API card · 2 | Indian-language translation and speech; headers `userID` + `ulcaApiKey` (U); free for integrators (U) | A Bhashini (ULCA) account | 1. Register at **bhashini.gov.in/ulca**, verify email. 2. **My Profile → Generate** a key. 3. Paste user id and key |
+| **Sarvam AI** | API card · 2 | Header `api-subscription-key`; speech and translation; credit-based | A Sarvam account | 1. **indus.sarvam.ai/key-management → API Keys → Create** (shown once). 2. Paste it |
+| **IndiaMART** | Inbound webhook · 2 | IndiaMART **pushes** each new lead to a URL; our webhook trigger already starts an agent from a URL, so a lead can start a follow-up agent. The pull API is being retired | A **paid** seller with the Push API add-on | 1. In AIAAS, give an agent a **webhook** trigger and copy its URL. 2. **seller.indiamart.com → Lead Manager → ⋮ → Import/Export Leads → Push API**, paste the URL, confirm the OTP |
+| **Zoho Books, Zoho Desk** | via Zoho MCP (§2) | Listed in the Zoho MCP builder; the user adds their tools to their Zoho server | — | See Zoho |
+| **CleverTap** | ✗ for now | MCP in private beta for selected customers | — | — |
+| **Gupshup, Interakt, AiSensy** | Messaging candidates | WhatsApp send APIs belong in Messaging, not connectors (24-hour window and template rules) | — | — |
+| **Delhivery, Instamojo** | ✗ for now | Delhivery's API is behind its login and its MCP is local-only; Instamojo's docs could not be confirmed | — | — |
+| **Khatabook, Vyapar, Zepto, Blinkit, PolicyBazaar, CRED, Tata 1mg, Jio, Airtel** | ✗ | No public API (partner or enterprise only) | — | — |

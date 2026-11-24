@@ -145,7 +145,7 @@ configures tool by tool.
 | ASI01 Goal hijack | Sanitizer, taint flag, approvals, URL provenance | Covered; injection can still *change the answer*, not act unapproved |
 | ASI02 Tool misuse | Grants, scopes, effects, autonomy ladder | Covered |
 | ASI03 Identity & privilege abuse | Per-user credentials, secret refs, scoped connectors, JWT revocation | Covered |
-| ASI04 Supply chain | MCP tool pinning, stdio off in production, allow-listed env | Covered (TOFU: day-one server is trusted) |
+| ASI04 Supply chain | MCP tool pinning, stdio off in production, allow-listed env, no user-added MCP servers (curated catalogue only) | Covered (TOFU: day-one server is trusted) |
 | ASI05 Code execution | Sandbox container | Covered |
 | ASI06 Memory poisoning | Memory guard, taint flag, solution library guard | Covered for user memory and the org solution library |
 | ASI07 Inter-agent comms | Workers run in-process; a worker's output is a tool result, so the taint flag applies | Covered by design |
@@ -211,6 +211,7 @@ Stated plainly, so nobody reads this as "solved":
 | `OUTBOUND_AI_DISCLOSURE` | `unattended` | `unattended` (no person reviewed it), `always`, `never` |
 | `AUTO_REVIEWER_MODEL` / `_TIMEOUT_S` | llama-4-scout / 3 | The Auto judge; slower means "ask" |
 | `MCP_ALLOW_STDIO` | False in production | Local-process MCP servers |
+| `MCP_CUSTOM_SERVERS_ENABLED` | False everywhere (True only in test settings) | Users adding their own MCP servers; off hides their old rows from every agent |
 | `CHATGPT_PLAN_ENABLED` | False in production | Off, its routes 404 and the provider is not offered |
 | `SANDBOX_ENGINE` | `service` in production | The hardened container, never the dev fallback |
 | `SOLUTION_CAPTURE_DAILY_CAP` | 30 | Automatic team-solution saves per person per day. 0 = off |

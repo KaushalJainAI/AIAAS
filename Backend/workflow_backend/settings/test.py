@@ -40,6 +40,13 @@ from .base import *  # noqa: F401, F403
 STT_ENGINE = 'none'
 TTS_ENGINE = 'none'
 
+# User-owned MCP servers are retired in every real environment (base.py
+# defaults this off). The MCP suites still use a user-owned row as the simplest
+# fixture for the engine itself — pooling, credentials, toggles, scopes — so the
+# switch is on here, and `mcp_integration/tests/test_custom_servers_retired.py`
+# turns it off to test what users actually get.
+MCP_CUSTOM_SERVERS_ENABLED = True
+
 # The image strip a web search fetches beside its results. Tests stub
 # `web_search`, but this side effect still went to DuckDuckGo and Bing from
 # every test that drove a turn through one. No test may reach the internet.

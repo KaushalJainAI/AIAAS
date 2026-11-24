@@ -46,9 +46,14 @@ Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
 - A local MCP server gets a short allow-listed environment, never the server's own (see `client.py::_build_subprocess_env`).
 - Listing tools never starts a server. Only calling a tool does.
 - In production `MCP_ALLOW_STDIO=False`, so local-process servers are refused.
+- Users cannot add their own servers (`MCP_CUSTOM_SERVERS_ENABLED=False`, every
+  environment). Their old rows are kept but reach no agent, and the owner can
+  still delete them. Connectors come from the curated catalogue
+  (`Backend/docs/CONNECTOR_CATALOGUE_PLAN.md`).
 - Connector tools are offered only when the connection is live. A failed read means "not live".
 
 ## Tests
 
 `mcp_integration/tests/`: `test_connections.py`, `test_native_connectors.py`,
-`test_subprocess_env.py`, `test_supervisor.py`, `test_tool_pins.py`.
+`test_subprocess_env.py`, `test_supervisor.py`, `test_tool_pins.py`,
+`test_custom_servers_retired.py`.

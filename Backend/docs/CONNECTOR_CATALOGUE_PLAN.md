@@ -672,7 +672,7 @@ Suggested build order: 0 → 9 → 10 (most connectors per hour) → 1–4 → 5
 
 | Phase | State | Notes |
 |---|---|---|
-| 0 | not started | |
+| 0 | built 2026-11-24 | `MCP_CUSTOM_SERVERS_ENABLED` + `CUSTOM_MCP_SERVERS` (web, mobile); retired rows 404 except DELETE; agents keep a retired id (dropping it would widen the scope); test settings keep it on for the engine suites. H-169. Prod row count not yet checked |
 | 1 | not started | |
 | 2 | not started | |
 | 3 | not started | |

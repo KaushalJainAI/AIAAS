@@ -11,7 +11,13 @@ from rest_framework.response import Response
 
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
-from .client import LIST_TOOLS_TIMEOUT, MCPClientManager, MCPConnectionError, warm_cache
+from .client import (
+    LIST_TOOLS_TIMEOUT,
+    MCPClientManager,
+    MCPConnectionError,
+    custom_servers_enabled,
+    warm_cache,
+)
 from .credential_injector import (
     CredentialInjector,
     CredentialInvalidError,
@@ -70,9 +76,27 @@ class MCPServerViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_authenticated:
             return MCPServer.objects.none()
+        if not custom_servers_enabled() and self.action != "destroy":
+            # Custom servers are retired: the user's own rows are not listed,
+            # cannot be read, edited, toggled or signed in to (each answers the
+            # same 404 an unknown id does). Delete still finds them, so an owner
+            # can clean up a row the product no longer shows.
+            return MCPServer.objects.filter(user__isnull=True).order_by("name")
         return MCPServer.objects.filter(
             Q(user=user) | Q(user__isnull=True)
         ).order_by("name")
+
+    def create(self, request, *args, **kwargs):
+        if not custom_servers_enabled():
+            return Response(
+                {
+                    "error": "Adding your own MCP server is no longer available. "
+                             "Choose a connector from the Connections page.",
+                    "code": "custom_servers_disabled",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
 
     def get_serializer_context(self):
         """

@@ -1219,6 +1219,34 @@ def _serialise_tool_result(result: CallToolResult) -> Any:
     return parts
 
 
+def custom_servers_enabled() -> bool:
+    """Whether user-owned MCP servers exist as far as the product is concerned.
+
+    Read per call, like `MCP_ALLOW_STDIO`, so tests and an env change take
+    effect without a reload. Off, a user-owned row is invisible everywhere this
+    module answers "which servers" — both doors (offered and dispatched), the
+    builder's picker and the agent validator — because they all resolve
+    through `_visible_servers_queryset`.
+    """
+    from django.conf import settings
+
+    return bool(getattr(settings, 'MCP_CUSTOM_SERVERS_ENABLED', False))
+
+
+def retired_server_ids_sync(user_id: int | None) -> set[int]:
+    """This user's own servers while custom servers are switched off.
+
+    An agent may still name one in its `connectors`. The validator accepts
+    such an id rather than refusing an unrelated edit, and keeps it rather than
+    dropping it: dropping the only id would leave `connectors` empty, which
+    means *unrestricted*, and so widen the agent to every curated connector. A
+    kept id resolves to no server at run time, which can only take tools away.
+    """
+    if user_id is None or custom_servers_enabled():
+        return set()
+    return set(MCPServer.objects.filter(user_id=user_id).values_list('id', flat=True))
+
+
 def _visible_servers_queryset(user_id: int | None, enabled_only: bool = True):
     # Ordered explicitly, and it matters well beyond tidiness. This list decides
     # the order of the MCP tool descriptors in every model request, and a
@@ -1240,7 +1268,7 @@ def _visible_servers_queryset(user_id: int | None, enabled_only: bool = True):
                     user_id=user_id, enabled=False
                 ).values('server_id')
             )
-    if user_id is None:
+    if user_id is None or not custom_servers_enabled():
         return qs.filter(user__isnull=True)
     return qs.filter(Q(user__isnull=True) | Q(user_id=user_id))
 

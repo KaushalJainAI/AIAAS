@@ -44,6 +44,7 @@ import {
 } from '../api/credentials';
 import { mcpService, MCPToolsError, type MCPServer, type MCPServerCategory } from '../api/mcp';
 import MCPServerModal from '../components/mcp/MCPServerModal';
+import { CUSTOM_MCP_SERVERS } from '../lib/features';
 import HeldToolsPanel from '../components/mcp/HeldToolsPanel';
 import MessagingChannels from '../components/messaging/MessagingChannels';
 import PageHeader from '../components/layout/PageHeader';
@@ -1030,7 +1031,9 @@ export default function Connections() {
             <Plug className="w-12 h-12 text-muted-foreground/30 mb-4" />
             <p className="text-lg font-semibold text-foreground">No connections available</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Ask an administrator to set up connections, or add your own below.
+              {CUSTOM_MCP_SERVERS
+                ? 'Ask an administrator to set up connections, or add your own below.'
+                : 'Ask an administrator to set up connections.'}
             </p>
           </div>
         )}
@@ -1048,7 +1051,9 @@ export default function Connections() {
         />
 
         {/* Advanced. The MCP vocabulary lives here and nowhere else: it is a real
-            capability, but naming a subprocess is not a task for most people. */}
+            capability, but naming a subprocess is not a task for most people.
+            Retired behind `CUSTOM_MCP_SERVERS` (lib/features.ts). */}
+        {CUSTOM_MCP_SERVERS && (
         <section className="border-t border-border/40 pt-5">
           <button
             onClick={() => setAdvancedOpen((v) => !v)}
@@ -1103,6 +1108,7 @@ export default function Connections() {
             </div>
           )}
         </section>
+        )}
 
         {/* Credentials no longer has a nav entry — you get to a key through the
             connection that uses it. This is the way to the full list for anyone
@@ -1131,7 +1137,7 @@ export default function Connections() {
       )}
 
       <MCPServerModal
-        isOpen={serverModalOpen}
+        isOpen={CUSTOM_MCP_SERVERS && serverModalOpen}
         onClose={() => {
           setServerModalOpen(false);
           setEditingServer(null);

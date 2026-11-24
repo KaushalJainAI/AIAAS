@@ -464,7 +464,7 @@ class AgentSerializer(serializers.Serializer):
         toolbox intersects with the live catalogue at build time instead, which
         is the only place the answer is current.
         """
-        from mcp_integration.client import visible_server_ids_sync
+        from mcp_integration.client import retired_server_ids_sync, visible_server_ids_sync
         from agents.connector_scope import MODES
 
         if not value:
@@ -510,7 +510,11 @@ class AgentSerializer(serializers.Serializer):
                 else {'id': server_id, 'mode': mode, 'tools': names}
             )
 
-        unknown = set(entries) - visible_server_ids_sync(self.context['request'].user.id)
+        user_id = self.context['request'].user.id
+        # A retired custom server the user still owns is kept, not refused and
+        # not dropped: see `retired_server_ids_sync` for why dropping widens.
+        unknown = (set(entries) - visible_server_ids_sync(user_id)
+                   - retired_server_ids_sync(user_id))
         if unknown:
             raise serializers.ValidationError(
                 f"Unknown connections: {', '.join(str(i) for i in sorted(unknown))}."
