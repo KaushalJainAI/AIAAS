@@ -332,6 +332,8 @@ export interface ChatMessageMetadata {
   elapsed_ms?: number;
   /** Number of tool calls the turn made. Absent on older messages. */
   steps?: number;
+  /** What the turn changed, for "Undo changes…" (`logs/changes.py::summary`). Absent when it changed nothing. */
+  changes?: { set_id: number; total: number; revertible: number; not_revertible: number; incomplete: boolean };
   [key: string]: unknown;
 }
 
