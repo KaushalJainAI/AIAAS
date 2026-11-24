@@ -11,6 +11,7 @@ from django.test import TestCase
 from inference import filesystem as fs
 from inference import vfs
 from inference.models import Document, Folder
+from workflow_backend.testclock import freeze_for
 from workflow_backend.thresholds import AGENT_HOME_ROOT, CHAT_HOME_ROOT
 
 User = get_user_model()
@@ -70,10 +71,17 @@ class DuplicateNameTests(Base):
 # 2 ─ lost updates ───────────────────────────────────────────────────────────
 
 class ExpectedVersionTests(Base):
+    # A version is the file's `updated_at`. On Windows the wall clock ticks
+    # every ~15 ms, so a write in the same tick as setUp's got the same version
+    # and `test_fresh_version_writes` failed now and then. The clock is frozen
+    # and moved on after the first write, so every later write is a new
+    # version on every machine.
     def setUp(self):
         super().setUp()
+        self.clock = freeze_for(self)
         vfs.write_file(self.full, '/f.md', 'alpha beta')
         self.v = vfs.read_file(self.full, '/f.md')['version']
+        self.clock.advance(seconds=1)
 
     def test_fresh_version_writes(self):
         out = vfs.write_file(self.full, '/f.md', 'new', expected_version=self.v)

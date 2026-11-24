@@ -1,18 +1,33 @@
-name: tests
+name: backend
+
+# This file lives at the repo root because GitHub only reads workflows from
+# `.github/workflows/` there. It used to sit in `Backend/.github/`, which ran
+# while Backend was its own repo and silently stopped running when the repos
+# were merged into one on 2026-09-27 (DESIGN_HISTORY.md, "CI was not running").
 
 on:
   push:
-    branches: [agent, main]
+    branches: [main, develop]
+    paths:
+      - "Backend/**"
+      - ".github/workflows/backend.yml"
   pull_request:
+    paths:
+      - "Backend/**"
+      - ".github/workflows/backend.yml"
 
 concurrency:
-  group: tests-${{ github.ref }}
+  group: backend-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Backend
 
 jobs:
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-linux.txt
+          cache-dependency-path: Backend/requirements-linux.txt
 
       # python-magic needs the libmagic shared library.
       - name: System packages
@@ -38,5 +53,14 @@ jobs:
           DJANGO_SETTINGS_MODULE: workflow_backend.settings.test
         run: python manage.py makemigrations --check --dry-run
 
+      # The layer contracts (Backend/.importlinter). The test suite runs them
+      # too; this step prints the full report when one breaks.
+      - name: Import contracts
+        run: lint-imports
+
+      # CI=true makes a missing provider recording fail instead of skipping
+      # (llm/recorded.py).
       - name: Run tests
+        env:
+          CI: "true"
         run: python -m pytest -q -p no:cacheprovider --ignore=sandbox_service
