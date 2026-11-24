@@ -16,7 +16,6 @@ import shutil
 import tempfile
 from contextlib import contextmanager
 from datetime import timedelta
-from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache

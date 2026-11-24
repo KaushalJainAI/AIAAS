@@ -35,6 +35,7 @@ Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 | `activity.py`, `activity_urls.py` | `/api/activity/`: live and recent activity for the Activity page |
 | `revisions.py` | Saves a new revision only when settings really changed |
 | `changes.py` | The change log. A tool call's owner (a chat message or a run) is bound while it runs, and the file writes record what changed. Never raises, so a failed record cannot fail the write |
+| `undo.py` | Puts back what a set changed (`docs/UNDO_PLAN.md` §6.4–6.5). Reads the change log, refuses a set that is still running, skips anything changed since the run rather than overwrite it, and returns one outcome per change |
 | `costs.py` | The only writer of `CostEntry` |
 | `failures.py` | Classifies why a run failed, as one word |
 | `signals_api.py` | Records automatic quality signals |
@@ -55,4 +56,5 @@ run goes.
 
 `logs/tests/`: `test_turns.py`, `test_delegation.py`, `test_revisions.py`,
 `test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`,
-`test_change_binding.py`, `test_change_record.py`.
+`test_change_binding.py`, `test_change_record.py`, `test_undo_documents.py`,
+`test_undo_api.py`.
