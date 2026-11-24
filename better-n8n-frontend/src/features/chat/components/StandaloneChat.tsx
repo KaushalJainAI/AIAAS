@@ -42,6 +42,8 @@ import { MediaPreview } from '@/components/content/MediaPreview';
 import HtmlArtifact from './HtmlArtifact';
 import AutoOpenFiles from './AutoOpenFiles';
 import ChartArtifact from '@/components/content/ChartArtifact';
+import PendingSends from '@/components/content/PendingSends';
+import { HELD_SEND_TOOLS, usePendingSends } from '@/hooks/usePendingSends';
 import PlanDock from '@/components/plan/PlanDock';
 import { actionsFrom, historyFrom } from '@/lib/planView';
 import PlanPanel, { PLAN_RAIL_WIDTH } from '@/components/orchestration/PlanPanel';
@@ -263,6 +265,14 @@ export default function StandaloneChat() {
   // What is waiting on this person, for the empty screen. Shared query, so
   // it costs nothing beyond what the sidebar badge already fetches.
   const { data: pendingHitl = [] } = useHitlPending(!isGuest);
+  // Sends the agent is holding in this chat (the send window). The live turn
+  // bumps `sendNudge` when a send tool is called, so the bar re-reads at once.
+  // Guests have no account, so the list is not asked for.
+  const [sendNudge, setSendNudge] = useState(0);
+  const pendingSends = usePendingSends({
+    sessionId: !isGuest && conversationId ? conversationId : undefined,
+    nudge: sendNudge,
+  });
   const { data: conversations = [], refetch: loadHistory } = useQuery({
     queryKey: ['chatSessions'],
     queryFn: async () => {
@@ -1197,6 +1207,16 @@ export default function StandaloneChat() {
           setMessages(prev => prev.map(m => (
             m.id === optimisticId ? { ...m, id: realId } : m
           )));
+        }
+        break;
+      }
+
+      case 'agent_trace': {
+        // A send tool was called. Its hold row is written a moment after this
+        // frame, so the bar re-reads (usePendingSends follows up once more).
+        if (event.sub_type === 'tool' && typeof event.tool === 'string'
+          && HELD_SEND_TOOLS.has(event.tool)) {
+          setSendNudge(n => n + 1);
         }
         break;
       }
@@ -2645,6 +2665,14 @@ export default function StandaloneChat() {
           <div className="max-w-4xl 2xl:max-w-5xl mx-auto space-y-4">
 
             <div className="relative group/input">
+
+              {/* Messages the agent is holding before they go out. Cancel stops
+                  one while it is still waiting. */}
+              <PendingSends
+                holds={pendingSends.holds}
+                onCancel={pendingSends.cancel}
+                onSendNow={pendingSends.sendNow}
+              />
 
               {/* The plan, pinned above the composer so it never scrolls
                   away. A team run shows it in the side panel instead. */}

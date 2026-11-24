@@ -11,6 +11,8 @@ import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { describeCost, formatCost } from '../../lib/cost';
 import MarkdownMessage from '@/components/content/MarkdownMessage';
+import PendingSends from '@/components/content/PendingSends';
+import { usePendingSends } from '@/hooks/usePendingSends';
 import ChartArtifact from '@/components/content/ChartArtifact';
 import PlanView from '../plan/PlanView';
 import { historyFrom } from '../../lib/planView';
@@ -239,9 +241,17 @@ export default function RunDetail({ detail }: { detail: ExecutionDetail }) {
     ...detail.unattributed_steps,
   ];
   const slowest = Math.max(1, ...allSteps.map((s) => s.duration_ms || 0));
+  // Messages this run is holding before they go out, at the top of the run.
+  const pendingSends = usePendingSends({ executionId: detail.execution_id });
 
   return (
     <div className="space-y-3">
+      <PendingSends
+        holds={pendingSends.holds}
+        onCancel={pendingSends.cancel}
+        onSendNow={pendingSends.sendNow}
+      />
+
       {detail.delegated_by && (
         <OrchestratorBanner detail={{ delegated_by: detail.delegated_by }} />
       )}
