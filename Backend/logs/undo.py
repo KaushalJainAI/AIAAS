@@ -75,6 +75,12 @@ NOTE_NOT_REMOVED = 'Not removed: it now holds files this run did not make.'
 NOTE_PARENT_IN_BIN = 'Not brought back: its folder is still in the bin.'
 NOTE_OLD_FOLDER_GONE = 'Could not move it back: its old folder is gone or in the bin.'
 NOTE_LIVE_TOO_BIG = 'Too many changes to undo at once. Undo the workers one by one.'
+NOTE_GONE_MEMORY = 'This fact is no longer stored.'
+NOTE_CHANGED_MEMORY = 'Changed after this run, so it was left as it is.'
+NOTE_GONE_AGENT = 'This agent is gone for good.'
+NOTE_AGENT_CREATED = ("This run created the agent. Delete the agent from its page if you "
+                      "don't want it.")
+NOTE_AGENT_EDITED = 'The agent was edited again since, so it was left as it is.'
 
 
 @dataclass
@@ -330,8 +336,11 @@ def _revert_one(change: Change, change_set: ChangeSet, user) -> tuple[str, str]:
                 note = _revert_document(change, change_set, user)
             elif change.target_type == 'folder':
                 note = _revert_folder(change, change_set, user)
+            elif change.target_type == 'memory':
+                note = _revert_memory(change, user)
+            elif change.target_type == 'agent':
+                note = _revert_agent(change, user)
             else:
-                # Memory and agent settings come in Phase 7.
                 raise _Skip('Undoing this kind of change is not available yet.')
     except _Skip as skip:
         return 'skipped', skip.note
@@ -513,3 +522,61 @@ def _revert_folder(change: Change, change_set: ChangeSet, user) -> str:
     except filesystem.FilesystemError as exc:
         raise _Skip(f'Could not move it back: {exc}')
     return ' '.join(notes) or 'Nothing needed putting back.'
+
+
+def _revert_memory(change: Change, user) -> str:
+    from core import memory as user_memory
+    from core.models import UserMemory
+
+    before = change.before
+    after = change.after or {}
+    if before is None:
+        # The run stored this fact. Delete it only if it is still there with the
+        # text the run gave it; a fact the user has since edited is theirs.
+        row = UserMemory.objects.filter(pk=change.target_id, user=user).first()
+        if row is None:
+            raise _Skip(NOTE_GONE_MEMORY)
+        if row.text != after.get('text'):
+            raise _Skip(NOTE_CHANGED_MEMORY)
+        row.delete()
+        return 'Forgotten.'
+    # The run removed this fact. Store it again (a repeat is a touch, not a copy).
+    user_memory.remember(user, before['text'], before.get('category') or 'context')
+    return 'Remembered again.'
+
+
+def _revert_agent(change: Change, user) -> str:
+    from agents.models import SubAgent
+    from logs import revisions
+    from logs.models import SubAgentRevision
+
+    before = change.before
+    after = change.after or {}
+    agent = SubAgent.objects.filter(pk=change.target_id, user=user).first()
+    if agent is None:
+        raise _Skip(NOTE_GONE_AGENT)
+    if before is None:
+        # Created by the run. Deleting an agent is too large a step to take from
+        # an undo, so the note sends the user to the agent's page.
+        raise _Skip(NOTE_AGENT_CREATED)
+    newest = (SubAgentRevision.objects.filter(subagent=agent)
+              .order_by('-number').values_list('number', flat=True).first())
+    if before.get('revision') is None or not after or newest != after.get('revision'):
+        raise _Skip(NOTE_AGENT_EDITED)
+    try:
+        revisions.restore(agent, before['revision'], user=user)
+    except SubAgentRevision.DoesNotExist:
+        raise _Skip('The version to go back to is gone.')
+    except revisions.RestoreRefused as refused:
+        raise _Skip(f'Could not put the settings back: {_refusal_text(refused.detail)}')
+    return 'Settings put back.'
+
+
+def _refusal_text(detail) -> str:
+    """The first plain message in a serializer's error body."""
+    if isinstance(detail, dict):
+        for value in detail.values():
+            if isinstance(value, (list, tuple)):
+                return str(value[0]) if value else 'the configuration is no longer valid.'
+            return str(value)
+    return str(detail)
