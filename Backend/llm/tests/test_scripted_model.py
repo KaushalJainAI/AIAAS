@@ -258,6 +258,37 @@ class BadArgumentTests(TestCase):
                 pass
 
 
+class AlwaysAndCitationTests(TestCase):
+    def test_always_answers_every_call_from_what_it_was_sent(self):
+        from llm.testing import always
+
+        def respond(request):
+            return text(f"call {request.index}, tools offered: {request.tools_offered}")
+
+        with scripted_model(always(respond)) as model:
+            first = _complete()
+            second = _complete(tools=None)
+        self.assertEqual(first.content, "call 1, tools offered: True")
+        self.assertEqual(second.content, "call 2, tools offered: False")
+        model.assert_consumed()  # open-ended: never counts as unused
+
+    def test_always_must_come_last(self):
+        from llm.testing import always
+
+        with self.assertRaisesRegex(TypeError, "must come last"):
+            with scripted_model(always(lambda r: text("x")), text("never")):
+                pass
+
+    def test_cited_sources_reach_the_accumulator(self):
+        with scripted_model(text("See [1].", citations=[{"url": "https://a.example/1",
+                                                          "title": "A"}])):
+            chunks = _stream_chunks()
+        accumulator = StreamAccumulator()
+        for chunk in chunks:
+            accumulator.add(chunk)
+        self.assertEqual([c["url"] for c in accumulator.citations], ["https://a.example/1"])
+
+
 # ── the pytest fixture form, for plain pytest functions (no database) ───────
 
 def test_the_fixture_installs_the_seam_for_the_test(scripted):

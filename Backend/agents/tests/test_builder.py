@@ -10,7 +10,6 @@ The provider is stubbed throughout: these assert on what we do with an answer,
 which is the part that is ours.
 """
 import json
-from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from rest_framework.test import APITestCase
@@ -24,21 +23,22 @@ from agents.views.builder import (
 )
 from agents.config import TOOL_KEYS
 from inference.models import KnowledgeBase
+from llm.testing import provider_error, scripted_model, text
 from mcp_integration.models import MCPServer
 
 URL = '/api/orchestrator/agents/configure/'
 
 
-class Completion:
-    """The one field of `llm.Completion` this path reads."""
-
-    def __init__(self, content):
-        self.content = content
-        self.tokens = 0
-
-
 def answer(reply='Set.', changes=()):
-    return Completion(json.dumps({'reply': reply, 'changes': list(changes)}))
+    """The model's reply, as a scripted step: a configuration in JSON."""
+    return text(json.dumps({'reply': reply, 'changes': list(changes)}))
+
+
+def builder_model(*steps):
+    """The model the builder asks when the board names none: the platform's
+    summary model, on NVIDIA's platform key. Scripted at the wire, so the real
+    funnel and handler run."""
+    return scripted_model(*steps, provider='nvidia')
 
 
 class SanitiseTests(APITestCase):
@@ -237,7 +237,7 @@ class ConfigureEndpointTests(APITestCase):
             {'path': 'tools.rag', 'value': True, 'why': 'It searches your docs.'},
             {'path': 'knowledgeBases', 'value': [self.kb.id], 'why': 'The corpus you named.'},
         ])
-        with patch('llm.access.complete', return_value=proposal):
+        with builder_model(proposal):
             response = self.client.post(
                 URL, {'message': 'triage my inbox against our policies',
                       'config': {'name': '', 'tools': {}}}, format='json')
@@ -257,7 +257,7 @@ class ConfigureEndpointTests(APITestCase):
         stranger = User.objects.create_user('stranger', 's@example.com', 'pw')
         theirs = KnowledgeBase.objects.create(user=stranger, name='Theirs')
         proposal = answer(changes=[{'path': 'knowledgeBases', 'value': [theirs.id]}])
-        with patch('llm.access.complete', return_value=proposal):
+        with builder_model(proposal):
             response = self.client.post(URL, {'message': 'use the other corpus'},
                                         format='json')
         self.assertEqual(response.json()['changes'], [])
@@ -265,20 +265,20 @@ class ConfigureEndpointTests(APITestCase):
     def test_a_connection_the_user_does_not_have_is_not_proposed(self):
         MCPServer.objects.filter(user__isnull=True).update(enabled=False)
         proposal = answer(changes=[{'path': 'connectors', 'value': [1234]}])
-        with patch('llm.access.complete', return_value=proposal):
+        with builder_model(proposal):
             response = self.client.post(URL, {'message': 'read my gmail'}, format='json')
         self.assertEqual(response.json()['changes'], [])
 
     def test_no_model_available_is_a_503_so_the_client_can_fall_back(self):
         """Not a 200 with an apology: the browser keeps a local rule table for
         exactly this, and it can only use it if the failure is legible."""
-        with patch('llm.access.complete', side_effect=RuntimeError('no key')):
+        with builder_model(provider_error(401, 'no key')):
             response = self.client.post(URL, {'message': 'do a thing'}, format='json')
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()['code'], 'builder_model_unavailable')
 
     def test_an_unparseable_answer_is_also_a_503(self):
-        with patch('llm.access.complete', return_value=Completion('I would turn on RAG.')):
+        with builder_model(text('I would turn on RAG.')):
             response = self.client.post(URL, {'message': 'do a thing'}, format='json')
         self.assertEqual(response.status_code, 503)
 
@@ -295,18 +295,15 @@ class ConfigureEndpointTests(APITestCase):
         """The whole reason this is a server endpoint: ids exist only here, and
         a model that cannot see the current config restates values it already
         has."""
-        captured = {}
-
-        async def fake_complete(**kwargs):
-            captured.update(kwargs)
-            return answer()
-
-        with patch('llm.access.complete', side_effect=fake_complete):
+        with builder_model(answer()) as model:
             self.client.post(URL, {
                 'message': 'search our policies',
                 'config': {'name': 'Existing', 'autonomy': 'ask'},
             }, format='json')
 
+        sent = model.requests[0]
+        captured = {'system_message': sent.system_text(), 'prompt': sent.last_user_text(),
+                    'temperature': sent.body.get('temperature')}
         self.assertIn('Policies', captured['system_message'])
         self.assertIn(str(self.kb.id), captured['system_message'])
         self.assertIn('Existing', captured['prompt'])
@@ -336,7 +333,7 @@ class BuilderChatMemoryTests(APITestCase):
         body = {'message': message, 'config': {'name': 'Mailer', 'tools': {}}}
         if agent_id is not None:
             body['agent_id'] = agent_id
-        with patch('llm.access.complete', return_value=proposal):
+        with builder_model(proposal):
             return self.client.post(URL, body, format='json')
 
     def _history(self, agent_id):

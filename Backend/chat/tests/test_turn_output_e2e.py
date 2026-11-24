@@ -8,52 +8,34 @@ cover each boundary in isolation, which is exactly the arrangement that lets a
 feature pass every test while reaching nobody. That happened here: the todo list
 was built, streamed and stored, and no component rendered it.
 
-So this drives the real graph with a stubbed provider and asserts on the two
+So this drives the real graph with the model scripted at the wire
+(`llm.testing`) and asserts on the two
 things a client actually consumes: the events emitted during the turn, and the
 metadata left on the finished result. Nothing here mocks a node.
 """
 from __future__ import annotations
 
-import json
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth.models import User
 from django.test import TestCase
-from unittest.mock import patch
 
 from chat.turn.agent import TurnContext, run_turn
 from chat.turn.events import Event
+from llm.testing import DEFAULT_MODEL, DEFAULT_PROVIDER, scripted_model, text, tool_call
 
 
-class _ScriptedModel:
-    """Issues a scripted tool call per turn, then answers.
+def one_call_per_turn(calls: list[tuple[str, dict]]) -> list:
+    """The script for "call each tool in turn, then answer".
 
-    Stands in for `llm.stream` so the run goes through the real accumulator,
-    the real `tools_node`, the real side-effect table and the real checkpoint —
-    the parts where a feature silently fails to arrive.
+    Each model call asks for one tool; the call after the last answers "all
+    done". The model is scripted at the wire, so the run goes through the real
+    funnel and accumulator, the real `tools_node`, the real side-effect table
+    and the real checkpoint: the parts where a feature silently fails to arrive.
     """
-
-    def __init__(self, calls: list[tuple[str, dict]]) -> None:
-        self.script = calls
-        self.turn = 0
-
-    def __call__(self, **kwargs):
-        index = self.turn
-        self.turn += 1
-
-        async def chunks():
-            if index < len(self.script):
-                name, args = self.script[index]
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0,
-                    "id": f"call-{index}",
-                    "function": {"name": name, "arguments": json.dumps(args)},
-                }]}
-            else:
-                yield {"type": "content", "content": "all done"}
-            yield {"type": "metadata", "usage": {"total_tokens": 5}}
-
-        return chunks()
+    return [tool_call(name, args, id=f"call-{index}")
+            for index, (name, args) in enumerate(calls)] + [text("all done")]
 
 
 async def _never(name, args, context) -> bool:
@@ -66,20 +48,19 @@ class TurnOutputTests(TestCase):
         cls.user = User.objects.create_user("e2e2", "e2@example.com", "x")
 
     def _run(self, script, *, thread: str, file_scope=None, sensitive=None):
-        model = _ScriptedModel(script)
         seen: list[tuple[str, dict]] = []
 
         async def sink(event: Event, payload: dict) -> None:
             seen.append((str(event), payload))
 
         turn = TurnContext(
-            provider="stub", model="stub-model", system_message="You are a test.",
+            provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message="You are a test.",
             user_id=self.user.id, session_id=thread, intent="chat",
             user_text="go", memory_enabled=False, max_iterations=8,
             approval_policy=_never, sink=sink, file_scope=file_scope,
             sensitive_tools=sensitive,
         )
-        with patch("llm.access.stream", new=model):
+        with scripted_model(one_call_per_turn(script)):
             result = async_to_sync(run_turn)(turn, prompt="go", thread_id=thread)
         return result, seen
 

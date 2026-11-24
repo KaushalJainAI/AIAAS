@@ -37,6 +37,7 @@ from inference import filesystem as fs
 from inference import vfs
 from inference.models import Document, KnowledgeBase
 from inference.vfs import FileScope
+from llm.testing import scripted_model, text
 
 KB_TOOLS = ('create_knowledge_base', 'add_to_knowledge_base')
 
@@ -369,25 +370,26 @@ class ApprovalTests(TestCase):
         self.assertIs(approval_policy_for('full'), permissions.never)
 
     def test_auto_asks_without_consulting_the_judge_even_if_it_would_allow(self):
-        judge = mock.AsyncMock(return_value=(True, 'looks fine'))
-        verdict = async_to_sync(reviewer.review)(
-            tool_name='add_to_knowledge_base',
-            args={'kb_id': 3, 'title': 'Plan', 'text': 'x'},
-            described='Add a document to a knowledge base',
-            judge=judge,
-        )
+        # The real judge, with a script that would allow: the rule must
+        # decide first, so the model is never asked.
+        with scripted_model(text('ALLOW looks fine')) as model:
+            verdict = async_to_sync(reviewer.review)(
+                tool_name='add_to_knowledge_base',
+                args={'kb_id': 3, 'title': 'Plan', 'text': 'x'},
+                described='Add a document to a knowledge base',
+            )
         self.assertFalse(verdict['allow'])
         self.assertEqual(verdict['reviewed_by'], 'rules')
-        judge.assert_not_called()
+        self.assertEqual(model.requests, [])
 
     def test_the_auto_policy_asks_for_a_kb_write(self):
         policy = reviewer.auto_policy(user_text='save the findings to the research KB')
-        with mock.patch.object(reviewer, '_model_judge', mock.AsyncMock(return_value=(True, 'ok'))) as judged:
+        with scripted_model(text('ALLOW ok')) as model:
             asked = async_to_sync(policy)(
                 'create_knowledge_base', {'name': 'R', 'folder_path': 'Research'},
                 {'user_id': 1, 'session_id': 's'})
         self.assertTrue(asked)
-        judged.assert_not_called()
+        self.assertEqual(model.requests, [])
 
     def test_full_auto_runs_a_kb_write_unasked(self):
         policy = reviewer.full_policy(reviewer.auto_policy(user_text='save it'))

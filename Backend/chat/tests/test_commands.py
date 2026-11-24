@@ -43,6 +43,7 @@ from chat.commands.resolve import (
 from chat.models import ChatMessage, ChatSession
 from chat.turn.events import Event
 from chat.turn.pipeline import TurnRequest, run_chat_turn
+from llm.testing import always, scripted_model, text
 
 User = get_user_model()
 
@@ -155,13 +156,6 @@ class TurnWiringTests(TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _stream(self, *chunks):
-        async def _run(**_kwargs):
-            for chunk in chunks:
-                yield {"type": "content", "content": chunk}
-            yield {"type": "metadata", "usage": {"total_tokens": 5}}
-
-        return _run
 
     def _run_turn(self, content: str):
         return async_to_sync(run_chat_turn)(
@@ -172,13 +166,7 @@ class TurnWiringTests(TestCase):
     def test_unknown_command_is_a_400_never_a_model_turn(self):
         from chat.turn.pipeline import TurnError
 
-        seen = []
-
-        async def _stream(**_kwargs):
-            seen.append(True)
-            yield {"type": "content", "content": "hi"}
-
-        with patch("llm.access.stream", _stream):
+        with scripted_model() as model:  # no steps: a model call fails the test
             with self.assertRaises(TurnError) as raised:
                 async_to_sync(run_chat_turn)(
                     session=self.session, user=self.user,
@@ -186,17 +174,18 @@ class TurnWiringTests(TestCase):
                         {"content": "/nope-not-a-command do it"}),
                 )
         self.assertIn("No command called", str(raised.exception))
-        self.assertEqual(seen, [])
+        self.assertEqual(model.requests, [])
 
     def test_client_command_does_not_reach_the_model(self):
         from chat.turn.pipeline import TurnError
 
-        with patch("llm.access.stream", self._stream("hi")):
+        with scripted_model() as model:
             with self.assertRaises(TurnError):
                 async_to_sync(run_chat_turn)(
                     session=self.session, user=self.user,
                     request=TurnRequest.parse({"content": "/new"}),
                 )
+        self.assertEqual(model.requests, [])
         # Nothing persisted: client commands run in the browser, not as turns.
         self.assertEqual(ChatMessage.objects.filter(session=self.session).count(), 0)
 
@@ -207,24 +196,12 @@ class TurnWiringTests(TestCase):
         # `test_pipeline.py` already covers for every turn's persistence.
         from chat.turn import prompts
 
-        baseline_prompts = []
-
-        async def _stream(**kwargs):
-            baseline_prompts.append(kwargs.get("system_message"))
-            yield {"type": "content", "content": "noted"}
-            yield {"type": "metadata", "usage": {"total_tokens": 5}}
-
-        async def _stream2(**kwargs):
-            baseline_prompts.append(kwargs.get("system_message"))
-            yield {"type": "content", "content": "noted"}
-            yield {"type": "metadata", "usage": {"total_tokens": 5}}
-
-        with patch("llm.access.stream", _stream):
+        with scripted_model(text("noted")) as plain:
             plain_outcome = async_to_sync(run_chat_turn)(
                 session=self.session, user=self.user,
                 request=TurnRequest.parse({"content": "hello"}),
             )
-        with patch("llm.access.stream", _stream2):
+        with scripted_model(always(lambda _request: text("noted"))) as commanded:
             commanded_outcome = async_to_sync(run_chat_turn)(
                 session=self.session, user=self.user,
                 request=TurnRequest.parse({
@@ -233,7 +210,8 @@ class TurnWiringTests(TestCase):
             )
         # Same baseline (prefix-cache guard): the expansion rides the
         # trailing context message, never the system prompt.
-        self.assertEqual(baseline_prompts[0], baseline_prompts[1])
+        self.assertEqual(plain.requests[0].system_text(),
+                         commanded.requests[0].system_text())
         fresh_user = ChatMessage.objects.get(id=commanded_outcome.user_message.id)
         fresh_asst = ChatMessage.objects.get(id=commanded_outcome.assistant_message.id)
         user_meta = fresh_user.metadata or {}
@@ -249,7 +227,7 @@ class TurnWiringTests(TestCase):
             return json.dumps({"type": "deep_research", "text": "Corpus.",
                                "queries": ["q"], "sources": []})
 
-        with patch("llm.access.stream", self._stream("Answer.")), \
+        with scripted_model(always(lambda _request: text("Answer."))), \
                 patch("chat.tools.execute_tool", _fake_tool):
             outcome = async_to_sync(run_chat_turn)(
                 session=self.session, user=self.user,

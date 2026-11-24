@@ -7,15 +7,14 @@ the way the client reads it.
 """
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from asgiref.sync import async_to_sync
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from chat.tests.test_turn_output_e2e import _ScriptedModel, _never
+from chat.tests.test_turn_output_e2e import _never, one_call_per_turn
 from chat.turn.agent import TurnContext, run_turn
 from chat.turn.events import Event
+from llm.testing import DEFAULT_MODEL, DEFAULT_PROVIDER, scripted_model
 
 
 class ApprovalFrameDetailsTests(TestCase):
@@ -23,19 +22,20 @@ class ApprovalFrameDetailsTests(TestCase):
         self.user = User.objects.create_user('frame', 'frame@example.com', 'pw')
 
     def _pause_on(self, name, args, thread):
-        model = _ScriptedModel([(name, args)])
         seen: list[tuple[str, dict]] = []
 
         async def sink(event: Event, payload: dict) -> None:
             seen.append((str(event), payload))
 
         turn = TurnContext(
-            provider='stub', model='stub-model', system_message='You are a test.',
+            provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message='You are a test.',
             user_id=self.user.id, session_id=thread, intent='chat',
             user_text='go', memory_enabled=False, max_iterations=8,
             approval_policy=_never, sink=sink,
         )
-        with patch('llm.access.stream', new=model):
+        # The gate pauses before the tool runs, so the closing answer is
+        # never asked for.
+        with scripted_model(one_call_per_turn([(name, args)])[:1]):
             result = async_to_sync(run_turn)(turn, prompt='go', thread_id=thread)
         frames = [payload for name_, payload in seen if name_ == 'ask_permission']
         return result, frames

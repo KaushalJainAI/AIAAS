@@ -1,18 +1,32 @@
-name: ci
+name: frontend
+
+# Moved from `better-n8n-frontend/.github/` to the repo root: GitHub only reads
+# workflows from here, so it had not run since the repos were merged on
+# 2026-09-27.
 
 on:
   push:
-    branches: [agent, main]
+    branches: [main, develop]
+    paths:
+      - "better-n8n-frontend/**"
+      - ".github/workflows/frontend.yml"
   pull_request:
+    paths:
+      - "better-n8n-frontend/**"
+      - ".github/workflows/frontend.yml"
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: frontend-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: better-n8n-frontend
 
 jobs:
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +34,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: better-n8n-frontend/package-lock.json
 
       - run: npm ci
 

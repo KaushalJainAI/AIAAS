@@ -28,6 +28,7 @@ from agents.models import HITLRequest, SubAgent
 from chat.tools.ask import ask_user, normalise_answer, question_spec
 from chat.turn.agent import TurnContext, answer_question, reject_tool_call, run_turn
 from chat.turn.events import Event
+from llm.testing import DEFAULT_MODEL, DEFAULT_PROVIDER, ScriptedModel, text, tool_call
 from logs.models import ExecutionLog
 
 
@@ -82,30 +83,14 @@ class QuestionSpecTests(SimpleTestCase):
         self.assertIn('Weekly', unanswered['note'])
 
 
-class _Scripted:
-    """A model that asks one question, then answers; records what it was sent."""
+def _Scripted(question: dict) -> ScriptedModel:
+    """A model that asks one question, then answers "done".
 
-    def __init__(self, question: dict) -> None:
-        self.question = question
-        self.turn = 0
-        self.sent: list = []
-
-    def __call__(self, **kwargs):
-        self.sent.append(kwargs)
-        index = self.turn
-        self.turn += 1
-
-        async def chunks():
-            if index == 0:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0, "id": "q-1",
-                    "function": {"name": "ask_user", "arguments": json.dumps(self.question)},
-                }]}
-            else:
-                yield {"type": "content", "content": "done"}
-            yield {"type": "metadata", "usage": {"total_tokens": 5}}
-
-        return chunks()
+    One script spans both halves of a paused turn: `_go` installs the same
+    model for the run that pauses and for the run that resumes, and
+    `model.requests` keeps what was sent across both.
+    """
+    return ScriptedModel([tool_call("ask_user", question, id="q-1"), text("done")])
 
 
 async def _never(name, args, context) -> bool:
@@ -126,18 +111,18 @@ class QuestionPausesTheTurnTests(TestCase):
             seen.append((str(event), payload))
 
         return TurnContext(
-            provider='stub', model='stub-model', system_message='test',
+            provider=DEFAULT_PROVIDER, model=DEFAULT_MODEL, system_message='test',
             user_id=self.user.id, session_id=thread, intent='chat', user_text='go',
             memory_enabled=False, max_iterations=6, approval_policy=_never,
             sink=sink, can_ask=can_ask,
         )
 
     def _go(self, model, turn, thread):
-        with patch('llm.access.stream', new=model):
+        with model.installed():
             return async_to_sync(run_turn)(turn, prompt='go', thread_id=thread)
 
     def _tool_text(self, model) -> str:
-        return json.dumps(model.sent[-1], default=str)
+        return json.dumps(model.requests[-1].messages, default=str)
 
     def test_a_question_pauses_and_the_answer_comes_back(self):
         model, seen = _Scripted(QUESTION), []
