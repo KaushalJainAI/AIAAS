@@ -392,7 +392,7 @@ rule names.
   recording (`llm/recorded.py`); never patch `llm.access.stream`/`complete` or a judge
   (`llm/tests/test_no_model_fakes.py` fails). Time moves by `workflow_backend/testclock.py`,
   never by sleeping. Outbound HTTP goes through `workflow_backend.httpclient.shared_client`,
-  the seam both kits use. CI is `.github/workflows/` at the repo root (H-169).
+  the seam both kits use. CI is `.github/workflows/` at the repo root (H-171).
 - **Paid runs** (benchmarks, calibration, eval proof runs) need the user's go-ahead.
 
 ---
