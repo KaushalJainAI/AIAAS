@@ -21,11 +21,13 @@ import { Notice, type NoticeTone } from '../settings/Notice';
 import { ThemedSwitch } from '../settings/ThemedSwitch';
 import { deleteMcpServer, mcpOAuthDisconnect } from './api';
 import { ConnectorTile } from './ConnectorTile';
+import { GetStartedSection } from './GetStartedSection';
 import { connectOAuth, connectGoogleAccount } from './oauthConnect';
 import { connectionKeys, useMcpServers, useMcpServerTools, useMcpValidation, useSetMcpServerEnabled } from './queries';
 import { ConnectionToolsError } from './errors';
 import { isPlatformOff, statusIsWorking, statusOf, STATUS_LABEL } from './status';
 import { useCredentialIndex } from './useCredentialIndex';
+import { hasSetupGuide } from './setupGuide';
 import type { MCPServer, MCPTool } from './types';
 import { CUSTOM_MCP_SERVERS } from '../../lib/features';
 
@@ -245,6 +247,8 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
         ) : null}
 
         <Notice message={notice?.text} tone={notice?.tone} />
+
+        {hasSetupGuide(srv.setup_guide) ? <GetStartedSection guide={srv.setup_guide} /> : null}
 
         <Section>
           <ListRow

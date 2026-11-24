@@ -44,6 +44,8 @@ import {
 } from '../api/credentials';
 import { mcpService, MCPToolsError, type MCPServer, type MCPServerCategory } from '../api/mcp';
 import MCPServerModal from '../components/mcp/MCPServerModal';
+import GetStartedPanel from '../components/connections/GetStartedPanel';
+import { hasSetupGuide } from '../lib/setupGuide';
 import { CUSTOM_MCP_SERVERS } from '../lib/features';
 import HeldToolsPanel from '../components/mcp/HeldToolsPanel';
 import MessagingChannels from '../components/messaging/MessagingChannels';
@@ -225,7 +227,7 @@ function ConnectModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative bg-card border border-border rounded-md shadow-lg w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative bg-card border border-border rounded-md shadow-lg w-full max-w-md max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-4 p-6 border-b border-border/60">
           <div className="w-11 h-11 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/60">
             <Icon style={{ color }} className="w-6 h-6" />
@@ -244,6 +246,14 @@ function ConnectModal({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {hasSetupGuide(server.setup_guide) && (
+          // The body below supplies its own p-6, so pull it up by the same
+          // amount: the gap between the panel and the form stays one 24px step.
+          <div className="px-6 pt-6 -mb-6">
+            <GetStartedPanel guide={server.setup_guide} />
+          </div>
+        )}
 
         {isOAuth ? (
           <div className="p-6 space-y-4">
@@ -510,6 +520,8 @@ function ConnectionCard({
   busy,
 }: ConnectionCardProps) {
   const [showCapabilities, setShowCapabilities] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const guide = server.setup_guide;
   const { icon: Icon, color } = connectorVisual(server.icon_slug, server.is_system);
   const view = STATUS_VIEWS[status];
   const isOn = server.effective_enabled;
@@ -566,6 +578,8 @@ function ConnectionCard({
         </p>
       )}
 
+      {showGuide && hasSetupGuide(guide) && <GetStartedPanel guide={guide} />}
+
       {canShowCapabilities && (
         <div className="border-t border-border/40 pt-2">
           <button
@@ -593,6 +607,17 @@ function ConnectionCard({
           />
           {isOn || platformOff ? view.label : STATUS_VIEWS.off.label}
         </span>
+
+        {hasSetupGuide(guide) && (
+          <button
+            type="button"
+            onClick={() => setShowGuide((v) => !v)}
+            aria-expanded={showGuide}
+            className="h-8 px-2 rounded-md text-[13px] font-medium text-primary hover:underline transition-colors"
+          >
+            {showGuide ? 'Hide steps' : 'Get started'}
+          </button>
+        )}
 
         {/* Connect is the one solid dark button on the page: it is the next
             step for this row, and a text link undersold it. */}

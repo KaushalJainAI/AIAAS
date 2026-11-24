@@ -681,7 +681,7 @@ Suggested build order: 0 → 9 → 10 (most connectors per hour) → 1–4 → 5
 | 6 | not started | |
 | 7 | not started | |
 | 8 | deferred | Slack MCP needs a Marketplace listing |
-| 9 | not started | |
+| 9 | 9a built 2026-11-24 | `kind` + `setup_guide` (validator `setup_guide.py`, migration 0024 writes guides for the six live cards), Get started panel on web (card + Connect dialog) and mobile (detail screen). 9b (templates, Connect for API/SQL cards, user-supplied endpoints) ships with Phase 10 |
 | 10 | not started | |
 | 11 | not started | |
 | 12 | not started | |

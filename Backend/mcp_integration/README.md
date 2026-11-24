@@ -38,6 +38,7 @@ Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
 | `supervisor.py` | Memory budget for local MCP processes, so they cannot take down the server |
 | `launch.py` | How a local server process is started |
 | `native.py` | Which native connectors are live for a user: switched on **and** credential present |
+| `setup_guide.py` | The Get started panel on a card (`setup_guide`, what you need, steps, cost, limits). Checks the shape before it is stored; curated guides are written by migration `0024` through it |
 | `oauth.py` | OAuth for remote MCP servers |
 | `views.py`, `urls.py`, `serializers.py` | `/api/mcp/servers/...` |
 
@@ -56,4 +57,4 @@ Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
 
 `mcp_integration/tests/`: `test_connections.py`, `test_native_connectors.py`,
 `test_subprocess_env.py`, `test_supervisor.py`, `test_tool_pins.py`,
-`test_custom_servers_retired.py`.
+`test_custom_servers_retired.py`, `test_setup_guide.py`.

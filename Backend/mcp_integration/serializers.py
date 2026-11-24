@@ -60,6 +60,8 @@ class MCPServerSerializer(serializers.ModelSerializer):
             "icon_slug",
             "help_url",
             "setup_notes",
+            "kind",
+            "setup_guide",
             "enabled",
             "coming_soon",
             "effective_enabled",
@@ -70,7 +72,9 @@ class MCPServerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "user", "created_at", "updated_at"]
+        # Curated rows are written by migrations only, so `kind` and the Get
+        # started panel are read-only here (see setup_guide.py).
+        read_only_fields = ["id", "user", "kind", "setup_guide", "created_at", "updated_at"]
 
     def get_effective_enabled(self, obj) -> bool:
         """

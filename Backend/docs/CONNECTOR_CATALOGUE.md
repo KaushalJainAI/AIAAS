@@ -791,3 +791,64 @@ holds every user's tokens.
 | **Gupshup, Interakt, AiSensy** | Messaging candidates | WhatsApp send APIs belong in Messaging, not connectors (24-hour window and template rules) | — | — |
 | **Delhivery, Instamojo** | ✗ for now | Delhivery's API is behind its login and its MCP is local-only; Instamojo's docs could not be confirmed | — | — |
 | **Khatabook, Vyapar, Zepto, Blinkit, PolicyBazaar, CRED, Tata 1mg, Jio, Airtel** | ✗ | No public API (partner or enterprise only) | — | — |
+
+---
+
+## 21. Compared with Perplexity (read 2026-11-24)
+
+From Perplexity's own help centre (Connectors & Integrations collection,
+Premium Data Sources, plugin and admin articles).
+
+### Their list, against ours
+
+| Perplexity connector | Their plan | Reads / acts | Ours |
+|---|---|---|---|
+| Google Drive, Gmail, Google Calendar | Pro+ | Read; Calendar edit; send/create only in Comet | **Live** (native) |
+| Notion | Max+ | Read | **Live** (native) |
+| Dropbox, Box | Pro+ | Read (live search; "High-Precision" indexes chosen files) | §15, Wave 3 |
+| Microsoft 365 (SharePoint, OneDrive) | Pro+ | Read **and** write, 55 tools | §15, Wave 3 (OAuth preset) |
+| Outlook.com | — | Read inbox + primary calendar | **Gap**: add with Microsoft 365 (same Graph app) |
+| Microsoft Teams | Paid | Read + send messages | **Gap**: Messaging channel already lists Teams (PLATFORM_CAPABILITIES_PLAN); confirm it reads too |
+| Slack | Pro+ | Read + send | Messaging (bot token); MCP blocked (§10) |
+| Asana, Jira, Confluence | Paid | Read + create/update/delete | §2 (Asana Wave 2; Atlassian spike) |
+| Linear | Enterprise only | Read + create/update | §1, **Wave 1** (we can offer it to everyone) |
+| GitHub | Pro+ | Read + write | §1, Wave 2 |
+| HubSpot | Pro+ | **Read-only** | §3, spike |
+| Salesforce | Pro+ | Read + write (no bulk, no email) | §16, Wave 3 |
+| Snowflake | Pro+ | Read-only (user OAuth or key pair) | §9, Wave 2 (key pair) |
+| Databricks | Pro+ | Arbitrary SQL; read-only only via Unity Catalog grants | §9, Wave 2 (our parser + grants) |
+| Apple Health | iPhone app only | Read | **Gap / idea**: our Expo app could read HealthKit on iOS (and Health Connect on Android); needs its own privacy design |
+| Custom remote MCP (Mac app, Enterprise) | — | — | Retired here by choice (H-169) |
+
+### Data they license (no user sign-in)
+
+Included for everyone: Wiley (academic), PitchBook, CB Insights, Statista,
+Midpage (US legal). With the user's own licence: FactSet, Morningstar, Crunchbase,
+Interactive Brokers, Coinbase and about 20 more. **Not for us now**: these are
+paid data deals, not connectors. The connector-shaped ones (Crunchbase,
+Interactive Brokers, Coinbase) can be researched as cards later.
+
+### What is worth copying
+
+1. **Per-tool Allow / Always ask / Disable** on every connector tool. We have it
+   for built-in tools (`toolPermissions`, `agents/config.py`) and modes for MCP
+   (`connectors: {mode: all|read|selected}`), but not "always ask" per MCP tool.
+   Candidate for Phase 3.
+2. **Mention a connector in chat** (`@hubspot`, or "+ → Use a plugin") so the
+   model knows which source to use this turn. Our slash commands are the place.
+3. **Live search by default, index only what the user picks.** Matches our native
+   Drive tools; keep it for Dropbox/Box when built.
+4. **Admin controls for organisations**: a connector switch per org, who may use
+   it (all / admins / roles), and a default of *off* for new connectors. We have
+   organisations (`core.Organization`); this is a later phase.
+5. **Say plainly what a connector cannot do** (their "not supported" lists). Our
+   `setup_guide.limits` is exactly that field.
+6. **A "propose a connector" form**, reviewed by their team. Cheap; a later UI
+   item.
+
+### Where we are ahead
+
+Linear for every plan (theirs is Enterprise-only), Mixpanel, Amplitude, PostHog,
+Grafana, GitLab, Sentry, Stripe, 23 API-key apps and the Indian services
+(Zerodha, Upstox, Zomato, Razorpay, Zoho, Exotel, WATI…) have no Perplexity
+equivalent in their help centre.

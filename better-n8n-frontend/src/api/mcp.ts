@@ -68,10 +68,33 @@ export class MCPToolsError extends Error {
   }
 }
 
+/** What a connector is, for the Connections page: `native` for built-in REST tools, `api` / `sql` for the API and database callers. */
+export type ConnectorKind = 'mcp' | 'native' | 'api' | 'sql';
+
+export interface SetupStep {
+  text: string;
+  url?: string;
+}
+
+/** The "Get started" guide a connector shows before the user connects it. */
+export interface SetupGuide {
+  you_need: string[];
+  admin_needed: string | null;
+  cost: string;
+  time: string;
+  /** 1..12 steps when the guide is non-empty. */
+  steps: SetupStep[];
+  limits: string[];
+}
+
+/** The backend sends `{}` for a connector with no guide. */
+export type SetupGuideValue = SetupGuide | Record<string, never>;
+
 export interface MCPServer {
   id: number;
   name: string;
   type: MCPServerType;
+  kind: ConnectorKind;
   
   // Stdio Config
   command?: string;
@@ -100,6 +123,8 @@ export interface MCPServer {
   help_url?: string;
 
   setup_notes?: string;
+  /** What to know before connecting; `{}` when there is no guide. */
+  setup_guide: SetupGuideValue;
   /** The server's own flag. Shared templates have this on for everyone. */
   enabled: boolean;
   /** Announced, not yet shippable. Presentation only: always paired with
