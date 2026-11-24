@@ -420,12 +420,17 @@ class PeriodicJobTests(TestCase):
         scheduler.start_due_jobs(now_monotonic=1000.0)
         for _, task in self.spawned:
             task.finished = True
-        self.assertEqual(scheduler.start_due_jobs(now_monotonic=1030.0), [])
-        # The scheduled-notification sweep is the fastest (a minute); only it
-        # is due again after one interval.
-        later = 1000.0 + settings.SCHEDULED_SWEEP_SECONDS
+        # The fastest job (the send-window sweep, 15 s) sets the shortest wait,
+        # so nothing is due before that interval has passed.
+        intervals = {job.task: int(getattr(settings, job.every_setting))
+                     for job in scheduler.PERIODIC_JOBS}
+        shortest = min(intervals.values())
+        self.assertEqual(scheduler.start_due_jobs(now_monotonic=1000.0 + shortest - 1), [])
+        # Then exactly the jobs with that interval are due again.
+        later = 1000.0 + shortest
         self.assertEqual(scheduler.start_due_jobs(now_monotonic=later),
-                         ['notifications.sweep_scheduled'])
+                         [job.task for job in scheduler.PERIODIC_JOBS
+                          if intervals[job.task] == shortest])
 
     def test_a_job_still_running_is_not_started_twice(self):
         scheduler.start_due_jobs(now_monotonic=1000.0)

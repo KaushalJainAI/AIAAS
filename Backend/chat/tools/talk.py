@@ -20,6 +20,8 @@ from typing import Dict
 
 from asgiref.sync import sync_to_async
 
+from workflow_backend.background import spawn
+
 from .registry import tool
 
 from tools_config.overlay import alimit
@@ -334,7 +336,10 @@ async def message_draft(args: Dict, context: Dict) -> str:
             'message_draft. The user approves each send. Unattended runs may '
             'only reach recipients on their allowlist. WhatsApp free text '
             'outside the 24 h window is refused (send `template:<name>`); '
-            'SMS needs DLT registration; Teams needs admin consent.'
+            'SMS needs DLT registration; Teams needs admin consent. When the '
+            'user is watching, the message waits a few seconds so they can '
+            'cancel it; once sent it cannot be undone. A result with '
+            '`queued: true` has not been sent yet, so say it will be sent.'
         ),
         'parameters': {
             'type': 'object',
@@ -350,8 +355,6 @@ async def message_draft(args: Dict, context: Dict) -> str:
     },
 }, sensitive=True, effect='irreversible', external=True, action_label='Send message')
 async def message_send(args: Dict, context: Dict) -> str:
-    from .messaging.common import Unsupported, adapter_for
-
     user_id = context.get('user_id')
     if not user_id:
         return json.dumps({'error': 'No user context.'})
@@ -411,23 +414,70 @@ async def message_send(args: Dict, context: Dict) -> str:
     if refused:
         return json.dumps({'error': refused})
     body = outbound.disclose(body, context)
+    payload = {'channel': channel, 'to': to, 'body': body,
+               'draft_id': draft.id if draft is not None else None}
 
+    from messaging import holds
+    from messaging.holds import DeliveryError
+
+    if holds.should_hold(context):
+        # A person is watching: the send waits so they can cancel it. The
+        # timer in `holds.deliver_after` sends it later.
+        row = await sync_to_async(holds.create)(
+            user_id, 'message_send', payload, f'{channel.title()} to {to}', context)
+        spawn(holds.deliver_after(row.id, holds.hold_seconds()), name=f'hold:{row.id}')
+        _sent_counts(context)[to] = _sent_counts(context).get(to, 0) + 1
+        await _record_message_cost(context, channel)
+        return json.dumps({
+            'queued': True, 'hold_id': row.id, 'send_at': row.send_at.isoformat(),
+            'channel': channel, 'to': to,
+            'rendered': f'Sending to {to} on {channel} in {holds.hold_seconds()} s. '
+                        f'The user can cancel it until then.',
+        })
+
+    try:
+        result = await deliver_message(user_id, payload)
+    except DeliveryError as exc:
+        return json.dumps({'error': str(exc)})
+    _sent_counts(context)[to] = _sent_counts(context).get(to, 0) + 1
+    await _record_message_cost(context, channel)
+    return json.dumps(result)
+
+
+async def deliver_message(user_id: int, payload: dict) -> dict:
+    """Send a message that has already passed every check, and record it.
+
+    Used at once for an unheld send, and later by the send window
+    (`messaging/holds.py`). Takes no run context. Raises `DeliveryError` with
+    plain words when the message did not go out.
+    """
+    from messaging.holds import DeliveryError
+
+    from .messaging.common import Unsupported, adapter_for
+
+    channel = payload['channel']
+    to = payload['to']
+    body = payload['body']
+    draft_id = payload.get('draft_id')
     try:
         account = await _account(user_id, channel)
         provider_id = await adapter_for(channel).send(
             user_id, account, to=to, body=body)
     except Unsupported as exc:
-        return json.dumps({'error': str(exc)})
-    except Exception:
+        raise DeliveryError(str(exc)) from exc
+    except Exception as exc:
         logger.exception('[Talk] message_send failed')
-        return json.dumps({'error': 'The message could not be sent.'})
+        raise DeliveryError('The message could not be sent.') from exc
 
     def _save():
         from django.contrib.auth import get_user_model
 
         from messaging.models import OutboundMessage
 
-        user = get_user_model().objects.filter(id=user_id).first()
+        draft = None
+        if draft_id is not None:
+            draft = OutboundMessage.objects.filter(
+                id=draft_id, user_id=user_id, channel=channel).first()
         if draft is not None:
             draft.status = 'sent'
             draft.provider_message_id = provider_id
@@ -436,22 +486,25 @@ async def message_send(args: Dict, context: Dict) -> str:
             draft.save(update_fields=['status', 'provider_message_id', 'body', 'to',
                                       'updated_at'])
             return draft
+        user = get_user_model().objects.filter(id=user_id).first()
         return OutboundMessage.objects.create(
             user=user, account=account, channel=channel, to=to, body=body,
             status='sent', provider_message_id=provider_id)
 
     try:
-        row = await sync_to_async(_save)()
-    except Exception:
+        await sync_to_async(_save)()
+    except Exception as exc:
         logger.exception('[Talk] Could not record a sent message')
-        return json.dumps({'error': 'The message was sent but could not be recorded.'})
-    _sent_counts(context)[to] = _sent_counts(context).get(to, 0) + 1
-    await _record_message_cost(context, channel)
-    return json.dumps({
+        # The provider accepted it, so it did go out. The send window must not
+        # call this a failure (`holds.deliver`).
+        raise DeliveryError(
+            'The message was sent but could not be recorded.',
+            code='sent_unrecorded') from exc
+    return {
         'sent': True, 'channel': channel, 'to': to,
         'provider_message_id': provider_id,
         'rendered': f'Sent to {to} on {channel}.',
-    })
+    }
 
 
 async def _record_message_cost(context: Dict, channel: str) -> None:
