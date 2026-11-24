@@ -13,11 +13,14 @@ This kit replaces the network, and nothing above it:
     handler  (OpenRouterNode, ...)    real: payload, SSE parsing, error shape
     httpx client                      SCRIPTED here, the only fake
 
-Seam: `llm.handlers.openai_compatible.shared_client`, the one place every
-OpenAI-compatible call leaves the process. It is replaced by an `httpx.AsyncClient`
-on a `MockTransport`. The transport answers each request with the next scripted
-step, as the provider's wire format (JSON for `complete`, server-sent events for
-`stream`). Each request is recorded as it went over the wire.
+Seam: `workflow_backend.httpclient.shared_client`, the pooled client every
+outbound call uses, wherever a module imported it (`shared_client_seams`). It is
+replaced by an `httpx.AsyncClient` on a `MockTransport`. The transport answers
+each chat-completions request with the next scripted step, as the provider's
+wire format (JSON for `complete`, server-sent events for `stream`); any other
+route is refused and named by `check()`. So the funnel's calls and direct ones
+(the injection check in `core/safety/moderation.py`) draw on the same script.
+Each request is recorded as it went over the wire.
 
 Credentials: no patch. `_build_request` finds no credential for the test user
 and falls back to the platform key, so the kit sets that key's environment
@@ -48,6 +51,30 @@ from unittest import mock
 import httpx
 
 from llm.handlers import openai_compatible
+from workflow_backend import httpclient
+
+
+def shared_client_seams() -> list[tuple[Any, str]]:
+    """Every module attribute that is `workflow_backend.httpclient.shared_client`.
+
+    Modules import it by name (`from workflow_backend.httpclient import
+    shared_client`), so patching the one in `httpclient` alone would miss them,
+    and listing them here would miss the next one. A function-level import
+    reads the `httpclient` attribute at call time, which is patched too.
+    """
+    import sys
+
+    original = httpclient.shared_client
+    seams: list[tuple[Any, str]] = [(httpclient, "shared_client")]
+    for module in list(sys.modules.values()):
+        if module is None or module is httpclient:
+            continue
+        try:
+            if getattr(module, "shared_client", None) is original:
+                seams.append((module, "shared_client"))
+        except Exception:  # noqa: BLE001 - lazy modules may raise on getattr
+            continue
+    return seams
 
 DEFAULT_PROVIDER = "openrouter"
 #: A model id from CLAUDE.md's model table. The kit never checks the catalogue,
@@ -496,9 +523,8 @@ class ScriptedModel:
         env_name = _PLATFORM_KEY_ENV[self.provider]
         try:
             with ExitStack() as stack:
-                stack.enter_context(mock.patch.object(
-                    openai_compatible, "shared_client", new=lambda: client,
-                ))
+                for module, attr in shared_client_seams():
+                    stack.enter_context(mock.patch.object(module, attr, new=lambda: client))
                 # Connection retries sleep between attempts. A test that wants
                 # to see a retry can patch the delays itself.
                 stack.enter_context(mock.patch.object(

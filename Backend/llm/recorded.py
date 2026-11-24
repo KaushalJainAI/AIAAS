@@ -58,7 +58,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import unittest
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -68,8 +67,6 @@ from typing import Any, Iterator
 from unittest import mock
 
 import httpx
-
-from workflow_backend import httpclient
 
 RECORDINGS_DIR = Path(__file__).resolve().parent / "tests" / "recordings"
 
@@ -267,32 +264,14 @@ def load(name: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _shared_client_seams() -> list[tuple[Any, str]]:
-    """Every module attribute that is `workflow_backend.httpclient.shared_client`.
-
-    Modules import it by name (`from workflow_backend.httpclient import
-    shared_client`), so patching the one in `httpclient` alone would miss them.
-    Scanning finds a new caller without anyone remembering to list it here.
-    """
-    original = httpclient.shared_client
-    seams = [(httpclient, "shared_client")]
-    for module in list(sys.modules.values()):
-        if module is None or module is httpclient:
-            continue
-        try:
-            if getattr(module, "shared_client", None) is original:
-                seams.append((module, "shared_client"))
-        except Exception:  # noqa: BLE001 - lazy modules may raise on getattr
-            continue
-    return seams
-
-
 @contextmanager
 def _installed(async_handler, sync_handler) -> Iterator[None]:
+    from llm.testing import shared_client_seams
+
     async_client = httpx.AsyncClient(transport=httpx.MockTransport(async_handler))
     sync_client = httpx.Client(transport=httpx.MockTransport(sync_handler))
     with ExitStack() as stack:
-        for module, attr in _shared_client_seams():
+        for module, attr in shared_client_seams():
             stack.enter_context(mock.patch.object(module, attr, new=lambda: async_client))
         stack.enter_context(mock.patch.object(httpx, "get", new=sync_client.get))
         stack.enter_context(mock.patch.object(httpx, "post", new=sync_client.post))
