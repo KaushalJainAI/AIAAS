@@ -1,16 +1,16 @@
 # Undo plan: "Undo this run" and "Undo send"
 
-**Status:** proposed 2026-11-23, not built. Nothing in this plan spends money,
-so no phase needs a paid-run go-ahead.
+**Status:** being built on branch `feature/undo` (started 2026-11-23). Nothing
+in this plan spends money, so no phase needs a paid-run go-ahead.
 
 **Progress** (newest last; update this table as each phase moves):
 
 | Phase | State | Notes |
 |---|---|---|
 | 0 Facts | **done** 2026-11-23 | Facts gathered; see "Phase 0 results". Baseline: 3209 passed, 0 failed. Surprises: `workspaces.CodeChange` already exists, and draft renders and upload imports write inside read paths. |
-| 1 Send window (backend) | not started | |
-| 2 Send window (web) | not started | |
-| 3 Change log: model + recording | not started | |
+| 1 Send window (backend) | **built** 2026-11-24 | `messaging.PendingSend`, `messaging/holds.py`, three routes, sweep job; H-169. Decided beyond the plan: evals are never held; a bad Gmail address fails at once (composed before queueing); a send the provider took but we failed to record is `sent`, never `failed`; the WhatsApp/SMS cost is filed on delivery, not on queueing (a cancelled hold costs nothing). Open: adapter refusals (WhatsApp 24 h window) now surface as a failed hold + notification ~20 s later, not as a tool error |
+| 2 Send window (web) | **built** 2026-11-24 | `api/messaging.ts`, `hooks/usePendingSends.ts` (polls only while a row is held/sending), `components/content/PendingSends.tsx`, in chat above the composer and on `RunDetail`. The receipt says "asked to send a message": the trace carries no tool output, so it cannot tell held from sent. tsc, lint 0, vitest 930 passed. Not yet checked by hand in a browser |
+| 3 Change log: model + recording | **built** 2026-11-24 | As §6.1–§6.3, §6.9. Decided: only `agent` and `restore` versions are stamped (an `app` copy inside a tool call is the user's pending draft render, taken before the draft lands); `answer_subagent` is also `journal=False`; `_looks_like_error` matches only the exact `Error:` / `Error running` prefixes. Full backend suite green after merging 1–3 |
 | 4 Revert engine + API | not started | |
 | 5 Workers, closing, the message chip | not started | |
 | 6 Revert UI (web) | not started | |
