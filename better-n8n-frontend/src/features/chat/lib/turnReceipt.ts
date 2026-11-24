@@ -62,7 +62,9 @@ const DELEGATE: Kind = {
 };
 const MESSAGE_SENT: Kind = {
   key: 'message-sent',
-  phrase: (n) => (n === 1 ? 'sent a message' : `sent ${n} messages`),
+  // "Asked to send", not "sent": a message the send window holds has not gone
+  // out yet, and the trace cannot say which it was (see usePendingSends).
+  phrase: (n) => (n === 1 ? 'asked to send a message' : `asked to send ${n} messages`),
 };
 const MESSAGE_DRAFT: Kind = {
   key: 'message-draft',

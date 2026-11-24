@@ -699,6 +699,12 @@ TOOL_OUTPUT_PURGE_SECONDS = int(os.environ.get('TOOL_OUTPUT_PURGE_SECONDS', '360
 # Defined here, not with the other SOLUTION_* settings, because the beat entry
 # below reads it and that dict is built first.
 SOLUTION_STALE_SWEEP_SECONDS = int(os.environ.get('SOLUTION_STALE_SWEEP_SECONDS', '604800'))
+# How long a send made while a person is watching waits, so they can cancel it
+# (docs/UNDO_PLAN.md §5). 0 = send at once. Defined here, not with the other
+# OUTBOUND_* settings, because the sweep interval below is read by the beat
+# schedule, and that dict is built first.
+OUTBOUND_HOLD_SECONDS = int(os.environ.get('OUTBOUND_HOLD_SECONDS', '20'))
+OUTBOUND_HOLD_SWEEP_SECONDS = int(os.environ.get('OUTBOUND_HOLD_SWEEP_SECONDS', '15'))
 CELERY_BEAT_SCHEDULE = {
     'sweep-hitl-reminders': {
         'task': 'notifications.sweep_hitl_reminders',
@@ -770,6 +776,12 @@ CELERY_BEAT_SCHEDULE = {
     'sweep-stale-solutions': {
         'task': 'solutions.sweep_stale',
         'schedule': SOLUTION_STALE_SWEEP_SECONDS,
+    },
+    # Held sends whose timer was lost (a restart, another worker), and sends
+    # stuck in `sending`. See messaging/holds.py::sweep.
+    'deliver-held-sends': {
+        'task': 'messaging.deliver_held_sends',
+        'schedule': OUTBOUND_HOLD_SWEEP_SECONDS,
     },
 }
 

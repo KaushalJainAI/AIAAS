@@ -52,6 +52,30 @@ export interface CreatedAccount {
   webhook_url: string | null;
 }
 
+/** A held send's state. `held` can still be cancelled; `sending` cannot. */
+export type HoldStatus = 'held' | 'sending' | 'sent' | 'cancelled' | 'failed' | 'unknown';
+
+/** One row of `GET /api/messaging/holds/` (`messaging/views.py::_hold_row`). */
+export interface HoldRow {
+  id: number;
+  tool: string;
+  label: string;
+  status: HoldStatus;
+  send_at: string;
+  error: string;
+  seconds_left: number;
+}
+
+export interface HoldList {
+  holds: HoldRow[];
+  truncated: boolean;
+}
+
+/** Cancel and send-now answer with the hold's status; 409 means it was too late. */
+export interface HoldActionResult {
+  status: HoldStatus;
+}
+
 export const messagingService = {
   async listChannels(): Promise<{ channels: MessagingChannel[] }> {
     const { data } = await apiClient.get('/messaging/channels/');
@@ -71,6 +95,41 @@ export const messagingService = {
   ): Promise<{ id: number; verified: boolean; webhook_url: string }> {
     const { data } = await apiClient.post(
       `/messaging/accounts/${id}/register/`
+    );
+    return data;
+  },
+
+  /** The caller's waiting sends, for one chat session and/or one run. */
+  async listHolds(scope: {
+    sessionId?: string;
+    executionId?: string;
+  }): Promise<HoldList> {
+    const params: Record<string, string> = {};
+    if (scope.sessionId) params.session = scope.sessionId;
+    if (scope.executionId) params.execution = scope.executionId;
+    const { data } = await apiClient.get<HoldList>('/messaging/holds/', { params });
+    return data;
+  },
+
+  /**
+   * Cancel a held send. 409 (too late: it is sending or already done) is an
+   * answer, not an error, so it comes back with the current status.
+   */
+  async cancelHold(id: number): Promise<HoldActionResult> {
+    const { data } = await apiClient.post<HoldActionResult>(
+      `/messaging/holds/${id}/cancel/`,
+      undefined,
+      { validateStatus: (s) => s === 200 || s === 409 }
+    );
+    return data;
+  },
+
+  /** Send a held message now. 409 (no longer `held`) comes back as the current status. */
+  async sendHoldNow(id: number): Promise<HoldActionResult> {
+    const { data } = await apiClient.post<HoldActionResult>(
+      `/messaging/holds/${id}/send-now/`,
+      undefined,
+      { validateStatus: (s) => s === 200 || s === 409 }
     );
     return data;
   },

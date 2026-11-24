@@ -15,4 +15,8 @@ urlpatterns = [
     path('accounts/', views.account_create, name='account_create'),
     path('accounts/<int:account_id>/register/', views.account_register,
          name='account_register'),
+    # The send window: messages waiting to go out (docs/UNDO_PLAN.md §5).
+    path('holds/', views.hold_list, name='hold_list'),
+    path('holds/<int:hold_id>/cancel/', views.hold_cancel, name='hold_cancel'),
+    path('holds/<int:hold_id>/send-now/', views.hold_send_now, name='hold_send_now'),
 ]
