@@ -142,6 +142,9 @@ ignore_imports =
     # `MAX_DELEGATION_DEPTH`, one constant. `agents/agent/orchestrator.py`
     # imports only the standard library, so this pulls in nothing else.
     logs.queries -> agents.agent.orchestrator
+    # Undo's delegation depth bound: the same one constant, read the same way
+    # (docs/UNDO_PLAN.md §6.5). A deferred import would still be seen here.
+    logs.undo -> agents.agent.orchestrator
     # `/api/activity/` unions live rows for one page. All three are
     # function-level reads of registries/models, never the runtimes:
     # the in-process code-task registry, the in-process chat-turn

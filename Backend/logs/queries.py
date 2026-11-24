@@ -31,7 +31,8 @@ from workflow_backend.thresholds import (
     REVISION_TIMELINE_LIMIT,
 )
 
-from .models import AgentStep, AgentTurn, ExecutionLog, SubAgentRevision
+from . import changes
+from .models import AgentStep, AgentTurn, ChangeSet, ExecutionLog, SubAgentRevision
 
 _STEP_FIELDS = (
     'id', 'call_id', 'tool', 'status', 'order', 'duration_ms',
@@ -501,6 +502,12 @@ def _step_row(step: AgentStep) -> dict[str, Any]:
     }
 
 
+def _change_set_summary(execution: ExecutionLog) -> dict[str, Any] | None:
+    """What the run changed (counts only; the sheet is `/api/logs/changes/`), or None."""
+    change_set = ChangeSet.objects.filter(execution_id=execution.pk).only('pk').first()
+    return changes.summary(change_set) if change_set is not None else None
+
+
 def execution_detail(user, execution_id: str) -> dict[str, Any] | None:
     """One run as the loop it actually was: turns, each holding its own steps.
 
@@ -593,6 +600,7 @@ def execution_detail(user, execution_id: str) -> dict[str, Any] | None:
         "turn_total": turn_total,
         "turns_truncated": turn_total > len(turns),
         "revision": _revision_summary(execution.revision),
+        "change_set": _change_set_summary(execution),
         "delegated_by": _delegated_by(execution),
         "feedback": feedback_for(user, execution=execution),
         **_delegated_cost(execution),
