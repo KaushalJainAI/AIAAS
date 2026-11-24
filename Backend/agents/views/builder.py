@@ -304,7 +304,7 @@ def _playbooks(value, _cat):
 #: runtime cannot quietly go undescribed to the model that hands it out.
 #: Empty since P6 served `shell` through the workspace code tools.
 TOOL_HELP = {
-    'codeExecution': 'run Python in the sandbox — arithmetic, CSV work, anything computed',
+    'codeExecution': 'run Python or JavaScript, or text commands like grep and jq, in the sandbox — arithmetic, CSV work, anything computed',
     'webSearch': 'search the web',
     'scrape': 'fetch and read a web page it has the URL for',
     'fileOps': "read and write the user's own files",

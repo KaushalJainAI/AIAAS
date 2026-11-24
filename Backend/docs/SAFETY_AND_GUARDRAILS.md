@@ -79,7 +79,7 @@ configures tool by tool.
 
 | Control | What it contains | Code |
 |---|---|---|
-| Python sandbox | A separate hardened container: no network, no root, read-only filesystem, memory and process limits, killed on timeout. | `sandbox_service/`, `sandbox/engine.py` |
+| Code sandbox (Python, JavaScript, commands) | A separate hardened container: no network, no root, read-only filesystem, memory and process limits, killed on timeout. Python cannot start any other program (seccomp blocks `execve`). JavaScript runs under Node's permission model. `run_command` takes only allowlisted text commands as argument lists, never a shell, and each process may start only its own program (one-`execve` seccomp guard, fails closed). Withheld when the engine is not the container. | `sandbox_service/`, `sandbox/engine.py`, `sandbox_service/commands.py` |
 | Virtual filesystem | Agents see paths but they are database rows; nothing reaches the host disk. Deletes go to the recycle bin. | `inference/vfs.py` |
 | Secrets never reach the model | Tools take `secret_ref`s, resolved after approval and scrubbed from results. MCP subprocesses get an allow-listed environment. | `credentials/refs.py`, `mcp_integration/client.py` |
 | Sandboxed rendering | HTML artifacts and published pages render in iframes without same-origin access, under a no-network CSP. File responses carry `CSP: sandbox`. | frontend `HtmlArtifact`, `/p/:slug` |

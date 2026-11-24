@@ -3729,3 +3729,20 @@ A provider reuses a cached prompt only up to the first byte that differs. Both s
 The search_solutions rule moved into `AGENT_CORE_RULES`, so it is not said twice.
 
 Rule: nothing in `PLATFORM_OPENER`, `CORE_RULES` or `AGENT_CORE_RULES` may depend on the user, agent, run or clock. `CacheOrderTests` and `test_the_fixed_rules_lead_and_the_date_is_last` pin the order.
+
+## H-169 · JavaScript and allowlisted commands in the sandbox, and no program the model chose (2026-11-24)
+
+Files: Backend/sandbox_service/commands.py, Backend/sandbox_service/launch.py, Backend/sandbox_service/executor.py, Backend/sandbox_service/runner.py, Backend/sandbox_service/server.py, Backend/sandbox_service/Dockerfile, Backend/sandbox/engine.py, Backend/sandbox/service_client.py, Backend/chat/tools/sandbox.py, Backend/agents/grants.py, Backend/agents/agent/runtime.py, Backend/sandbox_service/tests/test_commands.py, Backend/sandbox_service/tests/test_languages.py, Backend/chat/tests/test_sandbox_languages.py
+
+The sidecar ran only Python. It now also runs JavaScript/TypeScript (`execute_javascript`) and a pipeline of allowlisted text commands (`run_command`). Both are `read`, ride the `codeExecution` grant, and exist only on the sidecar (`requires="sidecar"`, `SIDECAR_ONLY_TOOLS`): the in-process engine cannot confine Node or a native program, so on it they are not offered.
+
+**The user's rule was "prebuilt commands, not any bash command".** Three things make that true rather than nominal:
+1. **No shell anywhere.** A stage is a command name plus an argument list, exec'd directly, so shell syntax in an argument is text. The allowlist (`commands.py::COMMANDS`, authoritative; `RUN_COMMAND_NAMES` is the model's copy, kept equal by a test) holds text tools only and leaves out anything that can start a program: shells, interpreters, `env`, `xargs`, `find`, `timeout`, `tar`, `zip`, `split`, `sqlite3`. `sed` and gawk always get `--sandbox`; `sort --compress-program` is refused, including getopt's prefix spellings.
+2. **One `execve` per process** (`launch.py`). Each stage installs a seccomp filter in which `execve` passes only when its path pointer is the buffer we filled, then exec's with that buffer. A flag the allowlist missed still cannot start a second program: gawk *without* `--sandbox` cannot run `system("id")`. It fails closed if pyseccomp is missing.
+3. **Python lost `execve` too** (`runner.py`). Before this, `subprocess.run(["bash", ...])` inside `execute_python` ran any command at all, which would have made the allowlist pointless. numpy and pandas don't exec; the filter is still best-effort there because it predates this guard.
+
+**Node** is the bare binary from `node:22.18.0-bookworm-slim` (no npm), with `--permission` (no child processes, workers, addons, or files outside the run folder) and a heap cap. Measured: V8 needs ~1 GB of *address space* to start, so the sidecar's `RLIMIT_AS` killed it at 256 and 512 MB; Node runs are capped with `RLIMIT_DATA`, which still fails a 600 MB allocation under 256 MB. TypeScript is stripped by Node itself (`--input-type=module-typescript`, `--experimental-transform-types` for enums, warning suppressed). Node's permission model does not block sockets; the seccomp network block and the network-less container do.
+
+**Known gap, not new:** all runs share one uid in one container, so a run could read a *concurrent* run's `/tmp/sbx-*` folder. Same for Python before this change. Fixing it needs a uid per slot or a container per run.
+
+Tests run in the real image with prod's flags (read-only, cap_drop ALL, no-new-privileges, no network): `sandbox_service/tests/test_languages.py`. They skip on Windows.

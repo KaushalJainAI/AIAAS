@@ -1,13 +1,20 @@
 """The sandbox sidecar's HTTP surface.
 
 Stdlib only, on purpose: this process runs untrusted code, so the smaller its
-own dependency surface the better. It exposes exactly two routes on an
+own dependency surface the better. It exposes exactly three routes on an
 internal-only network (no ports are published to the host):
 
     GET  /health        -> {"status": "ok"}
-    POST /execute       -> {code, wall_seconds?, cpu_seconds?, mem_mb?,
+    POST /execute       -> {code, language?: python|javascript|typescript,
+                            wall_seconds?, cpu_seconds?, mem_mb?,
                             files?: {name: base64}, collect?: [name]} -> envelope
                             (+ files_out: {name: base64}, missing, unsaved)
+    POST /commands      -> {pipeline: [{command, args}], stdin?, wall_seconds?,
+                            cpu_seconds?, mem_mb?, files?: {name: base64}}
+                            -> envelope (+ exit_codes: [int])
+
+A request the policy refuses (a bad file name, an unknown language, a command
+not on the allowlist) is a 400 whose `error` is written for the model.
 
 The backend is the only client; there is no auth here because the network it
 sits on has no route in from anywhere else (see compose: an `internal: true`
@@ -23,7 +30,14 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from executor import MAX_FILE_BYTES, MAX_FILES, FileSpecError, execute
+from commands import CommandRefused
+from executor import (
+    MAX_FILE_BYTES,
+    MAX_FILES,
+    FileSpecError,
+    execute,
+    execute_commands,
+)
 
 # Ceilings the caller cannot exceed, whatever it asks for. The backend passes
 # its own (smaller) defaults; these stop a caller from requesting a run that
@@ -58,7 +72,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/execute":
+        if self.path not in ("/execute", "/commands"):
             self._send(404, {"error": "not found"})
             return
 
@@ -72,14 +86,28 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             self._send(400, {"error": "invalid JSON body"})
             return
+        if not isinstance(payload, dict):
+            self._send(400, {"error": "body must be a JSON object"})
+            return
 
-        code = payload.get("code")
-        if not isinstance(code, str) or not code.strip():
-            self._send(400, {"error": "'code' is required"})
-            return
-        if len(code.encode("utf-8")) > MAX_CODE_BYTES:
-            self._send(413, {"error": "code too large"})
-            return
+        if self.path == "/commands":
+            stdin = payload.get("stdin") or ""
+            if not isinstance(stdin, str):
+                self._send(400, {"error": "'stdin' must be a string"})
+                return
+            if len(stdin.encode("utf-8")) > MAX_CODE_BYTES:
+                self._send(413, {"error": "stdin too large"})
+                return
+            code = None
+        else:
+            stdin = None
+            code = payload.get("code")
+            if not isinstance(code, str) or not code.strip():
+                self._send(400, {"error": "'code' is required"})
+                return
+            if len(code.encode("utf-8")) > MAX_CODE_BYTES:
+                self._send(413, {"error": "code too large"})
+                return
 
         wall = min(int(payload.get("wall_seconds", 10)), MAX_WALL_SECONDS)
         cpu = min(int(payload.get("cpu_seconds", 8)), MAX_CPU_SECONDS)
@@ -102,16 +130,23 @@ class Handler(BaseHTTPRequestHandler):
         if not acquired:
             self._send(503, {"error": "sandbox busy, try again"})
             return
+        limits = {
+            "wall_seconds": wall,
+            "cpu_seconds": cpu,
+            "mem_bytes": mem_mb * 1024 * 1024,
+            "files": files,
+        }
         try:
-            result = execute(
-                code,
-                wall_seconds=wall,
-                cpu_seconds=cpu,
-                mem_bytes=mem_mb * 1024 * 1024,
-                files=files,
-                collect=collect,
-            )
-        except FileSpecError as exc:
+            if code is None:
+                result = execute_commands(payload.get("pipeline"), stdin=stdin, **limits)
+            else:
+                result = execute(
+                    code,
+                    language=str(payload.get("language") or "python"),
+                    collect=collect,
+                    **limits,
+                )
+        except (FileSpecError, CommandRefused) as exc:
             self._send(400, {"error": str(exc)})
             return
         finally:
