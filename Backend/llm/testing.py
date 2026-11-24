@@ -119,6 +119,9 @@ class Reply:
     reasoning: str = ""
     calls: tuple[ToolCallSpec, ...] = ()
     usage: Usage | None = None
+    #: Sources the provider cites, sent the way Perplexity and xAI send them:
+    #: a top-level `citations` array on a stream frame.
+    citations: tuple[dict[str, Any], ...] = ()
 
     def __add__(self, other: object) -> "Reply":
         if not isinstance(other, Reply):
@@ -128,6 +131,7 @@ class Reply:
             reasoning=self.reasoning + other.reasoning,
             calls=self.calls + other.calls,
             usage=other.usage or self.usage,
+            citations=self.citations + other.citations,
         )
 
 
@@ -154,9 +158,10 @@ class Hang:
 Step = Union[Reply, Failure, ProviderError, Hang]
 
 
-def text(content: str, *, usage: Usage | None = None) -> Reply:
-    """A plain answer."""
-    return Reply(content=content, usage=usage)
+def text(content: str, *, usage: Usage | None = None,
+         citations: list[dict[str, Any]] | None = None) -> Reply:
+    """A plain answer, optionally citing sources: `citations=[{"url": ..., "title": ...}]`."""
+    return Reply(content=content, usage=usage, citations=tuple(citations or ()))
 
 
 def reasoning(content: str) -> Reply:
@@ -400,6 +405,8 @@ class ScriptedModel:
             frame([{"index": 0, "delta": {"reasoning": reply.reasoning}}])
         if reply.content:
             frame([{"index": 0, "delta": {"content": reply.content}}])
+        if reply.citations:
+            frame([], citations=list(reply.citations))
         # Each call's name and arguments arrive in separate deltas, as providers
         # send them, so the accumulator's reassembly runs for real.
         for k, (call, call_id) in enumerate(zip(reply.calls, self._call_ids(reply, index))):
@@ -428,13 +435,16 @@ class ScriptedModel:
                  "function": {"name": call.name, "arguments": json.dumps(call.arguments)}}
                 for call, call_id in zip(reply.calls, self._call_ids(reply, index))
             ]
-        return {
+        completion = {
             "id": f"scripted-{index}", "object": "chat.completion",
             "model": body.get("model", self.model),
             "choices": [{"index": 0, "message": message,
                          "finish_reason": "tool_calls" if reply.calls else "stop"}],
             "usage": (reply.usage or Usage()).as_wire(),
         }
+        if reply.citations:
+            completion["citations"] = list(reply.citations)
+        return completion
 
     # ── installation ──
 
