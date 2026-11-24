@@ -145,6 +145,13 @@ def _can_write(worker) -> bool:
     return any(t in effective for t in _WRITING_TOOLS)
 
 
+# Worker-control tools are `journal=False` (docs/UNDO_PLAN.md D9), like the
+# delegation tools in `chat/tools/agents.py`: each worker's own changes go into
+# its own change set (D7), so a row for the control call would only repeat them.
+#   start_tasks: starts detached workers.
+#   steer_task:  sends a worker a new instruction.
+#   stop_task:   stops a worker.
+# `wait_tasks` and `task_status` are `read`, so they are never journaled anyway.
 @tool({
     'type': 'function',
     'function': {
@@ -177,7 +184,7 @@ def _can_write(worker) -> bool:
             'additionalProperties': False,
         },
     },
-}, sensitive=True, effect='reversible')
+}, sensitive=True, effect='reversible', journal=False)
 async def start_tasks(args: Dict, context: Dict) -> str:
     from django.contrib.auth import get_user_model
 
@@ -1083,7 +1090,7 @@ async def task_status(args: Dict, context: Dict) -> str:
             'additionalProperties': False,
         },
     },
-}, effect='reversible')
+}, effect='reversible', journal=False)
 async def steer_task(args: Dict, context: Dict) -> str:
     from agents.agent import tasks as _tasks
     from chat.turn import steering
@@ -1120,7 +1127,7 @@ async def steer_task(args: Dict, context: Dict) -> str:
             'additionalProperties': False,
         },
     },
-}, effect='reversible')
+}, effect='reversible', journal=False)
 async def stop_task(args: Dict, context: Dict) -> str:
     from asgiref.sync import sync_to_async
 

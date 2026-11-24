@@ -243,6 +243,12 @@ async def _held_sends():
     return await sweep()
 
 
+async def _purge_change_sets():
+    # What a chat message or run changed, past CHANGE_HISTORY_DAYS (`logs/changes.py`).
+    from logs.changes import purge_old_sets
+    return {'purged': await sync_to_async(purge_old_sets)()}
+
+
 PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
     PeriodicJob('notifications.sweep_scheduled', 'SCHEDULED_SWEEP_SECONDS',
                 _scheduled_notifications),
@@ -261,6 +267,8 @@ PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
                 _stale_solutions),
     PeriodicJob('messaging.deliver_held_sends', 'OUTBOUND_HOLD_SWEEP_SECONDS',
                 _held_sends),
+    PeriodicJob('logs.purge_change_sets', 'CHANGE_SET_SWEEP_SECONDS',
+                _purge_change_sets),
 )
 
 #: Beat entries this loop deliberately does not run, and why.

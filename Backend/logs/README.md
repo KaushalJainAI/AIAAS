@@ -24,6 +24,7 @@ Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 | `SubAgentRevision` | An agent's settings at one point in time |
 | `CostEntry` | Spending that is not model tokens (images, messages) |
 | `Feedback`, `RunSignal` | A thumbs up or down, and automatic quality signals |
+| `ChangeSet`, `Change` | What one chat message or run changed, one row per file or folder. Kept so it can be put back (see `changes.py`) |
 
 ## Files
 
@@ -33,6 +34,7 @@ Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 | `views.py`, `urls.py` | `/api/logs/`: insights, run history, revisions, and run cleanup (delete, mark a stuck run failed) |
 | `activity.py`, `activity_urls.py` | `/api/activity/`: live and recent activity for the Activity page |
 | `revisions.py` | Saves a new revision only when settings really changed |
+| `changes.py` | The change log. A tool call's owner (a chat message or a run) is bound while it runs, and the file writes record what changed. Never raises, so a failed record cannot fail the write |
 | `costs.py` | The only writer of `CostEntry` |
 | `failures.py` | Classifies why a run failed, as one word |
 | `signals_api.py` | Records automatic quality signals |
@@ -52,4 +54,5 @@ run goes.
 ## Tests
 
 `logs/tests/`: `test_turns.py`, `test_delegation.py`, `test_revisions.py`,
-`test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`.
+`test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`,
+`test_change_binding.py`, `test_change_record.py`.

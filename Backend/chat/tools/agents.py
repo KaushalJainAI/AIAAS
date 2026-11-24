@@ -457,6 +457,12 @@ async def search_agents(args: Dict, context: Dict) -> str:
     return json.dumps({"agents": agents, "count": len(agents)})
 
 
+# Tools that start, answer or wait on other agents are `journal=False` (D9).
+# Each one's real effect is recorded under the worker's own change set, so a row
+# for the call would only repeat it. The three here: `run_agent` starts a worker
+# detached; `answer_subagent` resumes a paused one; `invoke_subagent` runs one
+# inline (its child binds its own owner, D18). The coding tools that start,
+# steer and stop tasks are in `chat/tools/tasks.py`.
 @tool({
         "type": "function",
         "function": {
@@ -489,6 +495,7 @@ async def search_agents(args: Dict, context: Dict) -> str:
     sensitive=True,
     effect="irreversible",
     timeout=AGENT_RUN_CALL_TIMEOUT,
+    journal=False,
 )
 async def run_agent(args: Dict, context: Dict) -> str:
     """Start one of the caller's agents and wait briefly for its answer.
@@ -732,7 +739,7 @@ async def get_agent_run(args: Dict, context: Dict) -> str:
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", timeout=AGENT_RUN_CALL_TIMEOUT)
+}, sensitive=True, effect="irreversible", timeout=AGENT_RUN_CALL_TIMEOUT, journal=False)
 async def answer_subagent(args: Dict, context: Dict) -> str:
     """Answer a paused worker and resume it — the manager's half of HITL.
 
@@ -862,7 +869,7 @@ async def _user(user_id: Any):
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", timeout=FANOUT_CALL_TIMEOUT)
+}, sensitive=True, effect="irreversible", timeout=FANOUT_CALL_TIMEOUT, journal=False)
 async def invoke_subagent(args: Dict, context: Dict) -> str:
     """Fan work out to N workers and return their answers, in order.
 

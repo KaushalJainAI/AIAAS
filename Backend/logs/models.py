@@ -701,3 +701,98 @@ class CostEntry(models.Model):
 
     def __str__(self):
         return f"{self.kind} ₹{self.amount_inr} ({self.user_id})"
+
+
+class ChangeSet(models.Model):
+    """What one chat message or one agent run changed (docs/UNDO_PLAN.md §6).
+
+    The change log is written by `logs/changes.py`; the revert engine that
+    reads it is `logs/undo.py` (Phase 4). A set has an owner: the user's chat
+    message, or an agent run (one set per run, through `execution`).
+    """
+
+    OWNER_CHOICES = [('chat', 'A chat message'), ('run', 'An agent run')]
+    STATUS_CHOICES = [
+        ('open', 'Open'),             # a chat turn still going (or abandoned; see idle rule)
+        ('closed', 'Closed'),
+        ('reverting', 'Reverting'),   # a revert holds it (the lock)
+        ('reverted', 'Reverted'),     # every revertible change was put back
+        ('partial', 'Partly reverted'),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='change_sets')
+    owner_kind = models.CharField(max_length=8, choices=OWNER_CHOICES)
+    #: The USER message that started the chat turn (D6). SET_NULL: deleting a
+    #: chat must not take the undo of its file changes with it.
+    chat_message = models.ForeignKey('chat.ChatMessage', on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='change_sets')
+    execution = models.ForeignKey(ExecutionLog, on_delete=models.SET_NULL,
+                                  null=True, blank=True, related_name='change_sets')
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True,
+                               blank=True, related_name='children')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='open')
+    #: True when a change could not be recorded or the row cap was hit, so the
+    #: UI can say "some changes may be missing from this list".
+    incomplete = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', '-created_at'])]
+        constraints = [
+            models.UniqueConstraint(fields=['execution'],
+                                    condition=models.Q(execution__isnull=False),
+                                    name='changeset_one_per_execution'),
+            models.UniqueConstraint(fields=['chat_message'],
+                                    condition=models.Q(status='open'),
+                                    name='changeset_one_open_per_message'),
+        ]
+
+    def __str__(self):
+        return f'Change set {self.pk} ({self.owner_kind}, {self.status})'
+
+
+class Change(models.Model):
+    """One target's before and after within a change set (D1)."""
+
+    TARGET_CHOICES = [('document', 'File'), ('folder', 'Folder'),
+                      ('memory', 'Memory'), ('agent', 'Agent settings'),
+                      ('', 'Untracked')]
+    OUTCOME_CHOICES = [('reverted', 'Reverted'), ('skipped', 'Skipped'),
+                       ('failed', 'Failed')]
+
+    change_set = models.ForeignKey(ChangeSet, on_delete=models.CASCADE,
+                                   related_name='changes')
+    #: Order of first touch within the set. Reverts walk it backwards.
+    seq = models.PositiveIntegerField()
+    target_type = models.CharField(max_length=10, choices=TARGET_CHOICES, blank=True)
+    target_id = models.BigIntegerField(null=True, blank=True)
+    #: The first tool that touched it, and the call id, for the run page link.
+    tool = models.CharField(max_length=100)
+    call_id = models.CharField(max_length=100, blank=True, default='')
+    #: Plain words for the list: "/Chat/report.docx", "Memory: works in IST".
+    label = models.CharField(max_length=300)
+    before = models.JSONField(null=True, blank=True)   # None = did not exist before
+    after = models.JSONField(null=True, blank=True)
+    content_changed = models.BooleanField(default=False)
+    revertible = models.BooleanField(default=True)
+    #: Why not revertible, in plain words (untracked rows, too-large files).
+    reason = models.CharField(max_length=200, blank=True, default='')
+    reverted_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=10, choices=OUTCOME_CHOICES, blank=True, default='')
+    outcome_note = models.CharField(max_length=300, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['seq']
+        constraints = [
+            models.UniqueConstraint(fields=['change_set', 'target_type', 'target_id'],
+                                    condition=models.Q(target_id__isnull=False),
+                                    name='change_one_row_per_target'),
+        ]
+
+    def __str__(self):
+        return f'{self.label} ({self.change_set_id})'

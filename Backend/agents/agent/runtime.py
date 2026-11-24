@@ -2085,8 +2085,13 @@ async def run_agent(agent, goal: str, *, user, sink=None,
                      parent_autonomy: str = '',
                      org_id: int | None = None,
                      share_solutions: bool = False,
-                     inherited_taint: str | None = None) -> AgentRun:
+                     inherited_taint: str | None = None,
+                     change_parent_id: int | None = None) -> AgentRun:
     """Run `agent` against `goal` and record the run.
+
+    `change_parent_id` is the change set of the run that delegated this one
+    (docs/UNDO_PLAN.md D7). It is stored on this run's set, so reverting the
+    parent reverts its workers first. Nothing passes it yet.
 
     `inherited_taint` is the `tainted_by` of the delegating turn, or None. A
     worker started by a turn whose tool results already read like orders to an
@@ -2391,6 +2396,13 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             mission_id=mission_id,
             org_id=org_id,
             share_solutions=share_solutions,
+            # The run's change set (docs/UNDO_PLAN.md §6.2). Evals never journal:
+            # their world is reset before every attempt (D11).
+            change_owner=(None if caller == 'eval' else {
+                'user_id': user.id, 'owner_kind': 'run',
+                'execution_id': str(log.execution_id),
+                'parent_set_id': change_parent_id,
+            }),
         )
 
         # The backstop under the soft stop. The loop checks the clock between
@@ -2636,11 +2648,13 @@ async def start_agent_run(agent, goal: str, *, user,
                           parent_autonomy: str = '',
                           org_id: int | None = None,
                           share_solutions: bool = False,
-                          inherited_taint: str | None = None) -> str:
+                          inherited_taint: str | None = None,
+                          change_parent_id: int | None = None) -> str:
     """Begin a run in the background and return its execution id immediately.
 
     `inherited_taint` and `delegation_task` are passed down to `run_agent`,
-    which decides the worker's taint (see there).
+    which decides the worker's taint (see there). `change_parent_id` is passed
+    down too, as the change set of the delegating run (D7).
 
     `workspace` is the caller's own write folder, granted to the run as a
     second writable subtree — the same hand-off `invoke_subagent` makes, so a
@@ -2725,7 +2739,8 @@ async def start_agent_run(agent, goal: str, *, user,
                                 org_id=org_id,
                                 share_solutions=share_solutions,
                                 delegation_task=delegation_task,
-                                inherited_taint=inherited_taint)
+                                inherited_taint=inherited_taint,
+                                change_parent_id=change_parent_id)
         except admission.AdmissionTimeout as exc:
             # Nothing ran, so there is nothing to report as having failed
             # part-way. The log is closed here because `run_agent` never got to

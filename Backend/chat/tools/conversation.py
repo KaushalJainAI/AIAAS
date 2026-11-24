@@ -333,6 +333,10 @@ async def open_conversation_task(args: Dict, context: Dict) -> str:
     return json.dumps(result, default=str)
 
 
+# `journal=False`: the notes file is the conversation's own bookkeeping, rewritten
+# after every turn (`chat/turn/session_notes.py`). It writes straight through
+# `office_edit.save_text` rather than the vfs (D16), so the change log would only
+# show a line of housekeeping. Not a change a person asked to undo.
 @tool({
     "type": "function",
     "function": {
@@ -358,7 +362,7 @@ async def open_conversation_task(args: Dict, context: Dict) -> str:
             "additionalProperties": False,
         },
     },
-}, requires="memory", effect="reversible")
+}, requires="memory", effect="reversible", journal=False)
 async def update_conversation_notes(args: Dict, context: Dict) -> str:
     """The model's half of the notes file; the user edits the file itself.
 
