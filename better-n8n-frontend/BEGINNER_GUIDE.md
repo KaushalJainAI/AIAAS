@@ -35,6 +35,7 @@ The bell opens your notifications (`components/notifications/NotificationsPanel.
 | Agents | `/agents`, `/agents/:id` | `pages/Agents.tsx`, `pages/AgentBuilder.tsx` | Your saved agents, and the editor for one |
 | Explore | `/templates` | `pages/Templates.tsx` | Ready-made agents and packs to install |
 | Tools | `/tools` | `pages/Tools.tsx` | Switch tools on and off |
+| Code | `/code` | `pages/Code.tsx` | A placeholder. The `/code` command lands here; the coding workspace it will open is not built yet |
 | Schedules | `/schedules` | `pages/Schedules.tsx` | When agents run automatically |
 | Studio | `/imagine` | `pages/Imagine.tsx` | Image, video and audio generation |
 | Skills | `/skills` | `pages/Skills.tsx` | Reusable instruction snippets |
