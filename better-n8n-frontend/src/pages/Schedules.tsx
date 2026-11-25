@@ -740,7 +740,7 @@ export default function Schedules() {
         icon={CalendarClock}
       />
 
-      <div className="px-4 py-6 md:px-8">
+      <div className="px-4 py-6 md:px-6">
         {schedulerDown && (
           <div className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
             <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />

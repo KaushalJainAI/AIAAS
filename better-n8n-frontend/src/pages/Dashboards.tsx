@@ -53,7 +53,7 @@ export default function Dashboards() {
         subtitle="Live tiles — ask in chat to build one, refresh it here"
         icon={LayoutDashboard}
       />
-      <div className="px-4 py-6 md:px-8">
+      <div className="px-4 py-6 md:px-6">
         {isLoading && <div className="flex justify-center py-16 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}
         {isError && <p className="py-10 text-center text-sm text-muted-foreground">Dashboards could not be loaded.</p>}
         {!isLoading && !isError && rows.length === 0 && (
