@@ -6,7 +6,7 @@
  * The calls come from `browserViews.ts` (passed by key, not in the route). A picture
  * is fetched with the bearer token; a 404 means it has expired.
  */
-import { Stack } from 'expo-router';
+import { Stack, router, useCanGoBack } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Image, Linking, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -18,9 +18,18 @@ import { ErrorState } from '../../components/ErrorState';
 import { Icon } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
+import { tap } from '../../lib/haptics';
 import { radius, spacing, typography, useTheme } from '../../theme';
 import { authorizationHeaders, fetchFile } from '../files/transfer';
-import { browserFramePath, browserFrameUrl, hostOf, recallBrowserViews } from './browserViews';
+import {
+  awaitingUser,
+  browserFramePath,
+  browserFrameUrl,
+  doneMessage,
+  hostOf,
+  recallBrowserViews,
+} from './browserViews';
+import { queueHandOff } from './handOff';
 import type { BrowserStep, BrowserView } from './types';
 
 function stepText(step: BrowserStep): string {
@@ -76,8 +85,12 @@ function FramePicture({ frameId }: { frameId: string }) {
   );
 }
 
-/** The site needs the person. The chat is where the assistant is told that they are done. */
-function NeedsUser({ host, text }: { host: string; text: string }) {
+/**
+ * The site needs the person. "I'm done" hands the chat the same words the web
+ * sends. Without `onDone` (no chat to return to) the person is told to go back
+ * and say it themselves.
+ */
+function NeedsUser({ host, text, onDone }: { host: string; text: string; onDone?: () => void }) {
   const { colors, spacing: s, radius: r } = useTheme();
   return (
     <View
@@ -87,9 +100,16 @@ function NeedsUser({ host, text }: { host: string; text: string }) {
       <Text style={[typography.label, { color: colors.warning }]}>
         {`The assistant needs you on ${host || 'this site'}: ${text}`}
       </Text>
-      <Text style={[typography.caption, { color: colors.text }]}>
-        Finish it, then go back to the chat and tell the assistant you are done.
-      </Text>
+      {onDone ? (
+        <>
+          <Text style={[typography.caption, { color: colors.text }]}>{"Finish it, then tap I'm done."}</Text>
+          <Button title="I'm done" onPress={onDone} />
+        </>
+      ) : (
+        <Text style={[typography.caption, { color: colors.text }]}>
+          Finish it, then go back to the chat and tell the assistant you are done.
+        </Text>
+      )}
     </View>
   );
 }
@@ -145,6 +165,8 @@ function CallCard({ view, number }: { view: BrowserView; number: number }) {
 export function BrowserScreen({ viewsKey }: { viewsKey: string }) {
   const { colors, spacing: s } = useTheme();
   const views = useMemo(() => recallBrowserViews(viewsKey), [viewsKey]);
+  // "I'm done" needs a conversation to go back to; the Browser screen is only ever pushed from one.
+  const canReturn = useCanGoBack();
 
   if (!views || views.length === 0) {
     return (
@@ -159,13 +181,27 @@ export function BrowserScreen({ viewsKey }: { viewsKey: string }) {
   const host = hostOf(newest.url);
   const picture = [...views].reverse().find((v) => v.frame_id);
   const live = [...views].reverse().find((v) => v.live_url);
-  const needsUser = newest.needs_user;
+  // The call that is waiting for the person, not necessarily the newest one (the web's rule).
+  const waiting = awaitingUser(views);
+  const waitingHost = waiting ? hostOf(waiting.url) : '';
+
+  const sayDone = () => {
+    tap();
+    queueHandOff(doneMessage(waitingHost || 'page'));
+    router.back();
+  };
 
   return (
     <Screen edges={['left', 'right', 'bottom']} style={{ padding: 0 }}>
       <Stack.Screen options={{ title: host ? `Browser · ${host}` : 'Browser' }} />
       <ScrollView contentContainerStyle={{ padding: s.lg, gap: s.lg }}>
-        {needsUser ? <NeedsUser host={host} text={needsUser} /> : null}
+        {waiting?.needs_user ? (
+          <NeedsUser
+            host={waitingHost}
+            text={waiting.needs_user}
+            onDone={canReturn ? sayDone : undefined}
+          />
+        ) : null}
 
         <View style={{ gap: s.xs }}>
           <Text accessibilityRole="header" style={[typography.heading, { color: colors.text }]}>

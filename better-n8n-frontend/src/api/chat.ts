@@ -260,6 +260,8 @@ export interface ToolTraceEntry {
   args?: { query?: string; question?: string; [key: string]: unknown };
   /** The plan step in progress when this call was made. */
   step?: string;
+  /** A send the send window is holding: it has not left yet (no tool output is kept). */
+  queued?: boolean;
   [key: string]: unknown;
 }
 

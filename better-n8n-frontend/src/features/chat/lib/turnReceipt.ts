@@ -66,6 +66,16 @@ const MESSAGE_SENT: Kind = {
   // out yet, and the trace cannot say which it was (see usePendingSends).
   phrase: (n) => (n === 1 ? 'asked to send a message' : `asked to send ${n} messages`),
 };
+// A send the send window is holding (`queued: true` on the trace step, set by
+// `_mark_queued` in Backend/chat/turn/agent.py). Held, not sent: say so.
+const QUEUED_MESSAGE: Kind = {
+  key: 'queued-message',
+  phrase: (n) => (n === 1 ? 'queued a message' : `queued ${n} messages`),
+};
+const QUEUED_EMAIL: Kind = {
+  key: 'queued-email',
+  phrase: (n) => (n === 1 ? 'queued an email' : `queued ${n} emails`),
+};
 const MESSAGE_DRAFT: Kind = {
   key: 'message-draft',
   phrase: (n) => (n === 1 ? 'drafted a message' : `drafted ${n} messages`),
@@ -129,6 +139,12 @@ const KIND_OF: Record<string, Kind> = {
   render_chart: CHART,
 };
 
+/** Send tools whose held form (`queued: true`) gets its own wording. */
+const QUEUED_KIND_OF: Record<string, Kind> = {
+  message_send: QUEUED_MESSAGE,
+  gmail_send_message: QUEUED_EMAIL,
+};
+
 /** Where a written file's name is kept in the call's arguments, if anywhere. */
 const PATH_ARGS = ['path', 'filename', 'name'] as const;
 
@@ -157,7 +173,7 @@ export function summariseTrace(trace: ToolTraceEntry[]): string {
   for (const entry of trace) {
     const tool = typeof entry.tool === 'string' ? entry.tool : '';
     if (!tool) continue;
-    const kind = KIND_OF[tool];
+    const kind = (entry.queued === true && QUEUED_KIND_OF[tool]) || KIND_OF[tool];
     if (!kind) {
       other += 1;
       continue;

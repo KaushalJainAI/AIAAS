@@ -47,3 +47,16 @@ export function browserFramePath(frameId: string): string {
 export function browserFrameUrl(frameId: string): string {
   return buildUrl(browserFramePath(frameId));
 }
+
+/** The newest call that is waiting for the person, or null. The same rule as the web (`lib/browserView.ts`). */
+export function awaitingUser(views: BrowserView[]): BrowserView | null {
+  for (let i = views.length - 1; i >= 0; i -= 1) {
+    if (views[i].needs_user) return views[i];
+  }
+  return null;
+}
+
+/** The text the "I'm done" button sends. Identical to the web's `doneMessage`, so the model reads the same words. */
+export function doneMessage(host: string): string {
+  return `Done on ${host}. Continue.`;
+}

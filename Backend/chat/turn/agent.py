@@ -2625,6 +2625,22 @@ def _is_queued_send(output: str) -> bool:
     return isinstance(data, dict) and data.get("queued") is True
 
 
+def _mark_queued(trace: list[dict[str, Any]], call_id: str, output: str) -> None:
+    """Flag the trace step of a call whose send the send window is holding.
+
+    Only the holds door (`messaging/holds.py`) returns `queued: true`, so a
+    flagged step is always a send that has not left yet. The step is written
+    before the call runs, which is why the flag is set here, once the result
+    is known. The receipt reads it to say "queued a message" instead of
+    "asked to send a message". The output itself is not kept on the step.
+    """
+    if not _is_queued_send(output):
+        return
+    for entry in trace:
+        if entry.get("call_id") == call_id:
+            entry["queued"] = True
+
+
 #: The arguments that say what a call acted on, first match wins. Used only to
 #: label an untracked row, so the list can say "Send email: ana@example.com".
 _JOURNAL_TARGET_KEYS = ("path", "to", "subject", "name", "title", "url", "channel")
@@ -2767,6 +2783,7 @@ async def _record_results(batch: _Batch) -> list[ToolMessage]:
 
         output, status, duration_ms = batch.outcomes[call.id]
         arguments = args_by_id[call.id]
+        _mark_queued(batch.trace, call.id, output)
 
         if turn.on_tool_result is not None:
             # Never let an observer break a tool call that already succeeded —
