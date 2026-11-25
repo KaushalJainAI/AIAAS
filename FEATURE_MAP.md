@@ -6,7 +6,7 @@ Use it to debug one feature at a time: find the feature, read its chart top to b
 
 - **Part 0** shows how the code is divided (layers, shared cores, the single entry points).
 - **Part A** lists the features a user can see (47 of them).
-- **Part B** lists the technical features that work behind them (15 of them).
+- **Part B** lists the technical features that work behind them (17 of them).
 
 ## How to read this file
 
@@ -22,7 +22,7 @@ Each feature has the same five parts.
 
 Notes on accuracy:
 
-- Every backend name in a table was checked against the code on 2026-10-11 by a script: the function or class exists in the file named beside it.
+- Every backend name in a table was checked against the code on 2026-11-25 by a script: the file exists and the function or class is in it.
 - Line numbers are left out on purpose. They change with every edit. Search for the name instead.
 - `Class.method` means a method on that class. `name()` means a module-level function.
 - The app in `Backend/agents/` has the Django label `orchestrator`, so its URLs start with `/api/orchestrator/`.
@@ -84,6 +84,8 @@ Most features pass through one of these. When two features break in the same way
 | Every folder id from a client | `resolve_folder` | [Backend/inference/filesystem.py](Backend/inference/filesystem.py) | file explorer API |
 | Every credential lookup | `CredentialManager.get_credential` | [Backend/credentials/manager.py](Backend/credentials/manager.py) | model keys, MCP injection, secret references |
 | Every background task | `spawn` | [Backend/workflow_backend/background.py](Backend/workflow_backend/background.py) | chat runs, agent runs, sweeps |
+| Every undoable change | `record_document`, `record_folder`, `record_memory`, `record_agent` | [Backend/logs/changes.py](Backend/logs/changes.py) | file tools, memory, agent saves |
+| Every held send | `should_hold`, `create`, `deliver` | [Backend/messaging/holds.py](Backend/messaging/holds.py) | send tools that reach a person |
 | Every outbound provider HTTP call | `shared_client` | [Backend/workflow_backend/httpclient.py](Backend/workflow_backend/httpclient.py) | model handlers, Google tools, vision |
 | Every solution read | `visible` | [Backend/solutions/access.py](Backend/solutions/access.py) | solution search, pages, tools |
 | Every WebSocket | `useSocket` | [better-n8n-frontend/src/lib/websocket.ts](better-n8n-frontend/src/lib/websocket.ts) | all real-time screens |
@@ -95,17 +97,17 @@ These files hold the most behaviour. A change in one of them can affect many fea
 
 | File | Lines | What it holds |
 |---|---|---|
-| [Backend/chat/turn/agent.py](Backend/chat/turn/agent.py) | 2,977 | The tool loop: four graph nodes, approvals, side effects |
-| [Backend/agents/agent/runtime.py](Backend/agents/agent/runtime.py) | 2,611 | Agent run lifecycle, toolbox, system prompt, guardrails |
-| [Backend/inference/vfs.py](Backend/inference/vfs.py) | 1,982 | The virtual filesystem for agents |
-| [Backend/eval/graders.py](Backend/eval/graders.py) | 1,670 | Every eval grader |
-| [Backend/chat/turn/pipeline.py](Backend/chat/turn/pipeline.py) | 1,467 | Everything a chat turn does before and after the loop |
-| [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) | 1,325 | MCP sessions, pool, connect and call |
-| [Backend/eval/generator.py](Backend/eval/generator.py) | 1,275 | Judge-written test cases and worlds |
-| [Backend/logs/queries.py](Backend/logs/queries.py) | 1,148 | All read queries for runs, cost and insights |
-| [Backend/inference/engine.py](Backend/inference/engine.py) | 1,146 | Vector index and RAG pipeline |
-| [Backend/agents/config.py](Backend/agents/config.py) | 1,104 | `AgentSerializer` |
-| [Backend/chat/tools/agents.py](Backend/chat/tools/agents.py) | 1,104 | Delegation tools |
+| [Backend/chat/turn/agent.py](Backend/chat/turn/agent.py) | 3,877 | The tool loop: four graph nodes, approvals, side effects |
+| [Backend/agents/agent/runtime.py](Backend/agents/agent/runtime.py) | 2,880 | Agent run lifecycle, toolbox, system prompt, guardrails |
+| [Backend/inference/vfs.py](Backend/inference/vfs.py) | 2,278 | The virtual filesystem for agents |
+| [Backend/eval/graders.py](Backend/eval/graders.py) | 1,669 | Every eval grader |
+| [Backend/chat/turn/pipeline.py](Backend/chat/turn/pipeline.py) | 1,653 | Everything a chat turn does before and after the loop |
+| [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) | 1,361 | MCP sessions, pool, connect and call |
+| [Backend/eval/generator.py](Backend/eval/generator.py) | 1,274 | Judge-written test cases and worlds |
+| [Backend/logs/queries.py](Backend/logs/queries.py) | 1,182 | All read queries for runs, cost and insights |
+| [Backend/inference/engine.py](Backend/inference/engine.py) | 1,179 | Vector index and RAG pipeline |
+| [Backend/agents/config.py](Backend/agents/config.py) | 1,179 | `AgentSerializer` |
+| [Backend/chat/tools/agents.py](Backend/chat/tools/agents.py) | 1,136 | Delegation tools |
 
 ## 0.4 Which features share which core
 
@@ -1472,15 +1474,16 @@ flowchart TD
 
 ## A33. Connections: MCP servers
 
-**What it is.** The user connects outside tools through the Model Context Protocol. They can switch a connection on or off, sign in to it with OAuth, add their own server, and approve tools whose description changed.
+**What it is.** The user connects outside tools through the Model Context Protocol. They can switch a connection on or off, sign in to it with OAuth, and approve tools whose description changed. Users can no longer add their own server: that form is off behind `MCP_CUSTOM_SERVERS_ENABLED` (false everywhere), and connectors come from the curated catalogue. Rows are kept, so turning the switch back on restores them.
 
-**Screen.** `/connections` — [Connections.tsx](better-n8n-frontend/src/pages/Connections.tsx), [MCPServerModal.tsx](better-n8n-frontend/src/components/mcp/MCPServerModal.tsx), [HeldToolsPanel.tsx](better-n8n-frontend/src/components/mcp/HeldToolsPanel.tsx), [OAuthCallback.tsx](better-n8n-frontend/src/pages/OAuthCallback.tsx), [api/mcp.ts](better-n8n-frontend/src/api/mcp.ts).
+**Screen.** `/connections` — [Connections.tsx](better-n8n-frontend/src/pages/Connections.tsx), [MCPServerModal.tsx](better-n8n-frontend/src/components/mcp/MCPServerModal.tsx) (unmounted while custom servers are off), [HeldToolsPanel.tsx](better-n8n-frontend/src/components/mcp/HeldToolsPanel.tsx), [OAuthCallback.tsx](better-n8n-frontend/src/pages/OAuthCallback.tsx), [api/mcp.ts](better-n8n-frontend/src/api/mcp.ts).
 
 | What happens | Function or class | File |
 |---|---|---|
 | Connections API | `MCPServerViewSet` | [Backend/mcp_integration/views.py](Backend/mcp_integration/views.py) |
 | Validate a server, show per-user on/off | `MCPServerSerializer` | [Backend/mcp_integration/serializers.py](Backend/mcp_integration/serializers.py) |
 | Which servers a user can see | `visible_servers_sync`, `_visible_servers_queryset` | [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) |
+| The custom-servers switch (off: no create, user rows not offered) | `custom_servers_enabled` | [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) |
 | Connect, list tools, call a tool | `MCPClientManager` | [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) |
 | One session in its own task | `_SessionWorker`, `_PoolEntry` | [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) |
 | Session pool | `_touch`, `_trim_pool`, `_evict_lru_idle`, `_evict` | [Backend/mcp_integration/client.py](Backend/mcp_integration/client.py) |
@@ -1565,7 +1568,7 @@ flowchart TD
 
 ## A35. Credentials vault
 
-**What it is.** The user stores API keys and logins. They are encrypted at rest, never sent back to the browser, and can be tested with a Verify button.
+**What it is.** The user stores API keys and logins. They are encrypted at rest, never sent back to the browser, and can be tested with a Verify button. For an OpenRouter key, the page shows the credit left (Check balance).
 
 **Screen.** `/credentials` — [Credentials.tsx](better-n8n-frontend/src/pages/Credentials.tsx), [CredentialModal.tsx](better-n8n-frontend/src/components/credentials/CredentialModal.tsx), [api/credentials.ts](better-n8n-frontend/src/api/credentials.ts).
 
@@ -1577,6 +1580,7 @@ flowchart TD
 | The one lookup, with a short cache | `CredentialManager`, `get_credential_manager` | [Backend/credentials/manager.py](Backend/credentials/manager.py) |
 | Find the model API key for a user | `resolve_api_key`, `platform_api_key`, `slugs_for` | [Backend/credentials/resolution.py](Backend/credentials/resolution.py) |
 | Test a credential | `CredentialVerifier` | [Backend/credentials/verification.py](Backend/credentials/verification.py) |
+| Credit left on an OpenRouter key | `CredentialViewSet.balance`, `openrouter_key_balance` | [Backend/credentials/views.py](Backend/credentials/views.py), [Backend/llm/balance.py](Backend/llm/balance.py) |
 | Let a tool name a secret instead of holding it | `find_refs`, `aresolve_refs`, `redact` | [Backend/credentials/refs.py](Backend/credentials/refs.py) |
 | Types and audit trail | `CredentialType`, `CredentialAuditLog` | [Backend/credentials/models.py](Backend/credentials/models.py) |
 
@@ -1654,6 +1658,7 @@ flowchart TD
 | Refuse unsafe SQL | `check`, `SqlRefused` | [Backend/datasources/sqlcheck.py](Backend/datasources/sqlcheck.py) |
 | Run the query | `run`, `describe`, `_run_postgres`, `_run_mysql`, `_run_sqlite` | [Backend/datasources/drivers.py](Backend/datasources/drivers.py) |
 | API tools | `list_api_operations`, `call_api`, `_auth_headers` | [Backend/chat/tools/apicaller.py](Backend/chat/tools/apicaller.py) |
+| An API card whose connector is switched off is refused | `_card_refusal` | [Backend/chat/tools/apicaller.py](Backend/chat/tools/apicaller.py) |
 | Allow only approved hosts | `check_egress` | [Backend/core/safety/net.py](Backend/core/safety/net.py) |
 | Use the stored secret without showing it | `aresolve_refs` | [Backend/credentials/refs.py](Backend/credentials/refs.py) |
 | Share a connection as a tool | `tool_share`, `shared_tool_list`, `shared_tool_install` | [Backend/datasources/views.py](Backend/datasources/views.py) |
@@ -1763,9 +1768,9 @@ flowchart TD
 
 ## A40. Compute workspace: commands and long jobs
 
-**What it is.** Each user can have one private machine. An agent can run short commands there, start long jobs and read their logs, and copy files in and out.
+**What it is.** Each user can have one private machine, once a workspace engine is configured (`WORKSPACE_ENGINE`, default `none`, so the tools are not offered). An agent can run short commands there, start long jobs and read their logs, and copy files in and out.
 
-**Screen.** None of its own; results appear in chat and on `/runs`.
+**Screen.** None of its own; results appear in chat and on `/runs`. The `/code` page is a placeholder ([Code.tsx](better-n8n-frontend/src/pages/Code.tsx)): the `/code` command lands there, and the coding workspace it will open is not built.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -2496,7 +2501,7 @@ flowchart TD
 
 ## B11. Safety layers
 
-**What it is.** Several independent checks: refuse attack-shaped input, refuse content the platform must not produce, stop text from a web page or tool result from steering the assistant, block unsafe network addresses, limit outbound messages, label generated images, and hold MCP tools whose description changed.
+**What it is.** Several independent checks: refuse attack-shaped input, refuse content the platform must not produce, stop text from a web page or tool result from steering the assistant, block unsafe network addresses, check raw uploads (documents and images) before the model sees them, limit outbound messages, label generated images, and hold MCP tools whose description changed.
 
 | What happens | Function or class | File |
 |---|---|---|
@@ -2508,10 +2513,13 @@ flowchart TD
 | Spot instruction-shaped text in tool results | `instruction_shaped` | [Backend/core/safety/provenance.py](Backend/core/safety/provenance.py) |
 | Refuse a composed URL that carries data | `check_fetch`, `refusal_for` | [Backend/core/safety/provenance.py](Backend/core/safety/provenance.py) |
 | Block private addresses (SSRF) | `validate_url`, `assert_url_safe`, `fetch_url` | [Backend/core/safety/net.py](Backend/core/safety/net.py) |
+| Judge an IPv6 address by the IPv4 address it wraps | `_embedded_v4`, `_is_internal` | [Backend/core/safety/net.py](Backend/core/safety/net.py) |
 | Allow only listed hosts per scope | `check_egress` | [Backend/core/safety/net.py](Backend/core/safety/net.py) |
 | Outbound message cap and AI disclosure | `check`, `disclose`, `sent_last_24h` | [Backend/core/safety/outbound.py](Backend/core/safety/outbound.py) |
 | Label generated images | `label_image`, `is_labelled` | [Backend/core/safety/labels.py](Backend/core/safety/labels.py) |
 | Hold changed or suspicious MCP tools | `filter_tools`, `is_allowed`, `tool_digest` | [Backend/mcp_integration/pinning.py](Backend/mcp_integration/pinning.py) |
+| Scan raw uploads: documents by text, images by a vision check | `prepare_attachments`, `image_injection_check`, `first_image_injection` | [Backend/chat/turn/agent.py](Backend/chat/turn/agent.py), [Backend/core/safety/moderation.py](Backend/core/safety/moderation.py) |
+| Keep one envelope tag across a resume | `_restore_untrusted_tag` | [Backend/chat/turn/agent.py](Backend/chat/turn/agent.py) |
 | After untrusted text, ask before anything irreversible | `static_check` | [Backend/chat/turn/reviewer.py](Backend/chat/turn/reviewer.py) |
 | Refuse memory writes in an affected turn | `remember_about_user` | [Backend/chat/tools/memory.py](Backend/chat/tools/memory.py) |
 
@@ -2683,6 +2691,60 @@ flowchart TD
 ```
 
 **Debug first.** A slow restart: `boot` should seed once per container, not on every crash restart. Tests: `Backend/core/tests/test_boot.py`.
+
+---
+
+## B16. Undo and the send hold
+
+**What it is.** Each chat reply and each agent run keeps a change set: the files, folders, memory and agent settings it changed. Undo puts them back and skips any item changed since, so it never overwrites newer work. What cannot be undone (a sent message, an outside call) is listed as untracked. A message a person is watching is held for 20 seconds, with a Cancel button, before it goes out.
+
+| What happens | Function or class | File |
+|---|---|---|
+| Bind a change set to the running tool call | `bind`, `unbind`, `current_set_id`, `open_run_set` | [Backend/logs/changes.py](Backend/logs/changes.py) |
+| Record a changed file, folder, memory or agent | `record_document`, `record_folder`, `record_memory`, `record_agent` | [Backend/logs/changes.py](Backend/logs/changes.py) |
+| List a change that cannot be undone | `record_untracked` | [Backend/logs/changes.py](Backend/logs/changes.py) |
+| Close a reply's set and summarise it | `close_chat`, `summary` | [Backend/logs/changes.py](Backend/logs/changes.py) |
+| Say what a set would revert, and why not | `describe`, `live_reason`, `change_set_for` | [Backend/logs/undo.py](Backend/logs/undo.py) |
+| Put items back, skipping changed ones | `revert`, `_revert_document`, `_revert_folder`, `_revert_memory`, `_revert_agent` | [Backend/logs/undo.py](Backend/logs/undo.py) |
+| Read a set, and revert it (routes) | `change_set_detail`, `change_set_revert` | [Backend/logs/views.py](Backend/logs/views.py) |
+| Decide whether a send is held | `should_hold`, `hold_seconds` | [Backend/messaging/holds.py](Backend/messaging/holds.py) |
+| Create the hold and deliver it after the delay | `create`, `deliver`, `deliver_after` | [Backend/messaging/holds.py](Backend/messaging/holds.py) |
+| Cancel, or send now (routes) | `cancel`, `send_now`, `status_of`, `hold_cancel`, `hold_send_now` | [Backend/messaging/holds.py](Backend/messaging/holds.py), [Backend/messaging/views.py](Backend/messaging/views.py) |
+| Deliver holds whose timer was lost | `sweep`, `deliver_held_sends` | [Backend/messaging/holds.py](Backend/messaging/holds.py), [Backend/messaging/tasks.py](Backend/messaging/tasks.py) |
+| Purge old change sets | `purge_old_sets`, `purge_change_sets` | [Backend/logs/changes.py](Backend/logs/changes.py), [Backend/logs/tasks.py](Backend/logs/tasks.py) |
+| Stored data | `ChangeSet`, `Change`, `PendingSend` | [Backend/logs/models.py](Backend/logs/models.py), [Backend/messaging/models.py](Backend/messaging/models.py) |
+
+```mermaid
+flowchart TD
+    A["Tool call changes a file, folder, memory or agent"] --> B["logs/changes.py record_*()<br/>row in the open ChangeSet"]
+    C["Agent sends a message a person is watching"] --> D{"messaging/holds.py should_hold()"}
+    D -->|yes| E["create(): PendingSend held for 20 s"]
+    E --> F["deliver_after() sends it, unless cancelled"]
+    E --> G["Cancel or Send now"]
+    D -->|no| H["Sent at once"]
+    I["Undo pressed"] --> J["logs/undo.py revert()"]
+    J --> K{"Changed since the agent wrote it?"}
+    K -->|yes| L["Skipped and reported"]
+    K -->|no| M["Put back, marked reverted"]
+```
+
+**Debug first.** An item skipped on undo: the stored `after` state and `_document_changed_since` in `logs/undo.py`. A held send that never left: `messaging/holds.py::sweep` and the `OUTBOUND_HOLD_SWEEP_SECONDS` beat. Tests: `Backend/logs/tests/`, `Backend/messaging/tests/`.
+
+---
+
+## B17. Tests: the scripted model, recordings and the frozen clock
+
+**What it is.** How the tests drive the model and time. The model is scripted at the HTTP client, so the real provider code still runs. Provider HTTP can be recorded and replayed. The clock is frozen and never slept on. A test that patches the model funnel fails the no-fakes guard. Rules and what is still not real: [Backend/docs/TESTING.md](Backend/docs/TESTING.md).
+
+| What happens | Function or class | File |
+|---|---|---|
+| Script the model's replies | `scripted_model`, `ScriptedModel`, `text`, `tool_call`, `fail`, `hang` | [Backend/llm/testing.py](Backend/llm/testing.py) |
+| Record or replay provider HTTP | `Recorder`, `Tape`, `replay`, `load` | [Backend/llm/recorded.py](Backend/llm/recorded.py) |
+| Freeze and move time | `frozen_clock`, `freeze_for`, `Clock` | [Backend/workflow_backend/testclock.py](Backend/workflow_backend/testclock.py) |
+| The one outbound HTTP client, which tests patch | `shared_client` | [Backend/workflow_backend/httpclient.py](Backend/workflow_backend/httpclient.py) |
+| The guard against patching the model | `test_no_model_fakes` | [Backend/llm/tests/test_no_model_fakes.py](Backend/llm/tests/test_no_model_fakes.py) |
+
+**Debug first.** A test that reaches a real provider: check it uses `scripted_model` or `replay`. A `RecordingMissing` error: the recording was never made, see `Recorder`. Tests: `Backend/llm/tests/`.
 
 ---
 
