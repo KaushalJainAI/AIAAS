@@ -477,6 +477,10 @@ RUN_DETAIL_RETENTION_SWEEP_SECONDS = int(
 CONTENT_MODERATION_MODEL = os.environ.get(
     'CONTENT_MODERATION_MODEL', 'openai/gpt-oss-safeguard-20b')
 CONTENT_MODERATION_TIMEOUT_S = float(os.environ.get('CONTENT_MODERATION_TIMEOUT_S', '4'))
+# Vision check on raw images in auto/full turns (`moderation.image_injection_check`).
+# Platform key pays; blank model = off. Only `openrouter` has a route here. Fails open.
+INJECTION_IMAGE_PROVIDER = os.environ.get('INJECTION_IMAGE_PROVIDER', 'openrouter')
+INJECTION_IMAGE_MODEL = os.environ.get('INJECTION_IMAGE_MODEL', 'meta-llama/llama-4-scout')
 # How often the mission sweep settles finished runs and starts due ones.
 MISSION_SWEEP_SECONDS = int(os.environ.get('MISSION_SWEEP_SECONDS', '120'))
 

@@ -43,7 +43,11 @@ from langgraph.types import interrupt
 
 from workflow_backend.background import release_db
 from core.safety import provenance
-from workflow_backend.thresholds import CHAT_RAW_FILE_MAX_BYTES, MAX_TOOL_ITERATIONS
+from workflow_backend.thresholds import (
+    CHAT_RAW_FILE_MAX_BYTES,
+    INJECTION_CHECK_MAX_IMAGES,
+    MAX_TOOL_ITERATIONS,
+)
 
 from asgiref.sync import sync_to_async
 from decimal import Decimal
@@ -776,6 +780,49 @@ async def prepare_attachments(
         if (getattr(att, "file_type", None) or "").lower() not in ("image", "video")
     )
     return tuple(raw), text, scan.strip()
+
+
+def _image_bytes(path: str) -> bytes:
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+async def check_raw_images(attachments: Sequence[Any]) -> str | None:
+    """The quote from a raw image this turn sends that addresses an AI, or None.
+
+    Only images that go raw reach the model as pictures; `attachments` is what
+    `prepare_attachments` returned, so a described image (a pointer, never shown)
+    is not read here. The first INJECTION_CHECK_MAX_IMAGES are checked and the
+    rest are logged as unchecked. Nothing is read from disk when the check is off.
+    The caller runs it only in auto/full (chat/turn/pipeline.py).
+    """
+    from core.safety import moderation
+
+    if not moderation.image_check_enabled():
+        return None
+    from llm.handlers.openai_compatible import image_mime_for, validate_attachment_path
+
+    images = [att for att in attachments
+              if (getattr(att, "file_type", None) or "").lower() == "image"]
+    if len(images) > INJECTION_CHECK_MAX_IMAGES:
+        logger.warning(
+            "[Attachments] %d raw images; the injection check reads the first %d",
+            len(images), INJECTION_CHECK_MAX_IMAGES,
+        )
+    inputs: list[tuple[bytes, str]] = []
+    for att in images[:INJECTION_CHECK_MAX_IMAGES]:
+        name = getattr(att, "filename", None) or "image"
+        path = att.file.path if hasattr(att.file, "path") else att.file.name
+        if not validate_attachment_path(path):
+            logger.warning("[Attachments] not checking %s: path outside the media root", name)
+            continue
+        try:
+            data = await asyncio.to_thread(_image_bytes, path)
+        except OSError as exc:
+            logger.warning("[Attachments] cannot read %s for the injection check: %s", name, exc)
+            continue
+        inputs.append((data, image_mime_for(getattr(att, "filename", "") or path)))
+    return await moderation.first_image_injection(inputs)
 
 
 def _seat_attachments(

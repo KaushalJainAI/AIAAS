@@ -1212,8 +1212,9 @@ async def run_chat_turn(
     phases.log(intent, tier)
     if turn.initial_taint is None and provenance.instruction_shaped(seed_text):
         turn = replace(turn, initial_taint=_INTENT_SEED_TOOL[intent][0])
-    # The model check behind the patterns, for the two kinds of third-party
-    # text that enter before `tools_node` ever runs. Only in auto/full, as in
+    # The model check behind the patterns, for the third-party input that enters
+    # before `tools_node` ever runs: the seed, the upload's text and the raw
+    # images (a vision check, `agent.check_raw_images`). Only in auto/full, as in
     # `tools_node`: ask/review already ask before anything sensitive.
     if turn.initial_taint is None and session_autonomy in ("auto", "full"):
         from core.safety import moderation
@@ -1223,6 +1224,8 @@ async def run_chat_turn(
         elif extracted_text and await moderation.injection_check(extracted_text):
             turn = replace(turn, initial_taint="upload")
         elif scan_text and await moderation.injection_check(scan_text):
+            turn = replace(turn, initial_taint="upload")
+        elif await agent.check_raw_images(attachments):
             turn = replace(turn, initial_taint="upload")
 
     turn_started = time.monotonic()
