@@ -126,14 +126,25 @@ class ChatSetTests(BindingCase):
         self.assertEqual(first, second)
         self.assertEqual(ChangeSet.objects.filter(chat_message=self.message).count(), 1)
 
-    def test_a_second_open_set_is_allowed_once_the_first_is_closed(self):
+    def test_a_write_after_close_reopens_the_same_set(self):
+        # The answer's Undo link names this set; a second one could never be
+        # reached from the UI (review fix, 2026-11-25).
         with bound(self.chat_binding()):
             first = changes.current_set_id(create=True)
         ChangeSet.objects.filter(pk=first).update(status='closed')
         with bound(self.chat_binding()):
             second = changes.current_set_id(create=True)
-        self.assertNotEqual(first, second)
+        self.assertEqual(first, second)
         self.assertEqual(ChangeSet.objects.get(pk=second).status, 'open')
+
+    def test_a_set_mid_revert_is_not_reopened(self):
+        with bound(self.chat_binding()):
+            first = changes.current_set_id(create=True)
+        ChangeSet.objects.filter(pk=first).update(status='reverting')
+        with bound(self.chat_binding()):
+            second = changes.current_set_id(create=True)
+        self.assertNotEqual(first, second)
+        self.assertEqual(ChangeSet.objects.get(pk=first).status, 'reverting')
 
     def test_a_chat_set_is_owned_by_the_user(self):
         with bound(self.chat_binding()):

@@ -46,6 +46,38 @@ def _record_added(row) -> None:
         logger.exception("[Memory] Could not record a stored fact for undo")
 
 
+def _remember(user, text: str, category: str):
+    """`core.memory.remember`, journaling the fact it stores *and* any it evicts.
+
+    A full category makes `remember` drop its least recently touched facts
+    (`core/memory.py::_enforce_cap`). Undoing the run must bring those back,
+    so the user's facts are read first and every one that went is recorded as
+    removed. The set is small (a cap per category), so reading it is cheap.
+    """
+    from core import memory as user_memory
+    from core.models import UserMemory
+    from logs import changes
+
+    known = {r.id: r for r in UserMemory.objects.filter(user=user).only("id", "text", "category")}
+    row, created = user_memory.remember(user, text, category)
+    if row is None:
+        return row, created
+    if created:
+        _record_added(row)
+    still = set(UserMemory.objects.filter(user=user, id__in=list(known))
+                .values_list("id", flat=True))
+    for gone_id in set(known) - still:
+        gone = known[gone_id]
+        try:
+            changes.record_memory(
+                memory_id=gone.id, before={"text": gone.text, "category": gone.category},
+                after=None, label=f"Memory pushed out: {gone.text[:80]}",
+            )
+        except Exception:  # noqa: BLE001 — recording must never fail the tool
+            logger.exception("[Memory] Could not record an evicted fact for undo")
+    return row, created
+
+
 def _forget(user, text: str) -> int:
     """`core.memory.forget`, journaling each row it removes (sync).
 
@@ -156,13 +188,11 @@ async def remember_about_user(args: Dict, context: Dict) -> str:
             "error": "Not stored: that reads as an instruction, not a fact about the user.",
         })
 
-    row, created = await sync_to_async(user_memory.remember)(
+    row, created = await sync_to_async(_remember)(
         user, text, (args.get("category") or "context").strip().lower(),
     )
     if row is None:
         return json.dumps({"error": "Give the fact to remember."})
-    if created:
-        await sync_to_async(_record_added)(row)
 
     others = await sync_to_async(user_memory.facts_in)(
         user, row.category, exclude_id=row.id)

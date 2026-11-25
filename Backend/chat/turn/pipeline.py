@@ -1243,6 +1243,18 @@ async def run_chat_turn(
 
         await sync_to_async(changes.close_chat)(user.id, user_message.id)
         raise TurnError(str(exc)) from exc
+    except BaseException:
+        # Anything else leaving the graph (a bug, a timeout, a cancelled turn)
+        # also ends the turn: a pause for approval *returns*, it never raises.
+        # Closing here keeps the set from reading as "still running" for the
+        # idle window. Best effort, and the original error is what propagates.
+        from logs import changes
+
+        try:
+            await sync_to_async(changes.close_chat)(user.id, user_message.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("[Turn] Could not close the change set after an error")
+        raise
     turn_elapsed_s = time.monotonic() - turn_started
     # One line per turn: the pace it started at, where it ended, and what that
     # cost. `quick>deep` is a promoted turn; a `quick` that took a long time or

@@ -126,7 +126,9 @@ class AgentSettingsUndoTests(_ToolCase):
         self.assertEqual(result['skipped'], 1)
         self.assertEqual(self.brief_of(agent_id), 'Hand-written brief.')
 
-    def test_an_agent_created_by_the_run_is_skipped_with_a_note(self):
+    def test_an_agent_created_by_the_run_is_listed_not_offered(self):
+        # Listed as not revertible (with the note as its reason), never
+        # deleted, and it does not keep the set "partly reverted" for ever.
         log = self.new_run()
         with self.in_run(log, tool='create_agent'):
             out = self.call('create_agent', {'name': 'Made in run', 'brief': 'Do a thing.'})
@@ -135,7 +137,8 @@ class AgentSettingsUndoTests(_ToolCase):
         result = self.revert(log)
 
         [change] = self.rows(self.set_of(log))
-        self.assertEqual(change.outcome, 'skipped')
-        self.assertEqual(change.outcome_note, undo.NOTE_AGENT_CREATED)
-        self.assertEqual(result['skipped'], 1)
+        self.assertFalse(change.revertible)
+        self.assertEqual(change.reason, undo.NOTE_AGENT_CREATED)
+        self.assertEqual(result['not_revertible'], 1)
+        self.assertEqual(result['status'], 'reverted')
         self.assertTrue(SubAgent.objects.filter(pk=out['agent_id']).exists())

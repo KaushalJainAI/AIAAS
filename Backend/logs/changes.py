@@ -159,6 +159,28 @@ def _chat_set(b: Binding, *, create: bool) -> int | None:
                .values_list('pk', flat=True).first())
     if open_id is not None or not create:
         return open_id
+    # A write after the set was closed (a tool still finishing after Stop, or
+    # an approval answered after an idle-window revert) reopens the message's
+    # newest set rather than starting a second one: the answer's Undo link
+    # names that set, so a second one could never be reached from the UI. A
+    # set mid-revert is left alone; the write then gets a set of its own.
+    newest = (ChangeSet.objects.filter(chat_message_id=b.chat_message_id)
+              .exclude(status='reverting').order_by('-created_at', '-pk')
+              .values_list('pk', flat=True).first())
+    if newest is not None:
+        try:
+            with transaction.atomic():
+                reopened = (ChangeSet.objects.filter(pk=newest)
+                            .exclude(status='reverting')
+                            .update(status='open', closed_at=None, updated_at=timezone.now()))
+            if reopened:
+                return newest
+        except IntegrityError:
+            pass  # another call opened one meanwhile; read it below
+        open_id = (ChangeSet.objects.filter(chat_message_id=b.chat_message_id, status='open')
+                   .values_list('pk', flat=True).first())
+        if open_id is not None:
+            return open_id
     try:
         with transaction.atomic():
             return ChangeSet.objects.create(
@@ -245,29 +267,44 @@ def record_memory(*, memory_id: int | None, before: dict | None, after: dict | N
              content=False, label=label)
 
 
-def record_agent(agent_id: int, *, before: dict | None, after: dict, label: str) -> None:
-    """An agent's settings changed. Phase 7 calls it from the agent tools."""
+def record_agent(agent_id: int, *, before: dict | None, after: dict, label: str,
+                 not_revertible_reason: str = '') -> None:
+    """An agent's settings changed. Phase 7 calls it from the agent tools.
+
+    `not_revertible_reason` lists the change without offering to undo it (a
+    created agent): otherwise its set could never settle as fully reverted.
+    """
     b = _binding.get()
     if b is None:
         return
     _journal(b, 'agent', agent_id, before=before, after_fn=lambda: after,
              content=False, label=label)
+    if not_revertible_reason and b.set_id is not None:
+        try:
+            Change.objects.filter(change_set_id=b.set_id, target_type='agent',
+                                  target_id=agent_id).update(
+                revertible=False, reason=not_revertible_reason[:200])
+        except Exception:  # noqa: BLE001 — see module note
+            logger.exception('[Changes] Could not mark agent %s not revertible', agent_id)
 
 
-def record_untracked(*, label: str, external: bool, effect: str) -> None:
+def record_untracked(*, label: str, external: bool, effect: str, reason: str = '') -> None:
     """A call that did something we cannot undo or do not track yet.
 
     It has no target and cannot be reverted. It is here so the list is honest
     (D8). `effect` is accepted for the log line; the reason shown depends on
-    whether the call left the app.
+    whether the call left the app, unless the caller knows better (`reason`).
     """
     b = _binding.get()
     if b is None:
         return
-    reason = ("Left the app; can't be undone from here" if external
-              else "Not tracked here; can't be undone from here")
+    reason = reason or ("Left the app; can't be undone from here" if external
+                        else "Not tracked here; can't be undone from here")
     try:
-        set_id = current_set_id(create=True)
+        # One savepoint round everything, so a failure here rolls back only
+        # this row and never the caller's transaction (see `_journal`).
+        with transaction.atomic():
+            set_id = current_set_id(create=True)
         if set_id is None:
             return
         b.recorded += 1
@@ -291,23 +328,29 @@ def record_untracked(*, label: str, external: bool, effect: str) -> None:
 def _journal(b: Binding, target_type: str, target_id: int | None, *, before: dict | None,
              after_fn, content: bool, label: str) -> None:
     """Record one target's net effect in the current set (D1)."""
+    # Counted up front, even when the cap or an error stops the row, so the
+    # fallback in `_dispatch_one` does not add an "untracked" row for a write
+    # we did see.
+    b.recorded += 1
     try:
-        set_id = current_set_id(create=True)
-        if set_id is None:
-            return
-        after = after_fn()
-        # Counted even when the cap stops the row, so the fallback in
-        # `_dispatch_one` does not add an "untracked" row for a write we did see.
-        b.recorded += 1
-        try:
-            _upsert_row(b, set_id, target_type, target_id, before=before, after=after,
-                        content=content, label=label)
-        except IntegrityError:
-            # Two calls of one set wrote this target at the same moment (a
-            # parallel tool batch): the other one created the row first. The
-            # second attempt finds it and updates it.
-            _upsert_row(b, set_id, target_type, target_id, before=before, after=after,
-                        content=content, label=label)
+        # The whole recording sits in its own savepoint. `vfs.move` and
+        # `vfs.copy` call this inside their own `transaction.atomic()`; on
+        # PostgreSQL a failed query outside a savepoint would abort that
+        # transaction and fail the user's move. Here it rolls back only this.
+        with transaction.atomic():
+            set_id = current_set_id(create=True)
+            if set_id is None:
+                return
+            after = after_fn()
+            try:
+                _upsert_row(b, set_id, target_type, target_id, before=before, after=after,
+                            content=content, label=label)
+            except IntegrityError:
+                # Two calls of one set wrote this target at the same moment (a
+                # parallel tool batch): the other one created the row first.
+                # The second attempt finds it and updates it.
+                _upsert_row(b, set_id, target_type, target_id, before=before, after=after,
+                            content=content, label=label)
     except Exception:  # noqa: BLE001 — see module note
         logger.exception('[Changes] Could not record %s %s for %s',
                          target_type, target_id, b.tool)
@@ -423,11 +466,23 @@ def purge_old_sets(*, batch: int = 200, max_batches: int = 50) -> int:
 
     cutoff = timezone.now() - timedelta(days=int(settings.CHANGE_HISTORY_DAYS))
     purged = 0
+    skipped: set[int] = set()
     for _ in range(max_batches):
-        ids = list(ChangeSet.objects.filter(created_at__lt=cutoff)
-                   .values_list('pk', flat=True)[:batch])
-        if not ids:
+        # Whole trees, aged by their root: deleting a parent alone would leave
+        # its workers' sets as unlinked roots. A tree with any set mid-revert
+        # is left for a later sweep.
+        roots = list(ChangeSet.objects.filter(parent__isnull=True, created_at__lt=cutoff)
+                     .exclude(pk__in=skipped).values_list('pk', flat=True)[:batch])
+        if not roots:
             break
-        ChangeSet.objects.filter(pk__in=ids).delete()
-        purged += len(ids)
+        ids: list[int] = []
+        for root in roots:
+            tree = _tree_ids(root)
+            if ChangeSet.objects.filter(pk__in=tree, status='reverting').exists():
+                skipped.add(root)
+                continue
+            ids.extend(tree)
+        if ids:
+            ChangeSet.objects.filter(pk__in=ids).delete()
+            purged += len(ids)
     return purged

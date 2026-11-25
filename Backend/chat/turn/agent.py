@@ -2569,10 +2569,27 @@ async def _journal_untracked(call: ToolCall, arguments: dict, output: str) -> No
                 else call.name)
         target = _journal_target(arguments)
         label = f"{verb}: {target}" if target else verb
+        # A send the send window is holding has not left yet: say where to
+        # cancel it rather than claim it is gone (`messaging/holds.py`).
+        reason = ""
+        if _is_queued_send(output):
+            reason = "Waiting to send; cancel it from the send bar. Once sent, it can't be undone"
         await sync_to_async(changes.record_untracked)(
-            label=label, external=external_of(call.name), effect=effect)
+            label=label, external=external_of(call.name), effect=effect, reason=reason)
     except Exception:  # noqa: BLE001 — journaling must not fail the call
         logger.exception("[Changes] Could not journal %s", call.name)
+
+
+def _is_queued_send(output: str) -> bool:
+    """Whether a send tool's result says the send window is holding it."""
+    text = (output or "").lstrip()
+    if not text.startswith("{"):
+        return False
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and data.get("queued") is True
 
 
 #: The arguments that say what a call acted on, first match wins. Used only to

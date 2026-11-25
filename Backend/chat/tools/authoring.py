@@ -268,8 +268,13 @@ def _journal(agent, *, created: bool, before, revision) -> None:
     try:
         label = f'Agent settings: {agent.name}'
         if created:
+            # Listed, not offered: an undo never deletes an agent, and a row
+            # that is always skipped would keep its set "partly reverted".
+            from logs.undo import NOTE_AGENT_CREATED
+
             changes.record_agent(agent.id, before=None,
-                                 after={'revision': revision.number}, label=label)
+                                 after={'revision': revision.number}, label=label,
+                                 not_revertible_reason=NOTE_AGENT_CREATED)
         elif before is not None:
             changes.record_agent(agent.id, before={'revision': before.number},
                                  after={'revision': revision.number}, label=label)

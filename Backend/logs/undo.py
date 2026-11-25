@@ -281,21 +281,19 @@ def revert(change_set: ChangeSet, user, *, change_ids: list[int] | None = None) 
     # deploy, an OOM kill) before `finally` could settle it; without the
     # take-over the set could never be undone again. A live revert takes
     # seconds, so a fresh lock still refuses the second press.
-    from django.db.models import Q
-
-    stale = timezone.now() - STALE_REVERT_LOCK
-    locked = (ChangeSet.objects
-              .filter(pk=change_set.pk, user_id=user.id)
-              .filter(Q(status__in=_REVERT_FROM)
-                      | Q(status='reverting', updated_at__lt=stale))
-              .update(status='reverting', updated_at=timezone.now()))
-    if not locked:
-        raise RevertRefused('This change set is already being undone.')
+    # The whole tree is locked, not only the root: a worker's own sheet could
+    # otherwise revert it while its parent's revert walks the same rows, and
+    # the second walk would record a change the first put back as "skipped".
+    prior = _lock_tree(tree, user)
 
     counts = {'reverted': 0, 'skipped': 0, 'failed': 0,
               'not_revertible': 0, 'already_reverted': 0}
     outcomes: list[dict] = []
     touched: set[int] = set()
+    # A file a worker and its lead both changed: once the worker's row has put
+    # it back, its etag moved, and the lead's row would read that as "changed
+    # since". The hand-off says what state the lead's row should expect.
+    handoff: dict[int, dict] = {}
     try:
         by_set = _changes_by_set(tree)
         for set_id in _revert_order(tree):
@@ -310,15 +308,71 @@ def revert(change_set: ChangeSet, user, *, change_ids: list[int] | None = None) 
                     counts['not_revertible'] += 1
                     outcomes.append(_outcome(change, 'not_revertible', change.reason))
                     continue
-                outcome, note = _revert_one(change, tree.sets[set_id], user)
+                expected = _expected_after(change, handoff)
+                outcome, note = _revert_one(change, tree.sets[set_id], user, expected)
                 _record(change, outcome, note)
                 touched.add(set_id)
                 counts[outcome] += 1
                 outcomes.append(_outcome(change, outcome, note))
+                if outcome == 'reverted' and change.target_type == 'document':
+                    _hand_off(change, handoff)
     finally:
-        status = _settle(tree, touched)
+        status = _settle(tree, touched, prior)
 
     return {'status': status, 'outcomes': outcomes, **counts}
+
+
+def _lock_tree(tree: _Tree, user) -> dict[int, str]:
+    """Move every set in the tree to `reverting`, or refuse. Returns prior statuses.
+
+    A `reverting` set younger than STALE_REVERT_LOCK is a revert in progress
+    (this tree's, or a parent's that holds it): refuse. An older one is a
+    revert whose process died (a deploy, an OOM kill) before `finally` could
+    settle it; without the take-over the set could never be undone again.
+    """
+    stale = timezone.now() - STALE_REVERT_LOCK
+    with transaction.atomic():
+        sets = list(ChangeSet.objects.select_for_update()
+                    .filter(pk__in=tree.ids(), user_id=user.id))
+        for s in sets:
+            if s.status == 'reverting' and s.updated_at >= stale:
+                raise RevertRefused('This change set is already being undone.')
+        root = next((s for s in sets if s.pk == tree.root.pk), None)
+        if root is None or (root.status not in _REVERT_FROM and root.status != 'reverting'):
+            raise RevertRefused('This change set is already being undone.')
+        ChangeSet.objects.filter(pk__in=[s.pk for s in sets]).update(
+            status='reverting', updated_at=timezone.now())
+    return {s.pk: ('partial' if s.status == 'reverting' else s.status) for s in sets}
+
+
+def _expected_after(change: Change, handoff: dict[int, dict]) -> dict | None:
+    """The state this row should find, given what earlier rows put back.
+
+    Normally the row's own `after`. When a worker's row has already put this
+    file back, and that worker found the file exactly as this row left it (no
+    one wrote in between), the file now sits in the state the revert left,
+    and that is what this row should find. Otherwise the row's own `after`,
+    which the moved etag fails, so a third party's edit is never overwritten.
+    """
+    if change.target_type != 'document':
+        return None
+    h = handoff.get(change.target_id)
+    after = change.after or {}
+    if h is None or h['before'] is None:
+        return None
+    if all(h['before'].get(k) == after.get(k) for k in ('etag', 'trashed', 'folder_id', 'name')):
+        return h['state']
+    return None
+
+
+def _hand_off(change: Change, handoff: dict[int, dict]) -> None:
+    from inference.models import Document
+
+    from .changes import doc_state
+
+    doc = Document.all_objects.filter(pk=change.target_id).first()
+    if doc is not None:
+        handoff[change.target_id] = {'before': change.before, 'state': doc_state(doc)}
 
 
 def _changes_by_set(tree: _Tree) -> dict[int, list[Change]]:
@@ -328,12 +382,13 @@ def _changes_by_set(tree: _Tree) -> dict[int, list[Change]]:
     return grouped
 
 
-def _revert_one(change: Change, change_set: ChangeSet, user) -> tuple[str, str]:
+def _revert_one(change: Change, change_set: ChangeSet, user,
+                expected_after: dict | None = None) -> tuple[str, str]:
     """One change, in its own transaction: (outcome, note)."""
     try:
         with transaction.atomic():
             if change.target_type == 'document':
-                note = _revert_document(change, change_set, user)
+                note = _revert_document(change, change_set, user, expected_after)
             elif change.target_type == 'folder':
                 note = _revert_folder(change, change_set, user)
             elif change.target_type == 'memory':
@@ -362,13 +417,18 @@ def _outcome(change: Change, outcome: str, note: str) -> dict:
             'outcome': outcome, 'note': note}
 
 
-def _settle(tree: _Tree, touched: set[int]) -> str:
+def _settle(tree: _Tree, touched: set[int], prior: dict[int, str] | None = None) -> str:
     """Give each touched set the status its changes now earn (§6.5 step 4).
 
-    The root holds the lock, so its status counts its whole tree. A worker's
-    counts its own changes. Returns the root's new status.
+    The root's status counts its whole tree; a worker's counts its own
+    changes. Every set the lock moved to `reverting` but this revert did not
+    touch goes back to what it was. Returns the root's new status.
     """
     now = timezone.now()
+    for set_id, status in (prior or {}).items():
+        if set_id not in touched and set_id != tree.root.pk:
+            ChangeSet.objects.filter(pk=set_id, status='reverting').update(
+                status=status, updated_at=now)
     for set_id in touched | {tree.root.pk}:
         scope = tree.ids() if set_id == tree.root.pk else [set_id]
         left = (Change.objects.filter(change_set_id__in=scope, revertible=True)
@@ -392,12 +452,13 @@ def _document_changed_since(doc, after: dict) -> bool:
             or doc.name != after.get('name'))
 
 
-def _revert_document(change: Change, change_set: ChangeSet, user) -> str:
+def _revert_document(change: Change, change_set: ChangeSet, user,
+                     expected_after: dict | None = None) -> str:
     from inference import recycle, versions, vfs
     from inference.models import Document, DocumentVersion, Folder
 
     before = change.before
-    after = change.after or {}
+    after = expected_after or change.after or {}
     doc = Document.all_objects.filter(pk=change.target_id, user=user).first()
     if doc is None:
         raise _Skip(NOTE_GONE_FILE)
@@ -541,7 +602,16 @@ def _revert_memory(change: Change, user) -> str:
         row.delete()
         return 'Forgotten.'
     # The run removed this fact. Store it again (a repeat is a touch, not a copy).
-    user_memory.remember(user, before['text'], before.get('category') or 'context')
+    # A full category makes `remember` push out its least recently touched
+    # fact; say so rather than hide it, since the undo itself did that.
+    category = before.get('category') or 'context'
+    count_before = UserMemory.objects.filter(user=user, category=category).count()
+    _row, created = user_memory.remember(user, before['text'], category)
+    count_after = UserMemory.objects.filter(user=user, category=category).count()
+    pushed_out = count_before + (1 if created else 0) - count_after
+    if pushed_out > 0:
+        return (f'Remembered again. That category was full, so {pushed_out} older '
+                f'fact{"s" if pushed_out != 1 else ""} in it were dropped.')
     return 'Remembered again.'
 
 
