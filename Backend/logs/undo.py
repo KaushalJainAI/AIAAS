@@ -287,6 +287,14 @@ def revert(change_set: ChangeSet, user, *, change_ids: list[int] | None = None) 
     # otherwise revert it while its parent's revert walks the same rows, and
     # the second walk would record a change the first put back as "skipped".
     prior = _lock_tree(tree, user)
+    # Liveness is read again now the lock is held. The check above ran before
+    # it, so a run that started in between (a schedule, a second chat turn)
+    # could otherwise be written under while its files are put back. Give the
+    # lock back and refuse.
+    reason = next(iter(_live_reasons(tree).values()), None)
+    if reason:
+        _unlock_tree(tree, prior)
+        raise RevertRefused(reason)
 
     counts = {'reverted': 0, 'skipped': 0, 'failed': 0,
               'not_revertible': 0, 'already_reverted': 0}
@@ -345,6 +353,14 @@ def _lock_tree(tree: _Tree, user) -> dict[int, str]:
         ChangeSet.objects.filter(pk__in=[s.pk for s in sets]).update(
             status='reverting', updated_at=timezone.now())
     return {s.pk: ('partial' if s.status == 'reverting' else s.status) for s in sets}
+
+
+def _unlock_tree(tree: _Tree, prior: dict[int, str]) -> None:
+    """Give back the lock `_lock_tree` took, without a revert having run."""
+    now = timezone.now()
+    for set_id, status in prior.items():
+        ChangeSet.objects.filter(pk=set_id, status='reverting').update(
+            status=status, updated_at=now)
 
 
 def _expected_after(change: Change, handoff: dict[int, dict]) -> dict | None:

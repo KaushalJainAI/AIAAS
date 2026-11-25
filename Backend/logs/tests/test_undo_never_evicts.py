@@ -88,3 +88,32 @@ class UndoOfARemovedFactNeverEvictsAnother(_Base):
             user_memory.remember(self.user, 'Works in IST', 'context')
             self.assertTrue(user_memory.has_room(self.user, 'works in ist.', 'context'))
             self.assertFalse(user_memory.has_room(self.user, 'Lives in Pune', 'context'))
+
+
+class LivenessIsRecheckedUnderTheLockTests(_Base):
+    def test_a_run_that_starts_while_the_lock_is_taken_stops_the_revert(self):
+        from inference import vfs
+
+        scope = vfs.build_scope(self.user, vfs.FULL)
+        log = self.run_log(status='completed')
+        self.bound_to(log, lambda: vfs.write_file(scope, '/notes.md', 'from the run'),
+                      tool='write_file')
+        change_set = ChangeSet.objects.get(execution=log)
+        before_status = change_set.status
+
+        real_lock = undo._lock_tree
+
+        def lock_then_start_a_run(tree, user):
+            prior = real_lock(tree, user)
+            # Between the first liveness check and the lock, the run restarts.
+            ExecutionLog.objects.filter(pk=log.pk).update(status='running')
+            return prior
+
+        with mock.patch.object(undo, '_lock_tree', side_effect=lock_then_start_a_run):
+            with self.assertRaises(undo.RevertRefused):
+                undo.revert(change_set, self.user)
+
+        change_set.refresh_from_db()
+        self.assertEqual(change_set.status, before_status)
+        self.assertNotEqual(change_set.status, 'reverting')
+        self.assertEqual(Change.objects.get(change_set=change_set).outcome, '')
