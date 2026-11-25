@@ -44,6 +44,10 @@ class _Refuse(ValueError):
     """A use error: rendered as the tool's answer, not a traceback."""
 
 
+_INVALID_AUTH = ("This connection's stored sign-in is invalid, so the call was not "
+                 'sent. Save the connection again in its settings.')
+
+
 def _scope(context: Dict) -> dict | None:
     """This run's API scope, or None for any the user owns.
 
@@ -234,7 +238,10 @@ async def call_api(args: Dict, context: Dict) -> str:
     query = args.get('query') or {}
     if not isinstance(query, dict):
         return json.dumps({'error': '`query` must be an object.'})
-    headers, params = await _auth_headers(row, user_id, dict(query))
+    try:
+        headers, params = await _auth_headers(row, user_id, dict(query))
+    except _Refuse as exc:
+        return json.dumps({'error': str(exc)})
     try:
         from workflow_backend.httpclient import shared_client
 
@@ -334,14 +341,18 @@ async def _template_auth(auth: dict, user_id: int, headers: dict,
     slug = str(auth.get('credential_type') or '').strip()
     try:
         parts = check_parts(auth.get('parts') or [])
-    except ValueError:
+    except ValueError as exc:
         logger.exception('[API] Stored auth template is invalid')
-        return headers, params
+        raise _Refuse(_INVALID_AUTH) from exc
     names = part_placeholders(parts)
     if not slug or not names:
         # Nothing to fill: static parts (or none) still apply.
         if parts and not names:
-            extra_headers, extra_params = apply_parts(parts, {})
+            try:
+                extra_headers, extra_params = apply_parts(parts, {})
+            except ValueError as exc:
+                logger.exception('[API] Stored auth template could not be applied')
+                raise _Refuse(_INVALID_AUTH) from exc
             headers.update(extra_headers)
             params.update(extra_params)
         return headers, params

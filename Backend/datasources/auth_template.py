@@ -56,6 +56,10 @@ def _text(part: dict, key: str, index: int) -> str:
         raise ValueError(f'Auth part {index}: "{key}" must be a non-empty text.')
     if len(value) > MAX_PART_TEXT:
         raise ValueError(f'Auth part {index}: "{key}" is longer than {MAX_PART_TEXT} characters.')
+    # Static text is sent as written, so a line break in it would start a
+    # second header: the rule `_fill` already applies to credential values.
+    if '\r' in value or '\n' in value:
+        raise ValueError(f'Auth part {index}: "{key}" may not contain a line break.')
     return value
 
 
