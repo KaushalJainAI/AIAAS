@@ -39,9 +39,19 @@ so expect layout and behaviour bugs that this list does not know about.
   findings-detail and pause/resume command cards.
 - **Run detail** does not draw the files, charts or team-task lanes stored on a
   run (`output_data`).
-- **"Undo changes…"** on a chat answer that has `metadata.changes`, and its
-  screen (groups, checkboxes, outcomes, like the web's `ChangesSheet`). Not
-  built yet: it is the second half of `Backend/docs/UNDO_PLAN.md` Phase 8.
+## Undo changes
+
+At parity. A chat answer whose `metadata.changes.total` is above zero shows
+**Undo changes…** under it, and a run whose execution detail has a change set
+with changes shows a **Changes (N)** block with the same button. Both open
+`/chat/changes/<set id>`, the phone's version of the web's `ChangesSheet`: the
+same title, line, groups ("Can be undone", "Can't be undone from here"),
+checkboxes (all ticked, except rows already tried), worker groups, live and
+incomplete notes, per-row outcomes, "Undo N changes", and the summary line
+("6 undone, 1 skipped"). It is a pushed screen, not a sheet, so Android back
+leaves it. Same routes and request bodies as `better-n8n-frontend/src/api/changes.ts`
+(`src/features/changes/api.ts`). The tree is loaded once and on pull-to-refresh;
+it never polls, as on the web. Lives in `src/features/changes/`.
 
 ## Send window (pending sends)
 
