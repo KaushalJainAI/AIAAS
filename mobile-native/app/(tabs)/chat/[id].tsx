@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '../../../src/components/Button';
@@ -49,6 +49,7 @@ import {
   splitCommandLine,
   taskAfterPrefix,
 } from '../../../src/features/chat/commandLine';
+import { takeHandOff } from '../../../src/features/chat/handOff';
 import { isChatMode, nextChatMode, toChatMode, type ChatMode } from '../../../src/features/chat/mode';
 import type { ChatMessage, ChatSessionDetail, CommandCandidate, CommandChip, CommandDef } from '../../../src/features/chat/types';
 import { hasLiveContent, useChatTurn } from '../../../src/features/chat/useChatTurn';
@@ -124,6 +125,32 @@ export default function ConversationScreen() {
   const busy = state.active;
   const text = draft.trim();
   const commandList = commands.data ?? [];
+
+  // "I'm done" from the Browser screen comes back here as a hand-off. It goes
+  // the way a typed message does: a steer while a turn runs, a send otherwise.
+  const sendHandOff = async (done: string) => {
+    success();
+    if (busy) {
+      try {
+        await turn.steer(done);
+      } catch {
+        setNotice('The agent finished before reading your message. Send it again.');
+      }
+      return;
+    }
+    void turn.send(done);
+  };
+  // The focus callback reads the latest sender through a ref, so it never goes stale.
+  const sendHandOffRef = useRef(sendHandOff);
+  useEffect(() => {
+    sendHandOffRef.current = sendHandOff;
+  });
+  useFocusEffect(
+    useCallback(() => {
+      const done = takeHandOff();
+      if (done) void sendHandOffRef.current(done);
+    }, []),
+  );
 
   // --- the palette: commands while a name is typed, arguments once a command is picked ---
 

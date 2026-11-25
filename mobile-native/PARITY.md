@@ -32,9 +32,6 @@ so expect layout and behaviour bugs that this list does not know about.
   "refresh catalogue" action.
 - **Team settings tab** (organisation people and settings) inside Team
   knowledge. Organisations are managed from Settings → Organisations instead.
-- **Browser screen "I'm done" button**: the chat composer belongs to the chat
-  screen, so the Browser screen cannot send a message. It shows the
-  "needs you" notice and asks the person to go back and say so.
 - **Chat stream frames** not drawn: `videos_update`, and the memory, cost,
   findings-detail and pause/resume command cards.
 - **Run detail** does not draw the files, charts or team-task lanes stored on a
