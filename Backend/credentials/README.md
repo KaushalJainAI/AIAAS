@@ -28,7 +28,8 @@ Design: [`docs/SAFETY_AND_GUARDRAILS.md`](../docs/SAFETY_AND_GUARDRAILS.md) (the
 | `chatgpt_views.py`, `chatgpt_urls.py` | Its routes, including `/auth/callback`, where OpenAI sends the browser back |
 | `verification.py` | `CredentialVerifier`: checks that a saved credential actually works |
 | `browser_utils.py` | Logs into a site with a headless browser and collects its auth tokens |
-| `views.py`, `urls.py`, `serializers.py` | `/api/credentials/` |
+| `views.py`, `urls.py`, `serializers.py` | `/api/credentials/`. Its `balance` action (`GET /api/credentials/<id>/balance/`) shows what is left on an OpenRouter key |
+| `../llm/balance.py` | Asks OpenRouter what a key has left (`/api/v1/key`, optionally `/api/v1/credits`). Called by the `balance` action; lives in `llm/` because it is a provider call |
 | `management/commands/seed_connector_credentials.py` | Creates the credential types the connectors need. The migration calls the same code |
 
 ## Rules
