@@ -39,7 +39,7 @@ Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md). The connector
 | `native.py` | Which native connectors are live for a user: switched on **and** credential present |
 | `setup_guide.py` | The Get started panel on a card (`setup_guide`, what you need, steps, cost, limits). Checks the shape before it is stored; curated guides are written by migration `0024` through it |
 | `card_template.py` | API cards (`kind='api'`): validates a card's `template` (base URL with `{field}` placeholders, auth parts, form fields, spec file name), renders the user's base URL from their field values, and loads the card's OpenAPI spec from `datasources/catalogue/`. Pure: no ORM, no HTTP. A card is never dialled as an MCP server (`MCPServer.NON_MCP_KINDS`) |
-| `management/commands/connector_check.py` | `manage.py connector_check <icon_slug> --user <email> [--field n=v] [--enable]`: one live GET of a card's `x-aiaas-check` operation with the user's credential, PASS/FAIL, never prints a secret |
+| `management/commands/connector_check.py` | `manage.py connector_check <icon_slug> --user <email> [--field n=v] [--enable]`: one live GET of a card's `x-aiaas-check` operation with the user's credential, PASS/FAIL, never prints a secret. `manage.py connector_check --probe --all`: the same GET for every API card with a fake key and no account; REACHABLE / WARN / FAIL / SKIPPED per card, never enables anything |
 | `oauth.py` | OAuth for remote MCP servers |
 | `views.py`, `urls.py`, `serializers.py` | `/api/mcp/servers/...` |
 | `admin.py`, `apps.py` | Django admin and app config |
