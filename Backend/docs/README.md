@@ -61,6 +61,7 @@ decisions worth remembering, and what is still open.
 | [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Run visibility and reminder fixes |
 | [ACTIVITY_PAGE_PLAN.md](ACTIVITY_PAGE_PLAN.md) | The Activity page |
 | [UNDO_PLAN.md](UNDO_PLAN.md) | "Undo this run" (a change log per chat message and run, reverted without overwriting newer work) and "Undo send" (a short hold on outgoing messages) (built 2026-11-25, undeployed, not checked by hand) |
+| [INJECTION_GAPS_PLAN.md](INJECTION_GAPS_PLAN.md) | Closing the last two injection gaps: one envelope tag across an approval pause, and scanning raw PDFs and images (Phases 1–2 built 2026-11-24, undeployed; Phase 3, raw images, not built) |
 | [PREVIEW_PANE_AND_BROWSER_PLAN.md](PREVIEW_PANE_AND_BROWSER_PLAN.md) | Tabbed side pane (phone + desktop), showing and improving the agent's browser |
 | [CONNECTOR_CATALOGUE_PLAN.md](CONNECTOR_CATALOGUE_PLAN.md) | Retire custom MCP servers; one catalogue over four engines (hosted MCP, API cards, SQL drivers, native) with a "Get started" panel per card, and a conformance check every connector passes (proposed, not built) |
 | [CONNECTOR_CATALOGUE.md](CONNECTOR_CATALOGUE.md) | Every planned connector by category: engine, what we need, what the user needs, and the user's setup steps (research of 2026-11-23) |

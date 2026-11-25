@@ -279,7 +279,7 @@ class PipelineInjectionCheckTests(TestCase):
         self.model = self.enterContext(scripted_model(always(self._respond)))
         self.attach = self.enterContext(patch(
             "chat.turn.agent.prepare_attachments",
-            new=AsyncMock(return_value=((), ""))))
+            new=AsyncMock(return_value=((), "", ""))))
         self.enterContext(patch("chat.turn.agent.suggest_follow_ups",
                                 new=AsyncMock(return_value=[])))
         self.enterContext(patch("chat.tools.get_available_tools", new=_builtin_tools))
@@ -337,7 +337,7 @@ class PipelineInjectionCheckTests(TestCase):
         self.assertEqual(turn.initial_taint, "deep_research")
 
     def test_auto_upload_is_checked_and_taints_the_turn(self):
-        self.attach.return_value = ((), PROSE_INJECTION)
+        self.attach.return_value = ((), PROSE_INJECTION, "")
         self.verdict = "yes: x"
 
         turn = self._run("summarise the attached file")
@@ -371,7 +371,7 @@ class PipelineInjectionCheckTests(TestCase):
     def test_ask_mode_never_calls_the_check(self):
         self._set_autonomy("ask")
         self.verdict = "yes: x"
-        self.attach.return_value = ((), PROSE_INJECTION)
+        self.attach.return_value = ((), PROSE_INJECTION, "")
 
         for content in ("/search rust release date", "summarise the attached file"):
             with self.subTest(content=content):

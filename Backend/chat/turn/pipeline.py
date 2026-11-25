@@ -1069,7 +1069,7 @@ async def run_chat_turn(
     # One tag for the whole run, made before any third-party text is placed in
     # the prompt, so every envelope this turn carries the same tag.
     untrusted_tag = secrets.token_hex(6)
-    attachments, extracted_text = await agent.prepare_attachments(
+    attachments, extracted_text, scan_text = await agent.prepare_attachments(
         sendable, model=model, provider=provider, user_id=user.id,
         untrusted_tag=untrusted_tag,
     )
@@ -1082,6 +1082,10 @@ async def run_chat_turn(
             f"[The user's question refers to part of message "
             f"{request.reference_message_id}; prioritise that context.]\n\n{prompt}"
         )
+    if attachments:
+        # Once per turn, in the question itself, so it sits in the same place
+        # on every pass of the loop.
+        prompt += f"\n\n{agent.RAW_FILES_NOTICE}"
     prompt += await _recall_block(session, question)
     phases.mark("recall")
     prompt += extracted_text
@@ -1131,11 +1135,15 @@ async def run_chat_turn(
 
     orchestrator = await _limits.for_user(user.id)
 
-    # An uploaded file the model reads as text is third-party data in the
-    # user's prompt. If it reads like orders to an AI, the turn starts tainted,
-    # as a tainted tool result would make it.
+    # An uploaded file is third-party data: the text the model reads, and the
+    # text of a raw document it reads as a file block (`scan_text`). If either
+    # reads like orders to an AI, the turn starts tainted, as a tainted tool
+    # result would make it.
     initial_taint = (
-        "upload" if provenance.instruction_shaped(extracted_text) else None
+        "upload"
+        if provenance.instruction_shaped(extracted_text)
+        or provenance.instruction_shaped(scan_text)
+        else None
     )
 
     turn = TurnContext(
@@ -1213,6 +1221,8 @@ async def run_chat_turn(
         if seed_text and await moderation.injection_check(seed_text):
             turn = replace(turn, initial_taint=_INTENT_SEED_TOOL[intent][0])
         elif extracted_text and await moderation.injection_check(extracted_text):
+            turn = replace(turn, initial_taint="upload")
+        elif scan_text and await moderation.injection_check(scan_text):
             turn = replace(turn, initial_taint="upload")
 
     turn_started = time.monotonic()

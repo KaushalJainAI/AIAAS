@@ -3817,3 +3817,38 @@ Rules: script the model at the wire or replay a recording; give a test with a sm
 Files: Backend/mcp_integration/client.py, Backend/mcp_integration/views.py, Backend/agents/config.py, Backend/workflow_backend/settings/base.py, Backend/workflow_backend/settings/test.py, Backend/mcp_integration/tests/test_custom_servers_retired.py, better-n8n-frontend/src/lib/features.ts, better-n8n-frontend/src/pages/Connections.tsx, mobile-native/src/lib/features.ts, mobile-native/src/features/connections/ConnectionsScreen.tsx, mobile-native/src/features/connections/ConnectionDetailScreen.tsx
 
 **Users can no longer add their own MCP server; connectors come from the curated catalogue only** (`Backend/docs/CONNECTOR_CATALOGUE_PLAN.md`, Phase 0). The user asked for it "commented out", so it is a switch and not a deletion: `MCP_CUSTOM_SERVERS_ENABLED` (off in every environment) plus one constant per app (`CUSTOM_MCP_SERVERS` in each `lib/features.ts`). Commented-out code is not type-checked or linted, so it rots, and bringing it back would mean un-commenting three apps by hand. **One predicate does the work:** `_visible_servers_queryset` drops user-owned rows when the switch is off, and every reader of "which servers" goes through it (both doors, the builder picker, `visible_server_ids_sync`, the benchmark installer); the only direct `MCPServer.objects` read outside it is `permissions._server_for`, which reads metadata to decide gating and cannot widen anything. The viewset answers create with 403 `custom_servers_disabled` and every other action on an owned row with the same 404 an unknown id gets, **except DELETE**, so an owner can still clean up. **An agent naming a retired server keeps the id.** The validator accepts it (`retired_server_ids_sync`) instead of refusing an unrelated edit, and it must not drop it: dropping the only id leaves `connectors` empty, which means *unrestricted*, so retiring a server would have widened the agent to every curated connector. A kept id resolves to no server at run time, which can only take tools away. **The test settings keep the switch on**, because the MCP suites use a user-owned row as the simplest fixture for the engine (pooling, credentials, toggles); `test_custom_servers_retired.py` turns it off to test what users get, and asserts that `base.py` ships it off so production cannot inherit the test value.
+
+## H-176 · Envelope tag kept across a resume; raw documents scanned (2026-11-24)
+
+Files: `Backend/chat/turn/agent.py` (`run_turn`, `_restore_untrusted_tag`, `prepare_attachments`, `RAW_FILES_NOTICE`), `Backend/chat/turn/pipeline.py` (taint block, notice), `Backend/chat/tests/test_untrusted_envelope.py`, `Backend/chat/tests/test_raw_document_scan.py` (both script the model at the wire, H-174), `Backend/docs/SAFETY_AND_GUARDRAILS.md` §2 and §5 (gaps 9 and 10).
+
+Two gaps from `docs/INJECTION_GAPS_PLAN.md`, closed together.
+
+**The tag holds across a resume.** Each request made a new `untrusted_tag`, so a run paused for an approval and resumed carried two tags in one transcript. The tag now rides in graph state (`metadata["untrusted_tag"]`, set when a run starts). A resume reads it back from the checkpoint and rebuilds the turn with it before the graph runs, and the config's `turn` is updated too, since the nodes read it from there. A checkpoint written before this change has no key and keeps the fresh tag. A new turn on the same thread still gets its own tag. The key is removed from the `TurnResult` metadata, because that metadata is saved with the message.
+
+**Raw documents are scanned.** A PDF or office file sent as a `file` block was never checked, though its text is already stored on the attachment. `prepare_attachments` now returns the text of the raw non-image, non-video attachments as `scan_text`. The pipeline runs it through the pattern check in every mode and the model check in auto/full, the same as described text. Scanned text is not put into the prompt, because the model reads the file block itself. The question carries one trusted line (`RAW_FILES_NOTICE`) saying attached files are third-party content.
+
+Still open: raw images (checked by a vision model in Phase 3 of the plan) and scanned PDFs with no text layer.
+
+## H-177 · Signing out forgets the conversation the browser kept (2026-11-17)
+
+Area: security  
+Files: better-n8n-frontend/src/lib/accountData.ts, better-n8n-frontend/src/lib/__tests__/accountData.test.ts, better-n8n-frontend/src/contexts/AuthContext.tsx, better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx, better-n8n-frontend/src/lib/transcriptCache.ts
+
+**Signing out forgets the conversation the browser kept (2026-11-17).** Found
+while checking the preview pane by hand: a new account signing in on the same
+browser saw the previous account's conversation. Sign-out cleared only the
+tokens, but the chat keeps `aiaas_ui:chat.lastSessionId` and a copy of that
+transcript (`transcriptCache.ts`) so a reload paints at once; the next user's
+chat page restored the id, painted the copy, and when the server answered 404
+the error was only logged, so the other person's messages stayed on screen.
+Two layers now: `lib/accountData.ts` treats the transcript copy, the last
+conversation, auth drafts and the pane's `pane:*` tabs as one account's
+content. `forgetAccountData()` runs at sign-out (with the in-memory query
+cache), and `claimAccountData(userId)` runs **before any page renders**
+(inside the profile query and each sign-in callback), so a different account,
+or data written before ownership was recorded, finds nothing; this also covers
+a session that ended without a sign-out. And `loadConversation` clears what
+it painted when the fetch is a 404. Preferences and guest drafts are kept.
+One cost: on first load after this ships, everyone's cached transcript and
+drafts are dropped once, because no owner was recorded yet.
