@@ -1,0 +1,68 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ClickUp API v2 (read-only subset)",
+    "version": "2.0.0",
+    "description": "GET operations from the ClickUp API v2 reference. Base URL: https://api.clickup.com/api/v2. The Authorization header carries the personal token with no Bearer prefix."
+  },
+  "paths": {
+    "/user": {
+      "get": {
+        "summary": "Get the authorized user",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "User" } }
+      }
+    },
+    "/team": {
+      "get": {
+        "summary": "Get authorized workspaces (teams)",
+        "responses": { "200": { "description": "Workspaces" } }
+      }
+    },
+    "/team/{team_id}/space": {
+      "get": {
+        "summary": "Get spaces in a workspace",
+        "parameters": [
+          { "name": "team_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Spaces" } }
+      }
+    },
+    "/space/{space_id}/folder": {
+      "get": {
+        "summary": "Get folders in a space",
+        "parameters": [
+          { "name": "space_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Folders" } }
+      }
+    },
+    "/folder/{folder_id}/list": {
+      "get": {
+        "summary": "Get lists in a folder",
+        "parameters": [
+          { "name": "folder_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Lists" } }
+      }
+    },
+    "/list/{list_id}/task": {
+      "get": {
+        "summary": "Get tasks in a list",
+        "parameters": [
+          { "name": "list_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Tasks" } }
+      }
+    },
+    "/task/{task_id}": {
+      "get": {
+        "summary": "Get a task",
+        "parameters": [
+          { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Task" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Pipedrive API v1 (read-only subset)",
+    "version": "1.0.0",
+    "description": "GET operations from the Pipedrive API v1 reference. Base URL: https://api.pipedrive.com/v1. The token is sent as the api_token query parameter."
+  },
+  "paths": {
+    "/users/me": {
+      "get": {
+        "summary": "Get the current user",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Current user" } }
+      }
+    },
+    "/deals": {
+      "get": {
+        "summary": "Get all deals",
+        "responses": { "200": { "description": "Deals" } }
+      }
+    },
+    "/deals/{id}": {
+      "get": {
+        "summary": "Get details of a deal",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Deal" } }
+      }
+    },
+    "/persons": {
+      "get": {
+        "summary": "Get all persons",
+        "responses": { "200": { "description": "Persons" } }
+      }
+    },
+    "/persons/{id}": {
+      "get": {
+        "summary": "Get details of a person",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Person" } }
+      }
+    },
+    "/organizations": {
+      "get": {
+        "summary": "Get all organizations",
+        "responses": { "200": { "description": "Organizations" } }
+      }
+    },
+    "/pipelines": {
+      "get": {
+        "summary": "Get all pipelines",
+        "responses": { "200": { "description": "Pipelines" } }
+      }
+    }
+  }
+}

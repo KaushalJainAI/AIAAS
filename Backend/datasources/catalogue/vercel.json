@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vercel REST API (read-only subset)",
+    "version": "1.0.0",
+    "description": "GET operations from the Vercel REST API reference. Base URL: https://api.vercel.com"
+  },
+  "paths": {
+    "/v2/user": {
+      "get": {
+        "summary": "Get the authenticated user",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "User" } }
+      }
+    },
+    "/v2/teams": {
+      "get": {
+        "summary": "List teams",
+        "responses": { "200": { "description": "Teams" } }
+      }
+    },
+    "/v10/projects": {
+      "get": {
+        "summary": "List projects",
+        "responses": { "200": { "description": "Projects" } }
+      }
+    },
+    "/v9/projects/{idOrName}": {
+      "get": {
+        "summary": "Retrieve a project",
+        "parameters": [
+          { "name": "idOrName", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Project" } }
+      }
+    },
+    "/v7/deployments": {
+      "get": {
+        "summary": "List deployments",
+        "responses": { "200": { "description": "Deployments" } }
+      }
+    },
+    "/v13/deployments/{idOrUrl}": {
+      "get": {
+        "summary": "Retrieve a deployment",
+        "parameters": [
+          { "name": "idOrUrl", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Deployment" } }
+      }
+    }
+  }
+}

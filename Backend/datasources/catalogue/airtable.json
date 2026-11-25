@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Airtable Web API (read-only subset)",
+    "version": "0.1.0",
+    "description": "GET operations from the Airtable Web API. Base URL: https://api.airtable.com/v0"
+  },
+  "paths": {
+    "/meta/whoami": {
+      "get": {
+        "summary": "Get the current token's user (whoami)",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Identity" } }
+      }
+    },
+    "/meta/bases": {
+      "get": {
+        "summary": "List bases the token can access",
+        "responses": { "200": { "description": "Bases" } }
+      }
+    },
+    "/meta/bases/{baseId}/tables": {
+      "get": {
+        "summary": "List tables in a base",
+        "parameters": [
+          { "name": "baseId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Tables" } }
+      }
+    },
+    "/{baseId}/{tableIdOrName}": {
+      "get": {
+        "summary": "List records in a table",
+        "parameters": [
+          { "name": "baseId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tableIdOrName", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Records" } }
+      }
+    },
+    "/{baseId}/{tableIdOrName}/{recordId}": {
+      "get": {
+        "summary": "Retrieve a record",
+        "parameters": [
+          { "name": "baseId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tableIdOrName", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "recordId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Record" } }
+      }
+    }
+  }
+}

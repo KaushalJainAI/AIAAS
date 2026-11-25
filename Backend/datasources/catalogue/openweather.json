@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "OpenWeather API (read-only subset)",
+    "version": "2.5",
+    "description": "GET operations from the OpenWeather API. Base URL: https://api.openweathermap.org. The key goes in the appid query parameter."
+  },
+  "paths": {
+    "/data/2.5/weather": {
+      "get": {
+        "summary": "Get current weather for a city",
+        "x-aiaas-check": true,
+        "parameters": [
+          {"name": "q", "in": "query", "required": true, "schema": {"type": "string", "example": "London,GB"}},
+          {"name": "units", "in": "query", "required": false, "schema": {"type": "string", "enum": ["standard", "metric", "imperial"]}}
+        ],
+        "responses": {"200": {"description": "Current conditions"}}
+      }
+    },
+    "/data/2.5/forecast": {
+      "get": {
+        "summary": "Get a 5-day forecast, every 3 hours, for a location",
+        "parameters": [
+          {"name": "lat", "in": "query", "required": true, "schema": {"type": "number", "minimum": -90, "maximum": 90}},
+          {"name": "lon", "in": "query", "required": true, "schema": {"type": "number", "minimum": -180, "maximum": 180}},
+          {"name": "units", "in": "query", "required": false, "schema": {"type": "string", "enum": ["standard", "metric", "imperial"]}},
+          {"name": "cnt", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}}
+        ],
+        "responses": {"200": {"description": "Forecast entries"}}
+      }
+    },
+    "/data/2.5/air_pollution": {
+      "get": {
+        "summary": "Get current air pollution for a location",
+        "parameters": [
+          {"name": "lat", "in": "query", "required": true, "schema": {"type": "number", "minimum": -90, "maximum": 90}},
+          {"name": "lon", "in": "query", "required": true, "schema": {"type": "number", "minimum": -180, "maximum": 180}}
+        ],
+        "responses": {"200": {"description": "Air quality index and pollutant levels"}}
+      }
+    },
+    "/geo/1.0/direct": {
+      "get": {
+        "summary": "Turn a place name into coordinates",
+        "parameters": [
+          {"name": "q", "in": "query", "required": true, "schema": {"type": "string", "example": "London,GB"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 5}}
+        ],
+        "responses": {"200": {"description": "Matching places with lat and lon"}}
+      }
+    }
+  }
+}

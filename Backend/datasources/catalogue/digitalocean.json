@@ -1,0 +1,62 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "DigitalOcean API (read-only subset)",
+    "version": "2.0.0",
+    "description": "GET operations from the DigitalOcean API v2 reference. Base URL: https://api.digitalocean.com"
+  },
+  "paths": {
+    "/v2/account": {
+      "get": {
+        "summary": "Get your account",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Account" } }
+      }
+    },
+    "/v2/droplets": {
+      "get": {
+        "summary": "List all Droplets",
+        "responses": { "200": { "description": "Droplets" } }
+      }
+    },
+    "/v2/droplets/{droplet_id}": {
+      "get": {
+        "summary": "Retrieve an existing Droplet",
+        "parameters": [
+          { "name": "droplet_id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Droplet" } }
+      }
+    },
+    "/v2/apps": {
+      "get": {
+        "summary": "List all apps",
+        "responses": { "200": { "description": "Apps" } }
+      }
+    },
+    "/v2/apps/{id}": {
+      "get": {
+        "summary": "Retrieve an existing app",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "App" } }
+      }
+    },
+    "/v2/domains": {
+      "get": {
+        "summary": "List all domains",
+        "responses": { "200": { "description": "Domains" } }
+      }
+    },
+    "/v2/domains/{domain_name}/records": {
+      "get": {
+        "summary": "List all records for a domain",
+        "parameters": [
+          { "name": "domain_name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Domain records" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cal.com API v2 (read-only subset)",
+    "version": "2.0.0",
+    "description": "GET operations from the Cal.com API v2 reference. Base URL: https://api.cal.com/v2. Several operations need a cal-api-version header; the default values in the reference are used."
+  },
+  "paths": {
+    "/me": {
+      "get": {
+        "summary": "Get my profile",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Profile" } }
+      }
+    },
+    "/event-types": {
+      "get": {
+        "summary": "Get all event types",
+        "responses": { "200": { "description": "Event types" } }
+      }
+    },
+    "/event-types/{eventTypeId}": {
+      "get": {
+        "summary": "Get an event type",
+        "parameters": [
+          { "name": "eventTypeId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Event type" } }
+      }
+    },
+    "/bookings": {
+      "get": {
+        "summary": "Get all bookings",
+        "responses": { "200": { "description": "Bookings" } }
+      }
+    },
+    "/bookings/{bookingUid}": {
+      "get": {
+        "summary": "Get a booking",
+        "parameters": [
+          { "name": "bookingUid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Booking" } }
+      }
+    },
+    "/schedules": {
+      "get": {
+        "summary": "Get all schedules",
+        "responses": { "200": { "description": "Schedules" } }
+      }
+    }
+  }
+}
