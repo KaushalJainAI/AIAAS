@@ -30,7 +30,7 @@ doc. Last reviewed 2026-11-25.
 - **Specialists.** Screenshots to `ask_vision`; charts inside `.docx`. [SPECIALIST_AGENTS_PLAN](SPECIALIST_AGENTS_PLAN.md)
 - **UI redesign.** B3 (edit a request before approving it) and B12 (live turn cost) are deferred. [UI_REDESIGN_PLAN](UI_REDESIGN_PLAN.md)
 - **Schedules.** Optional Phase 5 (the same claim-then-run fix for the other sweeps). [SCHEDULES_SIMPLIFICATION_PLAN](SCHEDULES_SIMPLIFICATION_PLAN.md)
-- **Connector catalogue.** Phases 1–8 and 11–14 not started (0, 9 and 10 are built). Each of the 23 API cards needs a live `connector_check` with a test key. Cal.com: the `cal-api-version` header mechanism is built, but `calcom.json` has no dates yet; check them against Cal.com's reference. [CONNECTOR_CATALOGUE_PLAN](CONNECTOR_CATALOGUE_PLAN.md), [DESIGN_HISTORY.md](../../DESIGN_HISTORY.md) (H-179)
+- **Connector catalogue.** Phases 1–8 and 11–14 not started (0, 9 and 10 are built). Each of the 23 API cards needs a live `connector_check` with a test key. Cal.com's per-operation `cal-api-version` values are declared in `calcom.json` (from Cal.com's reference, 2026-11-25) and still need that live check. [CONNECTOR_CATALOGUE_PLAN](CONNECTOR_CATALOGUE_PLAN.md), [DESIGN_HISTORY.md](../../DESIGN_HISTORY.md) (H-179)
 
 ## Found in the 2026-11-25 reviews
 
