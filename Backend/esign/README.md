@@ -17,7 +17,7 @@ offered.
 |---|---|
 | `provider.py` | Sends the document through the engine named by `ESIGN_ENGINE`. Documenso is the v1 engine |
 | `views.py` | `signature_hook`: the webhook the provider calls when a document is signed or declined. CSRF-exempt, so it checks the secret in the URL |
-| `urls.py` | Route for that webhook |
+| `urls.py` | Route for that webhook: `/api/esign/hooks/<secret>/` |
 | `apps.py` | App registration |
 
 ## Rules

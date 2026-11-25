@@ -50,14 +50,19 @@ Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
 | `turn/steering.py` | Messages sent to a running turn |
 | `turn/todos.py` | The run's plan: `update_todos`, with history |
 | `turn/pace.py` | quick, standard or deep, and the budget the model is told about |
+| `turn/limits.py` | The orchestrator's limits, as one account has set them |
+| `turn/checkpoints.py`, `turn/runs.py`, `turn/events.py` | Where run state is saved, turns that outlive the request, and the events streamed to the client |
 | `turn/reviewer.py` | The auto-mode judge |
-| `turn/checkpoints.py`, `turn/runs.py`, `turn/events.py` | Where run state is saved, runs that outlive the request, and what is streamed |
+| `views.py`, `urls.py` | The chat HTTP routes (sessions, messages, stream, stop, steer, runs, speech and transcription). `/api/chat/execute-tool/` is here too |
+| `serializers.py`, `admin.py`, `apps.py` | DRF serializers, Django admin, app config |
+| `tasks.py` | Celery beat entry points. Production runs the same jobs from `agents/scheduler.py` |
 | `tools/` | One file per topic (below) |
 | `commands/` | Slash commands. `registry.py` declares them, `resolve.py` parses them |
 | `sources/` | Web search (`search.py`) and attachments (`attachments.py`) |
-| `transport/` | Streaming events over HTTP |
+| `transport/` | Streaming events over HTTP (`sse.py`, `streaming_http.py`) |
 | `vision/` | A cheap vision model that a text-only model can question about an image |
 | `guest/` | Chat for visitors without an account |
+| `management/commands/` | `ensure_guest_user`, `purge_tool_outputs` |
 
 ### The tool files (`tools/`)
 

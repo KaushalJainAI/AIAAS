@@ -24,6 +24,7 @@ credential is stored on the Connections page.
 | `views.py`, `urls.py` | Webhooks the platforms call when a message arrives, plus account registration and the hold routes (`/api/messaging/holds/`) |
 | `retention.py` | Deletes old inbound messages |
 | `tasks.py` | Background jobs |
+| `apps.py` | App config |
 | `management/commands/purge_inbound.py` | Runs the retention purge by hand |
 | `management/commands/register_telegram_webhook.py` | Registers the Telegram webhook |
 
@@ -37,4 +38,4 @@ The per-platform code is in `chat/tools/messaging/`, one file per platform.
 
 ## Tests
 
-`messaging/tests/test_messaging.py`, `messaging/tests/test_holds.py` (the send window), and `chat/tests/test_gmail_hold.py` (the same window for email).
+`messaging/tests/test_messaging.py`, `test_holds.py` and `test_holds_stop.py` (the send window), and `chat/tests/test_gmail_hold.py` (the same window for email).

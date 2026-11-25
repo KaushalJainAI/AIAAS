@@ -36,7 +36,8 @@ Design: [`docs/NOTIFICATION_SERVICE.md`](../docs/NOTIFICATION_SERVICE.md).
 | `scheduled.py` | User-set reminders. Claims each firing before sending it |
 | `signals.py` | Keeps the reminder timetable in step with its approval request |
 | `tasks.py` | Celery entry for the sweeps |
-| `views.py`, `urls.py`, `serializers.py` | `/api/notifications/...` |
+| `views.py`, `urls.py`, `serializers.py` | `/api/notifications/`: preferences, reminders, scheduled reminders, and push subscriptions and devices |
+| `admin.py`, `apps.py` | Django admin and app config |
 
 ## Rules
 
@@ -52,5 +53,7 @@ hand. `generate_vapid_keys` makes the browser push keys.
 
 ## Tests
 
-`notifications/tests/`: `test_reminders.py`, `test_agent_notifications.py`,
-`test_scheduled_sweep.py`, `test_email_policy.py`, `test_expo_push.py`, `test_webpush.py`.
+`notifications/tests/`. Start with `test_reminders.py`, `test_scheduled_sweep.py`,
+`test_email_policy.py` and `test_expo_push.py`. The others are
+`test_agent_notifications.py`, `test_notifications.py`, `test_scheduled_api.py`
+and `test_webpush.py`.
