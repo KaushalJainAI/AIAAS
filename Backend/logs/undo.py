@@ -77,6 +77,8 @@ NOTE_OLD_FOLDER_GONE = 'Could not move it back: its old folder is gone or in the
 NOTE_LIVE_TOO_BIG = 'Too many changes to undo at once. Undo the workers one by one.'
 NOTE_GONE_MEMORY = 'This fact is no longer stored.'
 NOTE_CHANGED_MEMORY = 'Changed after this run, so it was left as it is.'
+NOTE_MEMORY_FULL = ('Skipped: the memory category is full, and putting the fact back would '
+                    'push out another fact. Remove a fact from that category first.')
 NOTE_GONE_AGENT = 'This agent is gone for good.'
 NOTE_AGENT_CREATED = ("This run created the agent. Delete the agent from its page if you "
                       "don't want it.")
@@ -297,7 +299,7 @@ def revert(change_set: ChangeSet, user, *, change_ids: list[int] | None = None) 
     try:
         by_set = _changes_by_set(tree)
         for set_id in _revert_order(tree):
-            for change in by_set.get(set_id, []):
+            for change in _created_facts_first(by_set.get(set_id, [])):
                 if change.outcome == 'reverted':
                     counts['already_reverted'] += 1
                     continue
@@ -373,6 +375,19 @@ def _hand_off(change: Change, handoff: dict[int, dict]) -> None:
     doc = Document.all_objects.filter(pk=change.target_id).first()
     if doc is not None:
         handoff[change.target_id] = {'before': change.before, 'state': doc_state(doc)}
+
+
+def _created_facts_first(rows: list[Change]) -> list[Change]:
+    """Facts the run stored are forgotten before the facts it pushed out come back.
+
+    Rows come newest first, and a run's eviction is recorded after its own
+    insert, so the pushed-out fact would be reached while the stored one still
+    fills its category, and skipped as full. Forgetting the stored fact first
+    frees the room it needs.
+    """
+    created = [r for r in rows if r.target_type == 'memory' and r.before is None]
+    created_ids = {r.pk for r in created}
+    return created + [r for r in rows if r.pk not in created_ids]
 
 
 def _changes_by_set(tree: _Tree) -> dict[int, list[Change]]:
@@ -602,16 +617,13 @@ def _revert_memory(change: Change, user) -> str:
         row.delete()
         return 'Forgotten.'
     # The run removed this fact. Store it again (a repeat is a touch, not a copy).
-    # A full category makes `remember` push out its least recently touched
-    # fact; say so rather than hide it, since the undo itself did that.
+    # A full category would make `remember` evict its least recently touched
+    # fact, which is a different fact the user never asked this undo to touch,
+    # so the undo skips instead (docs/UNDO_PLAN.md D2: never overwrite work).
     category = before.get('category') or 'context'
-    count_before = UserMemory.objects.filter(user=user, category=category).count()
-    _row, created = user_memory.remember(user, before['text'], category)
-    count_after = UserMemory.objects.filter(user=user, category=category).count()
-    pushed_out = count_before + (1 if created else 0) - count_after
-    if pushed_out > 0:
-        return (f'Remembered again. That category was full, so {pushed_out} older '
-                f'fact{"s" if pushed_out != 1 else ""} in it were dropped.')
+    if not user_memory.has_room(user, before['text'], category):
+        raise _Skip(NOTE_MEMORY_FULL)
+    user_memory.remember(user, before['text'], category)
     return 'Remembered again.'
 
 
