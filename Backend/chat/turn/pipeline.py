@@ -496,7 +496,7 @@ async def _sync_model_choice(
     )
 
 
-async def _recall_block(session: ChatSession, question: str) -> str:
+async def _recall_block(session: ChatSession, question: str, untrusted_tag: str) -> str:
     """
     Look up earlier turns when the user is plainly referring to them.
 
@@ -529,10 +529,14 @@ async def _recall_block(session: ChatSession, question: str) -> str:
     lines = "\n".join(
         f"- [{m['role']} @ {m['timestamp'][:19]}] {m['snippet']}" for m in matches
     )
+    # The snippets are earlier conversation text, which can carry a pasted or
+    # searched third-party page, so they are enclosed like any other result.
+    enclosed = provenance.wrap_untrusted(
+        lines, source="search_conversation_history", tag=untrusted_tag)
     return (
         "\n\n[RECALLED FROM EARLIER IN THIS CONVERSATION — these turns are outside "
         "your visible window but did happen. Use them to answer; do not tell the "
-        f"user you have no record of them.]\n{lines}"
+        f"user you have no record of them.]\n{enclosed}"
     )
 
 
@@ -1086,7 +1090,7 @@ async def run_chat_turn(
         # Once per turn, in the question itself, so it sits in the same place
         # on every pass of the loop.
         prompt += f"\n\n{agent.RAW_FILES_NOTICE}"
-    prompt += await _recall_block(session, question)
+    prompt += await _recall_block(session, question, untrusted_tag)
     phases.mark("recall")
     prompt += extracted_text
 
@@ -1139,10 +1143,16 @@ async def run_chat_turn(
     # text of a raw document it reads as a file block (`scan_text`). If either
     # reads like orders to an AI, the turn starts tainted, as a tainted tool
     # result would make it.
+    # A raw document whose scanned text is not all of it (a reader stopped, a
+    # cap cut it, or it had no text layer) is unscanned in part, so it taints
+    # the turn too: fail closed, in every mode. `attachments` here is what
+    # goes out raw, so a described file is never counted.
+    unscanned_raw = any(getattr(att, "scan_incomplete", False) for att in attachments)
     initial_taint = (
         "upload"
         if provenance.instruction_shaped(extracted_text)
         or provenance.instruction_shaped(scan_text)
+        or unscanned_raw
         else None
     )
 

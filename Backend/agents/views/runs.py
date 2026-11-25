@@ -27,6 +27,19 @@ from logs.models import ExecutionLog
 logger = logging.getLogger(__name__)
 
 
+async def _is_callers_thread(user, agent, thread_id: str) -> bool:
+    """True when `thread_id` is this user's run under this agent.
+
+    A checkpoint is keyed by the thread id alone, and the id arrives in the
+    request body. Without this check, approve, reject and resume could act on
+    another account's paused run. A foreign or unknown thread gets the same
+    404 (H-181).
+    """
+    return await ExecutionLog.objects.filter(
+        user=user, subagent=agent, thread_id=thread_id,
+    ).aexists()
+
+
 class AgentExecuteSerializer(serializers.Serializer):
     """What one run is asked to do."""
 
@@ -119,6 +132,11 @@ async def agent_execute(request, agent_id: int):
     serializer = AgentExecuteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     thread_id = serializer.validated_data.get('thread_id') or None
+    # A thread id that is not this user's run under this agent is refused, not
+    # started: a fresh run on it would share the other account's checkpoint.
+    if thread_id and not await _is_callers_thread(request.user, agent, thread_id):
+        return Response({'error': 'No paused run for that thread'},
+                        status=status.HTTP_404_NOT_FOUND)
 
     try:
         # A thread id names a run that already exists, so it has to *resume*
@@ -206,6 +224,9 @@ async def agent_approve(request, agent_id: int):
     serializer = AgentApproveSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     thread_id = serializer.validated_data['thread_id']
+    if not await _is_callers_thread(request.user, agent, thread_id):
+        return Response({'error': 'No paused run for that thread'},
+                        status=status.HTTP_404_NOT_FOUND)
 
     try:
         await approve_tool_call(
@@ -269,6 +290,9 @@ async def agent_reject(request, agent_id: int):
     serializer = AgentRejectSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     thread_id = serializer.validated_data['thread_id']
+    if not await _is_callers_thread(request.user, agent, thread_id):
+        return Response({'error': 'No paused run for that thread'},
+                        status=status.HTTP_404_NOT_FOUND)
 
     recorded = await reject_tool_call(
         thread_id, serializer.validated_data['call_id'],

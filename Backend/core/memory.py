@@ -100,6 +100,20 @@ def remember(user, text: str, category: str = 'context', *,
     return row, True
 
 
+def has_room(user, text: str, category: str = 'context') -> bool:
+    """True when `remember(user, text, category)` would store or touch without evicting.
+
+    A repeat of a stored fact is a touch, and a category under the cap has
+    room. Anything else would make `_enforce_cap` delete the least recently
+    touched fact in the category, which is what an undo must not do silently.
+    """
+    text = (text or '').strip()[:500]
+    if not text or _same_fact(user, text) is not None:
+        return True
+    count = UserMemory.objects.filter(user=user, category=category).count()
+    return count < UserMemory.MAX_PER_CATEGORY
+
+
 def facts_in(user, category: str, *, exclude_id: int | None = None) -> list[str]:
     """The user's stored facts in one category, newest first.
 

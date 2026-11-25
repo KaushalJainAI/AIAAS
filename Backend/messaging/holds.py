@@ -80,11 +80,26 @@ async def deliver(hold_id: int) -> str:
     """Send one held message if nobody has claimed it yet.
 
     Returns the row's new status, or 'skipped' when it was already claimed,
-    cancelled or sent.
+    cancelled or sent. A hold whose run was stopped, or whose account is
+    paused, is cancelled here with the reason in `error` ('cancelled').
     """
     from messaging.models import PendingSend
 
     now = timezone.now()
+    due = await PendingSend.objects.filter(
+        pk=hold_id, status='held', send_at__lte=now).afirst()
+    if due is None:
+        return 'skipped'
+    # The hold was queued while the person was watching. If they have since
+    # stopped the run that queued it, or paused everything, the send is off:
+    # cancel it here, with the reason, instead of sending.
+    stop_reason = await _stop_reason(due)
+    if stop_reason:
+        cancelled = await PendingSend.objects.filter(
+            pk=hold_id, status='held',
+        ).aupdate(status='cancelled', error=stop_reason, updated_at=now)
+        return 'cancelled' if cancelled else 'skipped'
+
     # The claim. Exactly one caller can move a row out of `held`; any other
     # caller matches no row. `updated_at` is set by hand because a queryset
     # update does not bump `auto_now`, and the sweep reads it.
@@ -112,6 +127,42 @@ async def deliver(hold_id: int) -> str:
     await PendingSend.objects.filter(pk=hold_id).aupdate(
         status='sent', result=result, error='', updated_at=timezone.now())
     return 'sent'
+
+
+async def _stop_reason(row) -> str:
+    """Why this held send must not go out any more, or '' when it may go.
+
+    Three things stop a hold: the account is paused (`UserProfile.paused_until`
+    in the future, set by `/pause`), the agent run that queued it was
+    cancelled, or the chat turn that queued it was stopped. A run or turn that
+    ended normally is not a reason: the hold is 20 s and outlives many turns.
+    """
+    from core.models import UserProfile
+
+    if await UserProfile.objects.filter(
+            user_id=row.user_id, paused_until__gt=timezone.now()).aexists():
+        return 'Not sent: all runs are paused for this account.'
+    if row.execution_id and await _run_cancelled(row.execution_id):
+        return 'Not sent: the run that queued it was stopped.'
+    if row.chat_session_id:
+        from chat.turn import runs as chat_runs
+
+        run = chat_runs.get(row.chat_session_id)
+        if run is not None and run.user_id == row.user_id and run.status == 'stopped':
+            return 'Not sent: the chat turn that queued it was stopped.'
+    return ''
+
+
+async def _run_cancelled(execution_id: str) -> bool:
+    from django.core.exceptions import ValidationError
+
+    from logs.models import ExecutionLog
+
+    try:
+        return await ExecutionLog.objects.filter(
+            execution_id=execution_id, status='cancelled').aexists()
+    except (ValueError, TypeError, ValidationError):  # not a run id: nothing to check
+        return False
 
 
 async def _send(row) -> dict:

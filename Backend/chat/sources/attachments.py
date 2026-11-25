@@ -39,7 +39,8 @@ def classify_file(filename: str) -> str:
     return "other"
 
 
-def extract_pdf_text(data: bytes, max_pages: int = 100) -> str:
+def extract_pdf_report(data: bytes, max_pages: int = 100) -> tuple[str, bool]:
+    """(text, complete) for a PDF. Incomplete past `max_pages` pages, or when unreadable."""
     import io
 
     try:
@@ -47,84 +48,110 @@ def extract_pdf_text(data: bytes, max_pages: int = 100) -> str:
         # knowledge base (`inference/utils.py`) already reads PDFs with pypdf.
         from pypdf import PdfReader
     except ImportError:
-        return "[PDF extraction needs pypdf: pip install pypdf]"
+        return "[PDF extraction needs pypdf: pip install pypdf]", False
 
     try:
         reader = PdfReader(io.BytesIO(data))
-        return "\n\n".join(
-            text for page in reader.pages[:max_pages] if (text := page.extract_text())
+        pages = reader.pages
+        text = "\n\n".join(
+            chunk for page in pages[:max_pages] if (chunk := page.extract_text())
         )
+        return text, len(pages) <= max_pages
     except Exception:
         logger.exception("[Upload] PDF extraction failed")
-        return ""
+        return "", False
 
 
-def extract_pptx_text(data: bytes) -> str:
+def extract_pptx_report(data: bytes) -> tuple[str, bool]:
+    """Slides, tables, group shapes and notes of a deck (`inference.utils`)."""
     import io
 
-    try:
-        from pptx import Presentation
-    except ImportError:
-        return "[PPTX extraction needs python-pptx: pip install python-pptx]"
+    from inference.utils import extract_pptx_report as _from_file
 
-    from inference.utils import zip_within_budget
-
-    if not zip_within_budget(io.BytesIO(data)):
-        return ""
     try:
-        return "\n\n".join(
-            shape.text
-            for slide in Presentation(io.BytesIO(data)).slides
-            for shape in slide.shapes
-            if getattr(shape, "text", "")
-        )
+        return _from_file(io.BytesIO(data))
     except Exception:
         logger.exception("[Upload] PPTX extraction failed")
-        return ""
+        return "", False
 
 
-def extract_docx_text(data: bytes) -> str:
-    """Paragraphs and tables of a Word attachment."""
+def extract_docx_report(data: bytes) -> tuple[str, bool]:
+    """Body, headers, footers and notes of a Word attachment (`inference.utils`)."""
     import io
 
-    from inference.utils import extract_docx_text as _from_file
+    from inference.utils import extract_docx_report as _from_file
 
     try:
         return _from_file(io.BytesIO(data))
     except Exception:
         logger.exception("[Upload] DOCX extraction failed")
-        return ""
+        return "", False
 
 
-def extract_xlsx_text(data: bytes) -> str:
-    """Sheets, headers and cells of a spreadsheet attachment."""
+def extract_xlsx_report(data: bytes) -> tuple[str, bool]:
+    """Sheets, headers and cells of a spreadsheet (`inference.utils`), up to its row cap."""
     import io
 
-    from inference.utils import extract_xlsx_text as _from_file
+    from inference.utils import extract_xlsx_report as _from_file
 
     try:
         return _from_file(io.BytesIO(data))
     except Exception:
         logger.exception("[Upload] XLSX extraction failed")
-        return ""
+        return "", False
 
 
-def extract_text(data: bytes, file_type: str) -> str:
+#: The types the model is sent as a raw `file` block when its provider allows
+#: it, so the text the injection scan reads must be all of the file. An image
+#: or a video has no text and is never in this set.
+RAW_SCANNED_TYPES = frozenset({"pdf", "pptx", "docx", "xlsx", "text"})
+
+
+def extract_text_checked(data: bytes, file_type: str) -> tuple[str, bool]:
+    """(text, complete): an upload's text, and whether it is all of what the file holds.
+
+    `complete` is False when a reader gave up, stopped at a cap (pages, rows),
+    or returned nothing for a document that had bytes in it. A document with
+    no text layer lands here too, which is the point: the model reads that
+    file whole, and the scan cannot see it.
+    """
     match file_type:
         case "pdf":
-            return extract_pdf_text(data)
+            text, complete = extract_pdf_report(data)
         case "pptx":
-            return extract_pptx_text(data)
+            text, complete = extract_pptx_report(data)
         case "docx":
-            return extract_docx_text(data)
+            text, complete = extract_docx_report(data)
         case "xlsx":
-            return extract_xlsx_text(data)
+            text, complete = extract_xlsx_report(data)
         case "text":
-            return data.decode("utf-8", errors="ignore")
+            return data.decode("utf-8", errors="ignore"), True
         case _:
             # A format with no reader yet. The bytes are kept, so
             # `run_python_on_files` can open it; nothing is invented here.
-            return ""
+            return "", True
+    if data and not text.strip():
+        complete = False
+    return text, complete
+
+
+def extract_text(data: bytes, file_type: str) -> str:
+    return extract_text_checked(data, file_type)[0]
+
+
+def scan_is_incomplete(file_type: str, text: str, *, complete: bool) -> bool:
+    """True when a raw document's stored text is not all the model will read.
+
+    The model reads a raw document whole. The injection scan reads `text`,
+    which is cut to `DOCUMENT_EXTRACT_CAP` when stored, so anything the reader
+    left out or the cap cut is text no check has seen. Such an upload marks
+    its attachment, and the turn is tainted (docs/SAFETY_AND_GUARDRAILS.md).
+    """
+    from workflow_backend.thresholds import DOCUMENT_EXTRACT_CAP
+
+    if file_type not in RAW_SCANNED_TYPES:
+        return False
+    return not complete or len(text) > DOCUMENT_EXTRACT_CAP
 
 
 # ── Indexing ─────────────────────────────────────────────────────────────────

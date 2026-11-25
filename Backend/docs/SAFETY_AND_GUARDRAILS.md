@@ -218,13 +218,16 @@ Stated plainly, so nobody reads this as "solved":
 8. **A wrong solution can spread in an org.** An honest mistake saved as a
    fix is offered to colleagues until flagged. Ranking demotes failures;
    owners/admins/curators can retract.
-9. **Scanned PDFs with no text layer are not scanned.** Raw PDFs and office
-   files sent as file blocks are scanned through their extracted text
-   (2026-11-24), in every mode, like described text. Raw images are checked by a
-   vision model in `auto`/`full` (2026-11-25, H-178): up to four a turn, cached
-   by hash, fail open. Still open: a picture past the fourth in one turn, and a
-   scanned PDF with no text layer (its pages are not rendered and read yet). A
-   timeout or a provider error on the vision check passes the image.
+9. **Uploads the checks cannot fully read.** Raw PDFs and office files sent as
+   file blocks are scanned through their extracted text in every mode
+   (2026-11-24). Where that text is not the whole file (a PDF past 100 pages, a
+   workbook past its row cap, text past the stored cap, a failed reader, or no
+   text layer, as in a scanned PDF), the attachment is marked `scan_incomplete`
+   and the turn starts tainted as `upload`, in every mode (H-181). Raw images
+   are checked by a vision model in `auto`/`full` (H-178): up to four a turn,
+   cached by hash, fail open on a timeout or provider error. Still open: an
+   image past the fourth in a turn, and OCR of scanned PDFs (they taint, but are
+   not read).
 10. **Closed (2026-11-24): the envelope tag changed on a resume.** The tag
     now rides in graph state and a resumed run keeps it (H-176).
 11. **Sandbox runs share one container and one kernel.** Slots keep files,
@@ -276,7 +279,7 @@ Stated plainly, so nobody reads this as "solved":
 | Provenance, taint, URLs | `core/tests/test_provenance.py`, `chat/tests/test_injection_defences.py` |
 | Model injection check (tool results, seeds, uploads) | `chat/tests/test_injection_model_check.py` |
 | Vision injection check (raw images) | `chat/tests/test_image_injection_check.py` |
-| Raw documents scanned through their text; envelope tag across a resume | `chat/tests/test_raw_document_scan.py`, `chat/tests/test_untrusted_envelope.py` |
+| Raw documents scanned through their text; envelope tag across a resume; partly-read uploads taint | `chat/tests/test_raw_document_scan.py`, `chat/tests/test_untrusted_envelope.py`, `chat/tests/test_unscanned_uploads.py` |
 | Content policy, labels, outbound | `core/tests/test_content_policy.py` |
 | Memory, image prompts, CAPTCHA, publishing | `chat/tests/test_safety_guards.py` |
 | MCP pinning | `mcp_integration/tests/test_tool_pins.py` |

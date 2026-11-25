@@ -549,7 +549,7 @@ def upload_file(request, session_id: str):
     file_type = attachments.classify_file(upload.name)
     data = upload.read()
     upload.seek(0)
-    text = attachments.extract_text(data, file_type)
+    text, text_complete = attachments.extract_text_checked(data, file_type)
 
     # Every upload gets a Document row: the file library is the single source
     # of truth for bytes + extracted text, and the attachment points at it —
@@ -573,6 +573,8 @@ def upload_file(request, session_id: str):
         file_size=upload.size,
         extracted_text=text[:DOCUMENT_EXTRACT_CAP],
         is_large_file=len(text) > IS_LARGE_FILE_THRESHOLD,
+        scan_incomplete=attachments.scan_is_incomplete(
+            file_type, text, complete=text_complete),
         inference_document=document,
     )
     if document is not None:

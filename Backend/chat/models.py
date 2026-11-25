@@ -253,7 +253,11 @@ class ChatAttachment(models.Model):
         null=True, blank=True, related_name='chat_attachments'
     )
     is_large_file = models.BooleanField(default=False)
-    
+    # The text the injection scan reads is not all of a raw document (a reader
+    # stopped, a cap cut it, or there was no text layer). The turn is tainted
+    # when such a file is sent, because nothing has checked the rest of it.
+    scan_incomplete = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
