@@ -9,7 +9,7 @@
  * inside the window (Backend/docs/CONTEXT_LIFECYCLE.md). This test gives one
  * such task and measures the run instead of only checking it finished.
  *
- * The task has a checkable answer: 7+14+21+28+35 = 105. So the assertions
+ * The task has a checkable answer: 7 * (1 + ... + STEPS), 105 for five steps. So the assertions
  * prove the work was done, not just that the run ended.
  *
  * Measurements are written to test-results/long-horizon.json even when an
@@ -37,14 +37,18 @@ test.beforeEach(async () => {
   test.skip(reason !== null, reason ?? '');
 });
 
+/** How many files the run makes. 5 by default; `E2E_LONG_STEPS=20` makes a longer run. */
+const STEPS = Math.max(2, Number(process.env.E2E_LONG_STEPS ?? 5) || 5);
+const TOTAL = (7 * STEPS * (STEPS + 1)) / 2;
 const GOAL =
-  'Create five files named step1.txt to step5.txt. Each file must contain the number of its step multiplied by 7. ' +
-  'Then read all five files back, add the numbers, and write the total to total.txt. ' +
+  `Create ${STEPS} files named step1.txt to step${STEPS}.txt. Each file must contain the number of its step multiplied by 7. ` +
+  `Then read all ${STEPS} files back, add the numbers, and write the total to total.txt. ` +
   'Finally write report.md listing each file and its value. Work one step at a time.';
-
-/** Iteration limit: well above the ~15 calls this task needs, well below the default cap of 36. */
-const MAX_ITERATIONS = 30;
-const RUN_TIMEOUT_MS = 6 * 60_000;
+/** Room for one write and one read per file plus the sum and the report. */
+const MAX_ITERATIONS = Math.max(30, STEPS * 3 + 10);
+const RUN_TIMEOUT_MS = Math.max(6, Math.ceil(STEPS / 2)) * 60_000;
+/** The 5-step run keeps its old file name; a longer one is kept beside it. */
+const RESULTS_FILE = STEPS === 5 ? 'long-horizon.json' : `long-horizon-${STEPS}.json`;
 
 interface Check {
   name: string;
@@ -77,7 +81,7 @@ interface LongHorizonReport {
 }
 
 test.describe('@live agent run — live long horizon', () => {
-  test('five steps, a sum and a report, finished and checked', async () => {
+  test(`${STEPS} steps, a sum and a report, finished and checked`, async () => {
     test.setTimeout(RUN_TIMEOUT_MS + 90_000);
     await liveTest('long-horizon', async () => {
       const spendBefore = await spentThisRun();
@@ -153,7 +157,7 @@ test.describe('@live agent run — live long horizon', () => {
           `status ${run.status}${run.error_message ? `: ${run.error_message}` : ''}`,
         );
 
-        const expected = [1, 2, 3, 4, 5].map((n) => ({ name: `step${n}.txt`, value: String(n * 7) }));
+        const expected = Array.from({ length: STEPS }, (_, i) => i + 1).map((n) => ({ name: `step${n}.txt`, value: String(n * 7) }));
         for (const { name, value } of expected) {
           try {
             const file = await findFile(api, name);
@@ -171,13 +175,13 @@ test.describe('@live agent run — live long horizon', () => {
         try {
           const total = await findFile(api, 'total.txt');
           if (!total) {
-            check('total.txt contains 105', false, 'file not found');
+            check(`total.txt contains ${TOTAL}`, false, 'file not found');
           } else {
             const text = await readFileText(api, total.id);
-            check('total.txt contains 105', text.includes('105'), `content "${text.trim()}"`);
+            check(`total.txt contains ${TOTAL}`, text.includes(String(TOTAL)), `content "${text.trim()}"`);
           }
         } catch (error) {
-          check('total.txt contains 105', false, (error as Error).message);
+          check(`total.txt contains ${TOTAL}`, false, (error as Error).message);
         }
 
         try {
@@ -194,7 +198,7 @@ test.describe('@live agent run — live long horizon', () => {
           spendBefore !== null && spendAfter !== null
             ? Math.max(0, Number((spendAfter - spendBefore).toFixed(6)))
             : null;
-        const path = writeResultsJson('long-horizon.json', report);
+        const path = writeResultsJson(RESULTS_FILE, report);
         console.log(`[long-horizon] ${JSON.stringify(report, null, 2)}`);
         console.log(`[long-horizon] written to ${path}`);
         if (api) await api.dispose();
