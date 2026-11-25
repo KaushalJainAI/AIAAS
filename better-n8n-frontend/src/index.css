@@ -372,7 +372,9 @@
 }
 
 @keyframes page-enter {
-  from { opacity: 0; transform: translateY(6px) scale(0.995); }
+  /* No scale: shrinking the page pulls its left edge ~3px off the tab strip
+     and sidebar, which don't animate, so the content visibly snaps into line. */
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
 

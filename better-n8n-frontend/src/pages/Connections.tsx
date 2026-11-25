@@ -1165,7 +1165,7 @@ export default function Connections() {
       />
 
       {serversQuery.error && (
-        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-4 rounded-md border border-destructive/20 flex items-center gap-3">
+        <div className="mx-4 md:mx-6 mt-4 bg-destructive/10 text-destructive p-4 rounded-md border border-destructive/20 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <p className="text-sm font-medium">
             Could not load your connections. Please try again later.

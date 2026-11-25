@@ -726,7 +726,7 @@ export default function Documents() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       {/* Address row */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2 md:px-3">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2 md:px-6">
         <SidebarMenuButton />
         <button type="button" onClick={() => setNavOpen((o) => !o)} className="inline-flex max-md:h-11 max-md:w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted lg:hidden" aria-label="Show folders">
           <PanelLeft className="h-4 w-4" />
@@ -786,7 +786,7 @@ export default function Documents() {
 
       {/* Command bar */}
       {loc.kind !== 'extraction' && (
-        <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card px-2 py-1 scrollbar-none md:px-3">
+        <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card px-2 py-1 scrollbar-none md:px-6">
           {loc.kind === 'trash' ? (
             <button type="button" onClick={() => setConfirmEmpty(true)} className="inline-flex h-11 md:h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-destructive hover:bg-destructive/10">
               <Trash2 className="h-4 w-4" /> Empty Trash

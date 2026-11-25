@@ -165,7 +165,7 @@ export default function TeamKnowledge() {
         subtitle="The problems your team has already solved, and the documents it shares"
         icon={Building2}
       />
-      <div className="border-b border-border px-4 md:px-8">
+      <div className="border-b border-border px-4 md:px-6">
         <div className="mx-auto -mb-px flex max-w-6xl gap-5 overflow-x-auto" role="tablist" aria-label="Section">
           {tabs.map(({ id, label, icon: Icon, count }) => (
             <button
@@ -205,20 +205,20 @@ export default function TeamKnowledge() {
       </div>
 
       {notMember && (
-        <p role="status" className="mx-auto max-w-6xl px-4 pt-4 text-[13px] text-muted-foreground md:px-8">
+        <p role="status" className="mx-auto max-w-6xl px-4 pt-4 text-[13px] text-muted-foreground md:px-6">
           That organisation is not one you belong to, so this shows your active organisation.
         </p>
       )}
 
       <div id="solutions-panel" role="tabpanel" aria-labelledby={`solutions-tab-${tab}`}>
         {curatorOnly ? (
-          <p className="px-4 py-12 text-center text-sm text-muted-foreground md:px-8">
+          <p className="px-4 py-12 text-center text-sm text-muted-foreground md:px-6">
             {tab === 'insights'
               ? 'Only the curators of this organisation see the insights.'
               : 'Only the curators of this organisation see the review queue.'}
           </p>
         ) : tab === 'team' ? (
-          <div key={tab} className="mx-auto max-w-6xl animate-fade-in space-y-10 px-4 py-6 md:px-8">
+          <div key={tab} className="mx-auto max-w-6xl animate-fade-in space-y-10 px-4 py-6 md:px-6">
             <OrganizationTab />
             <section aria-labelledby="team-documents-heading" className="space-y-3">
               <h2 id="team-documents-heading" className="text-base font-medium">Team documents</h2>
@@ -230,7 +230,7 @@ export default function TeamKnowledge() {
             </section>
           </div>
         ) : tab === 'insights' ? (
-          <div key={tab} className="mx-auto max-w-6xl animate-fade-in px-4 py-6 md:px-8">
+          <div key={tab} className="mx-auto max-w-6xl animate-fade-in px-4 py-6 md:px-6">
             {scopeOrg ? (
               <SolutionInsights org={scopeOrg.id} orgName={scopeOrg.name} hrefFor={hrefFor} />
             ) : null}
@@ -390,7 +390,7 @@ function SolutionsWorkspace({
   const emptyCards = showCards && ready && !pages.isLoading && !pages.isError && items.length === 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="w-full sm:w-52" title="Whose solutions">
           <Select

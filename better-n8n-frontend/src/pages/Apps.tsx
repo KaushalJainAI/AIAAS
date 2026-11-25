@@ -54,7 +54,7 @@ export default function Apps() {
   return (
     <div className="h-full overflow-auto bg-background">
       <PageHeader title="Apps" subtitle="Productivity apps that open your files — everything runs in your browser" icon={AppWindow} />
-      <div className="px-4 py-6 md:px-8">
+      <div className="px-4 py-6 md:px-6">
         <div className="mb-6 flex max-w-md items-center gap-2 rounded-md border border-border/60 bg-card px-3 py-2">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
