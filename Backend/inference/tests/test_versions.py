@@ -209,10 +209,15 @@ class RestoreTests(VersionCase):
 
     def test_a_stale_restore_is_refused(self):
         doc = self.new('notes.md', content='a')
+        # Pin the stamp the client "opened" the file at. Windows' clock ticks
+        # every 15.6 ms, so a create and a save in one tick leave the same
+        # `updated_at` and the stale check (rightly) sees no change.
+        opened_at = timezone.now() - timedelta(hours=1)
+        Document.all_objects.filter(pk=doc['id']).update(updated_at=opened_at)
         self.save_text(doc['id'], 'b')
         vid = DocumentVersion.objects.get(document_id=doc['id']).id
         resp = self.me.post(f'/api/inference/documents/{doc["id"]}/versions/{vid}/restore/',
-                            {'expected_updated_at': doc['updated_at']}, format='json')
+                            {'expected_updated_at': opened_at.isoformat()}, format='json')
         self.assertEqual(resp.status_code, 412)
 
     def test_the_agent_tools_list_and_restore(self):

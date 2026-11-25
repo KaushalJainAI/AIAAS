@@ -52,6 +52,8 @@ import {
 import { isChatMode, nextChatMode, toChatMode, type ChatMode } from '../../../src/features/chat/mode';
 import type { ChatMessage, ChatSessionDetail, CommandCandidate, CommandChip, CommandDef } from '../../../src/features/chat/types';
 import { hasLiveContent, useChatTurn } from '../../../src/features/chat/useChatTurn';
+import { PendingSends } from '../../../src/components/PendingSends';
+import { usePendingSends } from '../../../src/hooks/usePendingSends';
 
 /** Plain words for the kind of thing a command argument names, for the completion heading. */
 const ARG_NOUN: Record<string, string> = {
@@ -102,7 +104,10 @@ export default function ConversationScreen() {
   const catalogue = useAIModels();
   const mode: ChatMode = toChatMode(session.data?.autonomy);
 
+  /** Bumped when a send tool shows up in the live turn, so the pending-sends bar re-reads. */
+  const [sendNudge, setSendNudge] = useState(0);
   const turn = useChatTurn(sessionId, {
+    onSendTool: () => setSendNudge((n) => n + 1),
     onSteersReturned: (texts) => {
       const text = texts.join('\n');
       setDraft((prev) => (prev.trim() ? `${text}\n${prev}` : text));
@@ -114,6 +119,8 @@ export default function ConversationScreen() {
     },
   });
   const { state } = turn;
+  // Messages the agent is holding in this chat before they go out (the send window).
+  const pendingSends = usePendingSends({ sessionId, nudge: sendNudge });
   const busy = state.active;
   const text = draft.trim();
   const commandList = commands.data ?? [];
@@ -557,6 +564,19 @@ export default function ConversationScreen() {
               case 'message':
                 return <MessageBubble message={item.message} onLongPress={setMessageFor} onReviewSolution={reviewSolution} />;
             }
+          }}
+        />
+
+        {/* Messages the agent is holding before they go out. Cancel stops one while it is still waiting. */}
+        <PendingSends
+          holds={pendingSends.holds}
+          failure={pendingSends.failure}
+          onCancel={(id) => {
+            tap();
+            void pendingSends.cancel(id);
+          }}
+          onSendNow={(id) => {
+            void pendingSends.sendNow(id).then((result) => (result?.status === 'sending' ? success() : tap()));
           }}
         />
 

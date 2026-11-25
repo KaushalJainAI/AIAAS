@@ -2092,8 +2092,13 @@ async def run_agent(agent, goal: str, *, user, sink=None,
                      parent_autonomy: str = '',
                      org_id: int | None = None,
                      share_solutions: bool = False,
-                     inherited_taint: str | None = None) -> AgentRun:
+                     inherited_taint: str | None = None,
+                     change_parent_id: int | None = None) -> AgentRun:
     """Run `agent` against `goal` and record the run.
+
+    `change_parent_id` is the change set of the run that delegated this one
+    (docs/UNDO_PLAN.md D7). It is stored on this run's set, so reverting the
+    parent reverts its workers first. Nothing passes it yet.
 
     `inherited_taint` is the `tainted_by` of the delegating turn, or None. A
     worker started by a turn whose tool results already read like orders to an
@@ -2180,6 +2185,17 @@ async def run_agent(agent, goal: str, *, user, sink=None,
     # canvas, and a run nobody watched still has to be replayed afterwards.
     stream = AgentRunStream(log)
     await stream.run_started(goal)
+
+    # A worker's change set exists from the start, so its parent link is on the
+    # row before any pause (docs/UNDO_PLAN.md §7 Phase 5). Evals never journal.
+    if change_parent_id is not None and caller != 'eval':
+        from logs import changes
+
+        await sync_to_async(changes.open_run_set)({
+            'user_id': user.id, 'owner_kind': 'run',
+            'execution_id': str(log.execution_id),
+            'parent_set_id': change_parent_id,
+        })
 
     # Resolved here — the one place every run passes — so the picker, the
     # preflight and the turn cannot disagree. A retired or unknown model id
@@ -2398,6 +2414,13 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             mission_id=mission_id,
             org_id=org_id,
             share_solutions=share_solutions,
+            # The run's change set (docs/UNDO_PLAN.md §6.2). Evals never journal:
+            # their world is reset before every attempt (D11).
+            change_owner=(None if caller == 'eval' else {
+                'user_id': user.id, 'owner_kind': 'run',
+                'execution_id': str(log.execution_id),
+                'parent_set_id': change_parent_id,
+            }),
         )
 
         # The backstop under the soft stop. The loop checks the clock between
@@ -2643,11 +2666,13 @@ async def start_agent_run(agent, goal: str, *, user,
                           parent_autonomy: str = '',
                           org_id: int | None = None,
                           share_solutions: bool = False,
-                          inherited_taint: str | None = None) -> str:
+                          inherited_taint: str | None = None,
+                          change_parent_id: int | None = None) -> str:
     """Begin a run in the background and return its execution id immediately.
 
     `inherited_taint` and `delegation_task` are passed down to `run_agent`,
-    which decides the worker's taint (see there).
+    which decides the worker's taint (see there). `change_parent_id` is passed
+    down too, as the change set of the delegating run (D7).
 
     `workspace` is the caller's own write folder, granted to the run as a
     second writable subtree — the same hand-off `invoke_subagent` makes, so a
@@ -2732,7 +2757,8 @@ async def start_agent_run(agent, goal: str, *, user,
                                 org_id=org_id,
                                 share_solutions=share_solutions,
                                 delegation_task=delegation_task,
-                                inherited_taint=inherited_taint)
+                                inherited_taint=inherited_taint,
+                                change_parent_id=change_parent_id)
         except admission.AdmissionTimeout as exc:
             # Nothing ran, so there is nothing to report as having failed
             # part-way. The log is closed here because `run_agent` never got to
@@ -2762,7 +2788,8 @@ async def start_agent_run(agent, goal: str, *, user,
 async def start_agent_run_and_wait(agent, goal: str, *, user,
                                    trigger_type: str = 'schedule',
                                    caller: str = 'trigger',
-                                   mission_id: int | None = None) -> str:
+                                   mission_id: int | None = None,
+                                   change_parent_id: int | None = None) -> str:
     """Start a run and wait for its background task to finish (blocking).
 
     The sync-context twin of `start_agent_run`, for callers with no persistent
@@ -2781,7 +2808,7 @@ async def start_agent_run_and_wait(agent, goal: str, *, user,
     """
     execution_id = await start_agent_run(
         agent, goal, user=user, trigger_type=trigger_type, caller=caller,
-        mission_id=mission_id,
+        mission_id=mission_id, change_parent_id=change_parent_id,
     )
     task = _live_task(execution_id)
     if task is not None:
@@ -2799,6 +2826,9 @@ async def resume_agent_run(agent, *, user, thread_id: str) -> str | None:
     Reuses the paused `ExecutionLog` rather than opening a new one: the canvas
     subscribes per execution, and a resumed half arriving on a second id would
     leave the trace split across two runs with no way to join them.
+
+    Its change set is found by execution, not re-made, so the parent link the
+    run opened with (`change_parent_id`) is kept (docs/UNDO_PLAN.md §7 Phase 5).
     """
     from workflow_backend.background import spawn
 

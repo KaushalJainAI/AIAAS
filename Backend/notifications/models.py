@@ -20,6 +20,8 @@ class Notification(models.Model):
         # (`notifications/scheduled.py`, set up through the
         # `schedule_notification` tool).
         ('scheduled_reminder', 'Scheduled Reminder'),
+        # A held send failed, or may or may not have gone (`messaging/holds.py`).
+        ('outbound_failed', 'Message Not Sent'),
     )
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')

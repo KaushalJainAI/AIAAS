@@ -238,6 +238,8 @@ interface ChatMessageItemProps {
    * action asks first.
    */
   followingCount?: number;
+  /** "Undo changes…" on a reply that changed something: opens that change set's sheet. */
+  onOpenChanges?: (setId: number) => void;
 }
 
 /** What asking first is for: each action names the confirm button after itself. */
@@ -269,6 +271,8 @@ function TurnReceipt({
   costSource,
   animate,
   onOpenSteps,
+  changes,
+  onOpenChanges,
 }: {
   trace: ToolTraceEntry[];
   elapsedMs?: number;
@@ -278,6 +282,9 @@ function TurnReceipt({
   animate: boolean;
   /** Absent when the turn made no tool calls, so there is no Steps panel to open. */
   onOpenSteps?: () => void;
+  /** What the turn changed. "Undo changes…" shows when `total` is above zero. */
+  changes?: { set_id: number; total: number };
+  onOpenChanges?: (setId: number) => void;
 }) {
   const priced = Boolean(costSource && costSource !== 'unpriced');
   const usd = parseFloat(costUsd ?? '');
@@ -286,20 +293,38 @@ function TurnReceipt({
   });
   const cost = priced ? `${formatCost(shownUsd, costSource)} ${costQualifier(costSource)}`.trim() : '';
   const line = [summariseTrace(trace), formatElapsed(elapsedMs), cost].filter(Boolean).join(' · ');
-  if (!line) return null;
 
-  if (!onOpenSteps) {
-    return <p className="text-[12px] leading-snug text-muted-foreground">{line}</p>;
-  }
-  return (
+  const undo = changes && changes.total > 0 && onOpenChanges ? (
     <button
       type="button"
-      onClick={onOpenSteps}
-      title="Show the steps"
-      className="flex min-h-11 w-full items-center text-left text-[12px] leading-snug text-muted-foreground transition-colors hover:text-foreground md:min-h-6"
+      onClick={() => onOpenChanges(changes.set_id)}
+      className="flex min-h-11 shrink-0 items-center text-[12px] leading-snug font-medium text-primary transition-colors hover:underline md:min-h-6"
     >
-      {line}
+      Undo changes…
     </button>
+  ) : null;
+
+  let steps: ReactNode = null;
+  if (line && !onOpenSteps) {
+    steps = <p className="text-[12px] leading-snug text-muted-foreground">{line}</p>;
+  } else if (line) {
+    steps = (
+      <button
+        type="button"
+        onClick={onOpenSteps}
+        title="Show the steps"
+        className="flex min-h-11 w-full items-center text-left text-[12px] leading-snug text-muted-foreground transition-colors hover:text-foreground md:min-h-6"
+      >
+        {line}
+      </button>
+    );
+  }
+  if (!undo) return steps;
+  return (
+    <div className="flex w-full items-center gap-3">
+      <div className="min-w-0 flex-1">{steps}</div>
+      {undo}
+    </div>
   );
 }
 
@@ -328,6 +353,7 @@ export default function ChatMessageItem({
   onSendText,
   isLatest = false,
   followingCount = 0,
+  onOpenChanges,
 }: ChatMessageItemProps) {
   // Which of Retry / Edit / Take back is waiting for a yes, if any.
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -1019,6 +1045,8 @@ export default function ChatMessageItem({
             costSource={message.cost_source}
             animate={animate}
             onOpenSteps={traceCount > 0 ? () => togglePanel('activity', message.id as number) : undefined}
+            changes={meta?.changes}
+            onOpenChanges={onOpenChanges}
           />
         </div>
       )}

@@ -17,10 +17,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from . import queries
+from . import queries, undo
 from .serializers import (
     AnalyticsFilterSerializer,
     BulkDeleteSerializer,
+    ChangeRevertSerializer,
     ExecutionListFilterSerializer,
     RevisionListFilterSerializer,
 )
@@ -365,3 +366,46 @@ def revision_detail(request, agent_id: int, number: int):
     if revision is None:
         return Response({"error": "Revision not found"}, status=404)
     return Response(revision)
+
+
+# ======================== Undo (docs/UNDO_PLAN.md §6.8) ========================
+
+#: The same answer for an unknown set and a foreign one (CLAUDE.md core rule).
+_NOT_FOUND = {"detail": "Not found."}
+
+
+@extend_schema(responses={200: OpenApiTypes.OBJECT})
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def change_set_detail(request, set_id: int):
+    """What a chat message or a run changed, and what its workers changed. Capped."""
+    try:
+        return Response(undo.describe(undo.change_set_for(request.user, set_id)))
+    except undo.ChangeNotFound:
+        return Response(_NOT_FOUND, status=404)
+
+
+@extend_schema(request=ChangeRevertSerializer, responses={200: OpenApiTypes.OBJECT})
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_set_revert(request, set_id: int):
+    """Put back what a set changed, or the `change_ids` subset of it.
+
+    409 while the set or one of its workers is still running; 404 for an
+    unknown id, a foreign id, or a change id outside the set.
+    """
+    body = _validated_body(ChangeRevertSerializer, request)
+    try:
+        change_set = undo.change_set_for(request.user, set_id)
+        return Response(undo.revert(change_set, request.user,
+                                    change_ids=body.get('change_ids')))
+    except undo.RevertRefused as exc:
+        return Response({"detail": str(exc)}, status=409)
+    except undo.ChangeNotFound:
+        return Response(_NOT_FOUND, status=404)
+
+
+def _validated_body(serializer_class, request) -> dict:
+    serializer = serializer_class(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data

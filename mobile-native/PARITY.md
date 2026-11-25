@@ -39,6 +39,33 @@ so expect layout and behaviour bugs that this list does not know about.
   findings-detail and pause/resume command cards.
 - **Run detail** does not draw the files, charts or team-task lanes stored on a
   run (`output_data`).
+## Undo changes
+
+At parity. A chat answer whose `metadata.changes.total` is above zero shows
+**Undo changes…** under it, and a run whose execution detail has a change set
+with changes shows a **Changes (N)** block with the same button. Both open
+`/chat/changes/<set id>`, the phone's version of the web's `ChangesSheet`: the
+same title, line, groups ("Can be undone", "Can't be undone from here"),
+checkboxes (all ticked, except rows already tried), worker groups, live and
+incomplete notes, per-row outcomes, "Undo N changes", and the summary line
+("6 undone, 1 skipped"). It is a pushed screen, not a sheet, so Android back
+leaves it. Same routes and request bodies as `better-n8n-frontend/src/api/changes.ts`
+(`src/features/changes/api.ts`). The tree is loaded once and on pull-to-refresh;
+it never polls, as on the web. Lives in `src/features/changes/`.
+
+## Send window (pending sends)
+
+At parity. A message the agent is holding before it goes out (`messaging`
+send window, `Backend/docs/UNDO_PLAN.md` §5) shows in a bar above the chat
+composer, with **Cancel** and **Send now** while it can still be stopped, and
+the same outcome lines as the web (including "Might not have been sent").
+Same routes and request shapes as `better-n8n-frontend/src/api/messaging.ts`
+(`src/features/messaging/api.ts`). The list is re-read every 2 s only while a
+row is `held` or `sending`, and only while the chat is focused and the app is
+in the foreground (`src/hooks/usePendingSends.ts`). A send tool
+(`message_send`, `gmail_send_message`) seen in the live turn re-reads the list
+at once and once more after 2 s (`onSendTool` in `useChatTurn`). The run page
+does not show the bar yet; the hook already takes an `executionId` for it.
 
 ## Works differently
 

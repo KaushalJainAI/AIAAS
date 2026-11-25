@@ -60,6 +60,7 @@ decisions worth remembering, and what is still open.
 | [TOOL_CONFIGURATION_PLAN.md](TOOL_CONFIGURATION_PLAN.md) | The Tools page and per-user tool switches |
 | [RUN_VISIBILITY_AND_REMINDERS_PLAN.md](RUN_VISIBILITY_AND_REMINDERS_PLAN.md) | Run visibility and reminder fixes |
 | [ACTIVITY_PAGE_PLAN.md](ACTIVITY_PAGE_PLAN.md) | The Activity page |
+| [UNDO_PLAN.md](UNDO_PLAN.md) | "Undo this run" (a change log per chat message and run, reverted without overwriting newer work) and "Undo send" (a short hold on outgoing messages) (built 2026-11-25, undeployed, not checked by hand) |
 | [PREVIEW_PANE_AND_BROWSER_PLAN.md](PREVIEW_PANE_AND_BROWSER_PLAN.md) | Tabbed side pane (phone + desktop), showing and improving the agent's browser |
 | [UX_OVERHAUL_PLAN.md](UX_OVERHAUL_PLAN.md) | Phone and desktop UX overhaul: five destinations, touch basics, calmer chat, failed-run retry, first run (proposed, not built) |
 | [CHATGPT_PLAN_PROVIDER_PLAN.md](CHATGPT_PLAN_PROVIDER_PLAN.md) | "Continue with ChatGPT" provider |

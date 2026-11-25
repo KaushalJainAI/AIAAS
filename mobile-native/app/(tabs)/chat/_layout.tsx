@@ -9,6 +9,7 @@ export default function ChatLayout() {
       <Stack.Screen name="index" options={{ title: 'Chat' }} />
       <Stack.Screen name="[id]" options={{ title: 'Chat' }} />
       <Stack.Screen name="browser/[key]" options={{ title: 'Browser' }} />
+      <Stack.Screen name="changes/[id]" options={{ title: 'Undo changes' }} />
     </Stack>
   );
 }

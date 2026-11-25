@@ -27,6 +27,11 @@ urlpatterns = [
     path('executions/<str:execution_id>/mark-failed/', views.execution_mark_failed,
          name='execution_mark_failed'),
 
+    # Undo: what a chat message or run changed, and putting it back (docs/UNDO_PLAN.md §6.8).
+    path('changes/sets/<int:set_id>/', views.change_set_detail, name='change_set_detail'),
+    path('changes/sets/<int:set_id>/revert/', views.change_set_revert,
+         name='change_set_revert'),
+
     # Judgement — explicit thumbs and implicit signals.
     path('feedback/', views.feedback, name='feedback'),
     path('insights/quality/', views.quality, name='quality'),

@@ -24,6 +24,7 @@ Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 | `SubAgentRevision` | An agent's settings at one point in time |
 | `CostEntry` | Spending that is not model tokens (images, messages) |
 | `Feedback`, `RunSignal` | A thumbs up or down, and automatic quality signals |
+| `ChangeSet`, `Change` | What one chat message or run changed, one row per file or folder. Kept so it can be put back (see `changes.py`) |
 
 ## Files
 
@@ -32,7 +33,9 @@ Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 | `queries.py` | **Every** database read behind `/api/logs/`. Views stay thin |
 | `views.py`, `urls.py` | `/api/logs/`: insights, run history, revisions, and run cleanup (delete, mark a stuck run failed) |
 | `activity.py`, `activity_urls.py` | `/api/activity/`: live and recent activity for the Activity page |
-| `revisions.py` | Saves a new revision only when settings really changed |
+| `revisions.py` | Saves a new revision only when settings really changed. `restore(agent, number, user=...)` puts an old configuration back as a new `restore` revision, through the same serializer checks as a save. It raises `RestoreRefused` (the 400 body) or `SubAgentRevision.DoesNotExist`. The restore view and the undo both call it |
+| `changes.py` | The change log. A tool call's owner (a chat message or a run) is bound while it runs, and the file writes record what changed. Never raises, so a failed record cannot fail the write |
+| `undo.py` | Puts back what a set changed (`docs/UNDO_PLAN.md` §6.4–6.5). Reads the change log, refuses a set that is still running, skips anything changed since the run rather than overwrite it, and returns one outcome per change |
 | `costs.py` | The only writer of `CostEntry` |
 | `failures.py` | Classifies why a run failed, as one word |
 | `signals_api.py` | Records automatic quality signals |
@@ -52,4 +55,6 @@ run goes.
 ## Tests
 
 `logs/tests/`: `test_turns.py`, `test_delegation.py`, `test_revisions.py`,
-`test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`.
+`test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`,
+`test_change_binding.py`, `test_change_record.py`, `test_undo_documents.py`,
+`test_undo_api.py`.

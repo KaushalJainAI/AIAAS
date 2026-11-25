@@ -10,3 +10,12 @@ def redact_old_run_detail():
 
     result = run_retention_sweep()
     return {'turns': result['turns'], 'steps': result['steps']}
+
+
+@shared_task(name='logs.purge_change_sets', ignore_result=True)
+def purge_change_sets():
+    """Beat entry point for the change-log retention sweep
+    (`logs/changes.py::purge_old_sets`): sets older than CHANGE_HISTORY_DAYS."""
+    from .changes import purge_old_sets
+
+    return {'purged': purge_old_sets()}

@@ -1,3 +1,5 @@
+import type { ChangeSetSummary } from '../changes/api';
+
 /**
  * Runs, insights, live activity and spend: the wire shapes this feature reads.
  *
@@ -109,6 +111,8 @@ export interface ExecutionDetail extends RunDetailBase {
   /** How many runs this one delegated, at any depth. */
   delegated_run_count: number;
   feedback: FeedbackSummary | null;
+  /** The change set this run made (`logs/queries.py`), or null when it changed nothing. */
+  change_set?: ChangeSetSummary | null;
 }
 
 // Feedback

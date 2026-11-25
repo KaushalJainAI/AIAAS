@@ -699,15 +699,29 @@ async def persist_interrupted_answer(
     Whatever reached the client is kept instead, flagged so the UI can mark it
     as incomplete. Nothing is written when nothing was streamed.
     """
+    # The stopped turn is over, so its change set closes whether or not any text
+    # was streamed (docs/UNDO_PLAN.md §6.7). The stop route has no message id;
+    # the turn's user message is the session's latest one.
+    from logs import changes
+
+    user_message = await ChatMessage.objects.filter(session=session, role="user").alast()
+    changes_summary = (
+        await sync_to_async(changes.close_chat)(user.id, user_message.id)
+        if user_message is not None else None
+    )
+
     if not text.strip():
         return None
 
+    metadata: dict[str, Any] = {"interrupted": True, "model": session.llm_model}
+    if changes_summary is not None:
+        metadata["changes"] = changes_summary
     message = await ChatMessage.objects.acreate(
         session=session,
         role="assistant",
         content=text,
         message_type="chat",
-        metadata={"interrupted": True, "model": session.llm_model},
+        metadata=metadata,
     )
     await _notify(user, session, message)
     return message
@@ -1168,6 +1182,11 @@ async def run_chat_turn(
         )) if command_resolution is not None else {}),
         approval_modes=_approval_modes,
         autonomy=session_autonomy,
+        # The change log's owner is the user's message, not `turn_id`: an
+        # approval reuses this same message, so the set survives a pause (D6).
+        # Closing the set happens at the end of the turn, in a later phase.
+        change_owner={'user_id': user.id, 'owner_kind': 'chat',
+                      'chat_message_id': user_message.id},
     )
 
     # A command that starts a run directly (`/agent`): the typed command is
@@ -1219,7 +1238,23 @@ async def run_chat_turn(
         # treatment either way: report it as an error, never as the assistant's
         # reply.
         logger.warning("[Turn] Provider error for user %s: %s", user.id, exc)
+        # The turn ended here, so its change set closes (docs/UNDO_PLAN.md §6.7).
+        from logs import changes
+
+        await sync_to_async(changes.close_chat)(user.id, user_message.id)
         raise TurnError(str(exc)) from exc
+    except BaseException:
+        # Anything else leaving the graph (a bug, a timeout, a cancelled turn)
+        # also ends the turn: a pause for approval *returns*, it never raises.
+        # Closing here keeps the set from reading as "still running" for the
+        # idle window. Best effort, and the original error is what propagates.
+        from logs import changes
+
+        try:
+            await sync_to_async(changes.close_chat)(user.id, user_message.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("[Turn] Could not close the change set after an error")
+        raise
     turn_elapsed_s = time.monotonic() - turn_started
     # One line per turn: the pace it started at, where it ended, and what that
     # cost. `quick>deep` is a promoted turn; a `quick` that took a long time or
@@ -1231,7 +1266,8 @@ async def run_chat_turn(
     )
 
     assistant_message = await _persist_answer(
-        session=session, user=user, turn=turn, result=result,
+        session=session, user=user,
+        turn=turn, result=result,
         question=question, intent=intent, elapsed_s=turn_elapsed_s,
         command_json=(
             command_resolution.command_json
@@ -1453,6 +1489,20 @@ async def _persist_answer(
     paid_by = await llm.payer(
         provider=turn.provider, model=turn.model, user_id=turn.user_id,
     )
+
+    # The turn's change owner is the user message it answers (D6): the same
+    # owner the writes were recorded under, so the close cannot miss them.
+    # A pause for approval is not the end of the turn: the set stays open, and
+    # the resumed turn records into it. Workers still running at the close may
+    # add changes later; the chip shows the count at close time.
+    owner = getattr(turn, "change_owner", None) or {}
+    if not result.awaiting_approval and owner.get("chat_message_id") is not None:
+        from logs import changes
+
+        changes_summary = await sync_to_async(changes.close_chat)(
+            user.id, owner["chat_message_id"])
+        if changes_summary is not None:
+            metadata["changes"] = changes_summary
 
     message = await ChatMessage.objects.acreate(
         session=session,

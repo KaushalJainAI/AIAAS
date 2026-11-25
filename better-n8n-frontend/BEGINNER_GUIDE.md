@@ -174,6 +174,8 @@ handlers. Smaller pieces draw the screen from the data and callbacks they are gi
 | `components/plan/PlanView.tsx`, `components/plan/PlanDock.tsx` | The plan while the AI works, pinned above the message box |
 | `components/orchestration/PlanPanel.tsx` | Several agents at once: one lane per worker, with Steer and Stop. A side rail on desktop, a sheet on phones |
 | `components/content/QuestionCard.tsx` | A question the AI paused to ask you. The Activity page uses the same card |
+| `components/content/PendingSends.tsx`, `hooks/usePendingSends.ts` | Messages the AI is holding before they go out, with Cancel and Send now. The hook re-reads the list every 2 s, and only while one is still waiting. Shown above the box in chat and at the top of a run |
+| `components/changes/ChangesSheet.tsx`, `components/changes/ChangesSheetContainer.tsx`, `hooks/useChangeSet.ts` | "Undo what this run changed": the files a reply or run changed, with a checkbox per change to put it back. The hook loads the set when the sheet opens and again after a revert (no polling). The sheet only draws what it is given. Opened from "Undo changes…" under a reply, or from "Changes" on a run's page |
 | `components/files/PreviewFrame.tsx` | The one file preview: chat's side drawer, the Documents page, the preview dialog |
 | `features/chat/components/CommandPalette.tsx`, `CommandCard.tsx` | The `/` command menu and its results |
 | `features/chat/components/ThinkingTimer.tsx` | The ticking timer, kept apart so it does not redraw everything |

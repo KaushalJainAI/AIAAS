@@ -30,6 +30,9 @@ from messaging.retention import purge_expired
 User = get_user_model()
 
 
+# These classes test what the adapters and tools do with a send, so the send
+# window is off here. Its own behaviour is pinned in test_holds.py.
+@override_settings(OUTBOUND_HOLD_SECONDS=0)
 class TalkToolTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('talker', 't@example.com', 'pw')
@@ -308,6 +311,7 @@ class FakeBotResponse:
         return self._payload
 
 
+@override_settings(OUTBOUND_HOLD_SECONDS=0)
 class TelegramTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('gram', 'g@example.com', 'pw')
@@ -580,6 +584,7 @@ class WhatsappShapeTests(TestCase):
         lookup.assert_called_with('whatsapp-cloud', self.user.id)
 
 
+@override_settings(OUTBOUND_HOLD_SECONDS=0)
 class SmsTwilioTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('sms', 's@example.com', 'pw')

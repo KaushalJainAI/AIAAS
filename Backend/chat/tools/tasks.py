@@ -145,6 +145,13 @@ def _can_write(worker) -> bool:
     return any(t in effective for t in _WRITING_TOOLS)
 
 
+# Worker-control tools are `journal=False` (docs/UNDO_PLAN.md D9), like the
+# delegation tools in `chat/tools/agents.py`: each worker's own changes go into
+# its own change set (D7), so a row for the control call would only repeat them.
+#   start_tasks: starts detached workers.
+#   steer_task:  sends a worker a new instruction.
+#   stop_task:   stops a worker.
+# `wait_tasks` and `task_status` are `read`, so they are never journaled anyway.
 @tool({
     'type': 'function',
     'function': {
@@ -177,7 +184,7 @@ def _can_write(worker) -> bool:
             'additionalProperties': False,
         },
     },
-}, sensitive=True, effect='reversible')
+}, sensitive=True, effect='reversible', journal=False)
 async def start_tasks(args: Dict, context: Dict) -> str:
     from django.contrib.auth import get_user_model
 
@@ -211,6 +218,12 @@ async def start_tasks(args: Dict, context: Dict) -> str:
     briefing = str(args.get('briefing') or '').strip()
     parent_paths = context.get('write_paths')
     parent_commands = context.get('command_scope')
+    # The lead's change set, read here where the binding is live. The workers
+    # run in detached tasks whose context is empty, so they get it as an
+    # argument, never by asking for it (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
     # Whoever is watching the lead sees worker frames live from here on.
     _tasks.set_sink(parent_thread, context.get('sink'))
 
@@ -278,7 +291,8 @@ async def start_tasks(args: Dict, context: Dict) -> str:
             claims=claims, briefing=briefing, context=context, user=user,
             depth=depth, parent_paths=parent_paths,
             parent_commands=parent_commands,
-            share_index=len(started), share_total=len(items))
+            share_index=len(started), share_total=len(items),
+            change_parent_id=change_parent_id)
         if outcome.get('handle'):
             started.append(outcome)
             batch_claims.extend((c, task_id, outcome['handle']) for c in claims)
@@ -375,7 +389,8 @@ async def _finish_from_run(record, row: dict, context: Dict) -> None:
 async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
                       project, claims, briefing, context, user, depth,
                       parent_paths, parent_commands,
-                      share_index, share_total) -> dict:
+                      share_index, share_total,
+                      change_parent_id: int | None = None) -> dict:
     """Open the worker's log, lease its claims, spawn its run. One task."""
     from asgiref.sync import sync_to_async
 
@@ -516,6 +531,7 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
                 share_solutions=bool(context.get('share_solutions')),
                 # A worker started from a tainted turn starts tainted too.
                 inherited_taint=context.get('tainted_by') or None,
+                change_parent_id=change_parent_id,
             )
             if run.awaiting_approval:
                 # Still live: the lead keeps waiting for this worker, and the
@@ -1083,7 +1099,7 @@ async def task_status(args: Dict, context: Dict) -> str:
             'additionalProperties': False,
         },
     },
-}, effect='reversible')
+}, effect='reversible', journal=False)
 async def steer_task(args: Dict, context: Dict) -> str:
     from agents.agent import tasks as _tasks
     from chat.turn import steering
@@ -1120,7 +1136,7 @@ async def steer_task(args: Dict, context: Dict) -> str:
             'additionalProperties': False,
         },
     },
-}, effect='reversible')
+}, effect='reversible', journal=False)
 async def stop_task(args: Dict, context: Dict) -> str:
     from asgiref.sync import sync_to_async
 

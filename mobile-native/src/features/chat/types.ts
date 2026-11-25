@@ -158,6 +158,8 @@ export interface ChatMessageMetadata {
   elapsed_ms?: number;
   steps?: number;
   agent_run?: { agent_name?: string; execution_id?: string; status?: string };
+  /** What the turn changed (`logs/changes.py` summary). "Undo changes…" shows when `total` is above zero. */
+  changes?: { set_id: number; total: number };
   [key: string]: unknown;
 }
 

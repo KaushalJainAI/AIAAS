@@ -582,6 +582,10 @@ class DocumentVersion(models.Model):
     content_text = models.TextField(blank=True, default='')
     file_size = models.IntegerField(default=0)
     spec = models.JSONField(null=True, blank=True)
+    #: The `logs.ChangeSet` that was writing when this copy was taken, or None
+    #: for an app save. A plain number, not a foreign key: the file's history
+    #: must not vanish when the change log is purged (docs/UNDO_PLAN.md D3).
+    change_set_id = models.BigIntegerField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at', '-id']

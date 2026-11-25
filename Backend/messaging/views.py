@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import timedelta
 from urllib.parse import parse_qsl
 
 from asgiref.sync import sync_to_async
@@ -411,3 +412,82 @@ def account_register(request, account_id: int):
     account.refresh_from_db()
     return Response({'id': account.id, 'verified': account.verified,
                      'webhook_url': url})
+
+
+# ── The send window (docs/UNDO_PLAN.md §5) ─────────────────────────────────
+# A message waits here while a person can still cancel it. Every query names
+# the caller, so a foreign id and a made-up id get the same 404.
+
+#: Rows one list returns. The list is capped, never paged.
+HOLD_LIST_CAP = 50
+#: A row changed this recently stays in the list after it finishes, so the bar
+#: can show "Sent" for a moment.
+_RECENT_HOLD = timedelta(minutes=2)
+
+
+def _hold_not_found():
+    return Response({'error': 'Not found.'}, status=404)
+
+
+def _hold_row(row, now) -> dict:
+    return {
+        'id': row.id, 'tool': row.tool, 'label': row.label, 'status': row.status,
+        'send_at': row.send_at.isoformat(), 'error': row.error,
+        'seconds_left': max(0, int((row.send_at - now).total_seconds())),
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def hold_list(request):
+    """The caller's waiting sends. Defaults to what is still going out, plus
+    anything that finished in the last two minutes."""
+    from django.db.models import Q
+
+    from messaging.models import PendingSend
+
+    qs = PendingSend.objects.filter(user=request.user)
+    if request.GET.get('session'):
+        qs = qs.filter(chat_session_id=request.GET['session'][:100])
+    if request.GET.get('execution'):
+        qs = qs.filter(execution_id=request.GET['execution'][:64])
+    now = timezone.now()
+    if request.GET.get('status'):
+        qs = qs.filter(status=request.GET['status'])
+    else:
+        qs = qs.filter(Q(status__in=('held', 'sending'))
+                       | Q(updated_at__gte=now - _RECENT_HOLD))
+    rows = list(qs.order_by('-created_at')[:HOLD_LIST_CAP + 1])
+    return Response({
+        'holds': [_hold_row(row, now) for row in rows[:HOLD_LIST_CAP]],
+        'truncated': len(rows) > HOLD_LIST_CAP,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def hold_cancel(request, hold_id: int):
+    from messaging import holds
+
+    outcome = holds.cancel(request.user, hold_id)
+    if outcome == 'cancelled':
+        return Response({'status': 'cancelled'})
+    if outcome == 'too_late':
+        return Response({'status': holds.status_of(request.user, hold_id)}, status=409)
+    return _hold_not_found()
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def hold_send_now(request, hold_id: int):
+    from messaging import holds
+    from workflow_backend.background import run_in_thread
+
+    # A sync view has no event loop, so the delivery starts on its own thread.
+    if holds.send_now(request.user, hold_id):
+        run_in_thread(holds.deliver(hold_id), name=f'hold-now:{hold_id}')
+        return Response({'status': 'sending'})
+    current = holds.status_of(request.user, hold_id)
+    if current is None:
+        return _hold_not_found()
+    return Response({'status': current}, status=409)

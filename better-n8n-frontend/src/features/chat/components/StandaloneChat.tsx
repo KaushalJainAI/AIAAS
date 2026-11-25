@@ -42,6 +42,8 @@ import { MediaPreview } from '@/components/content/MediaPreview';
 import HtmlArtifact from './HtmlArtifact';
 import AutoOpenFiles from './AutoOpenFiles';
 import ChartArtifact from '@/components/content/ChartArtifact';
+import PendingSends from '@/components/content/PendingSends';
+import { HELD_SEND_TOOLS, usePendingSends } from '@/hooks/usePendingSends';
 import PlanDock from '@/components/plan/PlanDock';
 import { actionsFrom, historyFrom } from '@/lib/planView';
 import PlanPanel, { PLAN_RAIL_WIDTH } from '@/components/orchestration/PlanPanel';
@@ -82,6 +84,7 @@ import ChatMessageItem, { AssistantHeader, TurnOrPlain } from './ChatMessageItem
 import { formatSteps } from './format';
 import { useSpeech } from '@/hooks/useSpeech';
 import ChatSettingsDialog, { type SettingsTab } from './ChatSettingsDialog';
+import { ChangesSheetContainer } from '@/components/changes';
 import ChatContextView from './ChatContextView';
 import ToolApprovalCard from './ToolApprovalCard';
 import QuestionCard from '@/components/content/QuestionCard';
@@ -263,6 +266,14 @@ export default function StandaloneChat() {
   // What is waiting on this person, for the empty screen. Shared query, so
   // it costs nothing beyond what the sidebar badge already fetches.
   const { data: pendingHitl = [] } = useHitlPending(!isGuest);
+  // Sends the agent is holding in this chat (the send window). The live turn
+  // bumps `sendNudge` when a send tool is called, so the bar re-reads at once.
+  // Guests have no account, so the list is not asked for.
+  const [sendNudge, setSendNudge] = useState(0);
+  const pendingSends = usePendingSends({
+    sessionId: !isGuest && conversationId ? conversationId : undefined,
+    nudge: sendNudge,
+  });
   const { data: conversations = [], refetch: loadHistory } = useQuery({
     queryKey: ['chatSessions'],
     queryFn: async () => {
@@ -1201,6 +1212,16 @@ export default function StandaloneChat() {
         break;
       }
 
+      case 'agent_trace': {
+        // A send tool was called. Its hold row is written a moment after this
+        // frame, so the bar re-reads (usePendingSends follows up once more).
+        if (event.sub_type === 'tool' && typeof event.tool === 'string'
+          && HELD_SEND_TOOLS.has(event.tool)) {
+          setSendNudge(n => n + 1);
+        }
+        break;
+      }
+
       case 'ask_permission':
       case 'ask_question':
         setIsLoading(false);
@@ -1832,6 +1853,9 @@ export default function StandaloneChat() {
   // Phone composer: the "+" sheet that holds the tools the row hides below sm.
   const [composerSheetOpen, setComposerSheetOpen] = useState(false);
 
+  // The "Undo what this run changed" sheet: the change set open, if any.
+  const [openChangeSetId, setOpenChangeSetId] = useState<number | null>(null);
+
   // Run settings: the model and effort the next turn uses. Lives in the
   // header now, so the composer is only the message box and its send controls.
   const runSettings = (
@@ -2086,6 +2110,10 @@ export default function StandaloneChat() {
           }}
         />
 
+        {openChangeSetId !== null && (
+          <ChangesSheetContainer setId={openChangeSetId} onClose={() => setOpenChangeSetId(null)} />
+        )}
+
         {/* Per-chat settings: system prompt + memory. */}
         {showSessionSettings && currentSession && (
           <ChatSettingsDialog
@@ -2202,6 +2230,7 @@ export default function StandaloneChat() {
                       void runCommandConfirm(name, args, confirm);
                     }}
                     onReviewSolution={(id, kind) => handleReviewSolution(id, kind)}
+                    onOpenChanges={setOpenChangeSetId}
                     onDraftAction={(id, action) => { void handleDraftAction(id, action); }}
                     draftBusy={draftBusyId != null
                       && (message.metadata as { solution_draft?: { id?: number } } | undefined)?.solution_draft?.id === draftBusyId}
@@ -2645,6 +2674,14 @@ export default function StandaloneChat() {
           <div className="max-w-4xl 2xl:max-w-5xl mx-auto space-y-4">
 
             <div className="relative group/input">
+
+              {/* Messages the agent is holding before they go out. Cancel stops
+                  one while it is still waiting. */}
+              <PendingSends
+                holds={pendingSends.holds}
+                onCancel={pendingSends.cancel}
+                onSendNow={pendingSends.sendNow}
+              />
 
               {/* The plan, pinned above the composer so it never scrolls
                   away. A team run shows it in the side panel instead. */}

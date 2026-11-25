@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import { ApiError } from '../../api/client';
 import { StreamRequestError, type SseEvent } from '../../api/sse';
+import { isSendToolTrace } from '../messaging/api';
 import { followTurn } from './followTurn';
 import {
   activeRunIds,
@@ -274,6 +275,8 @@ export interface TurnOptions {
   onSteersReturned?: (texts: string[]) => void;
   /** The server refused the request before a turn started. Show why; the text goes back. */
   onRefused?: (error: Error, userText: string | null) => void;
+  /** A send tool was called in the turn: the pending-sends bar should re-read. */
+  onSendTool?: () => void;
 }
 
 /** Extra fields a send carries: a slash command the server resolves. */
@@ -355,6 +358,7 @@ export function useChatTurn(sessionId: string, options: TurnOptions = {}) {
         if (texts.length > 0) optionsRef.current.onSteersReturned?.(texts);
       }
       dispatch({ type: 'event', event });
+      if (isSendToolTrace(event)) optionsRef.current.onSendTool?.();
     },
     [applyDone, flush],
   );

@@ -457,6 +457,12 @@ async def search_agents(args: Dict, context: Dict) -> str:
     return json.dumps({"agents": agents, "count": len(agents)})
 
 
+# Tools that start, answer or wait on other agents are `journal=False` (D9).
+# Each one's real effect is recorded under the worker's own change set, so a row
+# for the call would only repeat it. The three here: `run_agent` starts a worker
+# detached; `answer_subagent` resumes a paused one; `invoke_subagent` runs one
+# inline (its child binds its own owner, D18). The coding tools that start,
+# steer and stop tasks are in `chat/tools/tasks.py`.
 @tool({
         "type": "function",
         "function": {
@@ -489,6 +495,7 @@ async def search_agents(args: Dict, context: Dict) -> str:
     sensitive=True,
     effect="irreversible",
     timeout=AGENT_RUN_CALL_TIMEOUT,
+    journal=False,
 )
 async def run_agent(args: Dict, context: Dict) -> str:
     """Start one of the caller's agents and wait briefly for its answer.
@@ -557,10 +564,16 @@ async def run_agent(args: Dict, context: Dict) -> str:
         return json.dumps({"error": "User not found."})
 
     caller, gated_calls = worker_caller(context, default="chat")
+    # The delegating call's change set: the worker's set hangs under it, so a
+    # revert of this chat reverts the worker first (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
     try:
         execution_id = await start_agent_run(
             agent, goal, user=user, trigger_type="api", caller=caller,
             gated_calls=gated_calls,
+            change_parent_id=change_parent_id,
             # The step that asked for this run. It is what makes the run
             # traceable back to the reasoning that chose to start it, instead
             # of appearing in the history with no explanation of who wanted it.
@@ -732,7 +745,7 @@ async def get_agent_run(args: Dict, context: Dict) -> str:
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", timeout=AGENT_RUN_CALL_TIMEOUT)
+}, sensitive=True, effect="irreversible", timeout=AGENT_RUN_CALL_TIMEOUT, journal=False)
 async def answer_subagent(args: Dict, context: Dict) -> str:
     """Answer a paused worker and resume it — the manager's half of HITL.
 
@@ -862,7 +875,7 @@ async def _user(user_id: Any):
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", timeout=FANOUT_CALL_TIMEOUT)
+}, sensitive=True, effect="irreversible", timeout=FANOUT_CALL_TIMEOUT, journal=False)
 async def invoke_subagent(args: Dict, context: Dict) -> str:
     """Fan work out to N workers and return their answers, in order.
 
@@ -1025,6 +1038,11 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             return json.dumps({"error": str(exc), "refused": True})
 
     parent_step_id = await _parent_step_id(context)
+    # The delegating call's change set, read once here where the binding is
+    # live, and handed to every worker (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
 
     # The folder this run writes to, handed down so workers can write there
     # too. Derived from the caller's own scope rather than from its name: the
@@ -1089,6 +1107,7 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             org_id=context.get("org_id"),
             share_solutions=bool(context.get("share_solutions")),
             inherited_taint=inherited_taint,
+            change_parent_id=change_parent_id,
         )
         return WorkerResult(
             index=index, task=task, answer=run.answer or "",

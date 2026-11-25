@@ -237,6 +237,18 @@ async def _stale_solutions():
     return await sync_to_async(run_stale_sweep)()
 
 
+async def _held_sends():
+    # Held sends whose timer was lost, and sends stuck in `sending` (`messaging/holds.py`).
+    from messaging.holds import sweep
+    return await sweep()
+
+
+async def _purge_change_sets():
+    # What a chat message or run changed, past CHANGE_HISTORY_DAYS (`logs/changes.py`).
+    from logs.changes import purge_old_sets
+    return {'purged': await sync_to_async(purge_old_sets)()}
+
+
 PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
     PeriodicJob('notifications.sweep_scheduled', 'SCHEDULED_SWEEP_SECONDS',
                 _scheduled_notifications),
@@ -253,6 +265,10 @@ PERIODIC_JOBS: tuple[PeriodicJob, ...] = (
                 _run_detail_retention),
     PeriodicJob('solutions.sweep_stale', 'SOLUTION_STALE_SWEEP_SECONDS',
                 _stale_solutions),
+    PeriodicJob('messaging.deliver_held_sends', 'OUTBOUND_HOLD_SWEEP_SECONDS',
+                _held_sends),
+    PeriodicJob('logs.purge_change_sets', 'CHANGE_SET_SWEEP_SECONDS',
+                _purge_change_sets),
 )
 
 #: Beat entries this loop deliberately does not run, and why.

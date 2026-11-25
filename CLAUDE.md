@@ -375,6 +375,11 @@ rule names.
   `solutions/access.py::visible`; shared KBs through `inference/kb_access.py`.
 - **Trash is `deleted_at`** with `LiveManager` as the default manager; never set
   `base_manager_name`.
+- **Undo never overwrites newer work.** Agent changes are journaled per tool call
+  (`logs/changes.py`, bound in `_dispatch_one`, recorded in the public `vfs` write
+  functions, never in `save_text`/`replace_bytes`); `logs/undo.py` skips any target
+  changed since the run. A send a person watches waits in `messaging/holds.py`; a
+  send interrupted mid-delivery is never retried. See `Backend/docs/UNDO_PLAN.md`.
 - **Periodic jobs**: an entry in `CELERY_BEAT_SCHEDULE` must also be in
   `agents/scheduler.py::PERIODIC_JOBS` or `NOT_IN_PROCESS` (a test fails otherwise).
 - **Pinned twins change together**: the cron wording (`lib/cron.ts` ↔
@@ -475,6 +480,10 @@ SOLUTION_STALE_SWEEP_SECONDS=604800  # Weekly "may be out of date" nudge + searc
 RUN_DETAIL_RETENTION_DAYS=180      # Finished runs lose reasoning + tool payloads after this (record kept)
 BROWSER_FRAME_TTL_SECONDS=3600     # How long the last browser picture stays viewable, owner only (browsing/frames.py)
 OUTBOUND_DAILY_CAP=100             # Messages an account's agents may send per 24 h, all channels
+OUTBOUND_HOLD_SECONDS=20           # Seconds an attended send waits so the person can cancel it; 0 = send at once
+OUTBOUND_HOLD_SWEEP_SECONDS=15     # Beat interval for the sweep that delivers held sends whose timer was lost
+CHANGE_HISTORY_DAYS=               # Days a change set is kept for undo; blank = RECYCLE_BIN_RETENTION_DAYS
+CHANGE_SET_SWEEP_SECONDS=86400     # Beat interval for the purge of old change sets (logs/changes.py)
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
 CONTENT_MODERATION_MODEL=openai/gpt-oss-safeguard-20b  # Model check on image prompts + pages; blank = off
 CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns already ran)
@@ -571,6 +580,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `ORG_KNOWLEDGE_PLAN.md` — The plan (K0–K7 built 2026-11-11, undeployed, not yet checked in a browser) that made solution memory a team product: invitations, drafts and curators, citations in chat, import, stale nudges, insights, KBs shared read-only with an org, org choice per chat and per scheduled agent
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix
+- `UNDO_PLAN.md` — The plan (built 2026-11-23..25 on `feature/undo`, undeployed, not yet checked by hand in a browser or on a phone; written phase by phase for smaller models) for undo: a change log per chat message and per agent run (`logs.ChangeSet`/`Change`, bound by a ContextVar around each tool call, net effect per target), a revert that puts files, folders, memory and agent settings back and **skips anything changed since**, workers linked by id across `spawn()`, untracked rows for what can't be undone, and a ~20 s cancellable hold on sends a person is watching (`messaging.PendingSend`)
 - `CHATGPT_PLAN_PROVIDER_PLAN.md` — The plan (built 2026-10-11; **not yet run against a real ChatGPT account** — `scripts/chatgpt_plan_spike.py` is Phase 0 and §10 is still empty) that removed OpenCode Zen and added a `chatgpt` provider through OpenAI's official Sign in with ChatGPT flow (Responses API, loopback redirect, rotating refresh tokens). Self-hosted installs only until OpenAI approves the hosted site
 
 ## Frontend-Specific Docs

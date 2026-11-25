@@ -15,6 +15,10 @@ Three rules carry it.
   in a minute. A burst is the *latest* version's source: any version from
   another source in between (an agent write, a restore) ends it, so the next
   app save keeps what the agent wrote — the write people most want to undo.
+  A burst is also one change set: a copy made while a tool call is bound is
+  stamped with that set (`change_set_id`, docs/UNDO_PLAN.md D3), and a
+  different set's write starts a new copy, so each set keeps its own
+  before-state even inside the window.
 * **Bounded.** `FILE_VERSIONS_KEPT` per file, oldest deleted with its blob;
   files over `FILE_VERSION_MAX_BYTES` are not versioned at all.
 * **Best-effort.** Failing to keep a version never fails the save it
@@ -57,15 +61,30 @@ def snapshot(doc: Document, source: str = 'app', *, force: bool = False) -> Docu
         return None
     kept, window, max_bytes = _limits()
     try:
+        # The change set writing this copy, if a tool call is bound (D3). Only
+        # the tool's own writes are stamped: 'agent', and 'restore' (an agent's
+        # restore_file_version). Never 'app': inside a tool call an 'app' copy
+        # is the render of the user's pending draft (drafts.ensure_rendered),
+        # taken *before* their draft lands. Stamping it would make revert put
+        # back the file without the user's draft and lose their edits. An app
+        # save outside a tool call has no binding either way.
+        set_id = None
+        if source in ('agent', 'restore'):
+            from logs import changes
+
+            set_id = changes.current_set_id(create=True)
         if not force:
             # Coalesce only into a burst that is still running: the file's
-            # newest version must be this source's and recent. Filtering by
-            # source alone reached past an agent write in between, and the
-            # next app save then kept no copy of what the agent wrote.
+            # newest version must be this source's and recent, and written by
+            # the same change set. Filtering by source alone reached past an
+            # agent write in between, and the next app save then kept no copy
+            # of what the agent wrote. Matching the set too keeps run B's
+            # before-copy when it writes a file within the window of run A (D3).
             latest = (DocumentVersion.objects.filter(document=doc)
                       .order_by('-created_at', '-id')
-                      .values('source', 'created_at').first())
+                      .values('source', 'created_at', 'change_set_id').first())
             if (latest is not None and latest['source'] == source
+                    and latest['change_set_id'] == set_id
                     and latest['created_at'] >= timezone.now() - timedelta(seconds=window)):
                 return None
         if (doc.file_size or 0) > max_bytes:
@@ -80,6 +99,7 @@ def snapshot(doc: Document, source: str = 'app', *, force: bool = False) -> Docu
             content_text=doc.content_text or '',
             file_size=len(data) if data is not None else len((doc.content_text or '').encode('utf-8')),
             spec=spec if isinstance(spec, dict) else None,
+            change_set_id=set_id,
         )
         if data is not None:
             version.file.save(doc.name, ContentFile(data), save=False)
@@ -112,6 +132,7 @@ def listing(doc: Document) -> list[dict]:
             'name': v.name,
             'size': v.file_size,
             'has_spec': v.spec is not None,
+            'change_set_id': v.change_set_id,
         }
         for v in DocumentVersion.objects.filter(document=doc).order_by('-created_at', '-id')
     ]
