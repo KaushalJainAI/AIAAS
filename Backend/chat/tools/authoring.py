@@ -233,10 +233,14 @@ def _save(user, config: dict, agent_id: int | None) -> dict:
             counter += 1
         data['name'] = name
 
+    # The newest revision before this save, for the undo (Phase 7).
+    before = revisions.current(agent) if agent_id is not None else None
+
     AgentSerializer.apply(agent, data)
     agent.save()
     AgentSerializer.sync_schedule(agent, data)
-    revisions.record(agent, user=user, source=source)
+    revision = revisions.record(agent, user=user, source=source)
+    _journal(agent, created=agent_id is None, before=before, revision=revision)
 
     granted = sorted(k for k, v in (agent.tool_grants or {}).items() if v)
     return {
@@ -246,6 +250,31 @@ def _save(user, config: dict, agent_id: int | None) -> dict:
         'autonomy': (agent.guardrails or {}).get('autonomy', 'ask'),
         'created': agent_id is None,
     }
+
+
+def _journal(agent, *, created: bool, before, revision) -> None:
+    """Record the settings change so the run's undo can put it back (Phase 7).
+
+    Nothing is recorded when the save changed nothing (no new revision). A
+    created agent is recorded with no `before`, which the revert skips (its
+    page deletes it). An edit is recorded as the revision numbers either side,
+    and the revert restores the old one only while the agent is still at the
+    new one (docs/UNDO_PLAN.md §6.4). Never raises.
+    """
+    from logs import changes
+
+    if revision is None:
+        return
+    try:
+        label = f'Agent settings: {agent.name}'
+        if created:
+            changes.record_agent(agent.id, before=None,
+                                 after={'revision': revision.number}, label=label)
+        elif before is not None:
+            changes.record_agent(agent.id, before={'revision': before.number},
+                                 after={'revision': revision.number}, label=label)
+    except Exception:  # noqa: BLE001 — recording must never fail the save
+        logger.exception('[Authoring] Could not record an agent change for undo')
 
 
 async def _run(context: Dict, config: dict, agent_id: int | None) -> str:
