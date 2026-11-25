@@ -413,23 +413,41 @@ def _mark_incomplete(set_id: int | None) -> None:
 # Reading and closing
 # ---------------------------------------------------------------------------
 
-def _tree_ids(root: int) -> list[int]:
+def _tree_ids(root: int, user_id: int) -> tuple[list[int], bool]:
+    """The root and its workers' sets, this user's only, nearest first.
+
+    Bounded by `CHANGE_LIST_LIMIT` sets, so a runaway tree cannot make a count
+    or a sweep unbounded. The second item is True when the walk stopped early:
+    the caller must then say the count is incomplete, and a sweep must not
+    delete a partial tree. A root that is not the user's gives an empty tree.
+    """
+    if not ChangeSet.objects.filter(pk=root, user_id=user_id).exists():
+        return [], False
+    limit = thresholds.CHANGE_LIST_LIMIT
     seen = [root]
     frontier = [root]
     for _ in range(_MAX_TREE_DEPTH):
-        kids = list(ChangeSet.objects.filter(parent_id__in=frontier)
-                     .exclude(pk__in=seen).values_list('pk', flat=True))
+        room = limit - len(seen)
+        kids = list(ChangeSet.objects.filter(parent_id__in=frontier, user_id=user_id)
+                    .exclude(pk__in=seen).order_by('pk')
+                    .values_list('pk', flat=True)[:room + 1])
         if not kids:
-            break
+            return seen, False
+        if len(kids) > room:
+            return seen + kids[:room], True
         seen.extend(kids)
         frontier = kids
-    return seen
+    return seen, False
 
 
 def summary(change_set) -> dict:
     """Counts over a set and its children. Accepts a ChangeSet or its id."""
     set_id = getattr(change_set, 'pk', change_set)
-    ids = _tree_ids(set_id)
+    user_id = getattr(change_set, 'user_id', None)
+    if user_id is None:
+        user_id = (ChangeSet.objects.filter(pk=set_id)
+                   .values_list('user_id', flat=True).first())
+    ids, cut = _tree_ids(set_id, user_id) if user_id is not None else ([], False)
     rows = Change.objects.filter(change_set_id__in=ids)
     total = rows.count()
     revertible = rows.filter(revertible=True).count()
@@ -438,7 +456,7 @@ def summary(change_set) -> dict:
         'total': total,
         'revertible': revertible,
         'not_revertible': total - revertible,
-        'incomplete': ChangeSet.objects.filter(pk__in=ids, incomplete=True).exists(),
+        'incomplete': cut or ChangeSet.objects.filter(pk__in=ids, incomplete=True).exists(),
     }
 
 
@@ -472,13 +490,15 @@ def purge_old_sets(*, batch: int = 200, max_batches: int = 50) -> int:
         # its workers' sets as unlinked roots. A tree with any set mid-revert
         # is left for a later sweep.
         roots = list(ChangeSet.objects.filter(parent__isnull=True, created_at__lt=cutoff)
-                     .exclude(pk__in=skipped).values_list('pk', flat=True)[:batch])
+                     .exclude(pk__in=skipped).values_list('pk', 'user_id')[:batch])
         if not roots:
             break
         ids: list[int] = []
-        for root in roots:
-            tree = _tree_ids(root)
-            if ChangeSet.objects.filter(pk__in=tree, status='reverting').exists():
+        for root, user_id in roots:
+            tree, cut = _tree_ids(root, user_id)
+            if cut or ChangeSet.objects.filter(pk__in=tree, status='reverting').exists():
+                # A tree over the breadth cap is left whole for a later sweep
+                # (or never, if it stays that big); a part of it is never deleted.
                 skipped.add(root)
                 continue
             ids.extend(tree)
