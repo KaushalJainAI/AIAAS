@@ -21,6 +21,7 @@ from rest_framework.test import APIClient
 
 from inference import recents, recycle
 from inference.models import AppSession, Document, RecentFile
+from workflow_backend.testclock import frozen_clock
 
 User = get_user_model()
 
@@ -56,6 +57,18 @@ class RecordOpenTests(RecentsCase):
         self.assertEqual([r['document']['id'] for r in rows], [a.id, b.id])
         self.assertEqual(rows[0]['open_count'], 2)
         self.assertEqual(RecentFile.objects.filter(user=self.owner).count(), 2)
+
+    def test_opens_in_the_same_clock_tick_keep_their_order(self):
+        # The wall clock can repeat (Windows ticks about every 15 ms). A frozen
+        # clock makes every open below the same instant, so the order must come
+        # from the opens themselves, not from the clock or the row ids.
+        a, b = self.doc('a.pdf'), self.doc('b.pdf')
+        with frozen_clock('2026-11-23 09:00'):
+            self.open(a.id, app='pdf')
+            self.open(b.id, app='pdf')
+            self.open(a.id, app='pdf')
+        rows = self.me.get('/api/inference/recent/').json()['results']
+        self.assertEqual([r['document']['id'] for r in rows], [a.id, b.id])
 
     def test_view_state_comes_back_on_the_next_open(self):
         a = self.doc()
