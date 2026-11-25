@@ -1143,10 +1143,16 @@ async def run_chat_turn(
     # text of a raw document it reads as a file block (`scan_text`). If either
     # reads like orders to an AI, the turn starts tainted, as a tainted tool
     # result would make it.
+    # A raw document whose scanned text is not all of it (a reader stopped, a
+    # cap cut it, or it had no text layer) is unscanned in part, so it taints
+    # the turn too: fail closed, in every mode. `attachments` here is what
+    # goes out raw, so a described file is never counted.
+    unscanned_raw = any(getattr(att, "scan_incomplete", False) for att in attachments)
     initial_taint = (
         "upload"
         if provenance.instruction_shaped(extracted_text)
         or provenance.instruction_shaped(scan_text)
+        or unscanned_raw
         else None
     )
 

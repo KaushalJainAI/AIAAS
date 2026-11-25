@@ -185,39 +185,69 @@ def _docx_blocks(parent):
                 yield '\t'.join(cells)
 
 
-def extract_docx_text(file_path) -> str:
-    """Plain text of a .docx, using the standard library only.
+#: The parts of a .docx besides the body that carry readable words: running
+#: headers and footers, and footnotes and endnotes.
+_DOCX_SIDE_PART = re.compile(r'^word/(header\d*|footer\d*|footnotes|endnotes)\.xml$')
 
-    Deliberately not `python-docx`: the whole job is `w:t` runs in document
-    order, the format is a stable OOXML part, and a new wheel in the image is a
-    real cost on a 1.9 GB box for about forty lines of walking.
 
-    Returns `''` for anything that is not a readable .docx — above all a legacy
-    OLE2 `.doc`, which `normalize_file_type` also files as `docx` and which is
-    not a zip at all. An empty string is the honest answer: `vfs.read_file`
-    already explains a document with no extracted text, whereas the previous
-    behaviour (falling through to `open(..., errors='ignore')`) read the zip
-    container as UTF-8 and stored binary noise as the document's content.
+def extract_docx_report(file_path) -> tuple[str, bool]:
+    """(text, complete) for a .docx. `complete` is False when some part could not be read.
+
+    Reads the body, then every header, footer, footnote and endnote part, so
+    the text the injection scan sees is the text the model can read in the
+    file. Deliberately not `python-docx`: the whole job is `w:t` runs in
+    document order, the format is a stable OOXML part, and a new wheel in the
+    image is a real cost on a 1.9 GB box for about forty lines of walking.
+
+    Returns `('', False)` for anything that is not a readable .docx, above all
+    a legacy OLE2 `.doc`, which `normalize_file_type` also files as `docx` and
+    which is not a zip at all. An empty string is the honest answer:
+    `vfs.read_file` already explains a document with no extracted text, whereas
+    the previous behaviour (falling through to `open(..., errors='ignore')`)
+    read the zip container as UTF-8 and stored binary noise as the document's
+    content.
     """
     if not zip_within_budget(file_path):
-        return ''
+        return '', False
     try:
         with zipfile.ZipFile(file_path) as z:
-            xml = z.read('word/document.xml')
+            body_xml = z.read('word/document.xml')
+            side_xml = {name: z.read(name) for name in z.namelist()
+                        if _DOCX_SIDE_PART.match(name)}
     except (zipfile.BadZipFile, KeyError, OSError) as e:
         logger.warning('Not a readable .docx (%s): %s', file_path, e)
-        return ''
+        return '', False
 
     try:
-        root = ElementTree.fromstring(xml)
+        root = ElementTree.fromstring(body_xml)
     except ElementTree.ParseError as e:
         logger.warning('Malformed word/document.xml in %s: %s', file_path, e)
-        return ''
+        return '', False
 
     body = root.find(_W + 'body')
     if body is None:
-        return ''
-    return '\n'.join(_docx_blocks(body))
+        return '', False
+    lines = list(_docx_blocks(body))
+    complete = True
+    for name in sorted(side_xml):
+        try:
+            part = ElementTree.fromstring(side_xml[name])
+        except ElementTree.ParseError as e:
+            logger.warning('Malformed %s in %s: %s', name, file_path, e)
+            complete = False
+            continue
+        if name.endswith(('footnotes.xml', 'endnotes.xml')):
+            # Each note is its own element of paragraphs; the separator notes are empty.
+            blocks = [line for note in part for line in _docx_blocks(note)]
+        else:
+            blocks = list(_docx_blocks(part))
+        lines.extend(line for line in blocks if line.strip())
+    return '\n'.join(lines), complete
+
+
+def extract_docx_text(file_path) -> str:
+    """Plain text of a .docx (body, headers, footers and notes). See `extract_docx_report`."""
+    return extract_docx_report(file_path)[0]
 
 
 #: Extensions that are zip containers the platform opens. OpenDocument and zip
@@ -258,16 +288,35 @@ def extract_xlsx_text(source) -> str:
     some spreadsheet application has opened the file. The formula is the
     honest thing to index — it is what the cell contains.
     """
+    return extract_xlsx_report(source)[0]
+
+
+def _has_content_past(sheet, row_limit: int) -> bool:
+    """True when a sheet holds a non-empty cell below row `row_limit`."""
+    for row in sheet.iter_rows(min_row=row_limit + 1, values_only=True):
+        if any(v is not None and str(v).strip() for v in row):
+            return True
+    return False
+
+
+def extract_xlsx_report(source) -> tuple[str, bool]:
+    """(text, complete) for a workbook. `complete` is False when rows were left out.
+
+    Only the first `XLSX_EXTRACT_ROWS` rows of each sheet are read into the
+    text. A sheet with content past that is reported incomplete, so the
+    injection scan knows it did not see the whole file.
+    """
     if not zip_within_budget(source):
-        return ''
+        return '', False
     try:
         import openpyxl
 
         workbook = openpyxl.load_workbook(source, read_only=True)
     except Exception as e:  # noqa: BLE001 — a corrupt upload is not a crash
         logger.warning('Could not read workbook %s: %s', source, e)
-        return ''
+        return '', False
     lines = []
+    complete = True
     try:
         for sheet in workbook.worksheets:
             lines.append(f'# Sheet: {sheet.title}')
@@ -275,34 +324,66 @@ def extract_xlsx_text(source) -> str:
                 cells = ['' if v is None else str(v) for v in row]
                 if any(cell.strip() for cell in cells):
                     lines.append(' | '.join(cells))
+            if _has_content_past(sheet, XLSX_EXTRACT_ROWS):
+                complete = False
+    except Exception as e:  # noqa: BLE001 — a damaged sheet is a partial read
+        logger.warning('Could not read every sheet of %s: %s', source, e)
+        complete = False
     finally:
         workbook.close()
-    return '\n'.join(lines)
+    return '\n'.join(lines), complete
 
 
-def extract_pptx_text(source) -> str:
-    """Every slide's text, its tables, and its speaker notes."""
+def _pptx_shape_lines(shapes) -> list[str]:
+    """Text, table cells and the contents of group shapes, in reading order."""
+    from pptx.shapes.group import GroupShape
+
+    lines: list[str] = []
+    for shape in shapes:
+        if isinstance(shape, GroupShape):
+            lines.extend(_pptx_shape_lines(shape.shapes))
+            continue
+        if shape.has_text_frame and shape.text_frame.text.strip():
+            lines.append(shape.text_frame.text)
+        if getattr(shape, 'has_table', False) and shape.has_table:
+            for row in shape.table.rows:
+                lines.append(' | '.join(cell.text for cell in row.cells))
+    return lines
+
+
+def extract_pptx_report(source) -> tuple[str, bool]:
+    """(text, complete) for a deck: slide text, tables, group shapes and speaker notes.
+
+    `complete` is False when the deck could not be opened or a slide could not
+    be read in full.
+    """
     if not zip_within_budget(source):
-        return ''
+        return '', False
     try:
         from pptx import Presentation
 
         deck = Presentation(source)
     except Exception as e:  # noqa: BLE001
         logger.warning('Could not read presentation %s: %s', source, e)
-        return ''
+        return '', False
     lines = []
-    for n, slide in enumerate(deck.slides, 1):
-        lines.append(f'# Slide {n}')
-        for shape in slide.shapes:
-            if shape.has_text_frame and shape.text_frame.text.strip():
-                lines.append(shape.text_frame.text)
-            if getattr(shape, 'has_table', False) and shape.has_table:
-                for row in shape.table.rows:
-                    lines.append(' | '.join(cell.text for cell in row.cells))
-        if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
-            lines.append(f'Notes: {slide.notes_slide.notes_text_frame.text}')
-    return '\n'.join(lines)
+    try:
+        for n, slide in enumerate(deck.slides, 1):
+            lines.append(f'# Slide {n}')
+            lines.extend(_pptx_shape_lines(slide.shapes))
+            if slide.has_notes_slide:
+                notes = slide.notes_slide.notes_text_frame
+                if notes is not None and notes.text.strip():
+                    lines.append(f'Notes: {notes.text}')
+    except Exception as e:  # noqa: BLE001 — a damaged slide is a partial read
+        logger.warning('Could not read every slide of %s: %s', source, e)
+        return '\n'.join(lines), False
+    return '\n'.join(lines), True
+
+
+def extract_pptx_text(source) -> str:
+    """Every slide's text, its tables, its group shapes and its speaker notes."""
+    return extract_pptx_report(source)[0]
 
 
 #: OpenDocument namespaces. An .odt/.ods/.odp is a zip whose `content.xml`
