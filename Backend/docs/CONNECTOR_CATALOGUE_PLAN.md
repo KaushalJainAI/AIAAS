@@ -293,6 +293,21 @@ user's token, prints protected-resource + AS metadata, runs `initialize` +
 forces a token refresh, and reports pass/fail per step. No write calls. Only a
 real `tools/list` counts as evidence (H-110).
 
+**Probe** (no account, no real key): `manage.py connector_check --probe --all`
+sends the same one GET for every curated API card, with an obviously fake key
+in each credential placeholder. It never reads a stored credential and never
+enables a card (`--probe --enable` is refused). Verdicts: 401/403 `REACHABLE`
+(host, path and auth placement reached the vendor, which refused the fake key);
+400/404/405/3xx `WARN` (path or host suspect); 2xx `WARN` (no auth needed, or auth
+not sent where the vendor reads it); a network error, timeout or egress refusal
+`FAIL`; a card whose form field (a subdomain, say) was not given `SKIPPED` with
+"needs field X". `--all` exits non-zero on any FAIL. It proves wiring, not that a
+real key works, so the live check above is still what switches a card on. The
+first run is in `docs/CONNECTOR_PROBE_2026-11-26.md`. The probe does not send the
+spec's fixed headers (Cal.com's `cal-api-version`): neither does the live check,
+since `_fixed_headers` lives in `chat/tools/apicaller.py`, which `mcp_integration`
+does not import.
+
 **End to end** (manual, per connector, recorded in the Progress table):
 1. Connect from the web Connections page, then from the phone.
 2. In chat: a question that needs a read tool. It answers, and the tool result
