@@ -40,7 +40,7 @@ The bell opens your notifications (`components/notifications/NotificationsPanel.
 | Studio | `/imagine` | `pages/Imagine.tsx` | Image, video and audio generation |
 | Skills | `/skills` | `pages/Skills.tsx` | Reusable instruction snippets |
 | Evals | `/evals` | `pages/Evals.tsx` | Testing how good an agent is |
-| Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack, MCP servers |
+| Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack and the curated connectors. Adding your own MCP server is off |
 | Keys | `/credentials` | `pages/Credentials.tsx` | Saved API keys |
 | Apps | `/apps`, `/apps/:appId` | `pages/Apps.tsx`, `components/apps/AppFrame.tsx` | The launcher, and the full-screen Docs, Sheets, Slides, code and PDF apps |
 | Files | `/documents` | `pages/Documents.tsx` | Your files, folders and knowledge bases |
@@ -260,9 +260,8 @@ and `components/solutions/`.
   "Live updates".
 - **One WebSocket helper.** `lib/websocket.ts::useSocket` owns the URL, the
   exponential backoff and the remount race guard. No feature opens its own socket.
-- **Lazy routes.** Every page except the sign-in screens is code-split. The app
-  used to ship as one 1.2 MB chunk behind a login screen that needed none of it.
-  Add a new page to the lazy block in `App.tsx`, not to the static imports.
+- **Lazy routes.** Every page except the sign-in screens is code-split. Add a new
+  page to the lazy block in `App.tsx`, not to the static imports.
 - **Render isolation.** The ticking timer is its own component, and
   `MarkdownMessage` is memoised. Anything that updates faster than a reader can
   read gets isolated the same way.
@@ -305,16 +304,19 @@ Below 768 px every button or link must be at least 44 x 44 px and have a name.
 bottom sheet on a phone. Never hide an action behind hover or right-click alone;
 `hooks/useLongPress.ts` is a shortcut to a visible "More actions" button, not a
 replacement for it. Never use `window.confirm`: use `ConfirmDialog`.
-`tests/e2e/mobile-layout.spec.ts` measures every control on five pages.
+`tests/e2e/mobile-layout.spec.ts` measures every control on the pages it lists.
 
 ## Checks before you push
 
 ```bash
 npx tsc -b --force     # type check. Plain `tsc --noEmit` checks nothing in this repo
 npm run lint           # should report 0 problems
-npm test               # unit tests (vitest)
+npm test               # unit tests (vitest, run through scripts/vitest.mjs)
 npm run build          # production build
 ```
+
+Use `npm test`, not a bare `npx vitest`: the wrapper keeps the tests working when
+the terminal opens at a lower-case `c:\` path.
 
 ## Gotchas
 
@@ -327,3 +329,5 @@ npm run build          # production build
   use it. Never redirect to a URL taken straight from the query string.
 - Import another feature through its front door, `@/features/<name>`. Lint rejects
   imports of its inner files.
+- Desktop pages share one 24px gutter: the page title row (`PageHeader`) and the
+  hub tabs line up with the content (`md:px-6`). A new hub page should use it too.
