@@ -1,7 +1,8 @@
 # Preview pane and agent browser plan
 
-**Status:** built 2026-11-17 (Phases 0–10), undeployed, not committed by this
-work. Open: Phase 6's paid proof run against a real browser provider (needs the
+**Status:** built 2026-11-17 (Phases 0–10), committed, undeployed, and not
+checked by hand in a real browser. The phone "I'm done" button was added
+2026-11-25 (Progress row 9). Open: Phase 6's paid proof run against a real browser provider (needs the
 user's go-ahead, CLAUDE.md "Paid runs"). **Production has no browser engine**
 (the user, 2026-11-17), so in production the browser tools, the Browser tab,
 the chip and the link Preview button stay hidden; the tabbed pane, every file
