@@ -243,6 +243,17 @@ export function RunDetailScreen({ executionId }: { executionId: string }) {
           )}
         </Card>
 
+        {d.change_set && d.change_set.total > 0 ? (
+          <Card style={styles.block}>
+            <Text style={[typography.label, { color: colors.text }]}>{`Changes (${d.change_set.total})`}</Text>
+            <Button
+              title="Undo changes…"
+              variant="secondary"
+              onPress={() => router.push({ pathname: '/chat/changes/[id]', params: { id: String(d.change_set?.set_id) } })}
+            />
+          </Card>
+        ) : null}
+
         {plan.length > 0 ? (
           <Card style={styles.block}>
             <Text style={[typography.label, { color: colors.text }]}>Plan</Text>
