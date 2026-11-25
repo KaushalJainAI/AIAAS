@@ -89,7 +89,8 @@ export function ConnectionsScreen() {
   const custom = list.filter((s) => !s.is_system);
 
   const owned: OwnedTool[] = [
-    ...(apis.data ?? []).map((row: ApiConnection) => ({
+    // A connection an API card made is managed by that card, so it is not listed here.
+    ...(apis.data ?? []).filter((row: ApiConnection) => !row.card_slug).map((row: ApiConnection) => ({
       kind: 'api' as const,
       id: row.id,
       name: row.name,

@@ -139,7 +139,10 @@ class MCPToolProvider:
         # Native rows are excluded here: their tools are registered built-ins,
         # already offered by name, and listing them again as `mcp__` tools
         # would advertise every one twice.
-        servers = [s for s in await get_servers_for_user(user) if s.type != "native"]
+        servers = [
+            s for s in await get_servers_for_user(user)
+            if s.type != "native" and getattr(s, 'kind', 'mcp') not in MCPServer.NON_MCP_KINDS
+        ]
         if server_ids is not None:
             allowed = set(server_ids)
             servers = [s for s in servers if s.id in allowed]

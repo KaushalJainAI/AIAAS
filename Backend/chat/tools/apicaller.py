@@ -295,6 +295,8 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
     ref = str(auth.get('secret_ref') or '').strip()
     params = dict(query)
     params.pop('Authorization', None)
+    if kind == 'template':
+        return await _template_auth(auth, user_id, headers, params)
     if not ref:
         return headers, params
     try:
@@ -315,6 +317,50 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
         params[str(auth.get('param') or 'api_key')] = value
     else:
         headers[str(auth.get('header') or 'X-API-Key')] = value
+    return headers, params
+
+
+async def _template_auth(auth: dict, user_id: int, headers: dict,
+                        params: dict) -> tuple[dict, dict]:
+    """Auth built from a card's template parts (`datasources/auth_template.py`).
+
+    Every placeholder resolves in one `aresolve_refs` call, against the one
+    credential type the connection names. If any value is missing or empty the
+    call goes out with no auth, the same as a missing bearer reference today.
+    """
+    from credentials.refs import aresolve_refs
+    from datasources.auth_template import apply_parts, check_parts, part_placeholders
+
+    slug = str(auth.get('credential_type') or '').strip()
+    try:
+        parts = check_parts(auth.get('parts') or [])
+    except ValueError:
+        logger.exception('[API] Stored auth template is invalid')
+        return headers, params
+    names = part_placeholders(parts)
+    if not slug or not names:
+        # Nothing to fill: static parts (or none) still apply.
+        if parts and not names:
+            extra_headers, extra_params = apply_parts(parts, {})
+            headers.update(extra_headers)
+            params.update(extra_params)
+        return headers, params
+    refs = [{'secret_ref': f'{slug}.{name}'} for name in names]
+    try:
+        resolved = await aresolve_refs({'refs': refs}, user_id, {slug})
+    except Exception:  # noqa: BLE001
+        logger.exception('[API] Auth resolution failed')
+        return headers, params
+    values = {name: str(value or '') for name, value in zip(names, resolved['refs'])}
+    if any(not value for value in values.values()):
+        return headers, params
+    try:
+        extra_headers, extra_params = apply_parts(parts, values)
+    except ValueError:
+        logger.warning('[API] Auth template could not be filled')
+        return headers, params
+    headers.update(extra_headers)
+    params.update(extra_params)
     return headers, params
 
 

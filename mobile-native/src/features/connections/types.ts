@@ -55,6 +55,18 @@ export interface SetupGuide {
 /** The wire value for a connector with no guide. */
 export type SetupGuideEmpty = Record<string, never>;
 
+/**
+ * One non-secret value an API card asks for (a subdomain, a region). `pattern`
+ * is an anchored regular expression; `options` makes it a fixed choice.
+ */
+export interface CardField {
+  name: string;
+  label: string;
+  help?: string;
+  pattern?: string;
+  options?: string[];
+}
+
 export interface MCPServer {
   id: number;
   name: string;
@@ -89,6 +101,10 @@ export interface MCPServer {
   kind: ConnectorKind;
   /** The Get started guide. `{}` when the connector has none; see `hasSetupGuide`. */
   setup_guide: SetupGuide | SetupGuideEmpty;
+  /** API cards: the values the user types to connect. `[]` when there are none. */
+  template_fields: CardField[];
+  /** API cards: true when the user's own connection exists. Every credential the card needs is in `required_credential_types`. */
+  card_connected: boolean;
   /** The server's own flag. Shared templates have this on for everyone. */
   enabled: boolean;
   /** Announced, not yet shippable. Always paired with `enabled: false`. */
@@ -180,8 +196,20 @@ export interface ApiConnection {
   auth: ApiAuth;
   allowed_methods: string[];
   operations_count: number;
+  /** Read-only. The API card that manages this connection; '' for one the user made by hand. */
+  card_slug?: string;
   created_at: string;
   updated_at: string;
+}
+
+/** POST /mcp/servers/{id}/card/connect/ answers the connection it made or refreshed. */
+export interface CardConnectResult {
+  connection_id: number;
+}
+
+/** POST /mcp/servers/{id}/card/disconnect/. The credentials are left alone. */
+export interface CardDisconnectResult {
+  removed: number;
 }
 
 export interface DataConnection {

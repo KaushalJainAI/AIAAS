@@ -38,6 +38,11 @@ class MCPServerSerializer(serializers.ModelSerializer):
     effective_enabled = serializers.SerializerMethodField()
     supports_oauth = serializers.SerializerMethodField()
     oauth_connected = serializers.SerializerMethodField()
+    #: The form fields an API card asks for (`template.fields`). Empty for
+    #: other kinds. The template itself is not echoed: nothing needs it.
+    template_fields = serializers.SerializerMethodField()
+    #: For an API card: whether this user has a connection built from it.
+    card_connected = serializers.SerializerMethodField()
 
     class Meta:
         model = MCPServer
@@ -67,6 +72,8 @@ class MCPServerSerializer(serializers.ModelSerializer):
             "effective_enabled",
             "supports_oauth",
             "oauth_connected",
+            "template_fields",
+            "card_connected",
             "is_system",
             "user",
             "created_at",
@@ -117,6 +124,31 @@ class MCPServerSerializer(serializers.ModelSerializer):
             return False
         from .oauth import is_connected
         return is_connected(obj.id, request.user.id)
+
+    def get_template_fields(self, obj) -> list:
+        if obj.kind != "api":
+            return []
+        return list((obj.template or {}).get("fields", []))
+
+    def get_card_connected(self, obj) -> bool:
+        """Whether this user has an `ApiConnection` built from this card.
+
+        The view supplies `card_connected_slugs` (one query per list); absent
+        that, ask directly, as `oauth_connected` does.
+        """
+        if obj.kind != "api" or not obj.icon_slug:
+            return False
+        slugs = self.context.get("card_connected_slugs")
+        if slugs is not None:
+            return obj.icon_slug in slugs
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        from datasources.models import ApiConnection
+
+        return ApiConnection.objects.filter(
+            user=request.user, card_slug=obj.icon_slug,
+        ).exists()
 
     def validate(self, attrs):
         server_type = attrs.get("type") or (self.instance.type if self.instance else "stdio")

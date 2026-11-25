@@ -774,7 +774,7 @@ def _refresh_in_background(server_id: int, user: Any) -> None:
         logger.debug("Could not queue MCP refresh for server %s", server_id, exc_info=True)
 
 
-def warm_cache(server_id: int, user: Any) -> None:
+def warm_cache(server_id: int, user: Any, kind: str = 'mcp') -> None:
     """Pre-list a connector's tools after it is configured, without blocking.
 
     Enabling a connection and then immediately asking the agent something is
@@ -793,6 +793,12 @@ def warm_cache(server_id: int, user: Any) -> None:
     from asgiref.sync import ThreadSensitiveContext
     from django.db import close_old_connections
 
+    # The caller passes the row's `kind` (it holds the row): an API or
+    # database card has no MCP session to warm. Checked here without a query,
+    # because this runs inside sync views. Even unchecked, the refresh resolves
+    # through `_visible_servers_queryset`, which excludes `NON_MCP_KINDS`.
+    if kind in MCPServer.NON_MCP_KINDS:
+        return
     key = (server_id, _coerce_user_id(user))
     with _refresh_lock:
         if key in _refreshing:
@@ -1256,7 +1262,7 @@ def _visible_servers_queryset(user_id: int | None, enabled_only: bool = True):
     # the cache every time. The symptom is pure latency and a larger bill, with
     # nothing anywhere reporting an error. `id` because it is the one column
     # that never changes under a rename.
-    qs = MCPServer.objects.order_by('id')
+    qs = MCPServer.objects.order_by('id').exclude(kind__in=MCPServer.NON_MCP_KINDS)
     if enabled_only:
         qs = qs.filter(enabled=True)
         if user_id is not None:
@@ -1317,7 +1323,10 @@ async def get_all_tools_from_all_servers(user) -> list[dict[str, Any]]:
     """Aggregate tools from every server visible to `user`, with origin tags."""
     if os.environ.get("MCP_DISABLED", "False").lower() in ("true", "1", "yes"):
         return []
-    servers = [s for s in await get_servers_for_user(user) if s.type != "native"]
+    servers = [
+        s for s in await get_servers_for_user(user)
+        if s.type != "native" and s.kind not in MCPServer.NON_MCP_KINDS
+    ]
     tools: list[dict[str, Any]] = []
 
     async def collect_server_tools(server: MCPServer) -> list[dict[str, Any]]:

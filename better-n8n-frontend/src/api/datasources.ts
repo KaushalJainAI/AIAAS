@@ -31,6 +31,8 @@ export interface ApiConnection {
   auth: ApiAuth;
   allowed_methods: string[];
   operations_count: number;
+  /** Read-only. The API card this row belongs to; '' for a hand-made tool. */
+  card_slug?: string;
   created_at: string;
   updated_at: string;
 }

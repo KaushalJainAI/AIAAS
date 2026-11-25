@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -20,10 +20,19 @@ import { errorMessage, sentenceOf } from '../settings/errors';
 import { Notice, type NoticeTone } from '../settings/Notice';
 import { ThemedSwitch } from '../settings/ThemedSwitch';
 import { deleteMcpServer, mcpOAuthDisconnect } from './api';
+import { CardFieldsSection, validateCardFields } from './CardFieldsSection';
 import { ConnectorTile } from './ConnectorTile';
 import { GetStartedSection } from './GetStartedSection';
 import { connectOAuth, connectGoogleAccount } from './oauthConnect';
-import { connectionKeys, useMcpServers, useMcpServerTools, useMcpValidation, useSetMcpServerEnabled } from './queries';
+import {
+  connectionKeys,
+  useCardConnect,
+  useCardDisconnect,
+  useMcpServers,
+  useMcpServerTools,
+  useMcpValidation,
+  useSetMcpServerEnabled,
+} from './queries';
 import { ConnectionToolsError } from './errors';
 import { isPlatformOff, statusIsWorking, statusOf, STATUS_LABEL } from './status';
 import { useCredentialIndex } from './useCredentialIndex';
@@ -67,6 +76,39 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
   const isOn = server?.effective_enabled ?? false;
   const showTools = server !== undefined && isOn && status !== null && (status === 'always' || status === 'connected');
   const tools = useMcpServerTools(id, showTools);
+
+  // API cards: the Details form shows once the credential is held and the card is not yet linked.
+  const connectCard = useCardConnect(id);
+  const disconnectCard = useCardDisconnect(id);
+  const [cardValues, setCardValues] = useState<Record<string, string>>({});
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+  // A card with no fields connects by itself once, when its credential is saved. Retried only by the button.
+  const autoConnected = useRef(false);
+  const cardOpen = Boolean(
+    server &&
+      server.kind === 'api' &&
+      !server.card_connected &&
+      status !== null &&
+      !isPlatformOff(status) &&
+      !creds.isPending &&
+      creds.requiredTypes(server).every((t) => creds.credByTypeId.has(t.id)),
+  );
+  const cardHasFields = (server?.template_fields.length ?? 0) > 0;
+  const cardLabel = server?.label ?? '';
+
+  useEffect(() => {
+    if (!cardOpen || cardHasFields || autoConnected.current) return;
+    autoConnected.current = true;
+    connectCard.mutate(
+      {},
+      {
+        onSuccess: () => {
+          success();
+          setNotice({ text: `${cardLabel} connected`, tone: 'success' });
+        },
+      },
+    );
+  }, [cardOpen, cardHasFields, cardLabel, connectCard]);
 
   if (servers.isPending || creds.isPending) return <LoadingState text="Loading connection" />;
   if (servers.isError) {
@@ -176,7 +218,8 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
     const held = required
       .map((t) => creds.credByTypeId.get(t.id))
       .filter((c): c is NonNullable<typeof c> => c !== undefined);
-    if (held.length === 0) return;
+    const linked = srv.kind === 'api' && srv.card_connected;
+    if (held.length === 0 && !linked) return;
     const ok = await confirm({
       title: `Disconnect ${srv.label}?`,
       message: 'The assistant will lose access to this connection until you add the account again.',
@@ -185,6 +228,11 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
     if (!ok) return;
     setBusy(true);
     try {
+      if (linked) {
+        // Unlink the card first, so a failure keeps the saved secret and nothing is half-removed.
+        autoConnected.current = true;
+        await disconnectCard.mutateAsync();
+      }
       await Promise.all(held.map((c) => deleteCredential(c.id)));
       warning();
       refreshAll();
@@ -194,6 +242,19 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** The Connect button of the Details section: check the fields, then link the card. */
+  function connectCardFields() {
+    const { errors, payload } = validateCardFields(srv.template_fields, cardValues);
+    setCardErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    connectCard.mutate(payload, {
+      onSuccess: () => {
+        success();
+        setNotice({ text: `${srv.label} connected`, tone: 'success' });
+      },
+    });
   }
 
   async function removeServer() {
@@ -315,6 +376,18 @@ export function ConnectionDetailScreen({ id }: { id: number }) {
               );
             })}
           </Section>
+        ) : null}
+
+        {cardOpen ? (
+          <CardFieldsSection
+            fields={srv.template_fields}
+            values={cardValues}
+            errors={cardErrors}
+            onChange={(name, value) => setCardValues((prev) => ({ ...prev, [name]: value }))}
+            onConnect={connectCardFields}
+            connecting={connectCard.isPending}
+            error={connectCard.error ? errorMessage(connectCard.error, 'Could not connect. Please try again.') : null}
+          />
         ) : null}
 
         <Section title="Check" footer="Confirms the saved details still work. A saved account can expire or be revoked.">

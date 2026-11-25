@@ -61,6 +61,20 @@ class MCPServer(models.Model):
         default='mcp',
         help_text="Which engine runs this connector. `type` stays the transport.",
     )
+    #: Kinds that are not MCP servers and must never be dialled as one. An API
+    #: card is a template for the user's own `ApiConnection`
+    #: (`card_template.py`); a database card is for `query_sql`. Every path that
+    #: would start an MCP session filters these out.
+    NON_MCP_KINDS = ('api', 'sql')
+
+    #: For `kind='api'`: how the card builds the user's `ApiConnection` — base
+    #: URL with `{field}` placeholders, the auth parts, the form fields and the
+    #: allowed methods. Shape and checks: `mcp_integration/card_template.py`.
+    template = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="API-card template (see card_template.py). Empty for other kinds.",
+    )
 
     # Stdio Config
     command = models.CharField(max_length=1024, blank=True, null=True, help_text="Executable command (e.g., 'npx', 'python', 'docker')")

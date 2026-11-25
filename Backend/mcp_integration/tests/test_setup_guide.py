@@ -142,7 +142,9 @@ class CuratedRowsAfterMigrationTests(TestCase):
         )
 
     def test_disabled_curated_rows_have_no_guide(self):
-        for server in MCPServer.objects.filter(user__isnull=True, enabled=False):
+        for server in MCPServer.objects.filter(user__isnull=True, enabled=False, kind='mcp'):
+            # API cards ship disabled (Coming soon) *with* their guide: the
+            # guide is how a user learns what the card will need.
             with self.subTest(server.name):
                 self.assertEqual(server.setup_guide, {})
 
