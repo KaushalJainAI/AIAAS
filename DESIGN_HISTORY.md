@@ -3852,3 +3852,29 @@ a session that ended without a sign-out. And `loadConversation` clears what
 it painted when the fetch is a 404. Preferences and guest drafts are kept.
 One cost: on first load after this ships, everyone's cached transcript and
 drafts are dropped once, because no owner was recorded yet.
+
+## H-179 · An OpenAPI operation's fixed header is sent for it (2026-11-25)
+
+Files: Backend/chat/tools/apicaller.py, Backend/datasources/tests/test_data.py, Backend/inference/recents.py, Backend/inference/tests/test_recents.py, Backend/docs/CONNECTOR_CATALOGUE_PLAN.md, DESIGN_HISTORY.md
+
+**An operation's fixed header is sent with the call.** Cal.com v2
+needs a `cal-api-version` header whose date differs per endpoint, and
+`call_api` sent no spec headers at all, so only `/me` worked. Now a header
+parameter that an operation declares as `required` and fixes with one `enum`
+value or a `default` is sent with that operation (`_fixed_headers` in
+`chat/tools/apicaller.py`, path-level parameters applied unless the operation
+redefines them, `$ref`s into `components/parameters` followed). A fixed header
+never replaces what auth set (`User-Agent`, `Authorization`), and a choice of
+values is not guessed. `calcom.json` still declares no such parameter: the spec
+gives no date, so the dates are not in the repo and the card is unchanged
+until someone checks them against the Cal.com reference.
+
+**Two opens on one clock tick keep their order (2026-11-25).** The recents
+listing ordered by `-opened_at, -id`, which is deterministic, but on Windows
+two opens within one ~15 ms tick tie, and the tie fell to row id: a file
+re-opened in the same tick ranked below the file opened just before it. The
+test `test_opens_in_the_same_clock_tick_keep_their_order` showed `[2, 1] != [1, 2]`
+in a full run. `_open_instant()` (`inference/recents.py`) now stamps each open
+strictly after the user's newest open (one microsecond later when the clock
+has not moved), so the id tie-break is never the thing that decides a real
+order. The regression test uses `frozen_clock`, so the tie is forced, not hoped for.

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Q
@@ -125,6 +126,22 @@ def _live_readable_rows(user):
 
 # -- recently opened ----------------------------------------------------------
 
+def _open_instant(user) -> datetime:
+    """When an open is stamped: now, but after the user's newest open.
+
+    The wall clock can repeat (Windows ticks about every 15 ms), and two opens
+    on one tick used to tie; the tie then fell to row id, which says nothing
+    about which file was opened last. Each stamp therefore lands strictly after
+    the one before it, so the listing keeps the order the user made.
+    """
+    now = timezone.now()
+    newest = (RecentFile.objects.filter(user=user).order_by('-opened_at')
+              .values_list('opened_at', flat=True).first())
+    if newest is not None and newest >= now:
+        return newest + timedelta(microseconds=1)
+    return now
+
+
 def record_open(user, document_id, app='', view_state=None) -> RecentFile:
     """Move a file to the top of the user's recents, creating the row if needed.
 
@@ -135,7 +152,7 @@ def record_open(user, document_id, app='', view_state=None) -> RecentFile:
     app = clean_app(app)
     state = clean_view_state(view_state) if view_state is not None else None
     doc = _readable(user, document_id)
-    now = timezone.now()
+    now = _open_instant(user)
     with transaction.atomic():
         # get_or_create, not filter-then-create: two tabs opening the same file
         # at once would otherwise race into the unique constraint.

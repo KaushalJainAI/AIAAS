@@ -108,6 +108,53 @@ def _operations(spec: dict) -> list[dict]:
     return ops
 
 
+def _fixed_value(schema: dict):
+    """The one value a parameter schema allows or defaults to, as text; None if
+    it leaves the choice open."""
+    enum = schema.get('enum')
+    if isinstance(enum, list) and len(enum) == 1:
+        value = enum[0]
+    else:
+        value = schema.get('default')
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    return str(value)
+
+
+def _fixed_headers(spec: dict, method: str, path: str) -> dict:
+    """Headers the spec fixes for one operation: a required header parameter
+    whose schema has a single enum value or a default (Cal.com's
+    `cal-api-version`). A parameter the operation redefines replaces the
+    path-level one of the same name."""
+    item = ((spec or {}).get('paths') or {}).get(path)
+    if not isinstance(item, dict):
+        return {}
+    op = item.get(method.lower())
+    if not isinstance(op, dict):
+        return {}
+    components = (spec or {}).get('components') or {}
+    merged: dict[str, dict] = {}
+    for params in (item.get('parameters') or [], op.get('parameters') or []):
+        for param in params:
+            if isinstance(param, dict) and str(param.get('$ref') or '').startswith(
+                    '#/components/parameters/'):
+                param = (components.get('parameters') or {}).get(
+                    param['$ref'].rsplit('/', 1)[-1])
+            if not isinstance(param, dict) or param.get('in') != 'header':
+                continue
+            name = str(param.get('name') or '')
+            if name:
+                merged[name.lower()] = param
+    out = {}
+    for param in merged.values():
+        if not param.get('required'):
+            continue
+        value = _fixed_value(param.get('schema') or {})
+        if value is not None:
+            out[str(param['name'])] = value
+    return out
+
+
 def _nearest(ops: list[dict], method: str, path: str) -> list[str]:
     candidates = [f"{o['method']} {o['path']}" for o in ops]
     return difflib.get_close_matches(f'{method} {path}', candidates, n=3)
@@ -235,6 +282,11 @@ async def call_api(args: Dict, context: Dict) -> str:
     if not isinstance(query, dict):
         return json.dumps({'error': '`query` must be an object.'})
     headers, params = await _auth_headers(row, user_id, dict(query))
+    # The spec's fixed headers ride along, but never replace what auth set.
+    taken = {name.lower() for name in headers}
+    for name, value in _fixed_headers(row.openapi_spec or {}, method, path).items():
+        if name.lower() not in taken:
+            headers[name] = value
     try:
         from workflow_backend.httpclient import shared_client
 
