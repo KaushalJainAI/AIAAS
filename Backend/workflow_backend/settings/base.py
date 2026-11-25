@@ -946,6 +946,12 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        # httpx logs every request at INFO as `HTTP Request: GET <url>`, and
+        # some API cards put the credential in the URL's query string (Trello,
+        # Pipedrive, OpenWeather). Off at INFO: the URL never reaches a log
+        # line at all, and SensitiveDataFilter covers the warnings that do.
+        'httpx': {'level': 'WARNING'},
+        'httpcore': {'level': 'WARNING'},
     },
 }
 
