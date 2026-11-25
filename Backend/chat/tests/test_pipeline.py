@@ -1,9 +1,13 @@
 """
-End-to-end tests for one chat turn, with the provider faked at the boundary.
+End-to-end tests for one chat turn, with the model scripted at the wire.
 
 These are the tests the old design could not have: with the answer trapped in a
 JSON envelope there was nothing to assert about streaming, and with tool results
 flattened into prose there was no transcript to check.
+
+The provider is `llm.testing`'s scripted model, so `llm.access` and the
+OpenAI-compatible handler run for real; what the model was sent is read from
+`model.requests`, as it went over the wire.
 """
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ from unittest.mock import patch
 from chat.turn.events import Event
 from chat.models import ChatMessage, ChatSession
 from chat.turn.pipeline import TurnError, TurnRequest, context_summary, run_chat_turn
+from llm.testing import provider_error, scripted_model, text, tool_call
 
 User = get_user_model()
 
@@ -39,33 +44,14 @@ class Recorder:
         return "".join(p.get("content", "") for p in self.of(Event.CONTENT_CHUNK))
 
 
-def text_stream(*chunks: str):
-    """A provider stream that emits `chunks` as content and finishes."""
-
-    async def _stream(**_kwargs):
-        for chunk in chunks:
-            yield {"type": "content", "content": chunk}
-        yield {"type": "metadata", "usage": {"total_tokens": 11}}
-
-    return _stream
-
-
-def tool_then_answer(tool: str, args: dict, answer: str):
+def tool_then_answer(tool: str, args: dict, answer: str) -> list:
     """First call asks for a tool, second answers. Mirrors a real two-step turn."""
-    calls = {"n": 0}
+    return [tool_call(tool, args, id="call_1"), text(answer)]
 
-    async def _stream(**_kwargs):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            yield {"type": "tool_calls", "tool_calls": [{
-                "index": 0, "id": "call_1",
-                "function": {"name": tool, "arguments": json.dumps(args)},
-            }]}
-        else:
-            yield {"type": "content", "content": answer}
-        yield {"type": "metadata", "usage": {"total_tokens": 5}}
 
-    return _stream
+def conversation(messages: list[dict]) -> list[dict]:
+    """The user and assistant turns of a request, without system messages."""
+    return [m for m in messages if m.get("role") not in ("system", "developer")]
 
 
 class ChatTurnTests(TestCase):
@@ -129,14 +115,16 @@ class ChatTurnTests(TestCase):
         # The whole point of dropping the JSON envelope: the user sees the answer
         # as it is produced instead of waiting for a complete parseable blob.
         recorder = Recorder()
-        with patch("llm.access.stream", text_stream("Rust ", "is ", "fast.")):
+        with scripted_model(text("Rust is fast.")) as model:
             outcome = self._run("tell me about rust", recorder)
 
+        self.assertTrue(recorder.of(Event.CONTENT_CHUNK))
         self.assertEqual(recorder.streamed_text, "Rust is fast.")
         self.assertEqual(outcome.assistant_message.content, "Rust is fast.")
+        self.assertTrue(model.requests[0].stream)
 
     def test_answer_is_persisted_as_plain_markdown(self):
-        with patch("llm.access.stream", text_stream("# Title\n\nBody.")):
+        with scripted_model(text("# Title\n\nBody.")):
             outcome = self._run("hi", Recorder())
 
         stored = ChatMessage.objects.get(id=outcome.assistant_message.id)
@@ -145,7 +133,7 @@ class ChatTurnTests(TestCase):
 
     def test_user_message_is_saved_before_the_model_runs(self):
         recorder = Recorder()
-        with patch("llm.access.stream", text_stream("ok")):
+        with scripted_model(text("ok")):
             outcome = self._run("my question", recorder)
 
         self.assertEqual(outcome.user_message.content, "my question")
@@ -157,34 +145,24 @@ class ChatTurnTests(TestCase):
 
     def test_tool_results_are_threaded_back_as_tool_messages(self):
         recorder = Recorder()
-        captured: list[list[dict]] = []
-
-        original = None
 
         async def fake_tool(name, args, context):
             return json.dumps({"type": "search_results", "text": "Team A won.",
                                "sources": [{"url": "http://a", "title": "A"}]})
 
-        stream = tool_then_answer("web_search", {"query": "who won"}, "Team A won.")
-
-        async def capturing_stream(**kwargs):
-            captured.append(list(kwargs.get("history") or []))
-            async for chunk in stream(**kwargs):
-                yield chunk
-
-        with patch("llm.access.stream", capturing_stream), \
-             patch("chat.tools.execute_tool", fake_tool):
+        with scripted_model(tool_then_answer("web_search", {"query": "who won"}, "Team A won.")) \
+                as model, patch("chat.tools.execute_tool", fake_tool):
             outcome = self._run("who won the match", recorder)
 
         # Second call must carry the assistant tool_calls turn and its `tool`
         # result, linked by id — not a prose summary of what happened.
-        second = captured[1]
-        assistant = next(m for m in second if m["role"] == "assistant")
+        second = model.requests[1].messages
+        assistant = next(m for m in second if m["role"] == "assistant" and m.get("tool_calls"))
         result = next(m for m in second if m["role"] == "tool")
 
         self.assertEqual(assistant["tool_calls"][0]["function"]["name"], "web_search")
-        self.assertEqual(result["tool_call_id"],
-                         assistant["tool_calls"][0]["id"])
+        self.assertEqual(result["tool_call_id"], assistant["tool_calls"][0]["id"])
+        self.assertEqual(result["tool_call_id"], "call_1")
         # Wrapped as untrusted data (provenance.wrap_untrusted); the body is unchanged.
         from core.safety.provenance import unwrap_untrusted
         self.assertEqual(unwrap_untrusted(result["content"]), fake_result_text())
@@ -199,8 +177,7 @@ class ChatTurnTests(TestCase):
                 "sources": [{"url": "http://a", "title": "A"}],
             })
 
-        with patch("llm.access.stream",
-                   tool_then_answer("web_search", {"query": "q"}, "Answer.")), \
+        with scripted_model(tool_then_answer("web_search", {"query": "q"}, "Answer.")), \
              patch("chat.tools.execute_tool", fake_tool):
             outcome = self._run("search something", recorder)
 
@@ -217,14 +194,9 @@ class ChatTurnTests(TestCase):
         sources panel stayed empty on a turn that plainly cited things.
         """
         recorder = Recorder()
-
-        async def cited(**_kwargs):
-            yield {"type": "content", "content": "Team A won [1]."}
-            yield {"type": "citations", "citations": [
-                {"url": "https://a.example/1", "title": "A"},
-            ]}
-
-        with patch("llm.access.stream", cited):
+        cited = text("Team A won [1].",
+                     citations=[{"url": "https://a.example/1", "title": "A"}])
+        with scripted_model(cited):
             outcome = self._run("who won", recorder)
 
         self.assertEqual(
@@ -238,28 +210,12 @@ class ChatTurnTests(TestCase):
     def test_tool_preamble_is_retracted_from_the_live_buffer(self):
         # A model that says "let me look that up" before calling a tool must not
         # leave that text sitting in the UI as though it were the answer.
-        async def preamble_then_tool(**_kwargs):
-            yield {"type": "content", "content": "Let me search."}
-            yield {"type": "tool_calls", "tool_calls": [{
-                "index": 0, "id": "c1",
-                "function": {"name": "get_current_time", "arguments": "{}"},
-            }]}
-
-        calls = {"n": 0}
-
-        async def stream(**kwargs):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                async for chunk in preamble_then_tool(**kwargs):
-                    yield chunk
-            else:
-                yield {"type": "content", "content": "It is noon."}
-
         async def fake_tool(*_a, **_k):
             return "noon"
 
         recorder = Recorder()
-        with patch("llm.access.stream", stream), \
+        with scripted_model(text("Let me search.") + tool_call("get_current_time", {}, id="c1"),
+                            text("It is noon.")), \
              patch("chat.tools.execute_tool", fake_tool):
             outcome = self._run("what time is it", recorder)
 
@@ -279,7 +235,7 @@ class ChatTurnTests(TestCase):
                                "sources": [{"url": "http://a", "title": "A"}]})
 
         recorder = Recorder()
-        with patch("llm.access.stream", text_stream("Answer.")), \
+        with scripted_model(text("Answer.")), \
              patch("chat.tools.execute_tool", fake_tool):
             outcome = self._run("/search rust release date", recorder)
 
@@ -297,7 +253,7 @@ class ChatTurnTests(TestCase):
             return json.dumps({"type": "deep_research", "text": "Corpus.",
                                "queries": ["q"], "sources": [{"url": "http://a"}]})
 
-        with patch("llm.access.stream", text_stream("Answer.")), \
+        with scripted_model(text("Answer.")), \
              patch("chat.tools.execute_tool", fake_tool):
             self._run("/research rust adoption", Recorder())
 
@@ -318,7 +274,7 @@ class ChatTurnTests(TestCase):
             return json.dumps({"type": "search_results", "text": "Found it.",
                                "sources": [{"url": "http://a", "title": "A"}]})
 
-        with patch("llm.access.stream", text_stream("Answer.")), \
+        with scripted_model(text("Answer.")), \
              patch("chat.tools.execute_tool", fake_tool):
             self._run("/search rust release date", Recorder())
 
@@ -335,7 +291,7 @@ class ChatTurnTests(TestCase):
                                "sources": [{"url": "http://a", "title": "A"}]})
 
         recorder = Recorder()
-        with patch("llm.access.stream", text_stream("Answer.")), \
+        with scripted_model(text("Answer.")), \
              patch("chat.tools.execute_tool", fake_tool):
             outcome = self._run("/search kittens", recorder)
 
@@ -362,7 +318,7 @@ class ChatTurnTests(TestCase):
             seen.append(name)
             return "{}"
 
-        with patch("llm.access.stream", text_stream("Hi there.")), \
+        with scripted_model(text("Hi there.")), \
              patch("chat.tools.execute_tool", fake_tool):
             self._run("say hello", Recorder())
 
@@ -380,23 +336,18 @@ class ChatTurnTests(TestCase):
         self.session.memory_enabled = False
         self.session.save(update_fields=["memory_enabled"])
 
-        seen: list[list[dict]] = []
-
-        async def stream(**kwargs):
-            seen.append(list(kwargs.get("history") or []))
-            yield {"type": "content", "content": "ok"}
-
         recorder = Recorder()
-        with patch("llm.access.stream", stream):
+        with scripted_model(text("ok")) as model:
             self._run("what is my name", recorder)
 
-        # The per-turn context update rides in `history` as a trailing `system`
-        # message, so "no history" is about conversation, not about the list
-        # being empty. What must not survive the switch is a prior user or
-        # assistant turn; the clock and screen state are not recall.
-        conversation = [e for e in seen[0] if e.get("role") != "system"]
-        self.assertEqual(conversation, [])
-        self.assertNotIn("Ada", str(seen[0]))
+        # The per-turn context update rides as a trailing `system` message, so
+        # "no history" is about conversation, not about the list being short.
+        # What must not survive the switch is a prior user or assistant turn;
+        # the clock and screen state are not recall.
+        sent = model.requests[0].messages
+        self.assertEqual([m["role"] for m in conversation(sent)], ["user"])
+        self.assertEqual(model.requests[0].last_user_text(), "what is my name")
+        self.assertNotIn("Ada", json.dumps(sent))
         self.assertTrue(recorder.of(Event.STATUS))
         self.assertTrue(
             any(p.get("phase") == "memory_off" for p in recorder.of(Event.STATUS))
@@ -406,20 +357,15 @@ class ChatTurnTests(TestCase):
             ChatMessage.objects.filter(session=self.session, content="my name is Ada").count(),
             1,
         )
+
     def test_memory_on_sends_prior_turns(self):
         ChatMessage.objects.create(
             session=self.session, role="user", content="my name is Ada"
         )
-        seen: list[list[dict]] = []
-
-        async def stream(**kwargs):
-            seen.append(list(kwargs.get("history") or []))
-            yield {"type": "content", "content": "Ada"}
-
-        with patch("llm.access.stream", stream):
+        with scripted_model(text("Ada")) as model:
             self._run("what is my name", Recorder())
 
-        self.assertIn("my name is Ada", json.dumps(seen[0]))
+        self.assertIn("my name is Ada", json.dumps(model.requests[0].messages))
 
     def test_notes_come_after_the_replayed_history(self):
         # The notes are rewritten after every reply, so they must sit after the
@@ -437,43 +383,34 @@ class ChatTurnTests(TestCase):
             **session_notes.empty_state(), "summary": "Trip planning for Ada.",
         }
         self.session.save(update_fields=["notes_state"])
-        seen: list[list[dict]] = []
 
-        async def stream(**kwargs):
-            seen.append(list(kwargs.get("history") or []))
-            yield {"type": "content", "content": "ok"}
-
-        with patch("llm.access.stream", stream):
+        with scripted_model(text("ok")) as model:
             self._run("where should I go", Recorder())
+        sent = model.requests[0].messages
 
         def position(marker: str) -> list[int]:
-            return [i for i, m in enumerate(seen[0]) if marker in str(m.get("content"))]
+            return [i for i, m in enumerate(sent) if marker in json.dumps(m.get("content"))]
 
         replayed = position("my name is Ada") + position("Hello Ada")
         notes = position("### CONVERSATION NOTES ###")
         state = position("### CURRENT STATE ###")
         self.assertEqual(len(notes), 1)
         self.assertEqual(len(state), 1)
-        self.assertEqual(seen[0][notes[0]]["role"], "system")
+        self.assertEqual(sent[notes[0]]["role"], "system")
         self.assertLess(max(replayed), notes[0])
         self.assertLess(notes[0], state[0])
 
     # ── Failure handling ──
 
     def test_provider_failure_becomes_a_readable_message(self):
-        from llm.access import LLMUnavailable
-
-        async def failing(**_kwargs):
-            raise LLMUnavailable("No verified credential for 'openai'.")
-            yield  # pragma: no cover — makes this an async generator
-
-        with patch("llm.access.stream", failing):
+        with scripted_model(provider_error(503, '{"error":{"message":"upstream overloaded"}}')):
             outcome = self._run("hello", Recorder())
 
-        # Never the raw error string, and never an empty bubble.
-        self.assertTrue(outcome.assistant_message.content)
-        self.assertNotIn("LLMUnavailable", outcome.assistant_message.content)
-        self.assertIn("Settings", outcome.assistant_message.content)
+        # Never the raw provider body, never a class name, never an empty bubble.
+        content = outcome.assistant_message.content
+        self.assertTrue(content)
+        self.assertNotIn("LLMUnavailable", content)
+        self.assertNotIn('{"error"', content)
 
     def test_empty_request_is_rejected(self):
         with self.assertRaises(TurnError):
@@ -580,7 +517,7 @@ class PreModelLatencyInstrumentTests(ChatTurnTests):
 
     def test_a_turn_logs_what_it_spent_before_the_model(self):
         recorder = Recorder()
-        with patch("llm.access.stream", text_stream("ok")):
+        with scripted_model(text("ok")):
             with self.assertLogs("chat.turn.pipeline", level="INFO") as logs:
                 self._run("hello there", recorder)
 
@@ -608,7 +545,7 @@ class PreModelLatencyInstrumentTests(ChatTurnTests):
 
         recorder = Recorder()
         with patch("chat.tools.execute_tool", _slow_tool):
-            with patch("llm.access.stream", text_stream("ok")):
+            with scripted_model(text("ok")):
                 with self.assertLogs("chat.turn.pipeline", level="INFO") as logs:
                     self._run("/search rust", recorder)
 
@@ -625,7 +562,7 @@ class PreModelLatencyInstrumentTests(ChatTurnTests):
             return "{}"
 
         with patch("chat.tools.execute_tool", _tool):
-            with patch("llm.access.stream", text_stream("ok")):
+            with scripted_model(text("ok")):
                 with self.assertLogs("chat.turn.pipeline", level="INFO") as logs:
                     self._run("tell me about rust", Recorder())
 

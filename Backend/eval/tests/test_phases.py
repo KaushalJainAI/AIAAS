@@ -116,20 +116,15 @@ class NewGraderTests(TestCase):
         self.assertTrue(graded['passed'])
 
     def test_judge_grade_carries_tokens_and_cost(self):
-        from unittest.mock import patch
+        from llm.testing import scripted_model, text, usage
 
-        from llm.access import Completion
-        from llm.usage import TokenUsage
-
-        async def fake(**kwargs):
-            return Completion(content='{"score": 1.0, "reason": "good"}',
-                              usage=TokenUsage(input=10, output=5, total=15), tokens=15)
-
-        with patch('llm.access.complete', fake):
+        user = User.objects.create_user('graded', password='pw')
+        with scripted_model(text('{"score": 1.0, "reason": "good"}', usage=usage(10, 5))):
             graded = async_to_sync(evals.grade_answer)(
-                'Paris', [{'type': 'llm_judge', 'rubric': 'Says Paris.'}], user_id=1)
+                'Paris', [{'type': 'llm_judge', 'rubric': 'Says Paris.'}], user_id=user.id)
         grade = graded['grades'][0]
-        self.assertIn('tokens', grade)
+        self.assertTrue(graded['passed'])
+        self.assertEqual(grade['tokens'], 15)
         self.assertIn('cost_usd', grade)
 
 
@@ -142,7 +137,7 @@ class BareModeTests(TestCase):
         from agents.models import SubAgent
         from eval import runner
         from eval.models import EvalSuite
-        from llm.access import Completion
+        from llm.testing import scripted_model, text
 
         user = User.objects.create_user('b', 'b@example.com', 'pw')
         agent = SubAgent.objects.create(user=user, name='A')
@@ -153,13 +148,13 @@ class BareModeTests(TestCase):
                                 reference='Paris',
                                 graders=[{'type': 'contains', 'value': 'paris'}])
 
-        async def fake_complete(**kwargs):
-            return Completion(content='Paris is the capital.', tokens=5)
-
-        with patch('llm.access.complete', fake_complete):
+        with scripted_model(text('Paris is the capital.')) as model:
             with patch('agents.agent.runtime.resolve_agent_model',
                        return_value=('openrouter', 'deepseek/deepseek-v4.1-flash')):
                 run = async_to_sync(runner.run_suite_now)(
                     suite, agent, user, mode='bare')
         self.assertEqual(run.status, 'completed')
         self.assertEqual(run.mode, 'bare')
+        # Bare mode is the model alone: one call, no tools offered.
+        self.assertEqual(len(model.requests), 1)
+        self.assertEqual(model.requests[0].model, 'deepseek/deepseek-v4.1-flash')

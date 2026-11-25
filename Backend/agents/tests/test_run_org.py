@@ -26,10 +26,8 @@ from core.models import Membership
 from llm.models import AIModel, AIProvider
 from logs.models import ExecutionLog
 from solutions.models import Solution
+from llm.testing import scripted_model
 
-
-async def no_preflight(**kwargs):
-    return None
 
 
 class RunOrgTests(TransactionTestCase):
@@ -57,7 +55,7 @@ class RunOrgTests(TransactionTestCase):
             return TurnResult(answer='done')
 
         with patch('chat.turn.agent.run_turn', capture), \
-                patch('llm.access.preflight', no_preflight):
+                scripted_model():
             return await run_agent(self.agent, 'go', user=self.user,
                                    thread_id=thread, **kwargs)
 
@@ -132,7 +130,7 @@ class ScheduledRunOrgTests(TransactionTestCase):
             return TurnResult(answer='done')
 
         with patch('chat.turn.agent.run_turn', capture), \
-                patch('llm.access.preflight', no_preflight):
+                scripted_model():
             return await run_agent(self.agent, 'go', user=self.user,
                                    thread_id=thread, **kwargs)
 

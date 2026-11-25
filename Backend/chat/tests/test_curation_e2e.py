@@ -7,8 +7,8 @@ each other incorrectly — the failure this file exists to catch is a graph edge
 in the wrong place, a policy that never reaches the node, or state updates that
 are computed and then dropped.
 
-So this drives the real `chat_agent_graph` for twenty tool-calling turns with a
-fake model, and asserts the three things a user would notice: the request never
+So this drives the real `chat_agent_graph` for twenty tool-calling turns with
+the model scripted at the wire, and asserts the three things a user would notice: the request never
 outgrows the window, the run can still reach a fact from a step that was
 compacted away, and the transcript stays sendable throughout.
 """
@@ -25,6 +25,7 @@ from chat.models import ToolOutput
 from chat.turn import curation
 from chat.turn.agent import TurnContext, run_turn
 from llm import budget
+from llm.testing import DEFAULT_PROVIDER, ScriptedModel, ScriptedRequest, always, text, tool_call
 
 User = get_user_model()
 
@@ -40,49 +41,46 @@ BUDGET_TOKENS = 12_000
 SECRET = "the reconciliation code is QX-8842"
 
 
+#: The funnel's last-resort trim says this in the request when it had to drop
+#: messages (`llm.access._TRIM_NOTICE`). Curation exists so it never has to.
+TRIM_NOTICE = "[CONTEXT NOTICE:"
+
+
 class _StubProvider:
     """A model that calls a tool for N turns, then answers.
 
-    Stands in for `llm.stream`, the async generator `_run_model` consumes, so
-    the run goes through the real accumulator and the real message threading
-    rather than a shortcut past them.
-
-    Records the wire history it was handed on every call, which is what the
-    budget assertions are made against — the point is what actually left for the
-    provider, not what the curator believed it had done.
+    Scripted at the wire, so the run goes through the real funnel, handler,
+    accumulator and message threading. `histories` are the messages of each
+    request as they actually left, which is what the budget assertions are
+    made against: the point is what reached the provider, not what the curator
+    believed it had done.
     """
 
     def __init__(self, turns: int) -> None:
         self.turns = turns
-        self.calls = 0
-        self.histories: list[list[dict]] = []
-        self.last_prompt = ""
+        self.scripted = ScriptedModel([always(self._respond)])
 
-    def __call__(self, **kwargs):
-        self.calls += 1
-        self.histories.append(list(kwargs.get("history") or []))
-        self.last_prompt = kwargs.get("prompt") or ""
-        answering = self.calls > self.turns
-        step = self.calls
+    def _respond(self, request: ScriptedRequest):
+        if request.index > self.turns:
+            return text("done")
+        # `read_file`, not `web_search`: the turn fetches companion images
+        # for a web search from the real internet even when the tool itself
+        # is stubbed.
+        return tool_call("read_file", {"path": f"/step-{request.index}.md"},
+                         id=f"call-{request.index}")
 
-        async def chunks():
-            if answering:
-                yield {"type": "content", "content": "done"}
-            else:
-                yield {"type": "tool_calls", "tool_calls": [{
-                    "index": 0,
-                    "id": f"call-{step}",
-                    "function": {
-                        # `read_file`, not `web_search`: the turn fetches
-                        # companion images for a web search from the real
-                        # internet even when the tool itself is stubbed.
-                        "name": "read_file",
-                        "arguments": json.dumps({"path": f"/step-{step}.md"}),
-                    },
-                }]}
-            yield {"type": "metadata", "usage": {"total_tokens": 10}}
+    @property
+    def calls(self) -> int:
+        return len(self.scripted.requests)
 
-        return chunks()
+    @property
+    def histories(self) -> list[list[dict]]:
+        return [r.messages for r in self.scripted.requests]
+
+    def trimmed(self) -> list[int]:
+        """The requests the funnel's last-resort guard had to cut."""
+        return [r.index for r in self.scripted.requests
+                if TRIM_NOTICE in json.dumps(r.messages)]
 
 
 async def _dispatch(name: str, args: dict, context: dict) -> str:
@@ -92,6 +90,16 @@ async def _dispatch(name: str, args: dict, context: dict) -> str:
     if step == "/step-2.md":
         body = f"{SECRET}. {body}"
     return body
+
+
+async def _read_file_only() -> list[dict]:
+    """The one tool the run calls. The budget is about the transcript: with
+    the whole chat catalogue (tens of thousands of tokens of schemas) the
+    definitions alone outgrow it, and the funnel's final guard would drop
+    every message on every request."""
+    from chat.tools import AVAILABLE_TOOLS
+
+    return [t for t in AVAILABLE_TOOLS if t["function"]["name"] == "read_file"]
 
 
 async def _never(name, args, context) -> bool:
@@ -120,11 +128,12 @@ class LongRunTests(TestCase):
 
     def _turn(self, policy, thread: str) -> TurnContext:
         return TurnContext(
-            provider="stub", model="stub-model", system_message="You are a test.",
+            provider=DEFAULT_PROVIDER, model="stub-model", system_message="You are a test.",
             user_id=self.user.id, session_id=thread, intent="research",
             user_text="do the work", memory_enabled=False,
             max_iterations=40,
             tool_dispatch=_dispatch,
+            tool_source=_read_file_only,
             approval_policy=_never,
             curation=policy,
         )
@@ -141,7 +150,7 @@ class LongRunTests(TestCase):
                 return f"Summary of earlier work. {keep}", 40
             return fold
 
-        with patch("llm.access.stream", new=stub), \
+        with stub.scripted.installed(), \
              patch("chat.turn.agent._summariser_for", new=summarise):
             result = async_to_sync(run_turn)(
                 self._turn(policy, thread), prompt="do the work", thread_id=thread
@@ -163,13 +172,17 @@ class LongRunTests(TestCase):
             f"a request of {worst} tokens went out against a {BUDGET_TOKENS} budget",
         )
         self.assertEqual(result.answer, "done")
+        # And it was curation that kept it there: the funnel's final guard,
+        # which drops whole messages, never had to step in.
+        self.assertEqual(stub.trimmed(), [])
 
     def test_without_curation_the_same_run_would_have_overflowed(self):
-        """Guards the assertion above from passing because the transcript was
-        never large enough to need curating."""
+        """Guards the assertions above from passing because the transcript was
+        never large enough to need curating. At the wire the funnel's final
+        guard stops an oversized request from leaving, so what shows the
+        overflow is that it had to cut messages to send one."""
         stub, _ = self._run(curation.CurationPolicy(enabled=False))
-        worst = max(budget.history_tokens(h) for h in stub.histories)
-        self.assertGreater(worst, BUDGET_TOKENS)
+        self.assertTrue(stub.trimmed(), "the run never outgrew the window; the test is vacuous")
 
     def test_every_request_stays_sendable(self):
         """No `tool` entry may ever refer to a call that is not in the same

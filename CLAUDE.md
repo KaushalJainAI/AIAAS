@@ -393,6 +393,11 @@ rule names.
 - **Test hazards**: `cache.clear()` in `setUp` where credentials or the vision witness
   resolve (ids restart per test DB); `CredentialType` rows exist after migrate, so use
   `update_or_create`.
+- **Tests script the model at the wire** (`llm/testing.py`) or replay a provider
+  recording (`llm/recorded.py`); never patch `llm.access.stream`/`complete` or a judge
+  (`llm/tests/test_no_model_fakes.py` fails). Time moves by `workflow_backend/testclock.py`,
+  never by sleeping. Outbound HTTP goes through `workflow_backend.httpclient.shared_client`,
+  the seam both kits use. CI is `.github/workflows/` at the repo root (H-174).
 - **Paid runs** (benchmarks, calibration, eval proof runs) need the user's go-ahead.
 
 ---
@@ -566,6 +571,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `OPEN_WORK.md` — Every open item across all plans, in one list
 - `CONTEXT_LIFECYCLE.md` — How a long agent run stays inside its context window: the
   segment rule, the watermark, and the three builder toggles that drive it
+- `TESTING.md` — How tests are written: the scripted model, recorded provider HTTP, the frozen clock, and what is still not real
 - `EVALUATION.md` — Sub-agent evaluation: the grader registry, the sweep runner, and the supervision model (who checks the checker, and how agreement is measured)
 - `EVALUATION_PRODUCTION_PLAN.md` — The plan (implemented 2026-09-19; paid runs still need the user's go-ahead) to make eval production-grade: trustworthy numbers + a deploy gate, feedback capture for future traffic, and external benchmarks (IFEval, GAIA, DABstep, …) including the "platform tax" comparison against the bare model
 - `EVAL_ENVIRONMENTS_PLAN.md` — The plan (proposed 2026-09-24; E-1–E-5 built 2026-09-24, E-6 paid proof runs still need the user's go-ahead) for judge-generated test worlds: an `EvalWorld` per suite (planted facts + fixtures across files, KB, mailbox, calendar, drive, a frozen web), simulators behind `AgentToolbox.dispatch` so an eval never touches the owner's real data or real services, expected answers set by the judge only and re-derived blind, and chat tools that only ever make drafts

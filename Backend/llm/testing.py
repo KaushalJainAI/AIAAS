@@ -13,11 +13,14 @@ This kit replaces the network, and nothing above it:
     handler  (OpenRouterNode, ...)    real: payload, SSE parsing, error shape
     httpx client                      SCRIPTED here, the only fake
 
-Seam: `llm.handlers.openai_compatible.shared_client`, the one place every
-OpenAI-compatible call leaves the process. It is replaced by an `httpx.AsyncClient`
-on a `MockTransport`. The transport answers each request with the next scripted
-step, as the provider's wire format (JSON for `complete`, server-sent events for
-`stream`). Each request is recorded as it went over the wire.
+Seam: `workflow_backend.httpclient.shared_client`, the pooled client every
+outbound call uses, wherever a module imported it (`shared_client_seams`). It is
+replaced by an `httpx.AsyncClient` on a `MockTransport`. The transport answers
+each chat-completions request with the next scripted step, as the provider's
+wire format (JSON for `complete`, server-sent events for `stream`); any other
+route is refused and named by `check()`. So the funnel's calls and direct ones
+(the injection check in `core/safety/moderation.py`) draw on the same script.
+Each request is recorded as it went over the wire.
 
 Credentials: no patch. `_build_request` finds no credential for the test user
 and falls back to the platform key, so the kit sets that key's environment
@@ -42,12 +45,36 @@ import json
 import os
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Union
+from typing import Any, Callable, Iterator, Union
 from unittest import mock
 
 import httpx
 
 from llm.handlers import openai_compatible
+from workflow_backend import httpclient
+
+
+def shared_client_seams() -> list[tuple[Any, str]]:
+    """Every module attribute that is `workflow_backend.httpclient.shared_client`.
+
+    Modules import it by name (`from workflow_backend.httpclient import
+    shared_client`), so patching the one in `httpclient` alone would miss them,
+    and listing them here would miss the next one. A function-level import
+    reads the `httpclient` attribute at call time, which is patched too.
+    """
+    import sys
+
+    original = httpclient.shared_client
+    seams: list[tuple[Any, str]] = [(httpclient, "shared_client")]
+    for module in list(sys.modules.values()):
+        if module is None or module is httpclient:
+            continue
+        try:
+            if getattr(module, "shared_client", None) is original:
+                seams.append((module, "shared_client"))
+        except Exception:  # noqa: BLE001 - lazy modules may raise on getattr
+            continue
+    return seams
 
 DEFAULT_PROVIDER = "openrouter"
 #: A model id from CLAUDE.md's model table. The kit never checks the catalogue,
@@ -119,6 +146,9 @@ class Reply:
     reasoning: str = ""
     calls: tuple[ToolCallSpec, ...] = ()
     usage: Usage | None = None
+    #: Sources the provider cites, sent the way Perplexity and xAI send them:
+    #: a top-level `citations` array on a stream frame.
+    citations: tuple[dict[str, Any], ...] = ()
 
     def __add__(self, other: object) -> "Reply":
         if not isinstance(other, Reply):
@@ -128,6 +158,7 @@ class Reply:
             reasoning=self.reasoning + other.reasoning,
             calls=self.calls + other.calls,
             usage=other.usage or self.usage,
+            citations=self.citations + other.citations,
         )
 
 
@@ -151,12 +182,25 @@ class Hang:
     """The provider never answers. Ends only when the caller cancels."""
 
 
-Step = Union[Reply, Failure, ProviderError, Hang]
+@dataclass(frozen=True)
+class Always:
+    """Answers every remaining call by asking `respond(request)` for a step.
+
+    For a model whose answer depends on what it was sent, for as many calls
+    as the code makes: "call a tool while tools are offered, answer once they
+    are withheld". It is never used up, so it goes last in a script.
+    """
+
+    respond: Callable[["ScriptedRequest"], Any]
 
 
-def text(content: str, *, usage: Usage | None = None) -> Reply:
-    """A plain answer."""
-    return Reply(content=content, usage=usage)
+Step = Union[Reply, Failure, ProviderError, Hang, Always]
+
+
+def text(content: str, *, usage: Usage | None = None,
+         citations: list[dict[str, Any]] | None = None) -> Reply:
+    """A plain answer, optionally citing sources: `citations=[{"url": ..., "title": ...}]`."""
+    return Reply(content=content, usage=usage, citations=tuple(citations or ()))
 
 
 def reasoning(content: str) -> Reply:
@@ -184,15 +228,33 @@ def hang() -> Hang:
     return Hang()
 
 
+def always(respond: Callable[["ScriptedRequest"], Any]) -> Always:
+    """Answer every remaining call with `respond(request)`, which returns a step.
+
+        def relentless(request):
+            if request.tools_offered:
+                return tool_call("update_todos", {...})
+            return text("Stopped at the limit.")
+
+        with scripted_model(always(relentless)) as model: ...
+    """
+    return Always(respond)
+
+
+_ONE_SHOT = (Reply, Failure, ProviderError, Hang)
+
+
 def _flatten(steps: tuple[Any, ...]) -> list[Step]:
     if len(steps) == 1 and isinstance(steps[0], (list, tuple)):
         steps = tuple(steps[0])
-    for step in steps:
-        if not isinstance(step, (Reply, Failure, ProviderError, Hang)):
+    for position, step in enumerate(steps):
+        if not isinstance(step, (*_ONE_SHOT, Always)):
             raise TypeError(
                 f"not a scripted step: {step!r}. Use text(), reasoning(), "
-                "tool_call(), fail(), provider_error() or hang()."
+                "tool_call(), fail(), provider_error(), hang() or always()."
             )
+        if isinstance(step, Always) and position != len(steps) - 1:
+            raise TypeError("always() answers every remaining call, so it must come last")
     return list(steps)
 
 
@@ -304,10 +366,14 @@ class ScriptedModel:
         self._steps.extend(_flatten(steps))
 
     def assert_consumed(self) -> None:
-        """Fail if the script has steps the model never asked for."""
-        if self._steps:
+        """Fail if the script has steps the model never asked for.
+
+        A trailing `always()` is open-ended, so it never counts as unused.
+        """
+        unused = [s for s in self._steps if not isinstance(s, Always)]
+        if unused:
             raise AssertionError(
-                f"{len(self._steps)} scripted step(s) were never used; "
+                f"{len(unused)} scripted step(s) were never used; "
                 f"the model was called {len(self.requests)} time(s)"
             )
 
@@ -367,7 +433,14 @@ class ScriptedModel:
             # reaches check() through `_problem`.
             raise AssertionError(message)
 
-        step = self._steps.pop(0)
+        if isinstance(self._steps[0], Always):
+            step = self._steps[0].respond(self.requests[-1])
+            if not isinstance(step, _ONE_SHOT):
+                message = f"always(): call {index} was answered with {step!r}, not a step"
+                self._problem = self._problem or message
+                raise AssertionError(message)
+        else:
+            step = self._steps.pop(0)
         if isinstance(step, Hang):
             await asyncio.Event().wait()  # never set: ends only when cancelled
         if isinstance(step, Failure):
@@ -400,6 +473,8 @@ class ScriptedModel:
             frame([{"index": 0, "delta": {"reasoning": reply.reasoning}}])
         if reply.content:
             frame([{"index": 0, "delta": {"content": reply.content}}])
+        if reply.citations:
+            frame([], citations=list(reply.citations))
         # Each call's name and arguments arrive in separate deltas, as providers
         # send them, so the accumulator's reassembly runs for real.
         for k, (call, call_id) in enumerate(zip(reply.calls, self._call_ids(reply, index))):
@@ -428,13 +503,16 @@ class ScriptedModel:
                  "function": {"name": call.name, "arguments": json.dumps(call.arguments)}}
                 for call, call_id in zip(reply.calls, self._call_ids(reply, index))
             ]
-        return {
+        completion = {
             "id": f"scripted-{index}", "object": "chat.completion",
             "model": body.get("model", self.model),
             "choices": [{"index": 0, "message": message,
                          "finish_reason": "tool_calls" if reply.calls else "stop"}],
             "usage": (reply.usage or Usage()).as_wire(),
         }
+        if reply.citations:
+            completion["citations"] = list(reply.citations)
+        return completion
 
     # ── installation ──
 
@@ -445,9 +523,8 @@ class ScriptedModel:
         env_name = _PLATFORM_KEY_ENV[self.provider]
         try:
             with ExitStack() as stack:
-                stack.enter_context(mock.patch.object(
-                    openai_compatible, "shared_client", new=lambda: client,
-                ))
+                for module, attr in shared_client_seams():
+                    stack.enter_context(mock.patch.object(module, attr, new=lambda: client))
                 # Connection retries sleep between attempts. A test that wants
                 # to see a retry can patch the delays itself.
                 stack.enter_context(mock.patch.object(
