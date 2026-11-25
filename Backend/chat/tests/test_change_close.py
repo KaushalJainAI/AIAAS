@@ -10,7 +10,7 @@ resumed turn records into that same set; the final assistant message gets
 closes the set too.
 
 The turn tests drive `run_chat_turn` the way `chat/tests/test_pipeline.py` does,
-with the provider faked at the boundary. The tool that changes something is a
+with the model scripted at the wire (`llm.testing`). The tool that changes something is a
 stub that records one untracked change through the live binding, so the real
 dispatch path (`_dispatch_one` binds the chat owner around each call) runs.
 """
@@ -27,11 +27,12 @@ from django.core.cache import cache
 from django.test import TestCase
 
 from chat.models import ChatMessage, ChatSession
-from chat.tests.test_pipeline import Recorder, text_stream, tool_then_answer
+from chat.tests.test_pipeline import Recorder, tool_then_answer
 from chat.turn import pipeline
 from chat.turn.agent import TurnResult
 from chat.turn.pipeline import TurnRequest, run_chat_turn
 from logs import changes
+from llm.testing import scripted_model, text
 from logs.models import Change, ChangeSet, ExecutionLog
 from django.utils import timezone
 
@@ -219,8 +220,8 @@ class FinalMessageTests(ChangeCase):
 
         return list(AVAILABLE_TOOLS)
 
-    def _run(self, content: str, *, stream) -> Any:
-        with patch('llm.access.stream', stream):
+    def _run(self, content: str, *, script) -> Any:
+        with scripted_model(script):
             return async_to_sync(run_chat_turn)(
                 session=self.chat, user=self.user,
                 request=TurnRequest.parse({'content': content}), sink=Recorder())
@@ -232,7 +233,7 @@ class FinalMessageTests(ChangeCase):
             return json.dumps({'ok': True})
 
         with patch('chat.tools.execute_tool', changing_tool):
-            outcome = self._run('change it', stream=tool_then_answer(
+            outcome = self._run('change it', script=tool_then_answer(
                 'web_search', {'query': 'q'}, 'Changed it.'))
 
         metadata = outcome.assistant_message.metadata
@@ -245,7 +246,7 @@ class FinalMessageTests(ChangeCase):
 
     def test_a_turn_that_changed_nothing_has_no_changes_key(self):
         with patch('chat.tools.execute_tool', self._inert_tool):
-            outcome = self._run('hello', stream=text_stream('Hi there.'))
+            outcome = self._run('hello', script=[text('Hi there.')])
 
         self.assertNotIn('changes', outcome.assistant_message.metadata)
 
