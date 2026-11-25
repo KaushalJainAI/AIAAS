@@ -5,7 +5,7 @@ detail. When you finish one, delete its line here and update the source doc.
 Compiled 2026-11-16 from the plan docs.
 
 ## Not built yet
-- **Undo:** "Undo this run" (change sets, revert that never overwrites newer work) and "Undo send" (a ~20 s hold on watched sends). Proposed 2026-11-23, Phases 0–9 not started. [UNDO_PLAN](UNDO_PLAN.md)
+- **Undo:** built 2026-11-25 (undeployed). Not yet checked by hand in a browser or on a phone. Open: adapter refusals (WhatsApp 24 h window) surface ~20 s late as a failed hold; the receipt cannot say "queued" (the trace has no tool output); a chat turn that dies on an unusual error leaves its set `open` (harmless after 10 idle minutes); Google reversals, redo, code-workspace changes and calendar holds are out of scope (§10). [UNDO_PLAN](UNDO_PLAN.md)
 - **Off-VM backups.** The nightly database dump and the uploads volume stay on the production VM's own disk; nothing copies them to a bucket, and there is no disk snapshot schedule. [DEPLOYMENT.md §7](../../DEPLOYMENT.md)
 - **`/code` page** (the Code tab for the coding team). Needs a workspace engine, which is also not built. [PLATFORM_CAPABILITIES_PLAN](PLATFORM_CAPABILITIES_PLAN.md), [CODING_AGENTS_PLAN](CODING_AGENTS_PLAN.md), [GAP_CLOSURE_PLAN](GAP_CLOSURE_PLAN.md)
 - **Mission board.** Missions show as a section of the Activity page instead. [PLATFORM_CAPABILITIES_PLAN](PLATFORM_CAPABILITIES_PLAN.md)

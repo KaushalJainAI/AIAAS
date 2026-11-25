@@ -112,8 +112,22 @@ A message or email sent while a person is watching waits `OUTBOUND_HOLD_SECONDS`
 | Only attended sends wait. Unattended runs (`trigger`, `orchestrator`, `mission`) and evals send at once, as before | `messaging/holds.py::should_hold` |
 | A held send is claimed by one conditional `UPDATE`. Cancel, Send now, the timer and the sweep cannot send it twice | `messaging/holds.py::deliver`, `cancel`, `send_now` |
 | A send interrupted mid-delivery is never retried. Stuck in `sending` for 5 minutes, it becomes `unknown`, and the user is told it may or may not have gone out | `messaging/holds.py::sweep` |
+| A held WhatsApp or SMS message is billed when it is delivered, so a cancelled one costs nothing | `chat/tools/talk.py::record_held_cost` |
 | A cancelled hold still counts toward the daily cap, which is the conservative choice | `core/safety/outbound.py` |
 | The user can list, cancel and send-now only their own holds. A foreign id and an unknown id get the same 404 | `messaging/views.py` (`hold_*`) |
+
+#### Undo changes (undo plan D1–D3, D8, D16–D18)
+
+What an agent changed can be put back from the chat answer or the run page. An undo must never cost the user work they did since, so it skips rather than overwrites.
+
+| Rule | Code |
+|---|---|
+| Every tool call is bound to its owner (the user's chat message, or the run), or explicitly to none, so an inline child never records into its parent's list | `chat/turn/agent.py::_dispatch_one`, `logs/changes.py::bind` |
+| File changes are recorded in the agent's own file door, never in the shared save code that also renders a user's pending draft | `inference/vfs.py`, `inference/versions.py::snapshot` |
+| A target changed since the run (by the user or another run) is skipped with a plain note, never overwritten; there is no force option | `logs/undo.py` (`_revert_document`, `_revert_folder`) |
+| A revert is refused while the run, or any worker it started, is still live, and two presses cannot both run (one conditional update; a lock older than 10 minutes, left by a dead process, can be taken over) | `logs/undo.py::revert`, `live_reason` |
+| What we cannot undo (a sent email, an outside tool) is still listed, as "can't be undone from here", instead of vanishing | `chat/turn/agent.py::_journal_untracked` |
+| Only the owner can see or revert a change set; a foreign id and an unknown id get the same 404 | `logs/views.py` (`change_set_*`) |
 
 ### Layer 6 — Content and the law
 
