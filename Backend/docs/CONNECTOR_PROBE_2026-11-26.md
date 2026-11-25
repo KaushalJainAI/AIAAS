@@ -30,3 +30,17 @@ It does not prove that a real key works, that the response has the shape the car
 | woocommerce | `GET /products` | - | SKIPPED | needs field store |
 
 Probed 23 cards: 17 REACHABLE, 1 WARN, 0 FAIL, 5 SKIPPED.
+
+## Field cards, probed by hand (2026-11-26)
+
+Run with `--field` and generic values, since probe mode has no example values.
+
+| Card | Field given | Status | Verdict |
+|---|---|---|---|
+| jotform | `region=api` | 401 | REACHABLE |
+| mailchimp | `dc=us1` | 403 | REACHABLE |
+| contentful | `space_id=aiaasprobe` (made up) | 404 | Inconclusive: the space id is in the path, so a made-up one is a 404 whatever the key |
+| freshdesk | `subdomain=aiaasprobe` (made up) | no DNS | Inconclusive: needs a real Freshdesk subdomain |
+| woocommerce | not run | - | Needs a real store host |
+
+Cloudflare's 400 on `/user/tokens/verify` is Cloudflare refusing a token in the wrong format, which it reports as 400 rather than 401.
