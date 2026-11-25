@@ -112,6 +112,8 @@ const KIND_OF: Record<string, Kind> = {
   browser_act: BROWSER,
   execute_python: CODE,
   run_python_on_files: CODE,
+  execute_javascript: CODE,
+  run_command: CODE,
   ws_run: CODE,
   workspace_exec: CODE,
   knowledge_base_search: KNOWLEDGE,

@@ -1,27 +1,59 @@
-# The sandbox sidecar image. It runs untrusted, LLM-authored Python, so it is
-# built to hold nothing worth stealing and to have nowhere to send it: no
-# application code, no credentials, no network egress (enforced by compose).
+# The sandbox sidecar image. It runs untrusted, LLM-authored Python and
+# JavaScript, and a fixed list of text commands, so it is built to hold
+# nothing worth stealing and to have nowhere to send it: no application code,
+# no credentials, no network egress (enforced by compose).
 #
-# The container is the security boundary. runner.py + executor.py add per-run
-# resource limits and a seccomp filter on top; see their docstrings.
+# The container is the security boundary. runner.py, launch.py and
+# executor.py add per-run resource limits and seccomp filters on top; see
+# their docstrings.
+
+# Only the `node` binary is taken from this image: no npm, no npx, no package
+# cache. Code runs on Node's standard library (TypeScript is stripped by Node
+# itself), so there is nothing to install and nothing to fetch.
+FROM node:22.18.0-bookworm-slim AS node
+
 FROM python:3.12-slim
 
 # libgomp1 is numpy/BLAS's OpenMP runtime; without it `import numpy` fails.
+# libstdc++6 is Node's C++ runtime. gawk, jq, unzip, file and bsdextrautils
+# (`column`) are the parts of the `run_command` allowlist (commands.py) that
+# the slim base does not already ship.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 libseccomp2 \
+    && apt-get install -y --no-install-recommends \
+        libgomp1 libseccomp2 libstdc++6 \
+        gawk jq unzip file bsdextrautils \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY runner.py executor.py server.py ./
+COPY runner.py launch.py commands.py executor.py server.py ./
 
-# A non-root user with no home and no shell. Combined with compose's
-# `read_only: true` + a small tmpfs on /tmp, the process can write only to
-# scratch space that vanishes with the container.
-RUN useradd --no-create-home --shell /usr/sbin/nologin sandbox
-USER sandbox
+# Fail the build, not a run, if a command on the allowlist is missing from
+# the image, or if Node cannot start.
+RUN python -c "import commands, os, sys; missing = [n for n, c in commands.COMMANDS.items() if not os.access(c.path, os.X_OK)]; sys.exit('allowlisted but not installed: ' + ', '.join(missing) if missing else 0)" \
+    && node --version
+
+# One user per concurrency slot (sbx1..sbx8, uid = gid = 20000 + slot), no
+# home, no shell. Every run executes as its slot's user, so runs at the same
+# time cannot read each other's folders, and everything a slot's user owns is
+# killed between runs (executor.py).
+#
+# The server itself therefore runs as root, but a root with almost nothing:
+# compose drops every capability except SETUID/SETGID (to become a slot user),
+# CHOWN (to hand the run folder to it) and DAC_OVERRIDE (to read outputs back
+# and delete the folder). It never runs model-written code; a child becomes
+# its slot's user before anything else, which clears all of those. Combined
+# with `read_only: true` + a small tmpfs on /tmp, a run can write only to its
+# own folder, which vanishes with the run.
+RUN for n in 1 2 3 4 5 6 7 8; do \
+        groupadd --gid $((20000 + n)) sbx$n \
+        && useradd --uid $((20000 + n)) --gid $((20000 + n)) \
+            --no-create-home --shell /usr/sbin/nologin sbx$n ; \
+    done
 
 ENV SANDBOX_HOST=0.0.0.0 \
     SANDBOX_PORT=8100 \

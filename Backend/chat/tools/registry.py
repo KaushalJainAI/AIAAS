@@ -27,8 +27,10 @@ from typing import Any, Awaitable, Callable, Dict, Iterator, Literal
 #: a speech engine must be configured (`voice/stt.py`, `voice/tts.py`);
 #: `esign` — an e-signature provider must be configured (`esign/provider.py`);
 #: `workspace` — a compute workspace engine must be configured
-#: (`workspaces/engine.py`).
-Requirement = Literal["memory", "vision", "spill", "files", "browser", "stt", "tts", "esign", "workspace", "agent_run"]
+#: (`workspaces/engine.py`); `sidecar` — the code sandbox must be the hardened
+#: sidecar (`sandbox/engine.py::sidecar_available`), which JavaScript and
+#: `run_command` need because nothing in-process could confine them.
+Requirement = Literal["memory", "vision", "spill", "files", "browser", "stt", "tts", "esign", "workspace", "agent_run", "sidecar"]
 
 #: What running this tool does to the world, which is what an autonomy level
 #: actually needs to know. `sensitive` answers "ask in chat"; this answers "how

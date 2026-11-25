@@ -49,6 +49,8 @@ from agents.grants import (  # noqa: F401 — re-exported for existing callers
     CODE_COMMAND_CLASSES,
     GRANT_TOOLS,
     RETRIEVAL_TOOLS,
+    SANDBOX_RUN_TOOLS,
+    SIDECAR_ONLY_TOOLS,
     UNATTENDED_CALLERS,
     UNSERVED_GRANTS,
 )
@@ -246,6 +248,11 @@ class AgentToolbox:
 
             if not workspace_available():
                 names -= set(GRANT_TOOLS['shell'])
+        if names & SIDECAR_ONLY_TOOLS:
+            from sandbox.engine import sidecar_available
+
+            if not sidecar_available():
+                names -= SIDECAR_ONLY_TOOLS
         if self.file_scope is None:
             # Granted `fileOps` but `fileAccess='none'` — the two settings
             # disagree, and the safe reading is the narrower one. Withheld
@@ -459,7 +466,7 @@ class AgentToolbox:
             from mcp_integration.tool_provider import MCPToolProvider
             return await MCPToolProvider.execute(name, args, self.user_id)
 
-        if name in ('execute_python', 'run_python_on_files') and not self.grants.get('codeExecution'):
+        if name in GRANT_TOOLS['codeExecution'] and not self.grants.get('codeExecution'):
             return _denied(name, 'code execution')
 
         if self.tool_permissions.get(name) == 'deny':
@@ -872,13 +879,13 @@ def sensitive_tools_for(autonomy: str, toolbox: AgentToolbox) -> frozenset[str]:
     if autonomy in ('full', 'plan'):
         return frozenset()
     if autonomy == 'review':
-        return toolbox.allowed_names | {'execute_python'}
+        return toolbox.allowed_names | SANDBOX_RUN_TOOLS
     if autonomy == 'auto':
         from chat.tools import names_with_effect
         return names_with_effect('irreversible')
     # 'ask': the calls with side effects outside our own walls.
     from chat.tools import SENSITIVE_TOOLS
-    return frozenset(SENSITIVE_TOOLS) | {'execute_python'}
+    return frozenset(SENSITIVE_TOOLS) | SANDBOX_RUN_TOOLS
 
 
 def lifted_autonomy(own: str, parent: str, caller: str = '') -> str:

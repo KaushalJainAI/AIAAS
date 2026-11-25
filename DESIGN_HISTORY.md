@@ -3730,7 +3730,44 @@ The search_solutions rule moved into `AGENT_CORE_RULES`, so it is not said twice
 
 Rule: nothing in `PLATFORM_OPENER`, `CORE_RULES` or `AGENT_CORE_RULES` may depend on the user, agent, run or clock. `CacheOrderTests` and `test_the_fixed_rules_lead_and_the_date_is_last` pin the order.
 
-## H-169 · A send waits for the person watching (2026-11-24)
+## H-169 · JavaScript and allowlisted commands in the sandbox, and no program the model chose (2026-11-24)
+
+Files: Backend/sandbox_service/commands.py, Backend/sandbox_service/launch.py, Backend/sandbox_service/executor.py, Backend/sandbox_service/runner.py, Backend/sandbox_service/server.py, Backend/sandbox_service/Dockerfile, Backend/sandbox/engine.py, Backend/sandbox/service_client.py, Backend/chat/tools/sandbox.py, Backend/agents/grants.py, Backend/agents/agent/runtime.py, Backend/sandbox_service/tests/test_commands.py, Backend/sandbox_service/tests/test_languages.py, Backend/chat/tests/test_sandbox_languages.py
+
+The sidecar ran only Python. It now also runs JavaScript/TypeScript (`execute_javascript`) and a pipeline of allowlisted text commands (`run_command`). Both are `read`, ride the `codeExecution` grant, and exist only on the sidecar (`requires="sidecar"`, `SIDECAR_ONLY_TOOLS`): the in-process engine cannot confine Node or a native program, so on it they are not offered.
+
+**The user's rule was "prebuilt commands, not any bash command".** Three things make that true rather than nominal:
+1. **No shell anywhere.** A stage is a command name plus an argument list, exec'd directly, so shell syntax in an argument is text. The allowlist (`commands.py::COMMANDS`, authoritative; `RUN_COMMAND_NAMES` is the model's copy, kept equal by a test) holds text tools only and leaves out anything that can start a program: shells, interpreters, `env`, `xargs`, `find`, `timeout`, `tar`, `zip`, `split`, `sqlite3`. `sed` and gawk always get `--sandbox`; `sort --compress-program` is refused, including getopt's prefix spellings.
+2. **One `execve` per process** (`launch.py`). Each stage installs a seccomp filter in which `execve` passes only when its path pointer is the buffer we filled, then exec's with that buffer. A flag the allowlist missed still cannot start a second program: gawk *without* `--sandbox` cannot run `system("id")`. It fails closed if pyseccomp is missing.
+3. **Python lost `execve` too** (`runner.py`). Before this, `subprocess.run(["bash", ...])` inside `execute_python` ran any command at all, which would have made the allowlist pointless. numpy and pandas don't exec; the filter is still best-effort there because it predates this guard.
+
+**Node** is the bare binary from `node:22.18.0-bookworm-slim` (no npm), with `--permission` (no child processes, workers, addons, or files outside the run folder) and a heap cap. Measured: V8 needs ~1 GB of *address space* to start, so the sidecar's `RLIMIT_AS` killed it at 256 and 512 MB; Node runs are capped with `RLIMIT_DATA`, which still fails a 600 MB allocation under 256 MB. TypeScript is stripped by Node itself (`--input-type=module-typescript`, `--experimental-transform-types` for enums, warning suppressed). Node's permission model does not block sockets; the seccomp network block and the network-less container do.
+
+**Known gap, not new:** all runs share one uid in one container, so a run could read a *concurrent* run's `/tmp/sbx-*` folder. Same for Python before this change. Fixing it needs a uid per slot or a container per run.
+
+Tests run in the real image with prod's flags (read-only, cap_drop ALL, no-new-privileges, no network): `sandbox_service/tests/test_languages.py`. They skip on Windows.
+
+## H-170 · A Unix user per sandbox slot, and nothing alive between runs (2026-11-24)
+
+Files: Backend/sandbox_service/executor.py, Backend/sandbox_service/server.py, Backend/sandbox_service/Dockerfile, docker-compose.yml, docker-compose.prod.yml, Backend/sandbox_service/tests/test_isolation.py
+
+**The leak, measured.** Every sandbox run used to execute as the same user in one container. A Python run forked a child that called `setsid` (leaving the process group, so the timeout `killpg` missed it) and closed its pipes, so the run finished normally. The child lived on and read the *next* run's input file out of `/tmp/sbx-*`. That is one user reading another's documents, and it predates `run_command` (H-169 called it a concurrent-only gap; it was worse).
+
+**The fix: a user per slot.** The server's concurrency semaphore became a queue of slot numbers. Slot *n* runs as uid/gid `20000 + n` (`sbx1`..`sbx8` in the Dockerfile):
+- The run's folder (`work/` as cwd, `tmp/` as HOME and TMPDIR) is chowned to that user with mode 0700, and `/tmp` is 0711 (set by compose, and by the executor on first use), so a run cannot list `/tmp` or write to it.
+- Before and after every run, `_reap` runs `kill(-1, SIGKILL)` *as the slot's user*. Linux reaches every process that user owns, setsid or not, and nothing of anyone else's, so the server needs no `CAP_KILL`. A timeout reaps the same way.
+- `RLIMIT_NPROC` caps a slot at 64 processes, so a fork bomb is bounded per slot.
+- `init: true` makes tini PID 1, so killed orphans are reaped instead of piling up against `pids_limit`.
+
+**Root with four capabilities.** Switching users needs privilege, so the server now runs as root with `cap_drop: ALL` plus `SETUID`, `SETGID`, `CHOWN` and `DAC_OVERRIDE` (to read outputs and delete the folder). It never runs model code: `subprocess` switches the child to the slot's user before `preexec_fn`, and leaving uid 0 clears every capability. `_slot_user` refuses to run anything as root without a valid slot, so forgetting the argument fails instead of running untrusted code as root. Off the image (Windows, a non-root Linux dev box) there is no user to switch to, and runs execute as the caller, as before.
+
+**Still not isolated** (measured, documented in SANDBOX_EXECUTION.md and SAFETY_AND_GUARDRAILS.md gap 11): `/proc` has no `hidepid`, so a run can read the *command line* of a `run_command` stage in the other slot at the same moment, for example a grep pattern. Files, stdin, environment and open files stay private. Python and JavaScript code travels on stdin, not argv. The kernel is shared. The next steps are gVisor (`runtime: runsc`) or a microVM per user (`COMPUTE_ISOLATION_PLAN.md`). A userns/pid-namespace sandbox like bubblewrap would hide `/proc`, but it needs a custom seccomp profile allowing `unshare`, which widens the kernel attack surface.
+
+**Deploy:** the image and `docker-compose.prod.yml` must ship together. The new image without `cap_add` cannot switch users and every run fails. The old image with the new compose works, but it is not isolated.
+
+Tests: `sandbox_service/tests/test_isolation.py` (image only, as root): a run's uid, `/tmp` closed, another slot refused a run's file even given the exact path, the setsid spy dead before the next run, the fork bomb capped and cleaned up.
+
+## H-171 · A send waits for the person watching (2026-11-24)
 
 Files: Backend/messaging/holds.py, Backend/messaging/models.py, Backend/messaging/migrations/0003_pendingsend.py, Backend/messaging/views.py, Backend/messaging/urls.py, Backend/messaging/tasks.py, Backend/messaging/tests/test_holds.py, Backend/chat/tools/talk.py, Backend/chat/tools/google/gmail.py, Backend/chat/tests/test_gmail_hold.py, Backend/agents/scheduler.py, Backend/agents/tests/test_scheduler.py, Backend/notifications/models.py, Backend/notifications/migrations/0008_alter_notification_type.py, Backend/workflow_backend/settings/base.py, Backend/.env.example, Backend/docs/API.md, Backend/docs/SAFETY_AND_GUARDRAILS.md, Backend/messaging/README.md, CLAUDE.md
 
@@ -3738,7 +3775,7 @@ A message or email sent while a person is watching now waits `OUTBOUND_HOLD_SECO
 
 Every change of state is one conditional `UPDATE` in `messaging/holds.py`. The timer, Cancel, Send now and the periodic sweep therefore cannot send the same message twice. A send interrupted mid-delivery is never retried. A row left in `sending` for five minutes becomes `unknown`, and the user is told it may or may not have gone out (D14). When the provider accepted a message and only our outbox write failed, the row is `sent`, because telling the user a delivered message was not sent would invite a second send. A cancelled hold still counts toward the daily cap (D13). The two tools were split into a checking half, which runs in the tool, and `deliver_message` / `deliver_gmail`, which the timer can call without a run's context. The unheld path returns exactly what it returned before, and tests pin that output.
 
-## H-170 · Undo is net effect per target, and never overwrites newer work (2026-11-24)
+## H-172 · Undo is net effect per target, and never overwrites newer work (2026-11-24)
 
 Files: Backend/logs/undo.py, Backend/logs/views.py, Backend/logs/urls.py, Backend/logs/serializers.py, Backend/logs/queries.py, Backend/logs/README.md, Backend/logs/tests/test_undo_documents.py, Backend/logs/tests/test_undo_api.py, Backend/docs/API.md, Backend/.importlinter, Backend/inference/versions.py, Backend/inference/recycle.py, Backend/inference/vfs.py, Backend/inference/office_edit.py
 
@@ -3748,7 +3785,7 @@ A revert is refused, not skipped, while a run or chat turn in the tree is still 
 
 Tests: `logs/tests/test_undo_documents.py`, `logs/tests/test_undo_api.py`.
 
-## H-171 · Change sets cross the detached boundary by id, and a worker's set exists from its first step (2026-11-25)
+## H-173 · Change sets cross the detached boundary by id, and a worker's set exists from its first step (2026-11-25)
 
 Files: Backend/logs/changes.py, Backend/chat/turn/agent.py, Backend/chat/turn/pipeline.py, Backend/chat/tools/agents.py, Backend/chat/tools/tasks.py, Backend/agents/agent/runtime.py, Backend/agents/tests/test_change_parent.py, Backend/chat/tests/test_change_close.py, Backend/logs/tests/test_undo_tree.py, Backend/workflow_backend/background.py
 
