@@ -44,6 +44,10 @@ class _Refuse(ValueError):
     """A use error: rendered as the tool's answer, not a traceback."""
 
 
+_INVALID_AUTH = ("This connection's stored sign-in is invalid, so the call was not "
+                 'sent. Save the connection again in its settings.')
+
+
 def _scope(context: Dict) -> dict | None:
     """This run's API scope, or None for any the user owns.
 
@@ -85,6 +89,26 @@ async def _connection(user_id: int, connection_id: int, context: Dict):
             f'Connection "{row.name}" is not selected for this run. Ask the '
             'user to select it in the agent\'s settings.')
     return row, scope[wanted], ''
+
+
+async def _card_refusal(row) -> str:
+    """Why this connection may not be called right now, or '' if it may.
+
+    A connection built from an API card follows the card's own switch: the
+    `MCPServer` row whose `icon_slug` is `card_slug` and whose `enabled` is the
+    kill switch. Turning a connector off in Connections has to stop the calls,
+    not only hide the card. A missing card row refuses too (fail closed).
+    """
+    if not row.card_slug:
+        return ''
+    from mcp_integration.models import MCPServer
+
+    live = await MCPServer.objects.filter(
+        kind='api', icon_slug=row.card_slug, enabled=True).aexists()
+    if live:
+        return ''
+    return (f'The "{row.name}" connector is turned off or no longer available, '
+            'so the call was not sent.')
 
 
 def _operations(spec: dict) -> list[dict]:
@@ -247,6 +271,9 @@ async def call_api(args: Dict, context: Dict) -> str:
     row, mode, error = await _connection(user_id, args.get('connection'), context)
     if row is None:
         return json.dumps({'error': error})
+    refusal = await _card_refusal(row)
+    if refusal:
+        return json.dumps({'error': refusal})
     method = str(args.get('method') or '').strip().upper()
     path = str(args.get('path') or '').strip()
     if not path.startswith('/'):
@@ -281,7 +308,11 @@ async def call_api(args: Dict, context: Dict) -> str:
     query = args.get('query') or {}
     if not isinstance(query, dict):
         return json.dumps({'error': '`query` must be an object.'})
-    headers, params = await _auth_headers(row, user_id, dict(query))
+    secrets: list[str] = []
+    try:
+        headers, params = await _auth_headers(row, user_id, dict(query), secrets)
+    except _Refuse as exc:
+        return json.dumps({'error': str(exc)})
     # The spec's fixed headers ride along, but never replace what auth set.
     taken = {name.lower() for name in headers}
     for name, value in _fixed_headers(row.openapi_spec or {}, method, path).items():
@@ -318,6 +349,7 @@ async def call_api(args: Dict, context: Dict) -> str:
         payload = resp.json()
     except ValueError:
         payload = {'text': resp.text[:await alimit(context, 'call_api', 'responseChars')]}
+    payload = _redacted(payload, secrets)
     text = json.dumps(payload, default=str)
     if len(text) > TOOL_OUTPUT_CHAR_LIMIT:
         return await _save_text(context, row, path, text)
@@ -335,10 +367,12 @@ async def _check(target: str, hosts: list) -> tuple[bool, str]:
     return check_egress(target, scope) if '://' in target else (False, 'Bad URL.')
 
 
-async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
+async def _auth_headers(row, user_id: int, query: dict,
+                        secrets: list[str]) -> tuple[dict, dict]:
     """Auth from the vault reference. A model-supplied `Authorization` is
     dropped — the model names which credential to use by configuring the
-    connection, never by handing over a value."""
+    connection, never by handing over a value. Every resolved credential value
+    is appended to `secrets`, so the response can be scrubbed of it."""
     from credentials.refs import aresolve_refs
 
     headers = {'User-Agent': 'AIAAS/1.0'}
@@ -348,7 +382,7 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
     params = dict(query)
     params.pop('Authorization', None)
     if kind == 'template':
-        return await _template_auth(auth, user_id, headers, params)
+        return await _template_auth(auth, user_id, headers, params, secrets)
     if not ref:
         return headers, params
     try:
@@ -359,6 +393,7 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
     value = str(resolved.get('v') or '')
     if not value:
         return headers, params
+    secrets.append(value)
     if kind == 'bearer':
         headers['Authorization'] = f'Bearer {value}'
     elif kind == 'basic':
@@ -373,7 +408,7 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
 
 
 async def _template_auth(auth: dict, user_id: int, headers: dict,
-                        params: dict) -> tuple[dict, dict]:
+                        params: dict, secrets: list[str]) -> tuple[dict, dict]:
     """Auth built from a card's template parts (`datasources/auth_template.py`).
 
     Every placeholder resolves in one `aresolve_refs` call, against the one
@@ -386,14 +421,18 @@ async def _template_auth(auth: dict, user_id: int, headers: dict,
     slug = str(auth.get('credential_type') or '').strip()
     try:
         parts = check_parts(auth.get('parts') or [])
-    except ValueError:
+    except ValueError as exc:
         logger.exception('[API] Stored auth template is invalid')
-        return headers, params
+        raise _Refuse(_INVALID_AUTH) from exc
     names = part_placeholders(parts)
     if not slug or not names:
         # Nothing to fill: static parts (or none) still apply.
         if parts and not names:
-            extra_headers, extra_params = apply_parts(parts, {})
+            try:
+                extra_headers, extra_params = apply_parts(parts, {})
+            except ValueError as exc:
+                logger.exception('[API] Stored auth template could not be applied')
+                raise _Refuse(_INVALID_AUTH) from exc
             headers.update(extra_headers)
             params.update(extra_params)
         return headers, params
@@ -404,6 +443,7 @@ async def _template_auth(auth: dict, user_id: int, headers: dict,
         logger.exception('[API] Auth resolution failed')
         return headers, params
     values = {name: str(value or '') for name, value in zip(names, resolved['refs'])}
+    secrets.extend(values.values())
     if any(not value for value in values.values()):
         return headers, params
     try:
@@ -414,6 +454,27 @@ async def _template_auth(auth: dict, user_id: int, headers: dict,
     headers.update(extra_headers)
     params.update(extra_params)
     return headers, params
+
+
+def _redacted(value, secrets: list[str]):
+    """The response with every credential value blanked, at any depth.
+
+    A vendor can echo the key back (a debug endpoint, an error body quoting
+    the request). The model must not receive it, and neither may the copy
+    saved to the user's files. Walked value by value, not on the serialised
+    text, so a key holding a quote or backslash still matches.
+    """
+    if not secrets:
+        return value
+    from credentials.refs import redact
+
+    if isinstance(value, str):
+        return redact(value, secrets)
+    if isinstance(value, dict):
+        return {_redacted(k, secrets): _redacted(v, secrets) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redacted(v, secrets) for v in value]
+    return value
 
 
 def _slugs(ref: str) -> set[str]:

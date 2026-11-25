@@ -45,6 +45,10 @@ class PartsHelperTests(TestCase):
             'kind not known': [{'in': 'cookie', 'name': 'a', 'value': 'b'}],
             'unknown key': [{'in': 'header', 'name': 'A', 'value': 'b', 'extra': 1}],
             'header name with a space': [{'in': 'header', 'name': 'X Key', 'value': 'b'}],
+            'line break in a static value': [
+                {'in': 'header', 'name': 'revision', 'value': '2025\r\nX-Evil: 1'}],
+            'line break in a basic password': [
+                {'in': 'basic', 'user': '{apiKey}', 'password': 'X\nY'}],
             'empty value': [{'in': 'header', 'name': 'A', 'value': ''}],
             'not a list': {'in': 'header'},
             'two basic parts': [
@@ -231,3 +235,33 @@ class CallApiTemplateAuthTests(TestCase):
         self.assertEqual(spy.call_count, 1)
         self.assertEqual(headers['Authorization'], f'Bearer {SECRET}')
         self.assertEqual(params['key'], SECRET)
+
+    def _call_error(self, parts):
+        """Run call_api on a stored template and return its error, sending nothing."""
+        conn = ApiConnection.objects.create(
+            user=self.user, name=f'Broken {id(parts)}', base_url=PUBLIC_URL,
+            auth={'type': 'template', 'credential_type': 'tmpl-call', 'parts': parts},
+            allowed_methods=['GET'])
+        fake = mock.MagicMock()
+        fake.get = mock.AsyncMock()
+        with mock.patch('workflow_backend.httpclient.shared_client', return_value=fake):
+            out = json.loads(async_to_sync(execute_tool)(
+                'call_api', {'connection': conn.id, 'method': 'GET', 'path': '/zones'},
+                {'user_id': self.user.id, 'api_connections': {conn.id: 'all'}}))
+        fake.get.assert_not_awaited()
+        return out
+
+    def test_a_stored_static_part_with_a_line_break_is_a_tool_error(self):
+        # Written straight to the row, past the serializer, as an old row could be.
+        out = self._call_error([{'in': 'header', 'name': 'revision',
+                                 'value': '2025\r\nX-Evil: 1'}])
+        self.assertIn('error', out)
+        self.assertNotIn('status', out)
+
+    def test_a_stored_part_that_cannot_be_applied_is_a_tool_error_not_a_crash(self):
+        # The apply step is reached only by static parts; make it fail to prove
+        # the failure comes back as the tool's answer rather than an exception.
+        with mock.patch('datasources.auth_template.apply_parts',
+                        side_effect=ValueError('boom')):
+            out = self._call_error([{'in': 'header', 'name': 'revision', 'value': '2025'}])
+        self.assertIn('error', out)
