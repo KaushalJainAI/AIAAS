@@ -26,6 +26,7 @@ import type { Credential, CredentialType } from '../api/credentials';
 import { healthView, maskedKey } from '../lib/credentialHealth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import CredentialModal from '../components/credentials/CredentialModal';
+import CredentialBalanceLine from '../components/credentials/CredentialBalanceLine';
 import PageHeader from '../components/layout/PageHeader';
 import SearchInput from '../components/ui/SearchInput';
 import { cn } from '../lib/utils';
@@ -242,6 +243,9 @@ export default function Credentials() {
       <div className="pt-3 border-t border-border/60 space-y-2">
         {maskedKey(credential) && (
           <p className="font-mono text-[12px] text-muted-foreground truncate">{maskedKey(credential)}</p>
+        )}
+        {credentialTypes.find(t => t.id === credential.credential_type)?.slug === 'openrouter' && (
+          <CredentialBalanceLine credentialId={credential.id} />
         )}
         {!credential.is_verified && credential.last_error && (
           <p className="text-xs text-warning leading-relaxed line-clamp-2" title={credential.last_error}>

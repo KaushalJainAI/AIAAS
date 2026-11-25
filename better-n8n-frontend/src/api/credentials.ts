@@ -164,4 +164,30 @@ export const credentialsService = {
   },
 };
 
+/**
+ * What is left on an OpenRouter key, as the backend reads it from OpenRouter
+ * (`GET /credentials/{id}/balance/`). Money is in US dollars. A provider
+ * failure is a 200 with `available: false`, so the page can say why.
+ */
+export type CredentialBalance =
+  | {
+      available: true;
+      usage: number | null;
+      /** Null when the key has no limit. */
+      limit: number | null;
+      limit_remaining: number | null;
+      usage_daily: number | null;
+      usage_monthly: number | null;
+      is_free_tier: boolean;
+      /** Null when this key may not read the account's credits. */
+      account_credits_remaining: number | null;
+    }
+  | { available: false; reason: string };
+
+/** The balance of one OpenRouter credential. Other credential types are refused (400). */
+export async function getCredentialBalance(id: number): Promise<CredentialBalance> {
+  const response = await apiClient.get<CredentialBalance>(`/credentials/${id}/balance/`);
+  return response.data;
+}
+
 export default credentialsService;
