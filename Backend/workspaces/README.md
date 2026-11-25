@@ -23,12 +23,14 @@ repository. This app holds the records for it.
 
 | File | What it does |
 |---|---|
-| `engine.py` | The one door to a workspace (`ensure`, `exec`, `read`, `write`, `hibernate`, `destroy`). A stub today |
+| `engine.py` | The one door to a workspace (`ensure`, `exec`, `read`, `write`, `listdir`, `hibernate`, `destroy`). No engine exists yet, so every call raises |
 | `leases.py` | File locks for coding workers |
 | `reads.py` | Remembers the version of each file a run read, so an edit to a file that changed since is refused |
 | `awareness.py` | Tells running workers when a file they depend on changed |
-| `sweep.py` | Hibernates idle workspaces |
-| `views.py`, `urls.py` | A webhook for a finished job |
+| `sweep.py`, `tasks.py` | Hibernates idle workspaces. `tasks.py` is the Celery entry for it |
+| `views.py`, `urls.py` | `/api/workspaces/`: the webhook a finished job calls |
+| `models.py`, `apps.py` | The five models above; app config |
+| `management/commands/sweep_workspaces.py` | Runs the sweep by hand |
 
 ## Rules
 

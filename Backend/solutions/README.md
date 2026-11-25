@@ -30,7 +30,8 @@ records and search) and [`docs/ORG_KNOWLEDGE_PLAN.md`](../docs/ORG_KNOWLEDGE_PLA
 | `stale.py`, `tasks.py`, `management/commands/solutions_stale_sweep.py` | The weekly "may be out of date" digest |
 | `insights.py` | The curators' 30-day view. Counts only, never who searched |
 | `signatures.py`, `index.py` | Error fingerprints, and writing a solution into the indexes |
-| `views.py`, `urls.py` | `/api/solutions/` |
+| `views.py`, `urls.py` | `/api/solutions/`: list, detail, import, insights, review, publish, discard, approve, send back |
+| `models.py`, `admin.py`, `apps.py` | The models above; Django admin; app config |
 
 The chat tools (`search_solutions`, `get_solution`, `save_solution`, `review_solution`) are in `chat/tools/solutions.py`.
 
@@ -45,4 +46,4 @@ The chat tools (`search_solutions`, `get_solution`, `save_solution`, `review_sol
 
 `solutions/tests/`: `test_isolation.py` (the org boundary; read first),
 `test_search.py`, `test_capture.py`, `test_workflow.py`, `test_import.py`,
-`test_stale.py`, `test_insights.py`.
+`test_stale.py`, `test_insights.py`, `test_api.py`, `test_tools.py`.

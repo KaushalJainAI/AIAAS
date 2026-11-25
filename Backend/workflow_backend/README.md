@@ -26,11 +26,11 @@ Each entry point names its settings file. There is no top-level `settings.py`.
 | `thresholds.py` | Limits and numbers shared across apps (caps, prices, token rates) |
 | `observability.py` | Error reporting (Sentry). Off unless `SENTRY_DSN` is set |
 | `loopwatch.py` | Measures how often the event loop stalls |
-| `testclock.py` | Tests only: freeze the clock and move it (`frozen_clock`, `freeze_for`). See `Backend/docs/TESTING.md` |
+| `testclock.py` | Tests only: freeze the clock and move it (`frozen_clock`, `freeze_for`). See [`docs/TESTING.md`](../docs/TESTING.md) |
 
 ## Tests
 
 `workflow_backend/tests/`: `test_background.py`, `test_httpclient.py`,
-`test_import_contracts.py` (the layer rules in `Backend/.importlinter`),
-`test_release_db.py`, `test_testclock.py` (the clock, JWT expiry, a daily
-schedule).
+`test_loopwatch.py`, `test_observability.py`, `test_docker_context.py`,
+`test_release_db.py`, `test_testclock.py`, and `test_import_contracts.py`
+(the layer rules in [`.importlinter`](../.importlinter)).

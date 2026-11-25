@@ -27,7 +27,8 @@ Nothing is off until you add a connection.
 | `auth_template.py` | Template auth: the `parts` (header, query or Basic) a credential fills, with `{field}` placeholders. Validates parts, and builds headers and params from resolved values. Used by the serializer, by `call_api` and by API cards (`mcp_integration/card_template.py`) |
 | `catalogue/` | OpenAPI 3 spec files that API cards (`kind='api'`) point at. Only GET/HEAD operations, one marked `x-aiaas-check` |
 | `models.py`, `serializers.py` | The three models and their API shape. `ApiConnection.card_slug` records which API card built a connection |
-| `views.py`, `urls.py` | `/api/datasources/...` |
+| `views.py`, `urls.py` | Private CRUD for your tools, sharing, and the shared-tool install routes. Under `/api/datasources/` |
+| `apps.py` | App config |
 
 ## Rules
 

@@ -5,8 +5,7 @@ OAuth logins they connect (an OpenAI key, a Google login, a Slack token). Each
 secret is **encrypted** with `CREDENTIAL_ENCRYPTION_KEY` and is never sent back
 to the browser.
 
-Design: [`docs/SAFETY_AND_GUARDRAILS.md`](../docs/SAFETY_AND_GUARDRAILS.md) (the old
-`CREDENTIALS_AND_SECURITY.md` was folded into it).
+Security rules: [`docs/SAFETY_AND_GUARDRAILS.md`](../docs/SAFETY_AND_GUARDRAILS.md).
 
 ## Data (`models.py`)
 
@@ -31,6 +30,7 @@ Design: [`docs/SAFETY_AND_GUARDRAILS.md`](../docs/SAFETY_AND_GUARDRAILS.md) (the
 | `views.py`, `urls.py`, `serializers.py` | `/api/credentials/`. Its `balance` action (`GET /api/credentials/<id>/balance/`) shows what is left on an OpenRouter key |
 | `../llm/balance.py` | Asks OpenRouter what a key has left (`/api/v1/key`, optionally `/api/v1/credits`). Called by the `balance` action; lives in `llm/` because it is a provider call |
 | `management/commands/seed_connector_credentials.py` | Creates the credential types the connectors need. The migration calls the same code |
+| `admin.py`, `apps.py` | Django admin and app config |
 
 ## Rules
 
@@ -41,4 +41,4 @@ Design: [`docs/SAFETY_AND_GUARDRAILS.md`](../docs/SAFETY_AND_GUARDRAILS.md) (the
 
 ## Tests
 
-`credentials/tests/`: `test_credentials.py`, `test_refs.py`, `test_chatgpt_auth.py`, `test_browser_utils.py`, `test_health.py`.
+`credentials/tests/`: `test_credentials.py`, `test_refs.py`, `test_chatgpt_auth.py`, `test_browser_utils.py`, `test_health.py`, `test_balance.py`, `test_units.py`.

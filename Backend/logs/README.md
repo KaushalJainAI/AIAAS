@@ -41,6 +41,7 @@ Design: [`docs/AGENT_OBSERVABILITY.md`](../docs/AGENT_OBSERVABILITY.md).
 | `signals_api.py` | Records automatic quality signals |
 | `retention.py`, `tasks.py` | After `RUN_DETAIL_RETENTION_DAYS` (180), clears a finished run's reasoning and tool payloads. The run record stays. `manage.py purge_run_detail` runs it by hand |
 | `serializers.py` | API shape |
+| `admin.py`, `apps.py` | Django admin and app config |
 
 **Who writes the run records?** Not this app. `agents/agent/runtime.py` opens
 the `ExecutionLog`, and `agents/agent/stream.py` writes turns and steps as the
@@ -54,7 +55,6 @@ run goes.
 
 ## Tests
 
-`logs/tests/`: `test_turns.py`, `test_delegation.py`, `test_revisions.py`,
-`test_ledger.py`, `test_checkpoints.py`, `test_retention.py`, `test_activity_live.py`,
-`test_change_binding.py`, `test_change_record.py`, `test_undo_documents.py`,
-`test_undo_api.py`.
+`logs/tests/`. Start with `test_turns.py`, `test_revisions.py`, `test_retention.py`,
+`test_change_binding.py` and `test_undo_api.py`. The undo tests are the
+`test_undo_*` files.

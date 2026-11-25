@@ -13,8 +13,7 @@ the credential it needs. Two kinds of connection sit behind it:
   `MCPServer` row holds only the switch and the credential. Native is the
   default for these because a Node process per connector did not fit the box.
 
-Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
-`MCP_INTEGRATION.md` was folded into it).
+Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md). The connector list is in [`docs/CONNECTOR_CATALOGUE.md`](../docs/CONNECTOR_CATALOGUE.md).
 
 ## Data (`models.py`)
 
@@ -43,21 +42,19 @@ Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
 | `management/commands/connector_check.py` | `manage.py connector_check <icon_slug> --user <email> [--field n=v] [--enable]`: one live GET of a card's `x-aiaas-check` operation with the user's credential, PASS/FAIL, never prints a secret |
 | `oauth.py` | OAuth for remote MCP servers |
 | `views.py`, `urls.py`, `serializers.py` | `/api/mcp/servers/...` |
+| `admin.py`, `apps.py` | Django admin and app config |
 
 ## Rules
 
 - A local MCP server gets a short allow-listed environment, never the server's own (see `client.py::_build_subprocess_env`).
 - Listing tools never starts a server. Only calling a tool does.
 - In production `MCP_ALLOW_STDIO=False`, so local-process servers are refused.
-- Users cannot add their own servers (`MCP_CUSTOM_SERVERS_ENABLED=False`, every
-  environment). Their old rows are kept but reach no agent, and the owner can
-  still delete them. Connectors come from the curated catalogue
-  (`Backend/docs/CONNECTOR_CATALOGUE_PLAN.md`).
+- Users cannot add their own servers. `MCP_CUSTOM_SERVERS_ENABLED` is off by default. Old rows are kept but reach no agent, and the owner can still delete them. Connectors come from the curated catalogue ([plan](../docs/CONNECTOR_CATALOGUE_PLAN.md)).
 - Connector tools are offered only when the connection is live. A failed read means "not live".
 
 ## Tests
 
-`mcp_integration/tests/`: `test_connections.py`, `test_native_connectors.py`,
+`mcp_integration/tests/`. Start with `test_native_connectors.py`,
 `test_subprocess_env.py`, `test_supervisor.py`, `test_tool_pins.py`,
-`test_custom_servers_retired.py`, `test_setup_guide.py`, `test_api_cards.py`
-(template validator, card routes, kind split, `connector_check`).
+`test_custom_servers_retired.py`, and `test_api_cards.py` (template validator,
+card routes, `connector_check`).
