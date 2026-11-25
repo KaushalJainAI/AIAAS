@@ -86,6 +86,8 @@ diff.txt
 backupdata.json
 clean_backupdata.json
 pg_dump.sql
+# Connector API card specs (read-only OpenAPI documents, loaded by migrations 0026/0027).
+!datasources/catalogue/*.json
 
 # SSH keys & certificates
 *.pem

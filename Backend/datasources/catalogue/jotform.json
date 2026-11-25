@@ -1,0 +1,50 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Jotform API (read-only subset)",
+    "version": "1",
+    "description": "GET operations from the Jotform API v1 reference. Base URL: https://{region}.jotform.com (region api, eu-api or hipaa-api)"
+  },
+  "paths": {
+    "/user": {
+      "get": {
+        "summary": "Get user information",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "The account's name, email and type"}}
+      }
+    },
+    "/user/forms": {
+      "get": {
+        "summary": "Get the forms on your account",
+        "responses": {"200": {"description": "A list of forms"}}
+      }
+    },
+    "/form/{formID}/submissions": {
+      "get": {
+        "summary": "Get submissions for one form",
+        "parameters": [
+          {"name": "formID", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "A list of submissions"}}
+      }
+    },
+    "/user/submissions": {
+      "get": {
+        "summary": "Get submissions across all your forms",
+        "parameters": [
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "A list of submissions"}}
+      }
+    },
+    "/user/usage": {
+      "get": {
+        "summary": "Get monthly user usage",
+        "responses": {"200": {"description": "Submission counts and upload space used this month"}}
+      }
+    }
+  }
+}

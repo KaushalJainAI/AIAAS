@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PagerDuty REST API (read-only subset)",
+    "version": "2.0.0",
+    "description": "GET operations from the PagerDuty REST API reference. Base URL: https://api.pagerduty.com"
+  },
+  "paths": {
+    "/abilities": {
+      "get": {
+        "summary": "List account abilities",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Abilities" } }
+      }
+    },
+    "/services": {
+      "get": {
+        "summary": "List services",
+        "responses": { "200": { "description": "Services" } }
+      }
+    },
+    "/services/{id}": {
+      "get": {
+        "summary": "Show a service",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Service" } }
+      }
+    },
+    "/incidents": {
+      "get": {
+        "summary": "List incidents",
+        "responses": { "200": { "description": "Incidents" } }
+      }
+    },
+    "/incidents/{id}": {
+      "get": {
+        "summary": "Show an incident",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Incident" } }
+      }
+    },
+    "/oncalls": {
+      "get": {
+        "summary": "List on-call entries",
+        "responses": { "200": { "description": "On-calls" } }
+      }
+    }
+  }
+}

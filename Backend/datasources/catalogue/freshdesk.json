@@ -1,0 +1,63 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Freshdesk API (read-only subset)",
+    "version": "2",
+    "description": "GET operations from the Freshdesk API v2 reference. Base URL: https://{subdomain}.freshdesk.com/api/v2"
+  },
+  "paths": {
+    "/agents/me": {
+      "get": {
+        "summary": "View the agent that owns this API key",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "The authenticated agent"}}
+      }
+    },
+    "/tickets": {
+      "get": {
+        "summary": "List tickets",
+        "parameters": [
+          {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}},
+          {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}}
+        ],
+        "responses": {"200": {"description": "A page of tickets"}}
+      }
+    },
+    "/tickets/{id}": {
+      "get": {
+        "summary": "View a ticket",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "One ticket"}}
+      }
+    },
+    "/contacts": {
+      "get": {
+        "summary": "List contacts",
+        "parameters": [
+          {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}}
+        ],
+        "responses": {"200": {"description": "A page of contacts"}}
+      }
+    },
+    "/companies": {
+      "get": {
+        "summary": "List companies",
+        "responses": {"200": {"description": "A page of companies"}}
+      }
+    },
+    "/agents": {
+      "get": {
+        "summary": "List agents",
+        "responses": {"200": {"description": "A page of agents"}}
+      }
+    },
+    "/ticket_fields": {
+      "get": {
+        "summary": "List ticket fields",
+        "responses": {"200": {"description": "The ticket fields and their choices"}}
+      }
+    }
+  }
+}

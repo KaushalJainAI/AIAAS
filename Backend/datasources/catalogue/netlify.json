@@ -1,0 +1,51 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Netlify API (read-only subset)",
+    "version": "1.0.0",
+    "description": "GET operations from the Netlify API reference. Base URL: https://api.netlify.com/api/v1"
+  },
+  "paths": {
+    "/user": {
+      "get": {
+        "summary": "Get the current user",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Current user" } }
+      }
+    },
+    "/sites": {
+      "get": {
+        "summary": "List sites",
+        "responses": { "200": { "description": "Sites" } }
+      }
+    },
+    "/sites/{site_id}": {
+      "get": {
+        "summary": "Get a site",
+        "parameters": [
+          { "name": "site_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Site" } }
+      }
+    },
+    "/sites/{site_id}/deploys": {
+      "get": {
+        "summary": "List deploys for a site",
+        "parameters": [
+          { "name": "site_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Deploys" } }
+      }
+    },
+    "/sites/{site_id}/deploys/{deploy_id}": {
+      "get": {
+        "summary": "Get a deploy",
+        "parameters": [
+          { "name": "site_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "deploy_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Deploy" } }
+      }
+    }
+  }
+}

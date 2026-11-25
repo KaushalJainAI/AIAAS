@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Todoist API v1 (read-only subset)",
+    "version": "1.0.0",
+    "description": "GET operations from the Todoist API v1 reference. Base URL: https://api.todoist.com"
+  },
+  "paths": {
+    "/api/v1/projects": {
+      "get": {
+        "summary": "List projects",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Projects" } }
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "summary": "Get a project",
+        "parameters": [
+          { "name": "project_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Project" } }
+      }
+    },
+    "/api/v1/tasks": {
+      "get": {
+        "summary": "List tasks",
+        "responses": { "200": { "description": "Tasks" } }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "summary": "Get a task",
+        "parameters": [
+          { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Task" } }
+      }
+    },
+    "/api/v1/labels": {
+      "get": {
+        "summary": "List labels",
+        "responses": { "200": { "description": "Labels" } }
+      }
+    },
+    "/api/v1/user": {
+      "get": {
+        "summary": "Get user info",
+        "responses": { "200": { "description": "User" } }
+      }
+    }
+  }
+}

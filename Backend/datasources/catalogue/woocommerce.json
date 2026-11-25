@@ -1,0 +1,67 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "WooCommerce REST API v3 (read-only subset)",
+    "version": "3",
+    "description": "GET operations from the WooCommerce REST API v3 reference. Base URL: https://{store}/wp-json/wc/v3"
+  },
+  "paths": {
+    "/products": {
+      "get": {
+        "summary": "List products",
+        "x-aiaas-check": true,
+        "parameters": [
+          {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}},
+          {"name": "search", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "A page of products"}}
+      }
+    },
+    "/products/{id}": {
+      "get": {
+        "summary": "View one product",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "One product"}}
+      }
+    },
+    "/orders": {
+      "get": {
+        "summary": "List orders",
+        "parameters": [
+          {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}},
+          {"name": "status", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "A page of orders"}}
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "summary": "View one order",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "One order"}}
+      }
+    },
+    "/customers": {
+      "get": {
+        "summary": "List customers",
+        "parameters": [
+          {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+          {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}}
+        ],
+        "responses": {"200": {"description": "A page of customers"}}
+      }
+    },
+    "/coupons": {
+      "get": {
+        "summary": "List coupons",
+        "responses": {"200": {"description": "A page of coupons"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Mailchimp Marketing API (read-only subset)",
+    "version": "3.0",
+    "description": "GET operations from the Mailchimp Marketing API. Base URL: https://{dc}.api.mailchimp.com/3.0"
+  },
+  "paths": {
+    "/ping": {
+      "get": {
+        "summary": "Health check that returns no account data",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "health_status text"}}
+      }
+    },
+    "/lists": {
+      "get": {
+        "summary": "Get lists info (audiences)",
+        "parameters": [
+          {"name": "count", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "The account's lists"}}
+      }
+    },
+    "/lists/{list_id}": {
+      "get": {
+        "summary": "Get one list (audience)",
+        "parameters": [
+          {"name": "list_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "One list with its member stats"}}
+      }
+    },
+    "/campaigns": {
+      "get": {
+        "summary": "List campaigns",
+        "parameters": [
+          {"name": "count", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "A page of campaigns"}}
+      }
+    },
+    "/campaigns/{campaign_id}": {
+      "get": {
+        "summary": "Get one campaign",
+        "parameters": [
+          {"name": "campaign_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "One campaign"}}
+      }
+    }
+  }
+}

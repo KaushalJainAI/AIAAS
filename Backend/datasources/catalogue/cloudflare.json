@@ -1,0 +1,47 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cloudflare API (read-only subset)",
+    "version": "4.0.0",
+    "description": "GET operations from the Cloudflare API v4 reference. Base URL: https://api.cloudflare.com/client/v4"
+  },
+  "paths": {
+    "/user/tokens/verify": {
+      "get": {
+        "summary": "Verify the API token",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Token status" } }
+      }
+    },
+    "/accounts": {
+      "get": {
+        "summary": "List accounts the token can see",
+        "responses": { "200": { "description": "Accounts" } }
+      }
+    },
+    "/zones": {
+      "get": {
+        "summary": "List zones",
+        "responses": { "200": { "description": "Zones" } }
+      }
+    },
+    "/zones/{zone_id}": {
+      "get": {
+        "summary": "Zone details",
+        "parameters": [
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Zone" } }
+      }
+    },
+    "/zones/{zone_id}/dns_records": {
+      "get": {
+        "summary": "List DNS records for a zone",
+        "parameters": [
+          { "name": "zone_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "DNS records" } }
+      }
+    }
+  }
+}
