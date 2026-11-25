@@ -140,6 +140,11 @@ def _replayed_count(total: int, window: int) -> int:
     return window + (total - window) % HISTORY_WINDOW_STEP
 
 
+#: Upload markers replayed on a conversation's first message, newest first.
+#: Bounds a chat that had many files dropped in before anyone asked anything.
+FIRST_TURN_SYSTEM_ROWS = 50
+
+
 def load_history_sync(
     session: ChatSession, *, exclude_id: int | None, supports_docs: bool = False
 ) -> list[ChatMessage]:
@@ -190,11 +195,19 @@ def load_history_sync(
             picked.setdefault(m.id, m)
         turns = sorted(picked.values(), key=lambda m: (m.created_at, m.id), reverse=True)
 
-    system_rows = list(
-        ChatMessage.objects
-        .filter(session=session, role="system", created_at__gte=turns[-1].created_at)
-        .exclude(id=exclude_id)
-    ) if turns else []
+    # Upload markers inside the span of the kept turns. With no earlier turn
+    # (the first message of a conversation) every marker is in span: a file
+    # uploaded before the first question is exactly what that question is
+    # about. `if turns else []` here once meant a new chat's upload never
+    # reached the model (found by the live E2E run, 2026-11-25).
+    system_rows_qs = (
+        ChatMessage.objects.filter(session=session, role="system").exclude(id=exclude_id)
+    )
+    if turns:
+        system_rows = list(system_rows_qs.filter(created_at__gte=turns[-1].created_at))
+    else:
+        system_rows = list(
+            system_rows_qs.order_by("-created_at")[:FIRST_TURN_SYSTEM_ROWS])
 
     messages = sorted(turns + system_rows, key=lambda m: (m.created_at, m.id))
     _flag_deleted_attachments(messages)

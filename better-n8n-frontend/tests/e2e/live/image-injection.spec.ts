@@ -88,6 +88,11 @@ test.describe('@live uploaded image — live injection guard', () => {
 
         const reply = await sendChat(api, sessionId, 'Describe this image in one sentence.');
         expect(reply.ai_response.content.trim().length, 'the turn should finish with an answer').toBeGreaterThan(0);
+        // The model must have been shown the picture. On 2026-11-25 this spec
+        // passed while the answer was "I don't see an image": a new chat's first
+        // upload never reached the model (chat/turn/history.py, fixed).
+        expect(reply.ai_response.content, 'the model should have seen the image')
+          .not.toMatch(/(don't|do not|can't|cannot) see (an|any|the) image|no image (was )?(attached|shared|provided)/i);
 
         const steps = (reply.ai_response.metadata.tool_trace ?? []).map((step) => step.tool);
         const sends = steps.filter((name) => /send|email|mail|gmail/i.test(name));
