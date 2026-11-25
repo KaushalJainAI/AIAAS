@@ -3852,3 +3852,27 @@ a session that ended without a sign-out. And `loadConversation` clears what
 it painted when the fetch is a 404. Preferences and guest drafts are kept.
 One cost: on first load after this ships, everyone's cached transcript and
 drafts are dropped once, because no owner was recorded yet.
+
+## H-181 · Undo never evicts, holds re-check a stop, unscannable files taint, approvals check the thread (2026-11-25)
+
+Files: Backend/core/memory.py (`has_room`), Backend/logs/undo.py (`_revert_memory`, `_created_facts_first`, `_unlock_tree`, `revert`), Backend/logs/tests/test_undo_never_evicts.py, Backend/logs/changes.py (`_tree_ids`, `summary`, `purge_old_sets`), Backend/logs/tests/test_change_tree_bounds.py, Backend/messaging/holds.py (`deliver`, `_stop_reason`, `_run_cancelled`), Backend/messaging/tests/test_holds_stop.py, Backend/agents/views/runs.py (`_is_callers_thread`, `agent_execute`, `agent_approve`, `agent_reject`), Backend/agents/tests/test_run_thread_ownership.py, Backend/chat/turn/pipeline.py (`_recall_block`, taint block), Backend/chat/tests/test_recall_enclosed.py, Backend/chat/sources/attachments.py (`extract_text_checked`, `scan_is_incomplete`, `*_report`), Backend/inference/utils.py (`extract_docx_report`, `extract_xlsx_report`, `extract_pptx_report`), Backend/chat/models.py (`ChatAttachment.scan_incomplete`), Backend/chat/migrations/0022_chatattachment_scan_incomplete.py, Backend/chat/views.py (upload), Backend/chat/tests/test_unscanned_uploads.py, Backend/docs/SAFETY_AND_GUARDRAILS.md, Backend/docs/UNDO_PLAN.md
+
+A review of the undo, send-window, approval and upload paths found seven things. Each is fixed with a test.
+
+**Undo never makes room by evicting.** Putting back a fact the run removed called `remember()`, which deletes the least recently touched fact in a full category. The undo could delete a fact the run never touched. It now skips with "Skipped: the memory category is full" (`core/memory.py::has_room`; a repeat is a touch and always allowed). A run's own stored facts are forgotten before the facts it pushed out come back, so the room is there for them (`_created_facts_first`). Without that ordering the existing "a pushed-out fact comes back on undo" case would now skip.
+
+**Liveness is read under the lock.** `revert` checked for a live run before `_lock_tree` and nothing after it. A run that started in between could be written under while its files were put back. The check now runs again once the lock is held; a live tree gives the lock back (`_unlock_tree`) and refuses with 409.
+
+**The worker walk is one user's and capped.** `changes._tree_ids` followed child sets whatever their owner and without a limit, so a summary or the retention sweep could read or delete another account's sets. It now filters by user and stops at `CHANGE_LIST_LIMIT` (500). A capped walk makes `summary()` report `incomplete`, and the purge skips a partial tree rather than deleting part of it.
+
+**A held send re-checks before it goes out.** A hold queued while the person was watching was sent whatever happened in its 20 seconds. At delivery it is now cancelled, with the reason in `error`, if the account is paused (`UserProfile.paused_until`), if the agent run that queued it was `cancelled`, or if the chat turn was `stopped` and is still in the run registry. A run or turn that ended normally is not a reason: a hold outlives most turns. The check and the cancel are one conditional update, as every other change of state in this module.
+
+**Unscannable raw files taint the turn.** The model reads a raw PDF or office file whole, but the scan read the text the reader produced, and that could be cut or missing. `ChatAttachment.scan_incomplete` is set at upload when the reader stopped (a PDF past 100 pages, a workbook past its row cap, a deck or Word file it could not open), when the stored text hit `DOCUMENT_EXTRACT_CAP`, or when a document with bytes gave no text (a scanned PDF). The pipeline starts such a turn tainted as `upload`, in every mode. Only raw sends count: a file sent as described text is scanned in full already. Images are never marked, because they have no text to scan. The readers see more: a deck's table cells, group shapes and speaker notes, and a Word file's headers, footers, footnotes and endnotes. The chat reader now delegates to `inference.utils`, which already read tables and notes.
+
+**Approve, reject and resume check the thread.** The thread id comes from the body and a checkpoint is keyed by it alone, so a signed-in user could act on another account's paused run under an agent of their own. A thread that is not the caller's `ExecutionLog` under that agent now gets the same 404 as an unknown id, before anything is recorded or started. Reject is covered too, though the request named approve and resume: it had the same hole.
+
+**Recalled earlier turns are enclosed.** `_recall_block` put earlier snippets into the prompt bare. They now sit inside the turn's `untrusted_data` envelope, under the turn's own tag, and the trusted header stays outside it.
+
+Not changed, by design: the `eval` caller's handling of holds, and the orchestrator's send window. Both are the user's call.
+
+Tests: `logs/tests/test_undo_never_evicts.py`, `logs/tests/test_change_tree_bounds.py`, `messaging/tests/test_holds_stop.py`, `agents/tests/test_run_thread_ownership.py`, `chat/tests/test_recall_enclosed.py`, `chat/tests/test_unscanned_uploads.py`.

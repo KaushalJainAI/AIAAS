@@ -18,6 +18,17 @@ in this plan spends money, so no phase needs a paid-run go-ahead.
 | 8 Phone app | **built** 2026-11-25 | 8a: the send bar above the composer (polls only while focused and foreground). 8b: the "Undo changes…" screen. tsc + lint green; no test runner, not run on a device |
 | 9 Docs | **done** with each phase | API.md, SAFETY_AND_GUARDRAILS.md (send window + undo), H-171..H-173, CLAUDE.md (env vars, a core rule), READMEs, OPEN_WORK |
 
+**Review fixes (H-181, 2026-11-25).** Undo never evicts a fact to make room:
+a removed fact whose category is full is skipped with a note (Phase 7), and a
+run's own stored facts are forgotten first so the facts it pushed out fit back
+(`logs/undo.py::_created_facts_first`). Liveness is read again once the tree
+lock is held (Phase 4). The worker walk (`logs/changes.py::_tree_ids`) is one
+user's and capped at 500 sets; a capped count is `incomplete` and a sweep never
+deletes a partial tree (Phase 3). A held send (Phase 1) is cancelled at delivery
+if its run was cancelled, its chat turn stopped, or the account paused; a run or
+turn that ended normally does not cancel it. Approve, reject and resume act only
+on the caller's own thread (the approval route, Phase 5's resume path).
+
 **Who runs this plan:** a smaller model, one phase at a time. Read §1–§6
 before any phase. Do not skip ahead. Do not merge two phases into one change.
 Each phase lists the files to touch, the steps, the tests and how to know it

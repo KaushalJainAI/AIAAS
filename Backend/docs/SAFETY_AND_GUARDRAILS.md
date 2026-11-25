@@ -216,11 +216,17 @@ Stated plainly, so nobody reads this as "solved":
 8. **A wrong solution can spread in an org.** An honest mistake saved as a
    fix is offered to colleagues until flagged. Ranking demotes failures;
    owners/admins/curators can retract.
-9. **Raw images and scanned PDFs are not scanned.** Raw PDFs and office files
-   sent as file blocks are now scanned through their extracted text (2026-11-24),
-   in every mode, like described text. Still unscanned: a picture sent to the
-   model as an image block (text written into it is seen only by the model
-   itself), and a scanned PDF with no text layer.
+9. **Raw images are not scanned, and partly-read files used to pass unchecked.**
+   Raw PDFs and office files sent as file blocks are scanned through their
+   extracted text (2026-11-24), in every mode, like described text. Where that
+   text is not the whole file (a PDF past 100 pages, a workbook past its row
+   cap, text past the stored cap, a reader that failed, or a document with no
+   text layer, such as a scanned PDF), the attachment is marked
+   `scan_incomplete` and the turn starts tainted as `upload`, in every mode
+   (H-181). Still unscanned: a picture sent to the model as an image block (text
+   written into it is seen only by the model itself). A scanned PDF is no
+   longer read past, but it is not OCR'd either: the turn is tainted, nothing
+   more.
 10. **Closed (2026-11-24): the envelope tag changed on a resume.** The tag
     now rides in graph state and a resumed run keeps it (H-176).
 11. **Sandbox runs share one container and one kernel.** Slots keep files,
@@ -271,7 +277,7 @@ Stated plainly, so nobody reads this as "solved":
 | Sanitizer | `core/tests/test_sanitizer.py` |
 | Provenance, taint, URLs | `core/tests/test_provenance.py`, `chat/tests/test_injection_defences.py` |
 | Model injection check (tool results, seeds, uploads) | `chat/tests/test_injection_model_check.py` |
-| Raw documents scanned through their text; envelope tag across a resume | `chat/tests/test_raw_document_scan.py`, `chat/tests/test_untrusted_envelope.py` |
+| Raw documents scanned through their text; envelope tag across a resume; partly-read uploads taint | `chat/tests/test_raw_document_scan.py`, `chat/tests/test_untrusted_envelope.py`, `chat/tests/test_unscanned_uploads.py` |
 | Content policy, labels, outbound | `core/tests/test_content_policy.py` |
 | Memory, image prompts, CAPTCHA, publishing | `chat/tests/test_safety_guards.py` |
 | MCP pinning | `mcp_integration/tests/test_tool_pins.py` |
