@@ -1,7 +1,13 @@
 # Undo plan: "Undo this run" and "Undo send"
 
-**Status:** being built on branch `feature/undo` (started 2026-11-23). Nothing
-in this plan spends money, so no phase needs a paid-run go-ahead.
+**Status:** built 2026-11-23 to 2026-11-25, undeployed, and not checked by hand
+in a browser or on a phone. Phases 0–9 are done. A review on 2026-11-25 fixed
+seven things, recorded in H-181: undo never evicts a fact, the undo re-checks
+liveness under the lock, the worker walk is one user's and capped, held sends
+re-check a stop, unscannable uploads taint the turn, recalled snippets are
+enclosed, and approve, reject and resume check the thread. Open items are in
+the Progress table and in [OPEN_WORK.md](OPEN_WORK.md). Nothing in this plan
+spends money, so no phase needs a paid-run go-ahead.
 
 **Progress** (newest last; update this table as each phase moves):
 

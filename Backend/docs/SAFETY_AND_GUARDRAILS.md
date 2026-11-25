@@ -228,9 +228,7 @@ Stated plainly, so nobody reads this as "solved":
    cached by hash, fail open on a timeout or provider error. Still open: an
    image past the fourth in a turn, and OCR of scanned PDFs (they taint, but are
    not read).
-10. **Closed (2026-11-24): the envelope tag changed on a resume.** The tag
-    now rides in graph state and a resumed run keeps it (H-176).
-11. **Sandbox runs share one container and one kernel.** Slots keep files,
+10. **Sandbox runs share one container and one kernel.** Slots keep files,
     stdin and processes apart, but a run can read the command-line arguments
     of a `run_command` stage running in the other slot at the same moment
     (`/proc` has no `hidepid`), and a kernel exploit would cross slots. The
@@ -249,6 +247,7 @@ Stated plainly, so nobody reads this as "solved":
 | `INDEXING_CONCURRENCY` | 2 | Documents extracted and embedded at once, process-wide |
 | `OUTBOUND_AI_DISCLOSURE` | `unattended` | `unattended` (no person reviewed it), `always`, `never` |
 | `AUTO_REVIEWER_MODEL` / `_TIMEOUT_S` | llama-4-scout / 3 | The Auto judge; slower means "ask" |
+| `INJECTION_IMAGE_PROVIDER` / `INJECTION_IMAGE_MODEL` | `openrouter` / llama-4-scout | The vision check on raw images, `auto` and `full` only. Calls OpenRouter on the platform key. A blank model turns it off |
 | `MCP_ALLOW_STDIO` | False in production | Local-process MCP servers |
 | `MCP_CUSTOM_SERVERS_ENABLED` | False everywhere (True only in test settings) | Users adding their own MCP servers; off hides their old rows from every agent |
 | `CHATGPT_PLAN_ENABLED` | False in production | Off, its routes 404 and the provider is not offered |
