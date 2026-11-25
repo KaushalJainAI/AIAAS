@@ -70,7 +70,8 @@ Checklist:
 - [ ] Dump taken with `./pg_backup.sh`, and copied off the VM (§7).
 - [ ] Images pulled.
 - [ ] `docker compose ps` shows every service healthy.
-- [ ] The checks in §9 pass.
+- [ ] Settings in §5 "Settings added in the develop deploy" are as stated.
+- [ ] The checks in §9 pass, then the post-deploy specs.
 
 On start, the backend runs `manage.py boot` (migrate, then seed the catalogue) and then `exec daphne`. A restart takes about 11 seconds. Open streams drop, and clients reconnect. Named volumes (`pgdata`, `backend_data`, `backend_media`, `redis_data`) survive `up -d`, so the database, uploads and agent checkpoints are kept.
 
@@ -114,6 +115,20 @@ Values from `docker-compose.prod.yml`:
 - **Config source:** `.env` is loaded through `env_file`. The compose `environment:` block overrides it. Do not set `DB_ENGINE` or `DATABASE_URL` in compose. Doing that once left production silently on SQLite.
 - **Run state:** agent checkpoints live in Postgres. This needs a backend image from 2026-10-01 or later.
 - **Edge proxy:** `edge-caddy` owns ports 80 and 443. It sends `aiaas.kaushaljain.com` to `aiaas-frontend:80` and sends every other host, including the bare IP, to NGU. To change routing, edit `~/edge/Caddyfile` and run `docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile`. The repo's `Caddyfile` is for a dedicated box and is not used on this VM.
+
+### Settings added in the develop deploy
+
+Each has a default in `Backend/workflow_backend/settings/base.py`. Leave them unset unless noted.
+
+| Setting | Default | What to do |
+|---|---|---|
+| `INJECTION_IMAGE_PROVIDER` / `INJECTION_IMAGE_MODEL` | `openrouter` / `meta-llama/llama-4-scout` | Leave them. The check on raw images calls OpenRouter on the platform key, so `OPENROUTER_API_KEY` must be set. It runs only in `auto` and `full` chats. A blank model turns it off. |
+| `OUTBOUND_HOLD_SECONDS` | `20` | Leave it. How long an attended send waits so the person can cancel it. `0` sends at once. |
+| `OUTBOUND_HOLD_SWEEP_SECONDS` | `15` | Leave it. How often the sweep delivers held sends whose timer was lost. |
+| `MCP_CUSTOM_SERVERS_ENABLED` | `False` | **Must stay `False`.** Do not set it in `.env` or compose. `True` brings back user-made MCP servers, which are retired. |
+
+This deploy also adds migrations for the change log (`logs`, 0027) and held
+sends (`messaging`, 0003). They run on boot, like every migration (§4).
 
 ---
 
@@ -185,6 +200,19 @@ curl -s -o /dev/null -w '%{http_code}\n' https://aiaas.kaushaljain.com/api/<new-
 ```
 
 A signed-in `GET /api/orchestrator/triggers/health/` says whether the in-process scheduler holds its lease.
+
+### Post-deploy specs
+
+The committed end-to-end specs can run against production as a last check. Run only the free ones, from `better-n8n-frontend/`:
+
+```bash
+E2E_BASE_URL=https://aiaas.kaushaljain.com E2E_API_URL=https://aiaas.kaushaljain.com E2E_NO_SERVER=1 \
+  npx playwright test tests/e2e/code-page.spec.ts tests/e2e/key-balance.spec.ts tests/e2e/connector-cards.spec.ts tests/e2e/auth.spec.ts tests/e2e/connections.spec.ts tests/e2e/mobile-layout.spec.ts tests/e2e/page-gutter.spec.ts
+```
+
+- **These create real accounts** named `e2e_<timestamp>@example.com` in the production database. Nothing deletes them afterwards.
+- **Do not run `tests/e2e/live/`** against production. Those specs spend OpenRouter money and need the owner's go-ahead.
+- **Do not set `E2E_THROTTLE_BYPASS_TOKEN`** for production. The server honours that header only when it has the token configured, and production does not.
 
 Logs:
 
