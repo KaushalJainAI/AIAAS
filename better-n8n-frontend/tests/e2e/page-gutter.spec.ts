@@ -18,7 +18,7 @@ const DESKTOP = { width: 1440, height: 900 };
 const TOLERANCE_PX = 2;
 
 /** Hub pages that render the shared PageHeader and content below it. */
-const HUB_ROUTES = ['/documents', '/schedules', '/evals'];
+const HUB_ROUTES = ['/credentials', '/schedules', '/evals'];
 
 let account: Account;
 
@@ -36,7 +36,9 @@ test.use({ viewport: DESKTOP });
  * is where a page's padding meets its first card or table.
  */
 async function leftEdges(page: Page): Promise<{ title: number; content: number }> {
-  const title = page.locator('h1').first();
+  // `:visible`: the phone top bar also renders an h1, hidden on desktop and
+  // earlier in the DOM, so a plain `.first()` measured an invisible element.
+  const title = page.locator('h1:visible').first();
   await expect(title).toBeVisible({ timeout: 15_000 });
   const header = title.locator('xpath=ancestor::div[contains(@class,"sticky")][1]');
   const firstBlock = header.locator('xpath=following-sibling::*[1]/*[1]');
@@ -67,7 +69,7 @@ test.describe('page gutter — sad', () => {
     // boxes (a renamed class, a moved header), the happy tests would pass on
     // nothing. Both edges must be real, on-screen positions.
     await signIn(page, account);
-    await page.goto('/documents');
+    await page.goto('/credentials');
     const { title, content } = await leftEdges(page);
     expect(title).toBeGreaterThan(0);
     expect(content).toBeGreaterThan(0);

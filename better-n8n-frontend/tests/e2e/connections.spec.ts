@@ -43,7 +43,8 @@ test.describe('Connections page — happy', () => {
     // Display names come from the database now, so match on brands (stable)
     // rather than on the built-ins, whose labels are ours to reword.
     await expect(
-      page.getByText(/Notion|Google Drive|Slack|Gmail|Google Calendar/i).first()
+      // `visible: true`: the first text match in the DOM can be a hidden one.
+      page.getByText(/Notion|Google Drive|Slack|Gmail|Google Calendar/i).filter({ visible: true }).first()
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -55,16 +56,15 @@ test.describe('Connections page — happy', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('offers the advanced MCP escape hatch without leading with it', async ({ page }) => {
+  test('does not offer adding a custom MCP server', async ({ page }) => {
+    // Custom servers are retired behind CUSTOM_MCP_SERVERS / the backend's
+    // MCP_CUSTOM_SERVERS_ENABLED (H-175): connectors come from the curated
+    // catalogue only, so neither the Advanced disclosure nor its button shows.
     await signedIn(page);
     await page.goto('/connections');
-    // Collapsed by default: the raw server config must not be the first thing
-    // a non-technical user meets.
-    // The button reads "Add custom server" (the MCP vocabulary was dropped from
-    // the page copy); exact, because the collapsed header says "Add a custom server".
-    await expect(page.getByText('Add custom server', { exact: true })).toBeHidden();
-    await page.getByText('Advanced', { exact: true }).click();
-    await expect(page.getByText('Add custom server', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Google Workspace/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Advanced', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Add custom server', { exact: true })).toHaveCount(0);
   });
 
   test('turning a curated connection off does not fail with 403', async ({ page }) => {

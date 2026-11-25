@@ -14,6 +14,10 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: BASE,
+    // The test-client rate lane; see tests/e2e/helpers/session.ts BYPASS_HEADERS.
+    extraHTTPHeaders: process.env.E2E_THROTTLE_BYPASS_TOKEN
+      ? { 'X-E2E-Bypass-Token': process.env.E2E_THROTTLE_BYPASS_TOKEN }
+      : undefined,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

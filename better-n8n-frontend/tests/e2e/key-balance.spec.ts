@@ -48,8 +48,10 @@ test.describe('key balance — sad', () => {
 
       // The row's own card: the nearest ancestor that holds this key's
       // "Check balance" button, found from the credential's name.
+      // Found by its name, not by the button: after a check the button reads
+      // "Refresh", so a card located by "Check balance" stops matching.
       const card = page.locator(
-        `xpath=//*[normalize-space(.)="${name}"]/ancestor::div[.//button[normalize-space(.)="Check balance"]][1]`,
+        `xpath=//*[normalize-space(.)="${name}"]/ancestor::div[.//*[@data-testid="credential-balance"] or .//button[normalize-space(.)="Check balance"]][1]`,
       );
       await expect(card).toBeVisible({ timeout: 15_000 });
       await card.getByRole('button', { name: 'Check balance' }).click();

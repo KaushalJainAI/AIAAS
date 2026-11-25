@@ -17,6 +17,16 @@ export const API = process.env.E2E_API_URL ?? 'http://localhost:8000';
 /** Meets the backend's password rules; the same value every spec uses. */
 export const PASSWORD = 'Sup3r$ecret-e2e!';
 
+/**
+ * The test-client rate lane (Backend/core/http/throttling.py). When the server
+ * has `E2E_THROTTLE_BYPASS_TOKEN` set (locally it comes from instance/test.env)
+ * and we send the same value, registration and login skip the per-address rate
+ * limit, and only that. Production sets no token, so there the header does nothing.
+ */
+export const BYPASS_HEADERS: Record<string, string> = process.env.E2E_THROTTLE_BYPASS_TOKEN
+  ? { 'X-E2E-Bypass-Token': process.env.E2E_THROTTLE_BYPASS_TOKEN }
+  : {};
+
 export interface Account {
   email: string;
   access: string;
@@ -34,7 +44,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * instead of failing the test for the throttle rather than for anything real.
  */
 export async function registerAccount(): Promise<Account> {
-  const ctx = await request.newContext({ baseURL: API });
+  const ctx = await request.newContext({ baseURL: API, extraHTTPHeaders: BYPASS_HEADERS });
   try {
     const id = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
     const email = `e2e_${id}@example.com`;
@@ -79,7 +89,7 @@ export async function signIn(page: Page, account: Account): Promise<void> {
  */
 export async function apiAs(token: string): Promise<APIRequestContext> {
   return request.newContext({
-    extraHTTPHeaders: { Authorization: `Bearer ${token}` },
+    extraHTTPHeaders: { ...BYPASS_HEADERS, Authorization: `Bearer ${token}` },
     timeout: 60_000,
   });
 }
