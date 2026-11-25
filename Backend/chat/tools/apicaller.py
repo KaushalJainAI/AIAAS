@@ -91,6 +91,26 @@ async def _connection(user_id: int, connection_id: int, context: Dict):
     return row, scope[wanted], ''
 
 
+async def _card_refusal(row) -> str:
+    """Why this connection may not be called right now, or '' if it may.
+
+    A connection built from an API card follows the card's own switch: the
+    `MCPServer` row whose `icon_slug` is `card_slug` and whose `enabled` is the
+    kill switch. Turning a connector off in Connections has to stop the calls,
+    not only hide the card. A missing card row refuses too (fail closed).
+    """
+    if not row.card_slug:
+        return ''
+    from mcp_integration.models import MCPServer
+
+    live = await MCPServer.objects.filter(
+        kind='api', icon_slug=row.card_slug, enabled=True).aexists()
+    if live:
+        return ''
+    return (f'The "{row.name}" connector is turned off or no longer available, '
+            'so the call was not sent.')
+
+
 def _operations(spec: dict) -> list[dict]:
     paths = (spec or {}).get('paths') or {}
     ops = []
@@ -204,6 +224,9 @@ async def call_api(args: Dict, context: Dict) -> str:
     row, mode, error = await _connection(user_id, args.get('connection'), context)
     if row is None:
         return json.dumps({'error': error})
+    refusal = await _card_refusal(row)
+    if refusal:
+        return json.dumps({'error': refusal})
     method = str(args.get('method') or '').strip().upper()
     path = str(args.get('path') or '').strip()
     if not path.startswith('/'):
