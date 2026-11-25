@@ -496,7 +496,7 @@ async def _sync_model_choice(
     )
 
 
-async def _recall_block(session: ChatSession, question: str) -> str:
+async def _recall_block(session: ChatSession, question: str, untrusted_tag: str) -> str:
     """
     Look up earlier turns when the user is plainly referring to them.
 
@@ -529,10 +529,14 @@ async def _recall_block(session: ChatSession, question: str) -> str:
     lines = "\n".join(
         f"- [{m['role']} @ {m['timestamp'][:19]}] {m['snippet']}" for m in matches
     )
+    # The snippets are earlier conversation text, which can carry a pasted or
+    # searched third-party page, so they are enclosed like any other result.
+    enclosed = provenance.wrap_untrusted(
+        lines, source="search_conversation_history", tag=untrusted_tag)
     return (
         "\n\n[RECALLED FROM EARLIER IN THIS CONVERSATION — these turns are outside "
         "your visible window but did happen. Use them to answer; do not tell the "
-        f"user you have no record of them.]\n{lines}"
+        f"user you have no record of them.]\n{enclosed}"
     )
 
 
@@ -1086,7 +1090,7 @@ async def run_chat_turn(
         # Once per turn, in the question itself, so it sits in the same place
         # on every pass of the loop.
         prompt += f"\n\n{agent.RAW_FILES_NOTICE}"
-    prompt += await _recall_block(session, question)
+    prompt += await _recall_block(session, question, untrusted_tag)
     phases.mark("recall")
     prompt += extracted_text
 
