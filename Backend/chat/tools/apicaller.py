@@ -261,8 +261,9 @@ async def call_api(args: Dict, context: Dict) -> str:
     query = args.get('query') or {}
     if not isinstance(query, dict):
         return json.dumps({'error': '`query` must be an object.'})
+    secrets: list[str] = []
     try:
-        headers, params = await _auth_headers(row, user_id, dict(query))
+        headers, params = await _auth_headers(row, user_id, dict(query), secrets)
     except _Refuse as exc:
         return json.dumps({'error': str(exc)})
     try:
@@ -296,6 +297,7 @@ async def call_api(args: Dict, context: Dict) -> str:
         payload = resp.json()
     except ValueError:
         payload = {'text': resp.text[:await alimit(context, 'call_api', 'responseChars')]}
+    payload = _redacted(payload, secrets)
     text = json.dumps(payload, default=str)
     if len(text) > TOOL_OUTPUT_CHAR_LIMIT:
         return await _save_text(context, row, path, text)
@@ -313,10 +315,12 @@ async def _check(target: str, hosts: list) -> tuple[bool, str]:
     return check_egress(target, scope) if '://' in target else (False, 'Bad URL.')
 
 
-async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
+async def _auth_headers(row, user_id: int, query: dict,
+                        secrets: list[str]) -> tuple[dict, dict]:
     """Auth from the vault reference. A model-supplied `Authorization` is
     dropped — the model names which credential to use by configuring the
-    connection, never by handing over a value."""
+    connection, never by handing over a value. Every resolved credential value
+    is appended to `secrets`, so the response can be scrubbed of it."""
     from credentials.refs import aresolve_refs
 
     headers = {'User-Agent': 'AIAAS/1.0'}
@@ -326,7 +330,7 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
     params = dict(query)
     params.pop('Authorization', None)
     if kind == 'template':
-        return await _template_auth(auth, user_id, headers, params)
+        return await _template_auth(auth, user_id, headers, params, secrets)
     if not ref:
         return headers, params
     try:
@@ -337,6 +341,7 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
     value = str(resolved.get('v') or '')
     if not value:
         return headers, params
+    secrets.append(value)
     if kind == 'bearer':
         headers['Authorization'] = f'Bearer {value}'
     elif kind == 'basic':
@@ -351,7 +356,7 @@ async def _auth_headers(row, user_id: int, query: dict) -> tuple[dict, dict]:
 
 
 async def _template_auth(auth: dict, user_id: int, headers: dict,
-                        params: dict) -> tuple[dict, dict]:
+                        params: dict, secrets: list[str]) -> tuple[dict, dict]:
     """Auth built from a card's template parts (`datasources/auth_template.py`).
 
     Every placeholder resolves in one `aresolve_refs` call, against the one
@@ -386,6 +391,7 @@ async def _template_auth(auth: dict, user_id: int, headers: dict,
         logger.exception('[API] Auth resolution failed')
         return headers, params
     values = {name: str(value or '') for name, value in zip(names, resolved['refs'])}
+    secrets.extend(values.values())
     if any(not value for value in values.values()):
         return headers, params
     try:
@@ -396,6 +402,27 @@ async def _template_auth(auth: dict, user_id: int, headers: dict,
     headers.update(extra_headers)
     params.update(extra_params)
     return headers, params
+
+
+def _redacted(value, secrets: list[str]):
+    """The response with every credential value blanked, at any depth.
+
+    A vendor can echo the key back (a debug endpoint, an error body quoting
+    the request). The model must not receive it, and neither may the copy
+    saved to the user's files. Walked value by value, not on the serialised
+    text, so a key holding a quote or backslash still matches.
+    """
+    if not secrets:
+        return value
+    from credentials.refs import redact
+
+    if isinstance(value, str):
+        return redact(value, secrets)
+    if isinstance(value, dict):
+        return {_redacted(k, secrets): _redacted(v, secrets) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redacted(v, secrets) for v in value]
+    return value
 
 
 def _slugs(ref: str) -> set[str]:
