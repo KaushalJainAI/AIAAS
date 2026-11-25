@@ -211,6 +211,107 @@ class ApiCallerTests(TestCase):
         self.assertEqual(out['data'], {'orders': [1, 2]})
 
 
+class CallApiFixedHeaderTests(TestCase):
+    """A header the spec fixes for an operation (a required header parameter with
+    one enum value or a default) is sent with that operation, and nothing else.
+    No network: the HTTP client is replaced, as in CallApiTemplateAuthTests."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('fixedhdr', 'fixedhdr@example.com', 'pw')
+
+    def _headers(self, spec, path='/events'):
+        # A literal public IP passes the SSRF guard without DNS.
+        conn = ApiConnection.objects.create(
+            user=self.user, name=f'Fixed {path} {len(spec)}',
+            base_url='https://93.184.216.34/v1', openapi_spec=spec,
+            allowed_methods=['GET'])
+        fake = mock.MagicMock()
+        resp = mock.MagicMock(status_code=200, headers={'content-type': 'application/json'})
+        resp.json.return_value = {'ok': True}
+        fake.get = mock.AsyncMock(return_value=resp)
+        with mock.patch('workflow_backend.httpclient.shared_client', return_value=fake):
+            out = self.call_with(conn, path)
+        self.assertEqual(out.get('status'), 200, out)
+        fake.get.assert_awaited_once()
+        return fake.get.await_args.kwargs['headers']
+
+    def call_with(self, conn, path):
+        return json.loads(async_to_sync(execute_tool)(
+            'call_api', {'connection': conn.id, 'method': 'GET', 'path': path},
+            {'user_id': self.user.id, 'api_connections': {conn.id: 'all'}}))
+
+    @staticmethod
+    def spec(op_params=None, path_params=None, components=None, extra_paths=None):
+        item = {'get': {'summary': 'List events', 'parameters': op_params or []}}
+        if path_params:
+            item['parameters'] = path_params
+        paths = {'/events': item, **(extra_paths or {})}
+        doc = {'paths': paths}
+        if components:
+            doc['components'] = components
+        return doc
+
+    def test_a_required_single_enum_header_is_sent(self):
+        headers = self._headers(self.spec([{
+            'name': 'cal-api-version', 'in': 'header', 'required': True,
+            'schema': {'type': 'string', 'enum': ['2024-06-14']}}]))
+        self.assertEqual(headers['cal-api-version'], '2024-06-14')
+
+    def test_a_required_default_header_is_sent(self):
+        headers = self._headers(self.spec([{
+            'name': 'cal-api-version', 'in': 'header', 'required': True,
+            'schema': {'type': 'string', 'default': '2024-08-13'}}]))
+        self.assertEqual(headers['cal-api-version'], '2024-08-13')
+
+    def test_an_optional_header_is_not_sent(self):
+        headers = self._headers(self.spec([{
+            'name': 'x-version', 'in': 'header', 'required': False,
+            'schema': {'type': 'string', 'default': '1'}}]))
+        self.assertNotIn('x-version', headers)
+
+    def test_a_choice_of_values_is_not_guessed(self):
+        headers = self._headers(self.spec([{
+            'name': 'x-version', 'in': 'header', 'required': True,
+            'schema': {'type': 'string', 'enum': ['1', '2']}}]))
+        self.assertNotIn('x-version', headers)
+
+    def test_the_operation_overrides_a_path_level_parameter(self):
+        headers = self._headers(self.spec(
+            op_params=[{'name': 'x-version', 'in': 'header', 'required': True,
+                        'schema': {'default': 'op-value'}}],
+            path_params=[{'name': 'x-version', 'in': 'header', 'required': True,
+                          'schema': {'default': 'path-value'}}]))
+        self.assertEqual(headers['x-version'], 'op-value')
+
+    def test_a_path_level_parameter_applies_when_the_operation_has_none(self):
+        headers = self._headers(self.spec(
+            path_params=[{'name': 'x-version', 'in': 'header', 'required': True,
+                          'schema': {'default': 'path-value'}}]))
+        self.assertEqual(headers['x-version'], 'path-value')
+
+    def test_a_component_reference_is_followed(self):
+        headers = self._headers(self.spec(
+            op_params=[{'$ref': '#/components/parameters/Version'}],
+            components={'parameters': {'Version': {
+                'name': 'cal-api-version', 'in': 'header', 'required': True,
+                'schema': {'enum': ['2024-06-14']}}}}))
+        self.assertEqual(headers['cal-api-version'], '2024-06-14')
+
+    def test_a_fixed_header_never_replaces_what_auth_sets(self):
+        headers = self._headers(self.spec([{
+            'name': 'User-Agent', 'in': 'header', 'required': True,
+            'schema': {'default': 'spec-agent'}}]))
+        self.assertEqual(headers['User-Agent'], 'AIAAS/1.0')
+
+    def test_the_fixed_header_belongs_to_its_operation_only(self):
+        spec = self.spec(
+            op_params=[{'name': 'cal-api-version', 'in': 'header', 'required': True,
+                        'schema': {'default': '2024-06-14'}}],
+            extra_paths={'/other': {'get': {'summary': 'Other'}}})
+        self.assertNotIn('cal-api-version', self._headers(spec, path='/other'))
+        self.assertEqual(self._headers(spec)['cal-api-version'], '2024-06-14')
+
+
 class _StubServer:
     def start(self):
         class Handler(BaseHTTPRequestHandler):
