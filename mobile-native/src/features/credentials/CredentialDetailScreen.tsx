@@ -19,7 +19,8 @@ import { Notice, type NoticeTone } from '../settings/Notice';
 import { fontFamily, fontSize, pressedOpacity, radius, spacing, typography, useTheme } from '../../theme';
 import { healthView, type HealthTone } from './health';
 import { credentialIcon } from './icons';
-import { useCredentialTypes, useCredentials, useDeleteCredential, useVerifyCredential } from './queries';
+import { formatBalanceLine } from './balance';
+import { useCheckCredentialBalance, useCredentialTypes, useCredentials, useDeleteCredential, useVerifyCredential } from './queries';
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -33,6 +34,7 @@ export function CredentialDetailScreen({ id }: { id: number }) {
   const creds = useCredentials();
   const types = useCredentialTypes();
   const verify = useVerifyCredential();
+  const checkBalance = useCheckCredentialBalance();
   const remove = useDeleteCredential();
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
@@ -53,6 +55,11 @@ export function CredentialDetailScreen({ id }: { id: number }) {
     muted: colors.mutedText,
   };
   const type = (types.data ?? []).find((t) => t.id === credential.credential_type);
+  const balanceLine = checkBalance.isError
+    ? errorMessage(checkBalance.error, 'Could not check the balance. Check your connection and try again.')
+    : checkBalance.data
+      ? formatBalanceLine(checkBalance.data)
+      : null;
 
   function toggleReveal(key: string) {
     setRevealed((prev) => {
@@ -172,6 +179,21 @@ export function CredentialDetailScreen({ id }: { id: number }) {
           <ListRow title="Updated" detail={formatDate(credential.updated_at)} chevron={false} />
           <ListRow title="Last used" detail={formatDate(credential.last_used_at)} chevron={false} />
         </Section>
+
+        {type?.slug === 'openrouter' ? (
+          <Section title="Balance">
+            <ListRow title={balanceLine ?? 'Not checked yet'} chevron={false} />
+            <View style={{ padding: spacing.lg }}>
+              <Button
+                title={balanceLine ? 'Check again' : 'Check balance'}
+                variant="secondary"
+                loading={checkBalance.isPending}
+                disabled={checkBalance.isPending}
+                onPress={() => checkBalance.mutate(credential.id)}
+              />
+            </View>
+          </Section>
+        ) : null}
 
         <View style={{ gap: spacing.sm }}>
           <Button title="Verify" loading={verify.isPending} disabled={verify.isPending} onPress={runVerify} />

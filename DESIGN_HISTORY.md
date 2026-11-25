@@ -3878,3 +3878,29 @@ in a full run. `_open_instant()` (`inference/recents.py`) now stamps each open
 strictly after the user's newest open (one microsecond later when the clock
 has not moved), so the id tie-break is never the thing that decides a real
 order. The regression test uses `frozen_clock`, so the tie is forced, not hoped for.
+
+## H-182 · An OpenRouter key shows the credit it has left (2026-11-25)
+
+Area: credentials, llm, frontend, mobile
+Files: Backend/llm/balance.py, Backend/credentials/views.py, Backend/credentials/tests/test_balance.py, Backend/credentials/README.md, Backend/docs/API.md, better-n8n-frontend/src/api/credentials.ts, better-n8n-frontend/src/lib/credentialBalance.ts, better-n8n-frontend/src/lib/__tests__/credentialBalance.test.ts, better-n8n-frontend/src/components/credentials/CredentialBalanceLine.tsx, better-n8n-frontend/src/pages/Credentials.tsx, mobile-native/src/features/credentials/balance.ts, mobile-native/src/features/credentials/api.ts, mobile-native/src/features/credentials/types.ts, mobile-native/src/features/credentials/queries.ts, mobile-native/src/features/credentials/CredentialDetailScreen.tsx
+
+A user's own OpenRouter key now shows what it has left: "$9.53 left of $10.00 ·
+$0.01 today", or "$4.78 used · no limit" when the key has no limit. The
+answer comes from OpenRouter's `GET /api/v1/key`, with `GET /api/v1/credits`
+read too when the key may see the account. `GET /api/credentials/<id>/balance/`
+is the one route. It is owner-scoped, so an unknown id and someone else's id
+are the same 404; any other credential type is a 400.
+
+Why it is a read on demand and not a metered call: it is for a person looking
+at their own bill, so it never goes through `llm/access.py`, never charges
+`UserProfile.credits_remaining`, and is not counted as a model call. The key is
+decrypted the way verify decrypts it (one `accessed` audit row). The key is
+sent only as the bearer header and never returned or logged. A provider failure
+is a 200 with `available: false` and the reason, so the page says why instead
+of showing an empty row. Only good answers are cached (60 s, keyed by a hash of
+the key), so a failure is asked again the next time someone looks.
+
+The web and the phone check on demand (a button), never on render and never
+on a poll: a card with ten keys costs ten requests only when someone asks. The
+phone formats dollars by hand because Intl currency output is not reliable on
+every Android JS engine.
