@@ -25,13 +25,14 @@ from rest_framework import serializers
 from core.safety.net import check_egress
 from credentials.models import CredentialType
 
+from .auth_template import check_parts, part_placeholders
 from .models import ApiConnection, DataConnection
 
 #: OpenAPI documents are routinely megabytes; the tools only ever read the
 #: operation index, so the stored document is capped and the refusal says so.
 OPENAPI_SPEC_MAX_BYTES = 500_000
 
-API_AUTH_TYPES = ('none', 'bearer', 'basic', 'header', 'query')
+API_AUTH_TYPES = ('none', 'bearer', 'basic', 'header', 'query', 'template')
 
 HTTP_METHODS = ('GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS')
 
@@ -70,6 +71,33 @@ def _check_host(host: str) -> None:
         raise serializers.ValidationError(reason)
 
 
+def _validate_template_auth(auth: dict) -> dict:
+    """`{"type":"template","credential_type":slug,"parts":[...]}`.
+
+    The slug must be a real credential type, and every `{field}` in the parts
+    must be a field of that type, so a typo fails here rather than as a silent
+    missing header at call time. The stored value is a reference by
+    construction: the parts carry placeholders, never a secret.
+    """
+    slug = str(auth.get('credential_type') or '').strip()
+    cred_type = CredentialType.objects.filter(slug=slug).first() if slug else None
+    if cred_type is None:
+        raise serializers.ValidationError(
+            {'credential_type': f'No credential type {slug!r} exists — connect '
+                                'it under Credentials first.'})
+    try:
+        parts = check_parts(auth.get('parts', []))
+    except ValueError as exc:
+        raise serializers.ValidationError({'parts': str(exc)})
+    fields = {str(f.get('name')) for f in (cred_type.fields_schema or [])
+              if isinstance(f, dict)}
+    unknown = [name for name in part_placeholders(parts) if name not in fields]
+    if unknown:
+        raise serializers.ValidationError(
+            {'parts': f'{{{unknown[0]}}} is not a field of {cred_type.name}.'})
+    return {'type': 'template', 'credential_type': slug, 'parts': parts}
+
+
 class ApiConnectionSerializer(serializers.ModelSerializer):
     """One HTTP API the user may call through `call_api`.
 
@@ -83,9 +111,9 @@ class ApiConnectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ApiConnection
         fields = ('id', 'name', 'base_url', 'openapi_spec', 'auth',
-                  'allowed_methods', 'operations_count',
+                  'allowed_methods', 'operations_count', 'card_slug',
                   'created_at', 'updated_at')
-        read_only_fields = ('id', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'card_slug', 'created_at', 'updated_at')
 
     def get_operations_count(self, row) -> int:
         paths = (row.openapi_spec or {}).get('paths') or {}
@@ -143,6 +171,8 @@ class ApiConnectionSerializer(serializers.ModelSerializer):
         cleaned: dict = {'type': kind}
         if kind == 'none':
             return cleaned
+        if kind == 'template':
+            return _validate_template_auth(auth)
         ref = _validate_secret_ref(str(auth.get('secret_ref') or ''))
         if not ref:
             raise serializers.ValidationError(

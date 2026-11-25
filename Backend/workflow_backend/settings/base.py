@@ -842,6 +842,15 @@ if not CREDENTIAL_ENCRYPTION_KEY:
 # so a row created before the switch cannot start a process either.
 MCP_ALLOW_STDIO = os.environ.get('MCP_ALLOW_STDIO', 'True').lower() in ('true', '1', 'yes')
 
+# Whether users may add their own MCP servers (the retired "Add custom server"
+# form). Off everywhere since 2026-11-23: connectors come from the curated
+# catalogue only (Backend/docs/CONNECTOR_CATALOGUE_PLAN.md, Phase 0). Off means
+# no create, user-owned rows are neither listed nor offered to any agent, and
+# their owner can still delete them. Rows are kept, so turning this back on
+# restores every one. Read at call time by `client.custom_servers_enabled`.
+MCP_CUSTOM_SERVERS_ENABLED = os.environ.get(
+    'MCP_CUSTOM_SERVERS_ENABLED', 'False').lower() in ('true', '1', 'yes')
+
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH_CLIENT_SECRET', '')
 GOOGLE_OAUTH_REDIRECT_URI = os.environ.get('GOOGLE_OAUTH_REDIRECT_URI', '')

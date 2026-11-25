@@ -55,6 +55,18 @@ export function connectionStatus(server: MCPServer, ctx: ConnectionContext): Con
   if (server.is_system && !server.enabled) return 'unavailable';
   if (!server.effective_enabled) return 'off';
 
+  const credentials = credentialStatus(server, ctx);
+  // An API card is connected only when its credential resolves AND the user
+  // has linked the card to it. A saved credential alone is not enough: the
+  // card's non-secret fields (a subdomain, a region) have not been given yet,
+  // so the call would not know where to go. Connect is offered until both hold.
+  const credentialsReady = credentials === 'connected' || credentials === 'always';
+  if (server.kind === 'api' && credentialsReady && !server.card_connected) return 'needs_auth';
+  return credentials;
+}
+
+/** The credential half of the rule: does everything this server needs resolve? */
+function credentialStatus(server: MCPServer, ctx: ConnectionContext): ConnectionStatus {
   const check = ctx.validation?.get(server.id);
   if (check) {
     if (!check.ok) return 'needs_auth';

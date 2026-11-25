@@ -290,12 +290,15 @@ migration list: `better-n8n-frontend/FRONTEND_STRUCTURE.md`.
 - `features/chat/components/` — Chat interface with code execution tracking, live state management, responsive sidebar
 - `pages/Connections.tsx` — the one page for external capability. It merged the former
   "Tools" (`/mcp-servers`) and "Data sources" (`/connectors`), which were two views of
-  the same two tables; both paths now redirect to `/connections`. Raw MCP config lives
-  behind its Advanced disclosure, and connector presentation comes from the backend
+  the same two tables; both paths now redirect to `/connections`. Its Advanced disclosure
+  (raw MCP config, "Add custom server") is hidden since 2026-11-23 behind
+  `lib/features.ts::CUSTOM_MCP_SERVERS`, mirroring the backend's
+  `MCP_CUSTOM_SERVERS_ENABLED` (H-175), and connector presentation comes from the backend
   (`icon_slug` → `lib/connectorIcons.ts`), never from a name-keyed map in this app
 - `pages/OAuthCallback.tsx` — `/oauth/callback`, the credential OAuth popup landing page
   (distinct from `GoogleCallback`, which logs a user *in*)
-- `components/mcp/` — the custom MCP server modal, used by the Connections Advanced section
+- `components/mcp/` — the custom MCP server modal (kept, unmounted while custom servers are
+  retired) and `HeldToolsPanel`
 - `components/pane/` (2026-11-17) — the side pane with tabs: `SidePane` (layout, resize, Escape,
   phone Back, per-conversation `sessionStorage` via `storageKey`), `PaneTabStrip` / `PaneTabMenu` /
   `PaneBody` (props only; only the active body is mounted). The tab rules are the pure reducer in
@@ -472,6 +475,7 @@ MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once
 MCP_MAX_POOLED_SESSIONS=6          # Live sessions kept (cache policy under the budget)
 MCP_SESSION_TTL=300                # How long an idle connector holds its subprocess
 MCP_ALLOW_STDIO=True               # Local-process MCP servers; deployment defaults False (no Node in image)
+MCP_CUSTOM_SERVERS_ENABLED=False   # Users adding their own MCP servers; off everywhere (test settings turn it on for engine suites)
 SESSION_NOTES_ENABLED=True         # Per-conversation notes file, updated after every chat turn
 SESSION_NOTES_PROVIDER=            # Blank = CONTEXT_SUMMARY_PROVIDER (platform key)
 SESSION_NOTES_MODEL=               # Blank = CONTEXT_SUMMARY_MODEL
@@ -587,6 +591,7 @@ Detailed technical docs live in `Backend/docs/`:
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix
 - `UNDO_PLAN.md` — The plan (built 2026-11-23..25 on `feature/undo`, undeployed, not yet checked by hand in a browser or on a phone; written phase by phase for smaller models) for undo: a change log per chat message and per agent run (`logs.ChangeSet`/`Change`, bound by a ContextVar around each tool call, net effect per target), a revert that puts files, folders, memory and agent settings back and **skips anything changed since**, workers linked by id across `spawn()`, untracked rows for what can't be undone, and a ~20 s cancellable hold on sends a person is watching (`messaging.PendingSend`)
+- `CONNECTOR_CATALOGUE_PLAN.md` — The plan (proposed 2026-11-23; Phases 0, 9a, 9b and 10 built 2026-11-24..25, undeployed; the API cards stay "Coming soon" until each passes `connector_check`; Phases 1–8 and 11–13 not started) to retire user-made MCP servers behind `MCP_CUSTOM_SERVERS_ENABLED` and grow the curated catalogue with vendor-hosted MCP servers: OAuth on curated cards, pre-registered clients for vendors without DCR, a locked token refresh, per-row scopes/headers/tool allowlists, a schema normaliser, a tool budget, and a conformance harness every connector passes before its row is enabled. Per-vendor research (Linear, Sentry, GitHub, Asana, Stripe, HubSpot, Atlassian, Slack) is in §6; phases 9–14 add API cards, SQL engines, OAuth presets and Indian connectors. The connector list itself, with what we need, what the user needs and each card's setup steps, is `CONNECTOR_CATALOGUE.md`
 - `CHATGPT_PLAN_PROVIDER_PLAN.md` — The plan (built 2026-10-11; **not yet run against a real ChatGPT account** — `scripts/chatgpt_plan_spike.py` is Phase 0 and §10 is still empty) that removed OpenCode Zen and added a `chatgpt` provider through OpenAI's official Sign in with ChatGPT flow (Responses API, loopback redirect, rotating refresh tokens). Self-hosted installs only until OpenAI approves the hosted site
 
 ## Frontend-Specific Docs

@@ -80,6 +80,9 @@ class ApiConnection(models.Model):
         default=list, blank=True,
         help_text='Uppercase methods this connection may use. Empty: GET, HEAD.',
     )
+    #: The API-card connector (`MCPServer.icon_slug`) this connection was made
+    #: from, when a card built it. Empty for a tool the user made by hand.
+    card_slug = models.CharField(max_length=64, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

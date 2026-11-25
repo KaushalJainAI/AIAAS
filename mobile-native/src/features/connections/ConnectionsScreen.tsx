@@ -37,6 +37,7 @@ import {
 import { useCredentialIndex } from './useCredentialIndex';
 import { statusOf } from './status';
 import type { ApiConnection, CustomToolKind, DataConnection, MCPServer, SharedTool } from './types';
+import { CUSTOM_MCP_SERVERS } from '../../lib/features';
 
 type OwnedTool = { kind: CustomToolKind; id: number; name: string; subtitle: string; authed: boolean };
 
@@ -88,7 +89,8 @@ export function ConnectionsScreen() {
   const custom = list.filter((s) => !s.is_system);
 
   const owned: OwnedTool[] = [
-    ...(apis.data ?? []).map((row: ApiConnection) => ({
+    // A connection an API card made is managed by that card, so it is not listed here.
+    ...(apis.data ?? []).filter((row: ApiConnection) => !row.card_slug).map((row: ApiConnection) => ({
       kind: 'api' as const,
       id: row.id,
       name: row.name,
@@ -265,6 +267,7 @@ export function ConnectionsScreen() {
           ))}
         </Section>
 
+        {CUSTOM_MCP_SERVERS ? (
         <Section>
           <ListRow
             icon="build-outline"
@@ -275,8 +278,9 @@ export function ConnectionsScreen() {
             onPress={() => setAdvancedOpen((open) => !open)}
           />
         </Section>
+        ) : null}
 
-        {advancedOpen ? (
+        {CUSTOM_MCP_SERVERS && advancedOpen ? (
           <Section footer="Connect any compatible server to add its tools to your agents. Your keys are stored securely and used only when needed.">
             {custom.map((server) => (
               <ConnectionRow

@@ -18,6 +18,8 @@ import { api } from '../../api/client';
 import { ConnectionToolsError } from './errors';
 import type {
   ApiConnection,
+  CardConnectResult,
+  CardDisconnectResult,
   CreateMCPServerData,
   CredentialValidation,
   CreatedAccount,
@@ -133,6 +135,26 @@ export function mcpOAuthDisconnect(id: number): Promise<{ connected: boolean }> 
     method: 'POST',
     body: {},
   });
+}
+
+// API cards
+
+/**
+ * Link an API card to the user's own connection, from the values typed in its
+ * Details section. The secret is saved first, through the credentials API.
+ * Errors carry the server's `error` sentence (400 invalid_field / credential_missing,
+ * 409 server_unavailable).
+ */
+export function cardConnect(id: number, fields: Record<string, string>): Promise<CardConnectResult> {
+  return api<CardConnectResult>(`/mcp/servers/${id}/card/connect/`, {
+    method: 'POST',
+    body: { fields },
+  });
+}
+
+/** Remove the user's connection made by the card. The stored credentials are not touched. */
+export function cardDisconnect(id: number): Promise<CardDisconnectResult> {
+  return api<CardDisconnectResult>(`/mcp/servers/${id}/card/disconnect/`, { method: 'POST', body: {} });
 }
 
 // Held tools

@@ -745,7 +745,10 @@ export function MyToolsSection({
 
   const rows: Row[] = useMemo(
     () => [
-      ...(apis.data ?? []).map((row): Row => ({ kind: 'api', row })),
+      // A row a card created is managed from its card on Connections, not here.
+      ...(apis.data ?? [])
+        .filter((row) => !row.card_slug)
+        .map((row): Row => ({ kind: 'api', row })),
       ...(dbs.data ?? []).map((row): Row => ({ kind: 'data', row })),
     ],
     [apis.data, dbs.data],

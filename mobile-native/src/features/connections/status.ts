@@ -49,6 +49,8 @@ export function statusOf(
   if (server.is_system && !server.enabled && server.coming_soon) return 'coming_soon';
   if (server.is_system && !server.enabled) return 'unavailable';
   if (!server.effective_enabled) return 'off';
+  // An API card also needs the user's own connection. A saved secret alone is "credential present, not connected".
+  if (server.kind === 'api' && !server.card_connected) return 'needs_auth';
   if (check.validation) {
     if (!check.validation.ok) return 'needs_auth';
     return needsCredentials(server) ? 'connected' : 'always';

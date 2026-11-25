@@ -774,7 +774,7 @@ def _refresh_in_background(server_id: int, user: Any) -> None:
         logger.debug("Could not queue MCP refresh for server %s", server_id, exc_info=True)
 
 
-def warm_cache(server_id: int, user: Any) -> None:
+def warm_cache(server_id: int, user: Any, kind: str = 'mcp') -> None:
     """Pre-list a connector's tools after it is configured, without blocking.
 
     Enabling a connection and then immediately asking the agent something is
@@ -793,6 +793,12 @@ def warm_cache(server_id: int, user: Any) -> None:
     from asgiref.sync import ThreadSensitiveContext
     from django.db import close_old_connections
 
+    # The caller passes the row's `kind` (it holds the row): an API or
+    # database card has no MCP session to warm. Checked here without a query,
+    # because this runs inside sync views. Even unchecked, the refresh resolves
+    # through `_visible_servers_queryset`, which excludes `NON_MCP_KINDS`.
+    if kind in MCPServer.NON_MCP_KINDS:
+        return
     key = (server_id, _coerce_user_id(user))
     with _refresh_lock:
         if key in _refreshing:
@@ -1219,6 +1225,34 @@ def _serialise_tool_result(result: CallToolResult) -> Any:
     return parts
 
 
+def custom_servers_enabled() -> bool:
+    """Whether user-owned MCP servers exist as far as the product is concerned.
+
+    Read per call, like `MCP_ALLOW_STDIO`, so tests and an env change take
+    effect without a reload. Off, a user-owned row is invisible everywhere this
+    module answers "which servers" — both doors (offered and dispatched), the
+    builder's picker and the agent validator — because they all resolve
+    through `_visible_servers_queryset`.
+    """
+    from django.conf import settings
+
+    return bool(getattr(settings, 'MCP_CUSTOM_SERVERS_ENABLED', False))
+
+
+def retired_server_ids_sync(user_id: int | None) -> set[int]:
+    """This user's own servers while custom servers are switched off.
+
+    An agent may still name one in its `connectors`. The validator accepts
+    such an id rather than refusing an unrelated edit, and keeps it rather than
+    dropping it: dropping the only id would leave `connectors` empty, which
+    means *unrestricted*, and so widen the agent to every curated connector. A
+    kept id resolves to no server at run time, which can only take tools away.
+    """
+    if user_id is None or custom_servers_enabled():
+        return set()
+    return set(MCPServer.objects.filter(user_id=user_id).values_list('id', flat=True))
+
+
 def _visible_servers_queryset(user_id: int | None, enabled_only: bool = True):
     # Ordered explicitly, and it matters well beyond tidiness. This list decides
     # the order of the MCP tool descriptors in every model request, and a
@@ -1228,7 +1262,7 @@ def _visible_servers_queryset(user_id: int | None, enabled_only: bool = True):
     # the cache every time. The symptom is pure latency and a larger bill, with
     # nothing anywhere reporting an error. `id` because it is the one column
     # that never changes under a rename.
-    qs = MCPServer.objects.order_by('id')
+    qs = MCPServer.objects.order_by('id').exclude(kind__in=MCPServer.NON_MCP_KINDS)
     if enabled_only:
         qs = qs.filter(enabled=True)
         if user_id is not None:
@@ -1240,7 +1274,7 @@ def _visible_servers_queryset(user_id: int | None, enabled_only: bool = True):
                     user_id=user_id, enabled=False
                 ).values('server_id')
             )
-    if user_id is None:
+    if user_id is None or not custom_servers_enabled():
         return qs.filter(user__isnull=True)
     return qs.filter(Q(user__isnull=True) | Q(user_id=user_id))
 
@@ -1289,7 +1323,10 @@ async def get_all_tools_from_all_servers(user) -> list[dict[str, Any]]:
     """Aggregate tools from every server visible to `user`, with origin tags."""
     if os.environ.get("MCP_DISABLED", "False").lower() in ("true", "1", "yes"):
         return []
-    servers = [s for s in await get_servers_for_user(user) if s.type != "native"]
+    servers = [
+        s for s in await get_servers_for_user(user)
+        if s.type != "native" and s.kind not in MCPServer.NON_MCP_KINDS
+    ]
     tools: list[dict[str, Any]] = []
 
     async def collect_server_tools(server: MCPServer) -> list[dict[str, Any]]:
