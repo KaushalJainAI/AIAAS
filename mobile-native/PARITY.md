@@ -68,7 +68,7 @@ does not show the bar yet; the hook already takes an `executionId` for it.
 
 | Where | Web | Phone | Why |
 |---|---|---|---|
-| Confirm dialogs | Styled in-app dialog | Same, drawn by the app (`components/confirm.tsx`) | Identical look on both OSes |
+| Confirm dialogs | Styled in-app dialog | Same, drawn by the app (`src/components/confirm.tsx`) | Identical look on both OSes |
 | Chat attachments | Uploaded when picked | Uploaded when the message is sent | So removing a chip really removes the file |
 | Chat "Edit and resend" | Offered next to "Take back" | Only "Take back" | Same effect |
 | Chat confirm cards (schedule, publish) | Confirm in place | Open the native Schedules / Pages screen | Simpler on a phone |

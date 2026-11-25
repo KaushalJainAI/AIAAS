@@ -13,8 +13,10 @@ before doing anything risky.
   pause for your approval, and an agent can pause to ask you a question.
 - **Record**: every run is kept turn by turn, with the model's reasoning and each
   tool call.
-- **Connections**: Gmail, Drive, Sheets, Calendar, Notion, Slack and MCP servers.
-  Keys are encrypted at rest.
+- **Undo**: a reply's or run's file, memory and agent changes can be put back. A
+  message a person is watching waits 20 seconds, so they can cancel it.
+- **Connections**: Gmail, Drive, Sheets, Calendar, Notion, Slack and curated MCP
+  connectors. Adding your own MCP server is off. Keys are encrypted at rest.
 
 **New here?** Read **[START_HERE.md](START_HERE.md)** first. It explains the
 codebase, shows how a chat message travels, and gives the run recipe.
@@ -48,7 +50,7 @@ Production: [DEPLOYMENT.md](DEPLOYMENT.md).
 - [START_HERE.md](START_HERE.md): the beginner tour and the run recipe
 - [FEATURE_MAP.md](FEATURE_MAP.md): code-level map of each feature
 - [DEPLOYMENT.md](DEPLOYMENT.md): deploying to production
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to send a change, and which checks to run
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to send a change, and which checks to run (CI is `.github/workflows/`)
 - [INFRASTRUCTURE_SIMPLE_GUIDE.md](INFRASTRUCTURE_SIMPLE_GUIDE.md): how it is hosted (containers, proxies, databases, networking), in plain words
 - [REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md](REALTIME_AND_PROTOCOLS_SIMPLE_GUIDE.md): HTTP, streaming, WebSockets and webhooks, in plain words
 - [Backend/docs/README.md](Backend/docs/README.md): index of the design docs

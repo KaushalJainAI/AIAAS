@@ -93,21 +93,22 @@ new config to `base.py`, never to a new top-level `settings.py`.
 | App | Responsibility |
 |-----|---------------|
 | `core/` | JWT auth, OAuth2 (allauth), API throttling, middleware, CSRF protection |
-| `sandbox/` (not a Django app) | The code sandbox behind `execute_python`, `execute_javascript` and `run_command` (allowlisted text commands, no shell; 2026-11-24), for chat and agent runs alike. **One door — `sandbox/engine.py::arun_code`** (+ `arun_commands`) — selects by `SANDBOX_ENGINE`; JavaScript and commands exist only on `service` and their tools are withheld otherwise. No sandboxed process may start a program the model chose (H-169), and each run executes as its slot's own Unix user with nothing left alive between runs (H-170): `service` (production) POSTs to the hardened sidecar container `sandbox_service/` (real confinement, numpy/pandas available); `inprocess` (dev fallback only, weaker) is `safe_execution.py` (AST denylist + `exec` on a worker thread). No automatic fallback between them. The vendored wasmtime engine + its 40 MB CPython-wasm tree were **removed 2026-09-02** (no callers, and WASM can't load the C extensions agents need); `RestrictedPython`/`wasmtime` are gone from requirements |
+| `sandbox/` (not a Django app) | The code sandbox behind `execute_python`, `execute_javascript` and `run_command` (allowlisted commands, no shell). **One door: `sandbox/engine.py::arun_code`** (+ `arun_commands`), which picks the engine by `SANDBOX_ENGINE`. `service` (production) calls the hardened container `sandbox_service/`; `inprocess` (dev only, weaker) is `safe_execution.py`. No automatic fallback between them, and JavaScript and commands exist only on `service`. No sandboxed process may start a program the model chose (H-169), and each run is its slot's own Unix user with nothing left running between runs (H-170) |
 | `agents/` | `SubAgent` + `Trigger` CRUD, the agent runtime (`agent/runtime.py`), delegation (`agent/orchestrator.py`), the trigger sweep (`sweep.py`), HITL pause/resume/reject. **App label is `orchestrator`, not `agents`** — see `agents/apps.py` |
 | `chat/` | Perplexity-style conversational agent with Python sandbox, external thinking extraction |
-| `inference/` | Hierarchical RAG (file → user → platform tiers) + the per-user file system (`Folder`, `filesystem.py`, `recycle.py`) + the extraction engine (schemas, extracted rows, review queue — the retired `extraction` app folded in 2026-08-18; models are `inference_extraction*`, routes stay `/api/extraction/` via `inference/extraction_urls.py`) |
+| `inference/` | Hierarchical RAG (file → user → platform tiers), the per-user file system (`Folder`, `filesystem.py`, `recycle.py`), and the extraction engine (`inference_extraction*` models; routes stay `/api/extraction/`) |
 | `credentials/` | AES-encrypted API key storage with credential injection for MCP |
 | `mcp_integration/` | Model Context Protocol client with tool caching, user-scoped access, validation |
 | `streaming/` | WebSocket consumers for real-time execution logs and input data tracking |
 | `skills/` | Pluggable skill registry invoked by agents |
 | `tools_config/` | The tool library page and the per-user overlay on it (`ToolConfig`). Serves `/api/tools/`; the catalogue is derived from `chat/tools/registry.py` + `GRANT_TOOLS`, never stored. **Absent row = code default**, so a fresh `migrate` yields zero rows and every tool behaves as before the app existed |
-| `logs/` | Agent observability: `ExecutionLog` (run) → `AgentTurn` (model call, with its full reasoning) → `AgentStep` (tool call), plus `SubAgentRevision` (the config a run executed under) and `logs/revisions.py`. Served at `/api/logs/`; views are thin and sync, all ORM in `logs/queries.py`. See `Backend/docs/AGENT_OBSERVABILITY.md`. (`NodeExecutionLog` was renamed to `AgentStep` 2026-08-19; `ExecutionLogger`, `AuditEntry` and `OrchestratorThought` are gone — all DAG-era with no writer) |
+| `logs/` | Agent observability: `ExecutionLog` (run) → `AgentTurn` (model call, with its full reasoning) → `AgentStep` (tool call), plus `SubAgentRevision` (the config a run executed under, `logs/revisions.py`) and `ChangeSet`/`Change` (what a chat message or run changed, for undo: `logs/changes.py`, `logs/undo.py`). Served at `/api/logs/`; views are thin and sync, all ORM in `logs/queries.py`. See `Backend/docs/AGENT_OBSERVABILITY.md` |
 | `solutions/` | What an organisation has already solved, found again by the next person: `Solution` records (problem, symptoms, cause, fix, claims with how fast each goes stale), reviews (worked / failed / doubtful, with which model said so), and three small indexes (error signatures, keywords, float16 vectors). **One read door, `access.py::visible`**, checks org membership live; a choke-point test fails on any other `Solution.objects` read. Organisations themselves are `core.Organization`/`Membership` (`core/orgs.py`). See `Backend/docs/SOLUTION_MEMORY_PLAN.md` |
+| `messaging/` | Outbound messages from agents (Slack, Telegram, WhatsApp, SMS) and the send window: `holds.py` keeps an attended send for `OUTBOUND_HOLD_SECONDS` so a person can cancel it (H-171) |
 | `notifications/` | Persistent notifications + the HITL reminder engine (escalation ladder, hourly nudges, daily email digest) |
 | `imagine/` | Media generation (image/video/audio) via OpenRouter; form + conversational agent with HITL |
-| `llm/` | The whole provider layer (and `decisions.py`, the decision-model door): vocabulary (`providers.py`), the `AIProvider`/`AIModel` registry, the handler calling convention + registry (`handlers/base.py`, `handlers/registry.py` — the `nodes` app was deleted 2026-08-19 and its two load-bearing files moved here), the five provider handlers (`handlers/llm_providers.py`, `handlers/llm_nodes.py`, `handlers/openai_compatible.py`, `handlers/llm_base.py`), and the access funnel `access.py` (was `chat/turn/llm.py`), plus `context.py` — `ExecutionContext`, what a handler is handed besides its config (was `compiler/schemas.py`; that app held nothing else and was deleted 2026-08-24). Serves `/api/llm/models/` |
-| `eval/` | Evaluation of sub-agents: suites, cases, graders, sweeps, and the human review of what the graders decided. `graders.py` is a registry (registration *is* the schema, as in `chat/tools/`); `runner.py` sweeps a suite through the same `run_agent` door as every other run; `supervision.py` owns the review policy and is the single place a run's score is computed. **`eval/api.py` is the public surface other apps import** — pure grading (`grade_answer`, `grade_execution` scores an `ExecutionLog` that already ran), sweeps (`run_suite_now` awaited / `start_suite_run` detached), supervision and the reads. Nothing in `eval/` imports a sibling app at module scope, so no cycle is possible, and `eval/__init__.py` stays empty because `INSTALLED_APPS` imports the package before the app registry is ready. **App label is `eval`, singular** — a deleted `evals` app left inert `evals_*` tables in dev databases. See `Backend/docs/EVALUATION.md`. **The practical benchmark is `eval/benchmarks/`** — suites as code (capability + guardrail groups), installed into an account through `AgentSerializer` and run with `manage.py benchmark run --user <email>`, writing a scorecard to `eval/benchmarks/reports/`; guardrail suites have a 100% bar because they test our code, not the model. Start at its `README.md`. The **work tier** (2026-09-17) is the harder half: each case starts from a folder of messy fixtures reset before every attempt (`eval/workspace.py`), is graded on the files it produced (`file_*`, `json_value`, `csv_value` graders) rather than on its prose, and is run 3 times so the scorecard reports pass@1 *and* pass^k — a case that works twice in three runs is not a feature. Expected values are computed by a reference solution over the same fixture text, and a test fails if a case cannot be passed with ideal outputs or *can* be passed with the untouched fixtures |
+| `llm/` | The whole provider layer, and `decisions.py` (the decision-model door): the `AIProvider`/`AIModel` registry, the handler calling convention and registry (`handlers/base.py`, `handlers/registry.py`), the provider handlers (`handlers/llm_providers.py`, `llm_nodes.py`, `openai_compatible.py`, `llm_base.py`), the access funnel `access.py`, `context.py` (`ExecutionContext`) and `balance.py` (credit left on an OpenRouter key). Serves `/api/llm/models/` |
+| `eval/` | Evaluation of sub-agents: suites, cases, graders, sweeps, and the human review of what the graders decided. `graders.py` is a registry (registration *is* the schema, as in `chat/tools/`); `runner.py` sweeps a suite through the same `run_agent` door as every other run; `supervision.py` owns the review policy and is the single place a run's score is computed. **`eval/api.py` is the public surface other apps import** — pure grading (`grade_answer`, `grade_execution` scores an `ExecutionLog` that already ran), sweeps (`run_suite_now` awaited / `start_suite_run` detached), supervision and the reads. Nothing in `eval/` imports a sibling app at module scope, so no cycle is possible, and `eval/__init__.py` stays empty because `INSTALLED_APPS` imports the package before the app registry is ready. **App label is `eval`, singular** — a deleted `evals` app left inert `evals_*` tables in dev databases. See `Backend/docs/EVALUATION.md`. **The practical benchmark is `eval/benchmarks/`** — suites as code (capability + guardrail groups), installed into an account through `AgentSerializer` and run with `manage.py benchmark run --user <email>`, writing a scorecard to `eval/benchmarks/reports/`; guardrail suites have a 100% bar because they test our code, not the model. Start at its `README.md`. The **work tier** is the harder half: each case starts from a folder of messy fixtures reset before every attempt (`eval/workspace.py`), is graded on the files it produced (`file_*`, `json_value`, `csv_value` graders) rather than on its prose, and is run 3 times so the scorecard reports pass@1 *and* pass^k — a case that works twice in three runs is not a feature. Expected values are computed by a reference solution over the same fixture text, and a test fails if a case cannot be passed with ideal outputs or *can* be passed with the untouched fixtures |
 
 **Tests live in a `tests/` package per app** — `<app>/tests/test_<topic>.py`, never a flat
 `<app>/tests.py` or `<app>/tests_<topic>.py` beside the source. Both runners discover them
@@ -288,13 +289,7 @@ are `components/content/` (`MarkdownMessage`, `ChartArtifact`, `MediaPreview`,
 migration list: `better-n8n-frontend/FRONTEND_STRUCTURE.md`.
 
 - `features/chat/components/` — Chat interface with code execution tracking, live state management, responsive sidebar
-- `pages/Connections.tsx` — the one page for external capability. It merged the former
-  "Tools" (`/mcp-servers`) and "Data sources" (`/connectors`), which were two views of
-  the same two tables; both paths now redirect to `/connections`. Its Advanced disclosure
-  (raw MCP config, "Add custom server") is hidden since 2026-11-23 behind
-  `lib/features.ts::CUSTOM_MCP_SERVERS`, mirroring the backend's
-  `MCP_CUSTOM_SERVERS_ENABLED` (H-175), and connector presentation comes from the backend
-  (`icon_slug` → `lib/connectorIcons.ts`), never from a name-keyed map in this app
+- `pages/Connections.tsx` — the one page for external capability (it merged the former "Tools" and "Data sources" pages; `/mcp-servers` and `/connectors` redirect to `/connections`). Custom MCP servers are retired: the Advanced disclosure sits behind `lib/features.ts::CUSTOM_MCP_SERVERS` (false), mirroring `MCP_CUSTOM_SERVERS_ENABLED` (H-175). Connector presentation comes from the backend (`icon_slug` → `lib/connectorIcons.ts`), never from a name-keyed map in this app
 - `pages/OAuthCallback.tsx` — `/oauth/callback`, the credential OAuth popup landing page
   (distinct from `GoogleCallback`, which logs a user *in*)
 - `components/mcp/` — the custom MCP server modal (kept, unmounted while custom servers are
@@ -318,9 +313,9 @@ migration list: `better-n8n-frontend/FRONTEND_STRUCTURE.md`.
   opener or toasts and navigates back
 - `lib/websocket.ts` — `useSocket`, the one WebSocket primitive. Every real-time feature goes
   through it; it owns URL resolution, exponential backoff, and the remount race guard
-- `features/chat/hooks/useChatStream.ts` — reducer for one streamed assistant turn; sibling hooks
-  (`useMessagePanels`, `useMessageSelection`, `useChatModelSelection`) carry the rest of
-  `StandaloneChat`'s state
+- `features/chat/hooks/useChatStream.ts` — reducer for one streamed assistant turn. Sibling hooks
+  (`useMessagePanels`, `useMessageSelection`, `useCommands`) and `hooks/useChatModelSelection.ts`
+  carry the rest of `StandaloneChat`'s state
 - `features/chat/components/StandaloneChat.tsx` owns the chat page's state and handlers; the
   drawing is split into props-only pieces (2026-09-24): `ChatHistorySidebar`,
   `ChatHeader`, `ChatSettingsDialog`, `ChatMessageItem` (one saved message),
@@ -433,7 +428,7 @@ a rule above only if it must always hold.
 
 ## Environment Variables
 
-Copy `Backend/.env.local` (or `Backend/.env.example`) to `Backend/.env`. Critical vars:
+Copy `Backend/.env.example` to `Backend/.env.local` (local settings read that file; production is in `DEPLOYMENT.md`). Vars are read in `settings/base.py` unless the comment names another module:
 
 ```
 SECRET_KEY=                        # Django secret key
@@ -448,9 +443,9 @@ HITL_REMINDER_SWEEP_SECONDS=300    # Celery beat interval for the HITL reminder 
 HITL_DIGEST_DEFAULT_TIME=09:00     # Default local time for the daily HITL digest
 RECYCLE_BIN_RETENTION_DAYS=30      # How long a trashed file stays restorable
 RECYCLE_SWEEP_SECONDS=3600         # Beat interval for the recycle-bin purge
-STORAGE_QUOTA_FREE_MB=1024         # Storage per free account (files + trash + versions + attachments); 0 = no quota
-STORAGE_QUOTA_PRO_MB=10240         # Same, pro tier (STORAGE_QUOTA_ENTERPRISE_MB for enterprise)
-MAX_DOCUMENTS_PER_USER=10000       # Files per account, trash included
+STORAGE_QUOTA_FREE_MB=1024         # Storage per free account (files + trash + versions + attachments); 0 = no quota. Read in `workflow_backend/thresholds.py`
+STORAGE_QUOTA_PRO_MB=10240         # Same, pro tier (STORAGE_QUOTA_ENTERPRISE_MB for enterprise; `thresholds.py`)
+MAX_DOCUMENTS_PER_USER=10000       # Files per account, trash included (`inference/quota.py`)
 INDEXING_CONCURRENCY=2             # Documents extracted + embedded at once (inference/indexing.py)
 NOTIFICATIONS_EMAIL_ENABLED=False  # Digest email only; nudges are always device-only
 VAPID_PUBLIC_KEY=                  # Web Push public key (GET /api/notifications/push/vapid-key/); blank = closed-browser push off
@@ -458,7 +453,7 @@ VAPID_PRIVATE_KEY=                 # Web Push private key — never leaves the s
 VAPID_SUBJECT=mailto:no-reply@aiaas.local  # VAPID contact claim
 EXPO_PUSH_ENABLED=True             # Native phone push (React Native app) via the Expo Push Service; settings/test.py forces False
 EXPO_ACCESS_TOKEN=                 # Optional Expo access token, sent as Bearer when set
-LLM_INPUT_TOKEN_CEILING=0          # Optional cap on one request's input tokens; 0 = the model's own window (curation starts at 70% of it)
+LLM_INPUT_TOKEN_CEILING=0          # Optional cap on one request's input tokens; 0 = the model's own window (curation starts at 70% of it). Read in `llm/access.py`
 OPENROUTER_API_KEY=                 # Platform key for the DEFAULT provider — required
 CONTEXT_SUMMARY_PROVIDER=nvidia     # Provider for the context fold (platform key)
 CONTEXT_SUMMARY_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b  # Agent's summaryModel overrides
@@ -470,10 +465,10 @@ AUTO_REVIEWER_TIMEOUT_S=3           # Over this, the call asks
 CHATGPT_PLAN_ENABLED=False         # Continue with ChatGPT; True in settings/local.py, False in deployment (a hosted site needs OpenAI's approval)
 CHATGPT_AGENT_NAME=AIAAS           # Our name on OpenAI's consent screen; keep it stable
 CHATGPT_REDIRECT_URI=              # Blank = http://127.0.0.1:<this server's port>/auth/callback
-MCP_MEMORY_BUDGET_MB=150           # Total resident MB for all MCP connectors; 0 disables
-MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once
-MCP_MAX_POOLED_SESSIONS=6          # Live sessions kept (cache policy under the budget)
-MCP_SESSION_TTL=300                # How long an idle connector holds its subprocess
+MCP_MEMORY_BUDGET_MB=150           # Total resident MB for all MCP connectors; 0 disables (`mcp_integration/supervisor.py`)
+MCP_MAX_CONCURRENT_STARTS=1        # Connectors that may be starting at once (`supervisor.py`)
+MCP_MAX_POOLED_SESSIONS=6          # Live sessions kept (cache policy under the budget; `mcp_integration/client.py`)
+MCP_SESSION_TTL=300                # How long an idle connector holds its subprocess (`mcp_integration/client.py`)
 MCP_ALLOW_STDIO=True               # Local-process MCP servers; deployment defaults False (no Node in image)
 MCP_CUSTOM_SERVERS_ENABLED=False   # Users adding their own MCP servers; off everywhere (test settings turn it on for engine suites)
 SESSION_NOTES_ENABLED=True         # Per-conversation notes file, updated after every chat turn
@@ -509,6 +504,9 @@ SENTRY_TRACES_SAMPLE_RATE=0        # Performance tracing; off by default on the 
 BACKUP_S3_BUCKET=                  # manage.py backup_db uploads here when set; BACKUP_DIR / BACKUP_KEEP for local copies
 ALLOWED_HOSTS=*                    # Frontend and API hosts
 TRUSTED_PROXY_COUNT=               # Reverse proxies we run in front of Django (DRF NUM_PROXIES); deployment defaults 2 (Caddy, nginx). Throttles + audit IPs read the client address through it (core/http/client_ip.py)
+SANDBOX_ENGINE=inprocess           # `service` in production (the hardened sidecar); `inprocess` is the dev fallback, weaker. Read by sandbox/engine.py
+BROWSER_ENGINE=none                # Remote browser for the browsing tools; `none` hides every browser feature
+WORKSPACE_ENGINE=none              # Per-user compute machines; `none` means the Code tools are not offered
 CORS_ALLOWED_ORIGINS=              # Frontend CORS origins for WebSocket connections
 ```
 
@@ -551,15 +549,7 @@ against this table, and if it isn't here, look it up in `nodes_aimodel`
 
 ## Internal Documentation
 
-**Beginner docs (2026-09-24).** `START_HERE.md` (repo root) is the plain-language
-tour: what the product is, how a chat message and an agent run travel, a map of
-every app, and step-by-steps for common jobs. Every backend app has a `README.md`
-(file-by-file, in reading order), `Backend/docs/README.md` sorts the docs below
-into *reference* / *built plans* / *open plans* / *history*, and
-`better-n8n-frontend/BEGINNER_GUIDE.md` is the frontend tour. Keep them in step
-when you move or add a file: a guide naming a file that no longer exists is worse
-than no guide. Write them in short sentences and plain words; the design history
-belongs in `DESIGN_HISTORY.md`, not in them.
+**Beginner docs.** `START_HERE.md` (repo root) is the plain tour. Each backend app has a `README.md` (file by file), `Backend/docs/README.md` indexes the design docs, and `better-n8n-frontend/BEGINNER_GUIDE.md` is the frontend tour. Keep them in step when you move or add a file, and write them in plain words. Design history belongs in `DESIGN_HISTORY.md`.
 
 Detailed technical docs live in `Backend/docs/`:
 - `API.md` — **Endpoint map / code-review index**: every HTTP route with its Django app,
@@ -593,8 +583,9 @@ Detailed technical docs live in `Backend/docs/`:
 - `ORG_KNOWLEDGE_PLAN.md` — The plan (K0–K7 built 2026-11-11, undeployed, not yet checked in a browser) that made solution memory a team product: invitations, drafts and curators, citations in chat, import, stale nudges, insights, KBs shared read-only with an org, org choice per chat and per scheduled agent
 - `SOLUTION_MEMORY_PLAN.md` — The plan (S0–S4 built 2026-09-28, undeployed; S5 benchmark not built) for org-scoped solution memory: solved problems captured automatically as structured records, found again with `search_solutions`, each claim labelled by how fast it goes stale and re-verified or flagged before it is stated. Adds an `Organization` model (reversing the 2026-08-14 "no org context" decision); the rule is that nothing leaves the org it was captured in (§3a)
 - `PROMPT_AND_MEMORY_PLAN.md` — The plan (built 2026-09-28) fixing the chat and agent system prompts (chart/mode/`can_ask` wording, an untrusted-content rule, dates, notes for repeating agents), user memory's prompt selection (categories were cut alphabetically), and the chat double-send of earlier turns (checkpoint + DB history), which Phase 0 proved with a test before the fix
-- `UNDO_PLAN.md` — The plan (built 2026-11-23..25 on `feature/undo`, undeployed, not yet checked by hand in a browser or on a phone; written phase by phase for smaller models) for undo: a change log per chat message and per agent run (`logs.ChangeSet`/`Change`, bound by a ContextVar around each tool call, net effect per target), a revert that puts files, folders, memory and agent settings back and **skips anything changed since**, workers linked by id across `spawn()`, untracked rows for what can't be undone, and a ~20 s cancellable hold on sends a person is watching (`messaging.PendingSend`)
-- `CONNECTOR_CATALOGUE_PLAN.md` — The plan (proposed 2026-11-23; Phases 0, 9a, 9b and 10 built 2026-11-24..25, undeployed; the API cards stay "Coming soon" until each passes `connector_check`; Phases 1–8 and 11–13 not started) to retire user-made MCP servers behind `MCP_CUSTOM_SERVERS_ENABLED` and grow the curated catalogue with vendor-hosted MCP servers: OAuth on curated cards, pre-registered clients for vendors without DCR, a locked token refresh, per-row scopes/headers/tool allowlists, a schema normaliser, a tool budget, and a conformance harness every connector passes before its row is enabled. Per-vendor research (Linear, Sentry, GitHub, Asana, Stripe, HubSpot, Atlassian, Slack) is in §6; phases 9–14 add API cards, SQL engines, OAuth presets and Indian connectors. The connector list itself, with what we need, what the user needs and each card's setup steps, is `CONNECTOR_CATALOGUE.md`
+- `UNDO_PLAN.md` — Built 2026-11-23..25 (H-171..H-173), undeployed, not yet checked by hand in a browser or on a phone. Undo: a change log per chat message and per agent run (`logs.ChangeSet`/`Change`), and a revert that puts files, folders, memory and agent settings back and **skips anything changed since**. Also the 20 s hold on sends a person is watching (`messaging.PendingSend`)
+- `INJECTION_GAPS_PLAN.md` — Closes gaps 9 and 10 in `SAFETY_AND_GUARDRAILS.md` §5 (H-176, H-178, H-181): the envelope tag kept across a resume, raw PDFs and office files scanned, raw images vision-checked (`INJECTION_IMAGE_*`), and a partly read upload taints the turn. Scanned PDFs with no text layer stay open (the page-1 render is not built)
+- `CONNECTOR_CATALOGUE_PLAN.md` — Retires user-made MCP servers (`MCP_CUSTOM_SERVERS_ENABLED`, H-175) and grows the curated catalogue with vendor-hosted MCP servers and API cards. Built: Phases 0, 9a, 9b and 10 (2026-11-24..25, undeployed); the API cards stay "Coming soon" until `connector_check` passes. Phases 1–8 and 11–13 are not started. Vendor research is §6. The connector list and setup steps are in `CONNECTOR_CATALOGUE.md`
 - `CHATGPT_PLAN_PROVIDER_PLAN.md` — The plan (built 2026-10-11; **not yet run against a real ChatGPT account** — `scripts/chatgpt_plan_spike.py` is Phase 0 and §10 is still empty) that removed OpenCode Zen and added a `chatgpt` provider through OpenAI's official Sign in with ChatGPT flow (Responses API, loopback redirect, rotating refresh tokens). Self-hosted installs only until OpenAI approves the hosted site
 
 ## Frontend-Specific Docs
