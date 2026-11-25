@@ -1,10 +1,11 @@
 # Closing the two open injection gaps
 
 Proposed 2026-11-24. **Phases 1 and 2 built 2026-11-24** (gap 10 closed, gap 9
-closed for raw PDFs and office files; see `DESIGN_HISTORY.md` H-176). Phase 3
-(raw images and scanned PDFs) is not built. Written phase by phase so a smaller
-model can build one phase at a time. Closes known gaps 9 and 10 in
-`SAFETY_AND_GUARDRAILS.md` §5.
+closed for raw PDFs and office files; see `DESIGN_HISTORY.md` H-176). **Phase 3
+built 2026-11-25 for raw images, Option A** (vision check; see H-178). Scanned
+PDFs with no text layer are still open: the page-1 render was not built.
+Written phase by phase so a smaller model can build one phase at a time. Closes
+known gaps 9 and 10 in `SAFETY_AND_GUARDRAILS.md` §5.
 
 ## The two gaps
 
@@ -100,6 +101,14 @@ A raw PDF or office file already has its text. The upload view stores it in
   `injection_check`, as `test_injection_model_check.py` already does.
 
 ## Phase 3: scan raw images (medium; needs one decision)
+
+**Status (2026-11-25): built for raw images, Option A.** `moderation.image_injection_check`
+and `first_image_injection`, `agent.check_raw_images` (the cap of
+`INJECTION_CHECK_MAX_IMAGES` = 4, log past it), the pipeline step after the text
+checks, and the two settings. Model: `openrouter` / `meta-llama/llama-4-scout`.
+Tests: `chat/tests/test_image_injection_check.py`. Not built: the page-1 render of
+a scanned PDF with no text layer (still open, gap 9); the labelled hit-rate run
+on real images is still to do, and needs the user's go-ahead (paid).
 
 Images have no text to scan, so the check has to read the picture.
 
@@ -217,7 +226,8 @@ Also add `INJECTION_IMAGE_*` to CLAUDE.md's env list and add a
 |---|---|---|---|
 | 1 | 10 (tag) | ~30 lines + tests | none |
 | 2 | 9 (PDFs and office files) | ~40 lines + tests | reuses the existing text check |
-| 3 | 9 (images and scanned PDFs) | ~150 lines + tests | one vision call per new image, in auto/full only |
+| 3 | 9 (images, built 2026-11-25; scanned PDFs still open) | ~150 lines + tests | one vision call per new image, in auto/full only |
 
-Build phases 1 and 2 first; they need no decision. Phase 3 needs the user to
-approve the vision model and its per-image cost.
+Build phases 1 and 2 first; they need no decision. Phase 3 needed the user to
+approve the vision model and its per-image cost; the model is the one in the
+table above, and the labelled measurement run is still to be approved.

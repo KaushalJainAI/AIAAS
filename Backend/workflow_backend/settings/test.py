@@ -107,6 +107,8 @@ SCHEDULER_ENABLED = False
 # No network in tests: the model second opinion is switched off, and its own
 # tests (`core/tests/test_moderation.py`) turn it on with a fake transport.
 CONTENT_MODERATION_MODEL = ''
+# The vision injection check on raw images is off too; its tests switch it on.
+INJECTION_IMAGE_MODEL = ''
 
 # Conversation notes write a file and call a model after every turn; the
 # pipeline tests assert on the turn, not on that job. Its own tests

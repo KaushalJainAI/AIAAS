@@ -3917,3 +3917,17 @@ Some API cards send their key in the query string (Trello, Pipedrive, OpenWeathe
 `call_api` refuses a connection whose API card is switched off, or whose card row is gone: the card's `MCPServer.enabled` is the kill switch, and it had been ignored. It also blanks every resolved credential value from the response, at any depth, before the model sees it or a saved copy is written. A stored auth template with a line break is refused by `check_parts`, and a bad stored template returns a tool error instead of an uncaught ValueError or a silent call with no sign-in.
 
 Not scrubbed: a binary response saved to the user's files (`_save_binary`). A file has no string to match, so the key is only protected if the vendor does not echo it into a file.
+
+## H-178 · Raw images get a vision injection check (2026-11-25)
+
+Files: `Backend/core/safety/moderation.py` (`image_injection_check`, `first_image_injection`, `image_check_enabled`, `IMAGE_INJECTION_POLICY`), `Backend/chat/turn/agent.py` (`check_raw_images`), `Backend/chat/turn/pipeline.py` (taint block), `Backend/workflow_backend/thresholds.py` (`INJECTION_CHECK_MAX_IMAGES`), `Backend/workflow_backend/settings/base.py` and `test.py` (`INJECTION_IMAGE_PROVIDER`, `INJECTION_IMAGE_MODEL`), `Backend/chat/tests/test_image_injection_check.py` (scripts the checker at the wire, H-174), `Backend/docs/INJECTION_GAPS_PLAN.md` (Phase 3), `Backend/docs/SAFETY_AND_GUARDRAILS.md` §5 (gap 9), `CLAUDE.md` (env list, Model IDs).
+
+An image sent raw is read by the chat model, and no text check reads its pixels, so text written into a picture reached the model with nothing marking the turn as tainted (H-176 left this open). Option A of the plan is built: a vision model answers, for each raw image, whether it addresses an AI, with the same `yes: <quote>` / `no` answer and the same reader (`_read_injection_answer`) as the text check.
+
+**What is checked.** `agent.check_raw_images` takes the attachments `prepare_attachments` returns as raw. A described image is a pointer the model never sees, so it is not read. It runs in `auto`/`full` only, after the pattern check and the text checks found nothing, and a hit sets `initial_taint="upload"`. The first `INJECTION_CHECK_MAX_IMAGES` (4) raw images of a turn are checked; the rest are logged as unchecked. The images are asked concurrently under one `CONTENT_MODERATION_TIMEOUT_S`.
+
+**Cache and fail-open.** Verdicts are keyed by `sha256(bytes)` in the same LRU as the text check, so an image replayed from history (`recent_attachments`) is not billed again. A timeout, a provider error or an unreadable answer passes the image and is not remembered.
+
+**Model.** `openrouter` / `meta-llama/llama-4-scout`, the same model as the `auto` reviewer, chosen for a one-word reply with no reasoning tokens. A blank `INJECTION_IMAGE_MODEL` switches it off, and so does a provider other than `openrouter`, because the call goes to OpenRouter's endpoint only. The call uses the same pooled client as `injection_check`, on the platform key.
+
+**Deviations from the plan.** Scanned PDFs with no text layer (rendering page 1 and checking it) are not built; gap 9 stays open for them and for images past the fourth. The labelled measurement run (clean and planted screenshots) is still to be approved, since it calls a paid model, so the hit rate and false-positive rate are not yet recorded.

@@ -582,6 +582,10 @@ INJECTION_CHECK_MAX_RESULTS = 8
 INJECTION_CHECK_CONCURRENCY = 4
 #: Verdicts kept in memory, least recently used out first.
 INJECTION_CHECK_CACHE_ENTRIES = 512
+#: Raw images a turn sends to the vision injection check
+#: (`moderation.image_injection_check`). The first ones in the turn are checked;
+#: the rest are not, and the turn logs it.
+INJECTION_CHECK_MAX_IMAGES = 4
 
 # ==================== Change log (logs/changes.py, docs/UNDO_PLAN.md §6) ====================
 #: Rows (one per touched target) one change set may hold. Past it a change is

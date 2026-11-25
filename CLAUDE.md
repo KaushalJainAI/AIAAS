@@ -496,6 +496,8 @@ CHANGE_SET_SWEEP_SECONDS=86400     # Beat interval for the purge of old change s
 OUTBOUND_AI_DISCLOSURE=unattended  # AI line on sent messages: unattended | always | never
 CONTENT_MODERATION_MODEL=openai/gpt-oss-safeguard-20b  # Model check on image prompts + pages; blank = off
 CONTENT_MODERATION_TIMEOUT_S=4     # Over this, the check passes (patterns already ran)
+INJECTION_IMAGE_PROVIDER=openrouter  # Vision check on raw images (auto/full); only openrouter has a route
+INJECTION_IMAGE_MODEL=meta-llama/llama-4-scout  # Blank = off; see "Model IDs" below
 MISSION_SWEEP_SECONDS=120          # Mission sweep interval (in-process scheduler)
 STT_ENGINE=openrouter              # Chat mic + transcribe_audio; `none` = off (voice/stt.py)
 STT_MODEL=openai/whisper-large-v3-turbo  # OpenRouter STT model, ~$0.012/hour of audio
@@ -533,6 +535,7 @@ so never give it a small token cap (`eval/graders.py::JUDGE_MAX_TOKENS`).
 | Eval judge (the `llm_judge` grader) | `openrouter` | `meta/muse-spark-1.3-contributor` | `EVAL_JUDGE_MODEL`, `settings/base.py` |
 | Benchmark agents under test | `openrouter` | `deepseek/deepseek-v4.1-flash` | `eval/benchmarks/agents.py::BENCHMARK_MODEL` |
 | Chat `auto` reviewer | `openrouter` | `meta-llama/llama-4-scout` | `AUTO_REVIEWER_MODEL`, `settings/base.py` |
+| Vision injection check (raw images, `auto`/`full`) | `openrouter` | `meta-llama/llama-4-scout` | `INJECTION_IMAGE_MODEL`, `settings/base.py` |
 
 The two are **deliberately different models** (the user's decision,
 2026-09-17): a judge grading its own model's answers cannot tell a bad rubric

