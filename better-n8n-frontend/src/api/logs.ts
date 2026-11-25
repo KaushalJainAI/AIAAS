@@ -13,6 +13,7 @@
  */
 
 import apiClient from './client';
+import type { ChangeSetSummary } from './changes';
 
 // Execution types
 
@@ -139,6 +140,8 @@ export interface RevisionSummary {
 }
 
 export interface ExecutionDetail extends ExecutionLog {
+  /** What the run changed (`queries._change_set_summary`); null when it changed nothing. */
+  change_set?: ChangeSetSummary | null;
   turns: AgentTurn[];
   /** Steps whose turn row is missing — a backfilled run, or a failed write. */
   unattributed_steps: AgentStep[];

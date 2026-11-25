@@ -84,6 +84,7 @@ import ChatMessageItem, { AssistantHeader, TurnOrPlain } from './ChatMessageItem
 import { formatSteps } from './format';
 import { useSpeech } from '@/hooks/useSpeech';
 import ChatSettingsDialog, { type SettingsTab } from './ChatSettingsDialog';
+import { ChangesSheetContainer } from '@/components/changes';
 import ChatContextView from './ChatContextView';
 import ToolApprovalCard from './ToolApprovalCard';
 import QuestionCard from '@/components/content/QuestionCard';
@@ -1852,6 +1853,9 @@ export default function StandaloneChat() {
   // Phone composer: the "+" sheet that holds the tools the row hides below sm.
   const [composerSheetOpen, setComposerSheetOpen] = useState(false);
 
+  // The "Undo what this run changed" sheet: the change set open, if any.
+  const [openChangeSetId, setOpenChangeSetId] = useState<number | null>(null);
+
   // Run settings: the model and effort the next turn uses. Lives in the
   // header now, so the composer is only the message box and its send controls.
   const runSettings = (
@@ -2106,6 +2110,10 @@ export default function StandaloneChat() {
           }}
         />
 
+        {openChangeSetId !== null && (
+          <ChangesSheetContainer setId={openChangeSetId} onClose={() => setOpenChangeSetId(null)} />
+        )}
+
         {/* Per-chat settings: system prompt + memory. */}
         {showSessionSettings && currentSession && (
           <ChatSettingsDialog
@@ -2222,6 +2230,7 @@ export default function StandaloneChat() {
                       void runCommandConfirm(name, args, confirm);
                     }}
                     onReviewSolution={(id, kind) => handleReviewSolution(id, kind)}
+                    onOpenChanges={setOpenChangeSetId}
                     onDraftAction={(id, action) => { void handleDraftAction(id, action); }}
                     draftBusy={draftBusyId != null
                       && (message.metadata as { solution_draft?: { id?: number } } | undefined)?.solution_draft?.id === draftBusyId}

@@ -514,3 +514,50 @@ describe('ChatMessageItem solution draft card', () => {
     expect((screen.getByRole('button', { name: 'Keep private' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe('ChatMessageItem undo link', () => {
+  const answer = (metadata: Record<string, unknown>, onOpenChanges = vi.fn()) => ({
+    message: {
+      id: 31, role: 'assistant', content: 'Done. Two files written.', metadata,
+      created_at: new Date().toISOString(),
+    } as unknown as import('@/api').StandaloneChatMessage,
+    index: 1,
+    animate: false,
+    deleting: false,
+    copied: false,
+    isSpeaking: false,
+    speakLoading: false,
+    isPanelOpen: () => false,
+    togglePanel: vi.fn(),
+    confirmBusy: false,
+    onCopy: vi.fn(),
+    onSpeak: vi.fn(),
+    onDelete: vi.fn(),
+    onRewrite: vi.fn(),
+    onRewind: vi.fn(),
+    onEdit: vi.fn(),
+    onCommandConfirm: vi.fn(),
+    onOpenChanges,
+  });
+
+  // FeedbackControl reads the query client, so a bare render would throw.
+  const withQueryClient = (ui: Parameters<typeof render>[0]) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  };
+
+  it('"Undo changes…" passes the change set id up', () => {
+    const props = answer({
+      elapsed_ms: 4000,
+      changes: { set_id: 42, total: 3, revertible: 3, not_revertible: 0, incomplete: false },
+    });
+    withQueryClient(<ChatMessageItem {...props} />);
+    fireEvent.click(screen.getByText('Undo changes…'));
+    expect(props.onOpenChanges).toHaveBeenCalledWith(42);
+  });
+
+  it('shows no undo link when the turn changed nothing', () => {
+    withQueryClient(<ChatMessageItem {...answer({ elapsed_ms: 4000, changes: { set_id: 42, total: 0, revertible: 0, not_revertible: 0, incomplete: false } })} />);
+    expect(screen.queryByText('Undo changes…')).toBeNull();
+  });
+});
