@@ -3852,3 +3852,16 @@ a session that ended without a sign-out. And `loadConversation` clears what
 it painted when the fetch is a 404. Preferences and guest drafts are kept.
 One cost: on first load after this ships, everyone's cached transcript and
 drafts are dropped once, because no owner was recorded yet.
+
+## H-180 · SSRF guard reads wrapped IPv4; secrets kept out of logs and API results (2026-11-25)
+
+Area: security  
+Files: Backend/core/safety/net.py (commit a0f98c5), Backend/core/tests/test_net.py, Backend/core/safety/security.py, Backend/core/tests/test_log_secrets.py, Backend/workflow_backend/settings/base.py, Backend/chat/tools/apicaller.py, Backend/chat/tests/test_call_api_guards.py, Backend/datasources/auth_template.py, Backend/datasources/tests/test_api_auth_template.py, Backend/docs/SAFETY_AND_GUARDRAILS.md
+
+The SSRF guard judges an IPv6 address by the IPv4 address it carries. IPv4-mapped (`::ffff:10.0.0.1`), NAT64 (`64:ff9b::/96`), 6to4 and Teredo literals are checked as the v4 inside them, so a private address hidden in a v6 literal is refused. A DNS answer that cannot be parsed fails closed. NAT64 networks still work: the public v4 inside a `64:ff9b::` address is allowed, because judging the wrapper itself would block every public site on a DNS64 network.
+
+Some API cards send their key in the query string (Trello, Pipedrive, OpenWeather). httpx logs each request URL at INFO, and the filter read only `record.msg`, so the URL, key included, reached the console through `record.args`. Now httpx and httpcore log at WARNING, and `SensitiveDataFilter` scrubs the arguments as well as the message and blanks secret-named query parameters (`key`, `token`, `appid`, `api_key`, `access_token`, `sig`...) wherever a URL appears.
+
+`call_api` refuses a connection whose API card is switched off, or whose card row is gone: the card's `MCPServer.enabled` is the kill switch, and it had been ignored. It also blanks every resolved credential value from the response, at any depth, before the model sees it or a saved copy is written. A stored auth template with a line break is refused by `check_parts`, and a bad stored template returns a tool error instead of an uncaught ValueError or a silent call with no sign-in.
+
+Not scrubbed: a binary response saved to the user's files (`_save_binary`). A file has no string to match, so the key is only protected if the vendor does not echo it into a file.
