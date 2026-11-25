@@ -67,6 +67,7 @@ const PublishedPageView = lazyPage(() => import('./pages/PublishedPageView'));
 const Pages = lazyPage(() => import('./pages/Pages'));
 const Templates = lazyPage(() => import('./pages/Templates'));
 const Tools = lazyPage(() => import('./pages/Tools'));
+const Code = lazyPage(() => import('./pages/Code'));
 const NotFound = lazyPage(() => import('./pages/NotFound'));
 // The command menu is a chunk of its own, fetched the first time it opens.
 const CommandMenu = lazy(() => import('./components/command/CommandMenu'));
@@ -279,6 +280,8 @@ const AppContent = () => {
               <Route path="/imagine" element={<Imagine />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/tools" element={<Tools />} />
+              {/* The /code slash command lands here. The Code tab needs a workspace engine that is not built yet; this placeholder says so instead of showing NotFound. */}
+              <Route path="/code" element={<Code />} />
               {/* Work — Activity absorbs Inbox: keep /inbox as redirect so deep links stay valid */}
               <Route path="/inbox" element={<Navigate to="/runs" replace />} />
               <Route path="/runs" element={<Runs />} />
