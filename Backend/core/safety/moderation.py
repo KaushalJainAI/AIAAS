@@ -69,9 +69,24 @@ CACHE_SECONDS = 600
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 
+def _platform_key() -> str:
+    """The platform's OpenRouter key.
+
+    It lives in the environment (`credentials.resolution.platform_api_key`,
+    which also accepts `OPEN_ROUTER_KEY`), not in Django settings: reading only
+    `settings.OPENROUTER_API_KEY`, which no settings module defines, kept every
+    model check in this module switched off (found 2026-11-26). A settings
+    value still wins, so a test can pin one with `override_settings`.
+    """
+    from credentials.resolution import platform_api_key
+
+    return (str(getattr(settings, 'OPENROUTER_API_KEY', '') or '').strip()
+            or (platform_api_key('openrouter') or ''))
+
+
 def _enabled() -> tuple[str, str]:
     model = str(getattr(settings, 'CONTENT_MODERATION_MODEL', '') or '').strip()
-    key = str(getattr(settings, 'OPENROUTER_API_KEY', '') or '').strip()
+    key = _platform_key()
     return (model, key) if model and key else ('', '')
 
 
@@ -308,7 +323,7 @@ def _image_model() -> tuple[str, str]:
     if provider != 'openrouter':
         logger.warning('[Image injection check] no route for provider %r; check is off', provider)
         return '', ''
-    key = str(getattr(settings, 'OPENROUTER_API_KEY', '') or '').strip()
+    key = _platform_key()
     return (model, key) if key else ('', '')
 
 
