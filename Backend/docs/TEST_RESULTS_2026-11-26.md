@@ -154,3 +154,9 @@ a backend-only redeploy for the prune fix below.
 - **Binary `call_api` responses.** A file whose bytes hold the credential is
   not saved (`_holds_secret`). Tests in `chat/tests/test_call_api_guards.py`
   fail without the fix.
+
+Deployed the same day: `develop` @ `0ceb0b1`, backend `c8e4eaec` (rollback tag
+`rollback-2026-11-26c`, dump `app_db-predeploy-20261126c.dump.gz`), HSTS on the
+edge proxy (backup `~/edge/Caddyfile.bak-aiaas-hsts-20261126`). In production all
+87 stored checkpoints loaded through the strict loader with no refusal and no
+warning. The NGU and ERP sites on the same proxy still answer 200.
