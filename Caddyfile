@@ -2,6 +2,8 @@ aiaas.kaushaljain.com {
 	# zstd first: Caddy picks by the client's preference, and current browsers
 	# offer zstd, which compresses the JS bundle smaller and faster than gzip.
 	encode zstd gzip
+	# Browsers keep to https for a year after one visit (no subdomains, no preload).
+	header Strict-Transport-Security "max-age=31536000"
 
 	# Long-lived streams: chat turns are SSE and execution logs are websockets,
 	# both of which sit open far longer than a normal request.

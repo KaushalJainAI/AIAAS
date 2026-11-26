@@ -149,3 +149,25 @@ class CallApiResponseRedactionTests(TestCase):
         resp.json.return_value = {'zones': ['a', 'b'], 'count': 2}
         self.assertEqual(json.loads(self._call(resp))['data'],
                          {'zones': ['a', 'b'], 'count': 2})
+
+    def _binary(self, body: bytes):
+        resp = mock.MagicMock(status_code=200, headers={'content-type': 'application/pdf'})
+        resp.content = body
+        return resp
+
+    def test_a_file_holding_the_key_is_not_saved(self):
+        for body in (b'%PDF-1.7 ... ' + SECRET.encode() + b' ...',
+                     b'\xff\xfe' + SECRET.encode('utf-16-le')):
+            with self.subTest(body=body[:12]), \
+                    mock.patch('chat.tools.apicaller._save_binary') as save:
+                raw = self._call(self._binary(body))
+                save.assert_not_called()
+                self.assertNotIn(SECRET, raw)
+                self.assertIn('contains the credential', json.loads(raw)['error'])
+
+    def test_a_file_without_the_key_is_saved(self):
+        with mock.patch('chat.tools.apicaller._save_binary',
+                        mock.AsyncMock(return_value='{"status": 200}')) as save:
+            raw = self._call(self._binary(b'%PDF-1.7 an ordinary invoice'))
+        save.assert_awaited_once()
+        self.assertEqual(json.loads(raw), {'status': 200})

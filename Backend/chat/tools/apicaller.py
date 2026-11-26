@@ -344,7 +344,15 @@ async def call_api(args: Dict, context: Dict) -> str:
         return json.dumps({'error': f'The API refused the call ({resp.status_code}).'})
     content_type = (resp.headers.get('content-type') or '').lower()
     if 'octet-stream' in content_type or 'pdf' in content_type or 'zip' in content_type:
-        return await _save_binary(context, row, path, bytes(resp.content), content_type)
+        data = bytes(resp.content)
+        if _holds_secret(data, secrets):
+            # A file cannot be blanked like text without corrupting it, so it
+            # is not kept at all: neither the model nor the user's files see it.
+            logger.warning('[API] %s %s returned a file holding the credential; not saved',
+                           row.name, path)
+            return json.dumps({'error': 'The API returned a file that contains the '
+                                        'credential, so it was not saved.'})
+        return await _save_binary(context, row, path, data, content_type)
     try:
         payload = resp.json()
     except ValueError:
@@ -475,6 +483,24 @@ def _redacted(value, secrets: list[str]):
     if isinstance(value, list):
         return [_redacted(v, secrets) for v in value]
     return value
+
+
+def _holds_secret(data: bytes, secrets: list[str]) -> bool:
+    """True when a binary response carries a credential value in plain bytes.
+
+    Checked as UTF-8 and UTF-16 (both byte orders), the encodings a PDF or a
+    text file inside an archive would store it in. A value inside compressed
+    data (a zip member, a compressed PDF stream) is not visible here; that is
+    the limit of looking at bytes without unpacking them. Same 4-character
+    floor as `credentials.refs.redact`.
+    """
+    for value in set(secrets or ()):
+        if not value or len(value) < 4:
+            continue
+        for encoding in ('utf-8', 'utf-16-le', 'utf-16-be'):
+            if value.encode(encoding) in data:
+                return True
+    return False
 
 
 def _slugs(ref: str) -> set[str]:
