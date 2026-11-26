@@ -93,6 +93,11 @@ async def prune_chat_checkpoints(keep: int | None = None,
     tally: dict = {'threads_checked': 0, 'threads_pruned': 0,
                    'checkpoints_deleted': 0, 'writes_deleted': 0,
                    'blobs_deleted': 0}
+    # The pool opens lazily on a saver's first query. This job can run before
+    # any chat turn has made one (it runs at boot), and borrowing from an
+    # unopened pool raised PoolClosed on every fresh start (seen 2026-11-26).
+    # `setup()` opens it and is idempotent.
+    await saver.setup()
     # Schema of langgraph-checkpoint-postgres 3.1.2 (pinned in
     # requirements.txt): checkpoints / checkpoint_writes / checkpoint_blobs.
     async with saver.conn.connection() as conn:

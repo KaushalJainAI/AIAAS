@@ -81,3 +81,38 @@ class SkipOffPostgresTests(SimpleTestCase):
 
         call_command('prune_chat_checkpoints', stdout=Writer())
         self.assertTrue(any('Skipped' in line for line in out))
+
+
+class OpensThePoolFirstTests(SimpleTestCase):
+    """The sweep opens the checkpointer's pool before borrowing from it.
+
+    It runs at boot, before any chat turn has opened the lazily-opened pool;
+    borrowing first raised PoolClosed on every fresh start (2026-11-26).
+    """
+
+    def test_setup_runs_before_the_first_connection(self):
+        from unittest.mock import patch
+
+        from asgiref.sync import async_to_sync
+
+        from chat.turn import prune
+
+        calls: list[str] = []
+
+        class Pool:
+            def connection(self):
+                calls.append("connection")
+                raise RuntimeError("stop here")  # the order is all this test needs
+
+        class Saver:
+            conn = Pool()
+
+            async def setup(self):
+                calls.append("setup")
+
+        graph = type("Graph", (), {"checkpointer": Saver()})()
+        with patch("chat.turn.checkpoints._configured", return_value="postgres"), \
+                patch("chat.turn.agent.get_graph", return_value=graph):
+            with self.assertRaises(RuntimeError):
+                async_to_sync(prune.prune_chat_checkpoints)()
+        self.assertEqual(calls, ["setup", "connection"])
