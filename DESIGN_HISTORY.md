@@ -3955,3 +3955,15 @@ A review of the undo, send-window, approval and upload paths found seven things.
 Not changed, by design: the `eval` caller's handling of holds, and the orchestrator's send window. Both are the user's call.
 
 Tests: `logs/tests/test_undo_never_evicts.py`, `logs/tests/test_change_tree_bounds.py`, `messaging/tests/test_holds_stop.py`, `agents/tests/test_run_thread_ownership.py`, `chat/tests/test_recall_enclosed.py`, `chat/tests/test_unscanned_uploads.py`.
+
+## H-183 · HSTS, a strict checkpoint loader, and files that hold the key (2026-11-26)
+
+Files: `Caddyfile`, `~/edge/Caddyfile` (VM), `chat/turn/checkpoints.py`, `chat/tests/test_checkpoint_types.py`, `chat/tools/apicaller.py`, `chat/tests/test_call_api_guards.py`
+
+Three small gaps from the 2026-11-26 deploy review.
+
+**HSTS** is set at the proxy that terminates TLS, the shared `edge-caddy`, the same way its ERP site already did: `max-age=31536000`, no `includeSubDomains` (other subdomains of `kaushaljain.com` belong to other projects) and no `preload` (hard to undo). Not in nginx: its headers are per `location`, so it would have to be repeated in each one.
+
+**Checkpoint types.** LangGraph's loader rebuilds whatever class a checkpoint names and, by default, warns and allows unknown ones; a future version will block them. Every saver now gets `JsonPlusSerializer(allowed_msgpack_modules=checkpoint_types())`, which turns strict mode on today: LangGraph's own safe types plus ours. Strict cuts both ways: a class left off the list comes back as raw data, which would break code expecting the object. So a listener logs every refusal at ERROR, and a test runs two real chat turns on one thread and fails on any refused or unregistered class. Production logs showed exactly one, `llm.usage.TokenUsage`.
+
+**Binary `call_api` responses** are refused, not redacted, when their bytes hold the credential (UTF-8 or UTF-16): replacing bytes inside a PDF or zip corrupts it. Compressed content is not unpacked, so a key inside a deflated stream is not seen; that is the stated limit.

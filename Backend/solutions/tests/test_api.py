@@ -137,7 +137,7 @@ class ReviewTests(SolutionsTestMixin, TestCase):
                               model='openrouter:new-model')
         self.assertFalse(cleared.doubtful)
         models = list(SolutionReview.objects.filter(solution=self.solution)
-                      .order_by('created_at').values_list('model', flat=True))
+                      .order_by('created_at', 'id').values_list('model', flat=True))
         self.assertEqual(models, ['openrouter:old-model', 'openrouter:new-model'])
 
     def test_contradicted_needs_checking(self):

@@ -17,8 +17,6 @@ doc. Last reviewed 2026-11-25.
 - **Mobile app.** Not yet run on a device. Also open: voice input and read-aloud, the "Allow for this chat" approval scope, `eas init`, the DeviceToken route, and Google connect (needs the website deployed). [MOBILE_APP_PLAN](MOBILE_APP_PLAN.md), [mobile-native/PARITY.md](../../mobile-native/PARITY.md)
 
 ## Not built yet
-- **LangGraph checkpoint type.** Checkpoints carry `llm.usage.TokenUsage`, which LangGraph warns it will refuse to load in a future version (`LANGGRAPH_STRICT_MSGPACK`). Register it (`allowed_msgpack_modules`) or store usage as a plain dict before upgrading `langgraph-checkpoint-postgres`.
-
 - **Code tab.** `/code` opens a placeholder page (`better-n8n-frontend/src/pages/Code.tsx`). The real tab needs a workspace engine, and `Backend/workspaces/engine.py` raises on every call. [CODING_AGENTS_PLAN](CODING_AGENTS_PLAN.md)
 - **Run-view upgrades** (live view, P8). [PLATFORM_CAPABILITIES_PLAN](PLATFORM_CAPABILITIES_PLAN.md)
 - **Admission-wait telemetry.** The backend sends `workflow_queued` (`agents/agent/stream.py`), but no screen reads it yet. [ORCHESTRATOR_LATENCY_OPTIMIZATION_PLAN](ORCHESTRATOR_LATENCY_OPTIMIZATION_PLAN.md)
@@ -38,13 +36,11 @@ doc. Last reviewed 2026-11-25.
 - **Evals send for real, with no AI disclosure and no allowlist,** outside the environment suites. Never held, because an eval has no one watching. A decision for the owner. [SAFETY_AND_GUARDRAILS](SAFETY_AND_GUARDRAILS.md) (send window)
 - **Workers started from chat never hold a send.** They call as `orchestrator`, which counts as unattended, so a send a person is watching goes out at once. Decide whether they should hold. [UNDO_PLAN](UNDO_PLAN.md) §11 Q2
 - **A reused session key can hide a stop.** A new chat turn on the same session key can hide an earlier stop from the hold check (`messaging/holds.py::_stop_reason`). [SAFETY_AND_GUARDRAILS](SAFETY_AND_GUARDRAILS.md) (send window)
-- **Binary `call_api` responses are not scrubbed.** A binary response saved to the user's files (`_save_binary`) is not checked for secrets. [SAFETY_AND_GUARDRAILS](SAFETY_AND_GUARDRAILS.md) §2 Layer 4
 - **OCR of scanned PDFs.** A PDF with no text layer taints the turn but is never read. [INJECTION_GAPS_PLAN](INJECTION_GAPS_PLAN.md)
 - **Vision injection check: hit rate unmeasured.** The labelled run (clean and planted screenshots) is a paid model run and needs the owner's go-ahead. [INJECTION_GAPS_PLAN](INJECTION_GAPS_PLAN.md) Phase 3
 
 ## Production
 
-- **No HSTS header** on the public site.
 - **Backups stay on the VM.** The nightly dump and uploads are not copied off the VM, and there is no disk snapshot schedule. [DEPLOYMENT.md](../../DEPLOYMENT.md) §7
 - **Backups are world-readable** on the VM.
 - **`SECRET_KEY` is short.** Rotating it logs everyone out, so plan the rotation.

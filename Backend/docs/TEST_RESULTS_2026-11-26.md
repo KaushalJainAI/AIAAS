@@ -113,8 +113,9 @@ not prove a real key works or that the data has the right shape.
 
 - No OpenRouter platform key is set in production. Moderation, the injection
   checks and anything else on the platform key stay off until one is set.
-- No HSTS header. Database dumps are not copied off the VM. `SECRET_KEY` is
-  short. Details: `Backend/docs/OPEN_WORK.md`.
+- Database dumps are not copied off the VM. `SECRET_KEY` is short. Details:
+  `Backend/docs/OPEN_WORK.md`. (The missing HSTS header found here was fixed
+  the same day; see below.)
 
 ## Deploy (2026-11-26)
 
@@ -140,3 +141,16 @@ a backend-only redeploy for the prune fix below.
 - Still off in production: content moderation and the injection model checks.
   The code now finds the key, but production has no OpenRouter platform key.
 
+## Follow-up fixes (2026-11-26, after the deploy)
+
+- **HSTS.** `aiaas.kaushaljain.com` now sends `Strict-Transport-Security:
+  max-age=31536000` from the edge proxy (and the repo `Caddyfile`).
+- **LangGraph checkpoint types.** Every checkpointer is built with an explicit
+  list of our classes (`chat/turn/checkpoints.py::checkpoint_types`, today only
+  `TokenUsage`), so the "unregistered type" warning is gone and any other class
+  is refused and logged. `chat/tests/test_checkpoint_types.py` runs two real
+  turns and fails if state carries a class not on the list (checked: it fails
+  with the list empty).
+- **Binary `call_api` responses.** A file whose bytes hold the credential is
+  not saved (`_holds_secret`). Tests in `chat/tests/test_call_api_guards.py`
+  fail without the fix.

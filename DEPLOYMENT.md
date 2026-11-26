@@ -114,7 +114,7 @@ Values from `docker-compose.prod.yml`:
 - **Connection budget:** the backend's app pool (`DB_POOL_MAX_SIZE`, 16) plus its checkpointer pool (`AGENT_CHECKPOINT_POOL_MAX`, 4) must stay below Postgres `max_connections` (40). The rest is for psql, migrations and `pg_dump`. A second backend process doubles the app side.
 - **Config source:** `.env` is loaded through `env_file`. The compose `environment:` block overrides it. Do not set `DB_ENGINE` or `DATABASE_URL` in compose. Doing that once left production silently on SQLite.
 - **Run state:** agent checkpoints live in Postgres. This needs a backend image from 2026-10-01 or later.
-- **Edge proxy:** `edge-caddy` owns ports 80 and 443. It sends `aiaas.kaushaljain.com` to `aiaas-frontend:80` and sends every other host, including the bare IP, to NGU. To change routing, edit `~/edge/Caddyfile` and run `docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile`. The repo's `Caddyfile` is for a dedicated box and is not used on this VM.
+- **Edge proxy:** `edge-caddy` owns ports 80 and 443. It sends `aiaas.kaushaljain.com` to `aiaas-frontend:80` and sends every other host, including the bare IP, to NGU. To change routing, edit `~/edge/Caddyfile` and run `docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile`. The repo's `Caddyfile` is for a dedicated box and is not used on this VM. Both send `Strict-Transport-Security: max-age=31536000` for `aiaas.kaushaljain.com` (since 2026-11-26); keep them in step.
 
 ### Settings added in the develop deploy
 
