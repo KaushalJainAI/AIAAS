@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from "react";
 import { navGroups } from "../../lib/navigation";
 import { commandMenuShortcutLabel, requestCommandMenu } from "../../lib/commandMenu";
 import { OPEN_SIDEBAR_EVENT } from "./sidebarBus";
+import { TOGGLE_SIDEBAR_EVENT } from "../../lib/shortcuts";
 import { useQuery } from "@tanstack/react-query";
 import { useHitlPending } from "../../hooks/useHitlPending";
 import { useLiveCount } from "../../hooks/useActivityLive";
@@ -182,6 +183,13 @@ const Sidebar = () => {
         const open = () => setCollapsed(false);
         window.addEventListener(OPEN_SIDEBAR_EVENT, open);
         return () => window.removeEventListener(OPEN_SIDEBAR_EVENT, open);
+    }, []);
+
+    // Ctrl/Cmd+\ (see lib/shortcuts.ts) flips the sidebar between shown and hidden.
+    useEffect(() => {
+        const toggle = () => setCollapsed((c) => !c);
+        window.addEventListener(TOGGLE_SIDEBAR_EVENT, toggle);
+        return () => window.removeEventListener(TOGGLE_SIDEBAR_EVENT, toggle);
     }, []);
 
     // The primary action is starting a fresh conversation. Guests get their own

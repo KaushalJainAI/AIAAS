@@ -21,6 +21,8 @@
  */
 import { expect, request, test, type Page } from '@playwright/test';
 
+import { BYPASS_HEADERS } from './helpers/session';
+
 const API = process.env.E2E_API_URL ?? 'http://localhost:8000';
 
 /** iPhone 12/13/14 logical viewport — the narrow end of what people use. */
@@ -53,7 +55,8 @@ const ROUTES = [
 let TOKEN = '';
 
 test.beforeAll(async () => {
-  const ctx = await request.newContext();
+  // The rate lane: this file mints its own account, outside helpers/session.ts.
+  const ctx = await request.newContext({ extraHTTPHeaders: BYPASS_HEADERS });
   const id = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   const email = `e2e_${id}@example.com`;
   const password = 'Sup3r$ecret-e2e!';
@@ -187,7 +190,22 @@ test.describe('mobile layout', () => {
         if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false;
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) return false;
-        return r.left < b.x + b.width && r.right > b.x && r.top < b.y + b.height && r.bottom > b.y;
+        /* What is actually painted: the box cut by every ancestor that clips
+           (overflow other than visible). A hub tab scrolled out of its strip
+           keeps a box that reaches under the button, but nothing shows there. */
+        let left = r.left, right = r.right, top = r.top, bottom = r.bottom;
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const cs = getComputedStyle(p);
+          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+            const c = p.getBoundingClientRect();
+            left = Math.max(left, c.left);
+            right = Math.min(right, c.right);
+            top = Math.max(top, c.top);
+            bottom = Math.min(bottom, c.bottom);
+          }
+        }
+        if (right <= left || bottom <= top) return false;
+        return left < b.x + b.width && right > b.x && top < b.y + b.height && bottom > b.y;
       });
       return {
         hitsButton,

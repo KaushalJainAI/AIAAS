@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { useThemeContext } from './contexts/themeState';
 import { AuthProvider } from './contexts/AuthContext';
@@ -9,6 +9,7 @@ import Sidebar from './components/layout/Sidebar';
 import MobileTopBar from './components/layout/MobileTopBar';
 import MobileBottomNav from './components/layout/MobileBottomNav';
 import HubTabs from './components/layout/HubTabs';
+import { HubHeaderProvider } from './components/layout/hubHeader';
 import { useHITLReminders } from './hooks/useHITLReminders';
 import { useWebPush } from './hooks/useWebPush';
 import { ImagineProvider } from './contexts/ImagineContext';
@@ -25,6 +26,9 @@ import { AssistantProvider } from './contexts/AssistantContext';
 import RouteTransition from './components/layout/RouteTransition';
 import { AppLoader, PaneLoader } from './components/ui/Loading';
 import { OPEN_COMMAND_MENU_EVENT, isCommandMenuShortcut } from './lib/commandMenu';
+import { useShortcuts } from './hooks/useShortcuts';
+import { useRecentPagesTracker } from './hooks/useRecentPages';
+import { ShortcutsHelpHost } from './components/layout/ShortcutsHelp';
 
 // Route-level code splitting.
 //
@@ -114,8 +118,11 @@ const Layout = () => {
         <Sidebar />
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
           <main className="flex flex-col flex-1 min-h-0 overflow-hidden relative pb-[calc(61px+env(safe-area-inset-bottom))] md:pb-0">
-            {/* The section strip of a hub (Agents, Library, Connect). Renders
-                nothing on other pages, so only the hub pages lose height. */}
+            <HubHeaderProvider>
+            {/* A hub's tabs (Agents, Library, Connect) for hub pages that have
+                no PageHeader of their own. A page with a PageHeader draws the
+                tabs inside it instead (one row, not two), and this strip
+                hides itself — see components/layout/hubHeader.tsx. */}
             <HubTabs />
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden relative">
               <ErrorBoundary>
@@ -129,6 +136,7 @@ const Layout = () => {
                 </RouteTransition>
               </ErrorBoundary>
             </div>
+            </HubHeaderProvider>
           </main>
         </div>
       </div>
@@ -197,6 +205,18 @@ function CommandMenuHost() {
       <CommandMenu onClose={close} />
     </Suspense>
   );
+}
+
+/* The global shortcuts (lib/shortcuts.ts), their help sheet, and the Recent
+ * pages tracker that feeds the Cmd+K menu. Signed-in users only, like the
+ * menu: a guest's go-to keys would land on login walls. */
+function KeyboardHost() {
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  useShortcuts(navigate, isAuthenticated);
+  useRecentPagesTracker(pathname, search, isAuthenticated);
+  return isAuthenticated ? <ShortcutsHelpHost /> : null;
 }
 
 const AppContent = () => {
@@ -325,6 +345,7 @@ const AppContent = () => {
         </Routes>
         </Suspense>
         <CommandMenuHost />
+        <KeyboardHost />
       </Router>
       {/* Bottom-right: bottom-left sat on top of the sidebar's lower links and
           swallowed their clicks. Three at most, each closable. */}

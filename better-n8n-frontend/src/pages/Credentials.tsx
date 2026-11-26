@@ -339,7 +339,7 @@ export default function Credentials() {
           <div className="flex items-center justify-end">
             <div className="relative w-full md:w-[400px]">
               <SearchInput
-                placeholder="Search credentials..."
+                data-page-search placeholder="Search credentials..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />

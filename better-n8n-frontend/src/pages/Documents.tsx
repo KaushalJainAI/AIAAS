@@ -771,7 +771,7 @@ export default function Documents() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${title}`}
+              data-page-search placeholder={`Search ${title}`}
               aria-label="Search"
               className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             />
@@ -867,7 +867,7 @@ export default function Documents() {
       {listing && (
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-card px-3 py-1.5 md:hidden">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${title}`} aria-label="Search"
+          <input value={query} onChange={(e) => setQuery(e.target.value)} data-page-search placeholder={`Search ${title}`} aria-label="Search"
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
         </div>
       )}
@@ -1268,10 +1268,10 @@ function EmptyState({
           Upload documents, create new ones, or ask the assistant to make one — files agents write appear here too.
         </p>
         <div className="flex flex-wrap justify-center gap-2">
-          <button type="button" onClick={onUpload} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+          <button type="button" onClick={onUpload} className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground md:min-h-0">
             <Upload className="h-4 w-4" /> Upload files
           </button>
-          <button type="button" onClick={onNew} className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted">
+          <button type="button" onClick={onNew} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted md:min-h-0">
             <FilePlus2 className="h-4 w-4" /> New document
           </button>
         </div>

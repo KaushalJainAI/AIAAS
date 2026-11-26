@@ -70,4 +70,6 @@ one line, so you do not have to open the file to see where it stands.
 | [COMPUTE_ISOLATION_PLAN.md](COMPUTE_ISOLATION_PLAN.md) | A private machine per user | Proposed (for discussion). Nothing built |
 | [MOBILE_APP_PLAN.md](MOBILE_APP_PLAN.md) | The React Native (Expo) mobile app | Built and bundling. Not run on a device |
 | [UI_REDESIGN_PLAN.md](UI_REDESIGN_PLAN.md) | The UI redesign | Proposed 2026-11-11. Not started |
+| [RECENT_PAGES_PLAN.md](RECENT_PAGES_PLAN.md) | Jump back to the pages you last used (recent-apps style) | Proposed 2026-11-26. Not built |
+| [KEYBOARD_SHORTCUTS_PLAN.md](KEYBOARD_SHORTCUTS_PLAN.md) | Standard keyboard shortcuts across the web app | Proposed 2026-11-26. Not built |
 | [APP_FLOW_GAP_REVIEW.md](APP_FLOW_GAP_REVIEW.md) | The app-flow review, as a gap register | C19 fixed 2026-11-16. The rest open |

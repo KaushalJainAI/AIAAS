@@ -60,7 +60,7 @@ export default function Apps() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search apps…"
+            data-page-search placeholder="Search apps…"
             aria-label="Search apps"
             className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />

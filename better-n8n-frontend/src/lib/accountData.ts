@@ -28,7 +28,9 @@ const OWNER_KEY = `${UI}account`;
 
 /** localStorage keys (after the prefix) that hold one account's content. */
 const LOCAL_PREFIXES = [`${UI}chat.transcript.`, `${UI}chat.draft:auth:`];
-const LOCAL_KEYS = [`${UI}chat.lastSessionId`];
+// `recentPages` is the Cmd+K "Recent" list (lib/recentPages.ts): the next
+// account on this browser must not see the places this one used.
+const LOCAL_KEYS = [`${UI}chat.lastSessionId`, `${UI}recentPages`];
 /** sessionStorage keys that hold one account's content. */
 const SESSION_PREFIXES = ['pane:'];
 

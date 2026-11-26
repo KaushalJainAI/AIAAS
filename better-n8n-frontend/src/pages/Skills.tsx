@@ -348,7 +348,7 @@ export default function Skills() {
               <SearchInput
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={mine ? 'Search your skills…' : 'Search shared skills…'}
+                data-page-search placeholder={mine ? 'Search your skills…' : 'Search shared skills…'}
                 className="h-9 text-[13px]"
                 aria-label="Search skills"
               />
