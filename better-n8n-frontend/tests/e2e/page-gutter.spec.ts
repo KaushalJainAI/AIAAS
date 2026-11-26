@@ -23,6 +23,9 @@ const HUB_ROUTES = ['/credentials', '/schedules', '/evals'];
 let account: Account;
 
 test.beforeAll(async () => {
+  // Production rate-limits sign-ups (3 a minute); registerAccount waits out a
+  // 429 for 65 s, longer than the default 30 s hook timeout.
+  test.setTimeout(150_000);
   account = await registerAccount();
 });
 
