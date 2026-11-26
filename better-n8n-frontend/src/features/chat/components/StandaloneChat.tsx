@@ -27,7 +27,6 @@ import {
   Globe2,
   Code,
   Slash,
-  CornerDownRight,
   Cpu,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -322,7 +321,6 @@ export default function StandaloneChat() {
   });
 
   // --- Agentic Features State ---
-  const [isFollowUpsExpanded, setIsFollowUpsExpanded] = useState(true);
   const [activeIntent, setActiveIntent] = useState<ChatIntent>('normal');
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null);
   const { toggle: togglePanel, isOpen: isPanelOpen } = useMessagePanels();
@@ -1829,6 +1827,20 @@ export default function StandaloneChat() {
   // which was also true while a transcript was being fetched and while the
   // first answer was streaming, so the hero rendered underneath both.
   const isInitialState = messages.length === 0 && !isLoading && !isRestoring;
+  // One suggested next question, shown as ghost text in the empty composer.
+  // Tab (or tapping the Tab chip on a phone) writes it into the box; it is
+  // never sent on its own. Only the first of the model's follow-ups is used.
+  const composerSuggestion: string | null = (() => {
+    if (isInitialState || isLoading || input || pickedCommand || paletteOpen) return null;
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    const first = lastAssistant?.metadata?.follow_ups?.[0];
+    return typeof first === 'string' && first.trim() ? first.trim() : null;
+  })();
+  const acceptSuggestion = () => {
+    if (!composerSuggestion) return;
+    setInput(composerSuggestion);
+    textareaRef.current?.focus();
+  };
   // Cold cache: nothing to paint but the request is out. With a cache hit the
   // transcript is already up and this never renders.
   // A turn already running is better news than a placeholder, so it wins.
@@ -2697,59 +2709,6 @@ export default function StandaloneChat() {
               ))}
               </div>
 
-              {/* Continue Exploring — above the chatbox */}
-              {!isInitialState && !isLoading && (() => {
-                const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
-                const followUps = lastAssistant?.metadata?.follow_ups;
-                if (!followUps || followUps.length === 0) return null;
-                return (
-                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card border border-border rounded-md overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setIsFollowUpsExpanded(!isFollowUpsExpanded)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground/60" />
-                        <span className="label-mono">Continue exploring</span>
-                      </div>
-                      <ChevronDown className={cn(
-                        "w-4 h-4 text-muted-foreground/50 transition-transform duration-300",
-                        isFollowUpsExpanded ? "rotate-180" : ""
-                      )} />
-                    </button>
-                    
-                    <div className={cn(
-                      "grid transition-[grid-template-rows,opacity] duration-slow ease-standard",
-                      isFollowUpsExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                    )}>
-                      <div className="overflow-hidden">
-                        <div className="flex flex-wrap gap-2.5 p-3.5 pt-0">
-                          {followUps.map((q: string, i: number) => (
-                            <button
-                              key={i}
-                              onClick={() => handleSend(q)}
-                              // Staggered entrance: three chips appearing at once
-                              // read as a block of UI to skip past, where a quick
-                              // cascade reads as suggestions worth a glance.
-                              style={{ animationDelay: `${i * 70}ms`, animationFillMode: 'backwards' }}
-                              className="flex flex-1 min-w-[200px] items-center px-4 py-3 bg-background
-                                         border border-border rounded-md shadow-sm text-left
-                                         text-muted-foreground hover:text-foreground
-                                         hover:bg-primary/5 hover:border-primary/30
-                                         transition-colors duration-200 ease-out
-                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring
-                                         animate-in fade-in slide-in-from-bottom-2"
-                            >
-                              <span className="text-[13px] font-medium leading-relaxed">{q}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
               {/* No API key for this provider. Persistent like the blocked-file
                   notice: the fix (add + verify in Credentials) needs to stay
                   on screen while the user does it. */}
@@ -2886,7 +2845,7 @@ export default function StandaloneChat() {
                     />
                   )}
                   {/* Textarea row */}
-                  <div className="p-4 pb-0">
+                  <div className="relative p-4 pb-0">
                     {/* Phone: Search and Deep research live in the "+" sheet,
                         so their state shows here as a chip that turns them off. */}
                     {!isGuest && (activeIntent === 'search' || activeIntent === 'research') && (
@@ -2993,6 +2952,12 @@ export default function StandaloneChat() {
                         }
                       }}
                       onKeyDown={(e) => {
+                        // Tab writes the suggested question into the empty box.
+                        if (e.key === 'Tab' && !e.shiftKey && composerSuggestion) {
+                          e.preventDefault();
+                          acceptSuggestion();
+                          return;
+                        }
                         if (e.key === 'Enter' && !e.shiftKey) {
                           // With the palette open, Enter picks the command.
                           if (paletteOpen) return;
@@ -3023,10 +2988,25 @@ export default function StandaloneChat() {
                           }
                         }
                       }}
-                      placeholder={activeIntent !== 'normal' ? `Type your ${activeIntent} query...` : "Ask anything..."}
-                      className="w-full min-h-[56px] max-h-[200px] px-2 py-2 bg-transparent border-none focus:ring-0 focus:outline-none resize-none text-[17px] font-medium placeholder:text-muted-foreground/50 scrollbar-none leading-[1.7] tracking-[-0.01em]"
+                      placeholder={composerSuggestion ?? (activeIntent !== 'normal' ? `Type your ${activeIntent} query...` : "Ask anything...")}
+                      aria-describedby={composerSuggestion ? 'chat-input-suggestion-hint' : undefined}
+                      className={cn(composerSuggestion && "pr-16", "w-full min-h-[56px] max-h-[200px] px-2 py-2 bg-transparent border-none focus:ring-0 focus:outline-none resize-none text-[17px] font-medium placeholder:text-muted-foreground/50 scrollbar-none leading-[1.7] tracking-[-0.01em]")}
                       rows={2}
                     />
+                    {/* The Tab key, drawn as a button so a phone (no Tab key)
+                        can accept the suggestion with a tap. */}
+                    {composerSuggestion && (
+                      <button
+                        type="button"
+                        id="chat-input-suggestion-hint"
+                        onClick={acceptSuggestion}
+                        aria-label="Write the suggested question into the box (Tab)"
+                        title="Press Tab to use this suggestion"
+                        className="absolute bottom-2 right-6 z-10 inline-flex h-7 items-center rounded-md border border-border bg-muted/60 px-2 font-mono text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground animate-in fade-in duration-300"
+                      >
+                        Tab
+                      </button>
+                    )}
                   </div>
 
                   {/* Bottom toolbar — pills + voice + model + send, all inside the chatbox */}
