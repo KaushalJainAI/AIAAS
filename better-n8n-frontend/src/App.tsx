@@ -9,6 +9,7 @@ import Sidebar from './components/layout/Sidebar';
 import MobileTopBar from './components/layout/MobileTopBar';
 import MobileBottomNav from './components/layout/MobileBottomNav';
 import HubTabs from './components/layout/HubTabs';
+import { HubHeaderProvider } from './components/layout/hubHeader';
 import { useHITLReminders } from './hooks/useHITLReminders';
 import { useWebPush } from './hooks/useWebPush';
 import { ImagineProvider } from './contexts/ImagineContext';
@@ -114,8 +115,11 @@ const Layout = () => {
         <Sidebar />
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
           <main className="flex flex-col flex-1 min-h-0 overflow-hidden relative pb-[calc(61px+env(safe-area-inset-bottom))] md:pb-0">
-            {/* The section strip of a hub (Agents, Library, Connect). Renders
-                nothing on other pages, so only the hub pages lose height. */}
+            <HubHeaderProvider>
+            {/* A hub's tabs (Agents, Library, Connect) for hub pages that have
+                no PageHeader of their own. A page with a PageHeader draws the
+                tabs inside it instead (one row, not two), and this strip
+                hides itself — see components/layout/hubHeader.tsx. */}
             <HubTabs />
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden relative">
               <ErrorBoundary>
@@ -129,6 +133,7 @@ const Layout = () => {
                 </RouteTransition>
               </ErrorBoundary>
             </div>
+            </HubHeaderProvider>
           </main>
         </div>
       </div>

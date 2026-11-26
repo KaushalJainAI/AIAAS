@@ -196,14 +196,19 @@ export function nextIndex(current: number, step: 1 | -1, count: number): number 
   return (current + step + count) % count;
 }
 
-/** Ctrl+K, or Cmd+K on a Mac. Shift and Alt are other chords, so they are left alone. */
+/** Ctrl+K, or Cmd+K on a Mac. Shift and Alt are other chords, so they are left alone.
+ * A press an editor already handled (`defaultPrevented`) stays the editor's: CodeMirror
+ * binds the Mac's Control+K to "delete to line end", and it runs before this window
+ * listener. Any editor that later claims Ctrl+K (e.g. "insert link") wins the same way. */
 export function isCommandMenuShortcut(e: {
   key: string;
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
   shiftKey: boolean;
+  defaultPrevented?: boolean;
 }): boolean {
+  if (e.defaultPrevented) return false;
   return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k';
 }
 

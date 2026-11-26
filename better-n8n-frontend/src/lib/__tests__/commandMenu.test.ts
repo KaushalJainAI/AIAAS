@@ -249,6 +249,12 @@ describe('isCommandMenuShortcut', () => {
     expect(isCommandMenuShortcut(press({ ctrlKey: true, altKey: true }))).toBe(false);
     expect(isCommandMenuShortcut(press({ ctrlKey: true, key: 'j' }))).toBe(false);
   });
+
+  it('leaves a press an editor already handled to that editor', () => {
+    // CodeMirror's Mac Control+K (delete to line end) calls preventDefault first.
+    expect(isCommandMenuShortcut({ ...press({ ctrlKey: true }), defaultPrevented: true })).toBe(false);
+    expect(isCommandMenuShortcut({ ...press({ metaKey: true }), defaultPrevented: false })).toBe(true);
+  });
 });
 
 describe('commandMenuShortcutLabel', () => {
