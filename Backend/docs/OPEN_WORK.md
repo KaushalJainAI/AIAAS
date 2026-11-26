@@ -17,6 +17,7 @@ doc. Last reviewed 2026-11-25.
 - **Mobile app.** Not yet run on a device. Also open: voice input and read-aloud, the "Allow for this chat" approval scope, `eas init`, the DeviceToken route, and Google connect (needs the website deployed). [MOBILE_APP_PLAN](MOBILE_APP_PLAN.md), [mobile-native/PARITY.md](../../mobile-native/PARITY.md)
 
 ## Not built yet
+- **LangGraph checkpoint type.** Checkpoints carry `llm.usage.TokenUsage`, which LangGraph warns it will refuse to load in a future version (`LANGGRAPH_STRICT_MSGPACK`). Register it (`allowed_msgpack_modules`) or store usage as a plain dict before upgrading `langgraph-checkpoint-postgres`.
 
 - **Code tab.** `/code` opens a placeholder page (`better-n8n-frontend/src/pages/Code.tsx`). The real tab needs a workspace engine, and `Backend/workspaces/engine.py` raises on every call. [CODING_AGENTS_PLAN](CODING_AGENTS_PLAN.md)
 - **Run-view upgrades** (live view, P8). [PLATFORM_CAPABILITIES_PLAN](PLATFORM_CAPABILITIES_PLAN.md)

@@ -108,7 +108,6 @@ not prove a real key works or that the data has the right shape.
 - The mobile app on a device. Only typecheck and lint ran.
 - Undo of an external action (a sent message), and the 20-second send hold
   with a real channel.
-- Production E2E, until the deploy completes (see `DEPLOYMENT.md`).
 
 ## Production config found during testing
 
@@ -116,3 +115,28 @@ not prove a real key works or that the data has the right shape.
   checks and anything else on the platform key stay off until one is set.
 - No HSTS header. Database dumps are not copied off the VM. `SECRET_KEY` is
   short. Details: `Backend/docs/OPEN_WORK.md`.
+
+## Deploy (2026-11-26)
+
+`develop` @ `5ea044a` is live. It went out as backend `6ec7baf4` and frontend
+`6aa46879`; the sandbox is unchanged. The first push (`1bee170`) was followed by
+a backend-only redeploy for the prune fix below.
+
+- Before: a database dump (13.3 MB, copied off the VM), rollback tags
+  `rollback-2026-11-26` on all three images, and the dump files set to mode 600.
+- All 11 migrations applied on boot (4.5 s). Health 200, 0 restarts, backend
+  179 MB of 768 MB.
+- Checked in the running container: the SSRF guard refuses `::ffff:127.0.0.1`.
+  The 23 API cards exist and none is enabled. There were no user-owned MCP
+  servers to retire.
+- **Free E2E against production: 21 of 21.** One spec first timed out on the
+  sign-up rate limit (the 6th account in a minute). It passed on rerun, and
+  the hook timeout is now longer. The 5 throwaway `e2e_` accounts were deleted
+  afterwards.
+- **Found after the deploy:** the checkpoint prune job failed on every fresh
+  boot with `PoolClosed`. It borrowed from a pool that only a chat turn opens.
+  The bug predates this deploy. It is fixed, tested and redeployed, and a dry
+  run in production checked 29 threads.
+- Still off in production: content moderation and the injection model checks.
+  The code now finds the key, but production has no OpenRouter platform key.
+
