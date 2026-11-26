@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { claimAccountData, forgetAccountData } from '../accountData';
+import { RECENT_PAGES_KEY } from '../recentPages';
 
 const TRANSCRIPT = 'aiaas_ui:chat.transcript.abc';
 const LAST = 'aiaas_ui:chat.lastSessionId';
@@ -9,6 +10,7 @@ const DRAFT = 'aiaas_ui:chat.draft:auth:abc';
 const GUEST_DRAFT = 'aiaas_ui:chat.draft:guest:new';
 const PREF = 'aiaas_ui:chat.autoOpenPane';
 const PANE = 'pane:abc';
+const RECENTS = 'aiaas_ui:recentPages';
 
 function seed() {
   localStorage.setItem(TRANSCRIPT, '{"messages":[]}');
@@ -16,6 +18,7 @@ function seed() {
   localStorage.setItem(DRAFT, '"half a sentence"');
   localStorage.setItem(GUEST_DRAFT, '"guest text"');
   localStorage.setItem(PREF, 'true');
+  localStorage.setItem(RECENTS, '[{"path":"/runs","title":"Runs","at":1}]');
   sessionStorage.setItem(PANE, '{}');
 }
 
@@ -25,12 +28,17 @@ describe('accountData', () => {
     sessionStorage.clear();
   });
 
-  it('sign-out forgets the transcript, the last conversation, drafts and pane tabs', () => {
+  it('the recent-pages key is the one lib/recentPages.ts writes', () => {
+    expect(RECENT_PAGES_KEY).toBe(RECENTS);
+  });
+
+  it('sign-out forgets the transcript, the last conversation, drafts, pane tabs and recent pages', () => {
     seed();
     forgetAccountData();
     expect(localStorage.getItem(TRANSCRIPT)).toBeNull();
     expect(localStorage.getItem(LAST)).toBeNull();
     expect(localStorage.getItem(DRAFT)).toBeNull();
+    expect(localStorage.getItem(RECENTS)).toBeNull();
     expect(sessionStorage.getItem(PANE)).toBeNull();
   });
 
@@ -47,6 +55,7 @@ describe('accountData', () => {
     claimAccountData(2);
     expect(localStorage.getItem(TRANSCRIPT)).toBeNull();
     expect(localStorage.getItem(LAST)).toBeNull();
+    expect(localStorage.getItem(RECENTS)).toBeNull();
     expect(sessionStorage.getItem(PANE)).toBeNull();
   });
 

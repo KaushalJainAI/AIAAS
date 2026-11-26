@@ -1,6 +1,6 @@
 # Keyboard shortcuts plan
 
-**Status:** proposed 2026-11-26, not built. Web app. Phone app only for
+**Status:** proposed 2026-11-26; K1–K4 built 2026-11-26 (`lib/shortcuts.ts`, `hooks/useShortcuts.ts`, `components/layout/ShortcutsHelp.tsx`; the single-key switch lives in the help sheet until K9). K5–K10 open. Web app. Phone app only for
 hardware keyboards, later.
 
 ## 1. Aim

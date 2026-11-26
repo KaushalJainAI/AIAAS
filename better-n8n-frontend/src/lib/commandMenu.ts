@@ -10,14 +10,15 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { ChatSessionSummary } from '../api/chat';
 import type { Agent } from '../api/agents';
 import { navGroups } from './navigation';
+import { timeAgo, type RecentPage } from './recentPages';
 
-export type CommandSection = 'Actions' | 'Go to' | 'Recent chats' | 'Agents';
+export type CommandSection = 'Recent' | 'Actions' | 'Go to' | 'Recent chats' | 'Agents';
 
 /** Display order, and the tie-break when two matches rank the same. */
-export const SECTION_ORDER: readonly CommandSection[] = ['Actions', 'Go to', 'Recent chats', 'Agents'];
+export const SECTION_ORDER: readonly CommandSection[] = ['Recent', 'Actions', 'Go to', 'Recent chats', 'Agents'];
 
 /** The only sections an empty query shows. */
-const EMPTY_QUERY_SECTIONS: readonly CommandSection[] = ['Actions', 'Go to'];
+const EMPTY_QUERY_SECTIONS: readonly CommandSection[] = ['Recent', 'Actions', 'Go to'];
 
 export interface CommandItem {
   id: string;
@@ -25,6 +26,8 @@ export interface CommandItem {
   label: string;
   /** Shown on the row, and searched after the label. */
   hint?: string;
+  /** Shown on the row (muted), never searched. Recent rows put their age here. */
+  note?: string;
   /** Searched after the hint, never shown. */
   keywords?: string[];
   /** Where Enter goes. */
@@ -66,6 +69,8 @@ export const AGENT_SEARCH_LIMIT = 100;
 export interface CachedSources {
   chats?: ChatSessionSummary[];
   agents?: Agent[];
+  /** The Recent list from storage (`lib/recentPages.ts`), newest first. */
+  recentPages?: RecentPage[];
 }
 
 /** What is already in the cache, never a request. */
@@ -76,9 +81,49 @@ export function readCachedSources(queryClient: QueryClient): CachedSources {
   };
 }
 
+export interface CommandSources extends CachedSources {
+  /** The page the menu was opened on. Its own entry is left out of Recent. */
+  currentPath?: string;
+  /** Epoch ms, for the "5 min ago" notes. Defaults to now. */
+  now?: number;
+}
+
+/** The Recent rows: every stored place except the one the person is on. */
+export function recentCommands(
+  pages: readonly RecentPage[],
+  currentPath: string | undefined,
+  now: number,
+): CommandItem[] {
+  return pages
+    .filter((page) => page.path !== currentPath)
+    .map((page): CommandItem => ({
+      id: `recent:${page.path}`,
+      section: 'Recent',
+      label: page.title,
+      note: timeAgo(page.at, now),
+      to: page.path,
+    }));
+}
+
+/**
+ * The row the menu highlights on open: the first Recent row, which is the
+ * previous page, or the first row when there are no recents.
+ */
+export function defaultActiveIndex(rows: readonly CommandItem[]): number {
+  const recent = rows.findIndex((row) => row.section === 'Recent');
+  return recent === -1 ? 0 : recent;
+}
+
 /** Every row the menu can show, in section order. */
-export function buildCommands({ chats = [], agents = [] }: CachedSources): CommandItem[] {
+export function buildCommands({
+  chats = [],
+  agents = [],
+  recentPages = [],
+  currentPath,
+  now = Date.now(),
+}: CommandSources): CommandItem[] {
   const destinations = navGroups.flatMap((group) => group.items);
+  const recents = recentCommands(recentPages, currentPath, now);
 
   const actions: CommandItem[] = [
     { id: 'action:new-chat', section: 'Actions', label: 'New chat', to: '/ai-chat', state: { newChat: true } },
@@ -134,7 +179,7 @@ export function buildCommands({ chats = [], agents = [] }: CachedSources): Comma
       to: `/agents/${agent.id}`,
     }));
 
-  return [...actions, ...goTo, ...recentChats, ...agentRows];
+  return [...recents, ...actions, ...goTo, ...recentChats, ...agentRows];
 }
 
 export function normaliseQuery(query: string): string {

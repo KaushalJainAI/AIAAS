@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { useThemeContext } from './contexts/themeState';
 import { AuthProvider } from './contexts/AuthContext';
@@ -26,6 +26,9 @@ import { AssistantProvider } from './contexts/AssistantContext';
 import RouteTransition from './components/layout/RouteTransition';
 import { AppLoader, PaneLoader } from './components/ui/Loading';
 import { OPEN_COMMAND_MENU_EVENT, isCommandMenuShortcut } from './lib/commandMenu';
+import { useShortcuts } from './hooks/useShortcuts';
+import { useRecentPagesTracker } from './hooks/useRecentPages';
+import { ShortcutsHelpHost } from './components/layout/ShortcutsHelp';
 
 // Route-level code splitting.
 //
@@ -204,6 +207,18 @@ function CommandMenuHost() {
   );
 }
 
+/* The global shortcuts (lib/shortcuts.ts), their help sheet, and the Recent
+ * pages tracker that feeds the Cmd+K menu. Signed-in users only, like the
+ * menu: a guest's go-to keys would land on login walls. */
+function KeyboardHost() {
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  useShortcuts(navigate, isAuthenticated);
+  useRecentPagesTracker(pathname, search, isAuthenticated);
+  return isAuthenticated ? <ShortcutsHelpHost /> : null;
+}
+
 const AppContent = () => {
   const { resolvedTheme } = useThemeContext();
   
@@ -330,6 +345,7 @@ const AppContent = () => {
         </Routes>
         </Suspense>
         <CommandMenuHost />
+        <KeyboardHost />
       </Router>
       {/* Bottom-right: bottom-left sat on top of the sidebar's lower links and
           swallowed their clicks. Three at most, each closable. */}

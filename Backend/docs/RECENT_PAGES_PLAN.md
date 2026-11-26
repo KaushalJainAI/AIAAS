@@ -1,6 +1,6 @@
 # Recent pages plan
 
-**Status:** proposed 2026-11-26, not built. Web first, then mobile.
+**Status:** proposed 2026-11-26; R1–R5 built 2026-11-26 (web, not yet checked in a browser). R6–R8 open. Web first, then mobile.
 
 ## 1. The idea
 
