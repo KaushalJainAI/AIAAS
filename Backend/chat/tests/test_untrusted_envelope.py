@@ -11,18 +11,22 @@ the helper that unwraps the envelope round-trips.
 """
 from __future__ import annotations
 
+import json
 import re
 import types
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
+from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from chat.tools import registry
 from chat.turn import agent as chat_agent
 from chat.turn import curation
-from chat.turn.agent import TurnContext, tools_node
+from chat.turn.agent import (
+    TurnContext, answer_question, get_graph, run_turn, tools_node,
+)
 from chat.turn.prompts import CORE_RULES
 from core.safety import provenance
 
@@ -187,8 +191,8 @@ class UploadEnvelopeTests(SimpleTestCase):
             )
 
     def test_uploaded_text_is_enclosed_under_the_turn_tag(self):
-        raw, text = self._prepare([self._attachment('Quarterly figures: 4.8')],
-                                  tag='abc123def456')
+        raw, text, _scan = self._prepare([self._attachment('Quarterly figures: 4.8')],
+                                         tag='abc123def456')
         self.assertEqual(raw, ())
         match = re.search(
             r'<untrusted_data source="upload:notes\.pdf" tag="abc123def456">\n'
@@ -199,13 +203,13 @@ class UploadEnvelopeTests(SimpleTestCase):
         self.assertIn('Working file: `/Chat/notes.pdf`', text)
 
     def test_a_missing_tag_is_made_not_skipped(self):
-        _raw, text = self._prepare([self._attachment('plain text')])
+        _raw, text, _scan = self._prepare([self._attachment('plain text')])
         self.assertRegex(text, r'<untrusted_data source="upload:notes\.pdf" tag="[0-9a-f]{12}">')
 
     def test_an_instruction_shaped_upload_is_detected_in_the_prompt_text(self):
         # The pipeline scans exactly this string to set `initial_taint`.
-        _raw, clean = self._prepare([self._attachment('Quarterly figures: 4.8')])
-        _raw, hostile = self._prepare([self._attachment(INJECTED)])
+        _raw, clean, _scan = self._prepare([self._attachment('Quarterly figures: 4.8')])
+        _raw, hostile, _scan = self._prepare([self._attachment(INJECTED)])
         self.assertIsNone(provenance.instruction_shaped(clean))
         self.assertIsNotNone(provenance.instruction_shaped(hostile))
 
@@ -304,3 +308,157 @@ class CompactionKeepsTheEnvelopeTests(TestCase):
             self.assertEqual((source, record_tag), ('read_url', tag))
             self.assertTrue(body.startswith(curation.RECORD_PREFIX))
             self.assertTrue(curation._already_compacted(message))
+
+
+class RestoreUntrustedTagTests(SimpleTestCase):
+    """The helper a resume uses to take back the tag its paused run started with."""
+
+    def test_the_stored_tag_replaces_the_fresh_one(self):
+        turn = _turn()
+        snapshot = types.SimpleNamespace(
+            values={'metadata': {'untrusted_tag': 'abcdef012345'}})
+        restored = chat_agent._restore_untrusted_tag(turn, snapshot)
+        self.assertEqual(restored.untrusted_tag, 'abcdef012345')
+        self.assertEqual(restored.session_id, turn.session_id)
+
+    def test_a_legacy_snapshot_without_the_key_keeps_the_fresh_tag(self):
+        turn = _turn()
+        snapshot = types.SimpleNamespace(values={'metadata': {'intent': 'chat'}})
+        self.assertIs(chat_agent._restore_untrusted_tag(turn, snapshot), turn)
+
+    def test_an_empty_snapshot_keeps_the_fresh_tag(self):
+        turn = _turn()
+        for values in ({}, None, {'metadata': None}):
+            with self.subTest(values=values):
+                snapshot = types.SimpleNamespace(values=values)
+                self.assertIs(chat_agent._restore_untrusted_tag(turn, snapshot), turn)
+
+
+class _Scripted:
+    """A model that plays one step per call: a tool call (name, id, args) or a
+    final answer (a string). The last step repeats once the script runs out."""
+
+    def __init__(self, steps) -> None:
+        self.steps = list(steps)
+        self.calls = 0
+
+    def __call__(self, **kwargs):
+        step = self.steps[min(self.calls, len(self.steps) - 1)]
+        self.calls += 1
+
+        async def chunks():
+            if isinstance(step, str):
+                yield {"type": "content", "content": step}
+            else:
+                name, call_id, args = step
+                yield {"type": "tool_calls", "tool_calls": [{
+                    "index": 0, "id": call_id,
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }]}
+            yield {"type": "metadata", "usage": {"total_tokens": 5}}
+
+        return chunks()
+
+
+_QUESTION = {'question': 'Which report?', 'assumption': 'Weekly',
+             'kind': 'choice', 'options': ['Weekly', 'Monthly']}
+
+
+class ResumeKeepsTheTagTests(TestCase):
+    """A run that pauses on a question and resumes keeps one envelope tag."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user('envelope', 'env@example.com', 'x')
+
+    def _turn(self) -> TurnContext:
+        # Each call builds a turn with a new tag, as a new request does.
+        return TurnContext(
+            provider='stub', model='stub-model', system_message='test',
+            user_id=self.user.id, session_id='env-session', intent='chat',
+            user_text='go', memory_enabled=False, max_iterations=8,
+            approval_policy=_never, tool_dispatch=_dispatcher('page text'),
+            can_ask=True,
+        )
+
+    def _go(self, model, turn, thread):
+        with patch('llm.access.stream', new=model):
+            return async_to_sync(run_turn)(turn, prompt='go', thread_id=thread)
+
+    def _stored(self, thread) -> dict:
+        config = {'configurable': {'thread_id': thread}}
+        return async_to_sync(get_graph().aget_state)(config).values.get('metadata') or {}
+
+    def _envelope_tags(self, thread) -> list:
+        """The tag of every enclosed tool result in the thread, in order."""
+        config = {'configurable': {'thread_id': thread}}
+        messages = async_to_sync(get_graph().aget_state)(config).values['messages']
+        tags = []
+        for message in messages:
+            if isinstance(message, ToolMessage):
+                parsed = provenance.parse_untrusted(message.content)
+                if parsed is not None:
+                    tags.append(parsed[1])
+        return tags
+
+    def test_a_resumed_run_keeps_the_tag_it_started_under(self):
+        thread = 'env-resume-keeps'
+        first = self._turn()
+        model = _Scripted([
+            ('web_search', 'u1', {'q': 'before'}),
+            ('ask_user', 'q-1', _QUESTION),
+            ('web_search', 'u2', {'q': 'after'}),
+            'done',
+        ])
+        paused = self._go(model, first, thread)
+        self.assertTrue(paused.awaiting_approval)
+        self.assertTrue(async_to_sync(answer_question)(thread, 'q-1', 'Weekly')[0])
+
+        resumed = self._turn()
+        self.assertNotEqual(resumed.untrusted_tag, first.untrusted_tag)
+        done = self._go(model, resumed, thread)
+
+        self.assertFalse(done.awaiting_approval)
+        self.assertEqual(done.answer, 'done')
+        # Both results, from before and after the pause, carry the first tag.
+        self.assertEqual(self._envelope_tags(thread), [first.untrusted_tag] * 2)
+
+    def test_a_checkpoint_from_before_the_tag_was_stored_still_resumes(self):
+        thread = 'env-resume-legacy'
+        model = _Scripted([
+            ('ask_user', 'q-1', _QUESTION),
+            ('web_search', 'u2', {'q': 'after'}),
+            'done',
+        ])
+        self._go(model, self._turn(), thread)
+        self.assertTrue(async_to_sync(answer_question)(thread, 'q-1', 'Weekly')[0])
+
+        # Strip the key, as a checkpoint written before this change would lack it.
+        async def drop_tag():
+            config = {'configurable': {'thread_id': thread}}
+            snapshot = await get_graph().aget_state(config)
+            meta = {k: v for k, v in snapshot.values['metadata'].items()
+                    if k != 'untrusted_tag'}
+            await get_graph().aupdate_state(config, {'metadata': meta})
+        async_to_sync(drop_tag)()
+
+        resumed = self._turn()
+        done = self._go(model, resumed, thread)
+
+        self.assertFalse(done.awaiting_approval)
+        self.assertEqual(done.answer, 'done')
+        self.assertEqual(self._envelope_tags(thread), [resumed.untrusted_tag])
+
+    def test_two_turns_on_one_thread_get_different_tags(self):
+        thread = 'env-two-turns'
+        first, second = self._turn(), self._turn()
+        model = _Scripted(['first answer', 'second answer'])
+
+        first_result = self._go(model, first, thread)
+        second_result = self._go(model, second, thread)
+
+        self.assertNotEqual(first.untrusted_tag, second.untrusted_tag)
+        self.assertEqual(self._stored(thread).get('untrusted_tag'), second.untrusted_tag)
+        # The tag stays in graph state, but not in the answer's saved metadata.
+        self.assertNotIn('untrusted_tag', first_result.metadata)
+        self.assertNotIn('untrusted_tag', second_result.metadata)

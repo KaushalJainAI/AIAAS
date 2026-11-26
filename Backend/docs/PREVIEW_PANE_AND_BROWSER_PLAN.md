@@ -718,6 +718,11 @@ soon as Phase 1 is in.
   (`MarkdownMessage.tsx::RemoteImage`). **The user accepted this as it is
   (2026-11-17):** image search results keep loading their pictures. Do not
   "fix" it without asking.
+- **2026-11-17, fixed:** a new account signing in on the same browser saw the
+  previous account's last conversation, painted from the browser's cached
+  copy (sign-out cleared only the tokens). Fixed by `lib/accountData.ts`
+  (forget at sign-out, claim by user id before pages render) and clearing a
+  conversation the server answers 404 for. H-171.
 
 ## Phase 0 results
 

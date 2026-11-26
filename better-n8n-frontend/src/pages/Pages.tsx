@@ -56,7 +56,7 @@ export default function Pages() {
         subtitle="Reports, pages and files you published, shareable by link"
         icon={Globe}
       />
-      <div className="px-4 py-6 md:px-8">
+      <div className="px-4 py-6 md:px-6">
         <div className="mb-4 flex gap-1" role="tablist" aria-label="Which pages">
           {(['mine', 'platform'] as const).map((s) => (
             <button key={s} type="button" role="tab" aria-selected={scope === s} onClick={() => setScope(s)}

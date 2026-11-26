@@ -33,7 +33,7 @@ export default function HubTabs() {
       aria-label={`${hub.label} sections`}
       className="relative shrink-0 border-b border-border bg-background"
     >
-      <div ref={stripRef} className="scrollbar-none relative flex overflow-x-auto px-2 md:px-4">
+      <div ref={stripRef} className="scrollbar-none relative flex overflow-x-auto px-1 md:px-3">
         {hub.tabs.map((tab) => {
           const active = tab.path === hub.current;
           return (

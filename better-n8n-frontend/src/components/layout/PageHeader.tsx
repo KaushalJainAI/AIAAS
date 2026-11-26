@@ -17,7 +17,7 @@ interface PageHeaderProps {
 /* The page title row: 44px tall, title and a short muted subtitle inline,
  * actions on the right, a bottom border. The mobile menu button sits in-flow at
  * the start (desktop never sees it, the sidebar is always there). Children
- * render beneath the row, for a page's own tabs or filters. */
+ * render beneath the row in a padded strip, for a page's own tabs or filters. */
 export default function PageHeader({
   title,
   subtitle,
@@ -27,7 +27,7 @@ export default function PageHeader({
 }: PageHeaderProps) {
   return (
     <div className={cn("sticky top-0 z-20 bg-card", className)}>
-      <div className="flex h-11 items-center gap-3 border-b border-border px-3 md:px-4">
+      <div className="flex h-11 items-center gap-3 border-b border-border px-4 md:px-6">
         <SidebarMenuButton />
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
           {/* On phones the 52px top bar already names the page, so the title is
@@ -46,7 +46,11 @@ export default function PageHeader({
         )}
       </div>
 
-      {children}
+      {/* Padded like the title row so a page's filters line up with the title,
+          the hub tabs and the content (all 24px in on desktop). */}
+      {children && (
+        <div className="border-b border-border px-4 py-2.5 md:px-6">{children}</div>
+      )}
     </div>
   );
 }

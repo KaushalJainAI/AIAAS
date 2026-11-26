@@ -825,7 +825,7 @@ export default function Tools() {
     return (
       <div className="h-full flex flex-col">
         <PageHeader icon={Wrench} title="Tools" subtitle="Loading your tool library…" />
-        <div className="flex-1 p-4 md:p-8 space-y-3">
+        <div className="flex-1 px-4 md:px-6 py-6 space-y-3">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-20 rounded-md bg-card border border-border/60 animate-pulse" />
           ))}
@@ -900,7 +900,7 @@ export default function Tools() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-8 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-8 custom-scrollbar">
         {!searching && (
           <>
             <MyToolsSection onNew={() => setShowNewTool(true)} />
