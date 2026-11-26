@@ -56,18 +56,21 @@ function HeaderRow({
     <div className={cn('sticky top-0 z-20 bg-card', className)}>
       <div className="flex h-11 items-center gap-4 border-b border-border px-4 md:h-14 md:px-6">
         <SidebarMenuButton />
+        {/* The hidden title sits inside the flexible area, after the menu
+            button: as a direct child of the row it landed under the phone's
+            floating hamburger (mobile-layout.spec.ts). */}
         {hub ? (
-          <>
+          <div className="flex min-w-0 flex-1 self-stretch">
             <h1 className="sr-only">{title}</h1>
             <nav aria-label={`${hub.label} sections`} className="flex min-w-0 flex-1 self-stretch">
               <HubTabLinks hub={hub} />
             </nav>
-          </>
+          </div>
         ) : tabs ? (
-          <>
+          <div className="flex min-w-0 flex-1 self-stretch">
             <h1 className="sr-only">{title}</h1>
-            <div className="flex min-w-0 flex-1 self-stretch">{tabs}</div>
-          </>
+            {tabs}
+          </div>
         ) : (
           <div className="flex min-w-0 flex-1 items-center">
             {/* On phones the 52px top bar already names the page, so the title

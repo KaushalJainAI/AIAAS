@@ -68,7 +68,7 @@ export default function PageTabs<T extends string>({
               onClick={() => onChange(id)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={cn(
-                'relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm transition-colors duration-normal ease-standard md:text-[14px]',
+                'relative inline-flex min-w-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap text-sm transition-colors duration-normal ease-standard md:text-[14px]',
                 inline ? 'h-full' : 'h-11',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40',
                 active ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',

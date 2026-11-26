@@ -12,8 +12,12 @@ drag-and-drop canvas, which is gone. The app is about **chat** and **agents**.
 ## What the app does
 
 You sign in and land on **Ask** (the chat). The menu has five places. Three of
-them are hubs: a strip of tabs above the page (`components/layout/HubTabs.tsx`)
-switches between their sections. Every section still has its own address.
+them are hubs: their tabs (`components/layout/HubTabs.tsx`) switch between the
+sections. A page with a `PageHeader` draws the tabs inside that header, in the
+title's place, so tabs and buttons share one row; a hub page without one gets a
+standalone strip (`lib/hubHeader.ts` decides which). Every section still has its
+own address. Activity (`/runs`) has its own tabs (Now, Planned, History, Files;
+`?tab=`, rules in `lib/activityTabs.ts`), drawn with `components/layout/PageTabs.tsx`.
 
 | Menu | Sections (tabs) |
 |---|---|
@@ -329,5 +333,6 @@ the terminal opens at a lower-case `c:\` path.
   use it. Never redirect to a URL taken straight from the query string.
 - Import another feature through its front door, `@/features/<name>`. Lint rejects
   imports of its inner files.
-- Desktop pages share one 24px gutter: the page title row (`PageHeader`) and the
-  hub tabs line up with the content (`md:px-6`). A new hub page should use it too.
+- Desktop pages share one 24px gutter: the page header row (`PageHeader`, with
+  the hub tabs in it) lines up with the content (`md:px-6`). A new hub page should
+  use it too. On phones every tab and button is at least 44px (`min-w-11`/`min-h-11`).

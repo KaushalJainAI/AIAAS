@@ -14,10 +14,11 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: BASE,
-    // The test-client rate lane; see tests/e2e/helpers/session.ts BYPASS_HEADERS.
-    extraHTTPHeaders: process.env.E2E_THROTTLE_BYPASS_TOKEN
-      ? { 'X-E2E-Bypass-Token': process.env.E2E_THROTTLE_BYPASS_TOKEN }
-      : undefined,
+    // No extraHTTPHeaders here. A custom header on every browser request makes
+    // the browser ask CORS first, the API does not allow X-E2E-Bypass-Token, and
+    // every page lands on /login (Google Fonts failed too). The rate lane is only
+    // needed for the sign-ups the specs make from Node: helpers/session.ts
+    // BYPASS_HEADERS.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

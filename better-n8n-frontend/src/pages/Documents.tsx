@@ -1268,10 +1268,10 @@ function EmptyState({
           Upload documents, create new ones, or ask the assistant to make one — files agents write appear here too.
         </p>
         <div className="flex flex-wrap justify-center gap-2">
-          <button type="button" onClick={onUpload} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+          <button type="button" onClick={onUpload} className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground md:min-h-0">
             <Upload className="h-4 w-4" /> Upload files
           </button>
-          <button type="button" onClick={onNew} className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted">
+          <button type="button" onClick={onNew} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted md:min-h-0">
             <FilePlus2 className="h-4 w-4" /> New document
           </button>
         </div>

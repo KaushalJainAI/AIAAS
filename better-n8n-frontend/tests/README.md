@@ -59,7 +59,7 @@ group stops once `E2E_BUDGET_USD` is spent.
 | `E2E_BASE_URL` | The web app to test. Default `http://localhost:5173`. |
 | `E2E_API_URL` | The API the specs call directly. Default `http://localhost:8000`. |
 | `E2E_NO_SERVER` | Set to `1` so Playwright does not start `npm run dev`. |
-| `E2E_THROTTLE_BYPASS_TOKEN` | Sent as `X-E2E-Bypass-Token` on every request, so the test client skips the API rate limits (registration allows 3 a minute). Set the same value on the backend, and leave both unset in production. |
+| `E2E_THROTTLE_BYPASS_TOKEN` | Sent as `X-E2E-Bypass-Token` on the sign-ups the specs make from Node (`helpers/session.ts` `BYPASS_HEADERS`), so they skip the API rate limits (registration allows 3 a minute). Never on browser requests: a custom header there makes the browser ask CORS first, the API refuses it, and every page lands on /login. Set the same value on the backend, and leave both unset in production. |
 | `E2E_LIVE_MODEL` | Set to `1` to allow the live specs. Anything else skips them. |
 | `E2E_OPENROUTER_KEY` | An OpenRouter key the live specs add to each test account. Required with `E2E_LIVE_MODEL=1`. Never printed. |
 | `E2E_BUDGET_USD` | Dollars the whole live run may spend. Default `2`. |

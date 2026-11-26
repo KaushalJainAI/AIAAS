@@ -81,16 +81,17 @@ export default function Runs() {
               <div className="mx-auto max-w-md py-16 text-center">
                 <p className="text-sm font-medium text-foreground">All clear</p>
                 <p className="mt-1 text-[13px] text-muted-foreground">
-                  Nothing needs you and nothing is running.{' '}
-                  <button type="button" onClick={() => pick('planned')} className="text-primary hover:underline">
-                    See what&apos;s planned
-                  </button>{' '}
-                  or{' '}
-                  <button type="button" onClick={() => pick('history')} className="text-primary hover:underline">
-                    what already ran
-                  </button>
-                  .
+                  Nothing needs you and nothing is running.
                 </p>
+                {/* Buttons, not inline links: 44px tall on a phone. */}
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  <button type="button" onClick={() => pick('planned')} className="inline-flex min-h-11 items-center px-3 text-[13px] text-primary hover:underline">
+                    See what&apos;s planned
+                  </button>
+                  <button type="button" onClick={() => pick('history')} className="inline-flex min-h-11 items-center px-3 text-[13px] text-primary hover:underline">
+                    See what already ran
+                  </button>
+                </div>
               </div>
             )}
           </>

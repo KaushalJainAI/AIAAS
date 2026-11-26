@@ -59,7 +59,7 @@ export function HubTabLinks({ hub, className }: { hub: Hub; className?: string }
             to={tab.path}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'flex shrink-0 items-center whitespace-nowrap border-b-2 text-sm transition-colors md:text-[14px]',
+              'flex min-w-11 shrink-0 items-center justify-center whitespace-nowrap border-b-2 text-sm transition-colors md:text-[14px]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40',
               active
                 ? 'border-primary font-semibold text-foreground'

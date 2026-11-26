@@ -39,11 +39,15 @@ test.use({ viewport: DESKTOP });
  * is where a page's padding meets its first card or table.
  */
 async function leftEdges(page: Page): Promise<{ title: number; content: number }> {
-  // `:visible`: the phone top bar also renders an h1, hidden on desktop and
-  // earlier in the DOM, so a plain `.first()` measured an invisible element.
-  const title = page.locator('h1:visible').first();
+  // The page's header row. On a hub page its title is for screen readers only
+  // and the hub's tabs take its place, so the first visible thing in the row
+  // (the title, or else the first tab) is what has to sit on the gutter.
+  const header = page.locator('main div.sticky').first();
+  await expect(header).toBeVisible({ timeout: 15_000 });
+  const title = header
+    .locator('h1:visible, nav[aria-label$="sections"] a:visible, [role="tab"]:visible')
+    .first();
   await expect(title).toBeVisible({ timeout: 15_000 });
-  const header = title.locator('xpath=ancestor::div[contains(@class,"sticky")][1]');
   const firstBlock = header.locator('xpath=following-sibling::*[1]/*[1]');
   await expect(firstBlock).toBeVisible({ timeout: 15_000 });
   const titleBox = await title.boundingBox();
