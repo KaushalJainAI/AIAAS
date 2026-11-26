@@ -866,7 +866,7 @@ export default function Tools() {
             <SearchInput
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search tools by name or what they do…"
+              data-page-search placeholder="Search tools by name or what they do…"
             />
           </div>
           {/* Segmented control: one bordered strip, the chosen segment raised. */}

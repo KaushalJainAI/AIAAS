@@ -122,6 +122,22 @@ describe('useShortcuts', () => {
     expect(plain.defaultPrevented).toBe(false);
   });
 
+  it('/ skips a hidden search box for the visible one (Documents draws one per screen size)', () => {
+    const main = document.createElement('main');
+    const hidden = document.createElement('input');
+    hidden.setAttribute('data-page-search', '');
+    hidden.checkVisibility = () => false;
+    const shown = document.createElement('input');
+    shown.setAttribute('data-page-search', '');
+    shown.checkVisibility = () => true;
+    main.append(hidden, shown);
+    document.body.appendChild(main);
+    renderHook(() => useShortcuts(navigate, true));
+    press('/');
+    expect(document.activeElement).toBe(shown);
+    main.remove();
+  });
+
   it('ignores keys inside a CodeMirror editor', () => {
     const cm = document.createElement('div');
     cm.className = 'cm-editor';

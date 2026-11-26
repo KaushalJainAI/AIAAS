@@ -449,7 +449,7 @@ export default function Agents() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search agents by name, description, category or tag…"
+                data-page-search placeholder="Search agents by name, description, category or tag…"
                 className="w-full pl-8 pr-8 h-9 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
               />
               {query && (

@@ -44,7 +44,11 @@ export function useShortcuts(navigate: Navigate, enabled: boolean): void {
           requestShortcutsHelp();
           break;
         case 'focus-search': {
-          const el = document.querySelector<HTMLElement>(SEARCH_SELECTOR);
+          // A page can draw one box per screen size and hide the other
+          // (Documents does), so take the first one that is shown.
+          const el = Array.from(document.querySelectorAll<HTMLElement>(SEARCH_SELECTOR)).find(
+            (box) => box.checkVisibility?.() ?? true,
+          );
           if (!el) return false;
           el.focus();
           break;

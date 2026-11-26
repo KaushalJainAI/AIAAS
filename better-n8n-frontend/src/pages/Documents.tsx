@@ -771,7 +771,7 @@ export default function Documents() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${title}`}
+              data-page-search placeholder={`Search ${title}`}
               aria-label="Search"
               className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             />
@@ -867,7 +867,7 @@ export default function Documents() {
       {listing && (
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-card px-3 py-1.5 md:hidden">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${title}`} aria-label="Search"
+          <input value={query} onChange={(e) => setQuery(e.target.value)} data-page-search placeholder={`Search ${title}`} aria-label="Search"
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
         </div>
       )}
