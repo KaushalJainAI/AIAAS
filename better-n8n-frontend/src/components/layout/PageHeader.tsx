@@ -5,7 +5,6 @@ import { hubFor, type Hub } from '../../lib/navigation';
 import { cn } from '../../lib/utils';
 import { useClaimHubTabs } from '../../lib/hubHeader';
 import { HubTabLinks } from './HubTabs';
-import SidebarMenuButton from './SidebarMenuButton';
 
 interface PageHeaderProps {
   title: string;
@@ -30,7 +29,8 @@ interface PageHeaderProps {
  * On a hub page (Agents, Library, Connect) the hub's tabs take the title's
  * place, so tabs and buttons share this single row instead of stacking two
  * bars; the title stays for screen readers. Elsewhere the row shows the title.
- * The mobile menu button sits in-flow at the start (desktop never sees it).
+ * Phones open the drawer from the bottom bar's More, so the row has no menu
+ * button.
  * Children render beneath the row in a padded strip, for a page's own tabs or
  * filters. */
 export default function PageHeader(props: PageHeaderProps) {
@@ -55,10 +55,6 @@ function HeaderRow({
   return (
     <div className={cn('sticky top-0 z-20 bg-card', className)}>
       <div className="flex h-11 items-center gap-4 border-b border-border px-4 md:h-14 md:px-6">
-        <SidebarMenuButton />
-        {/* The hidden title sits inside the flexible area, after the menu
-            button: as a direct child of the row it landed under the phone's
-            floating hamburger (mobile-layout.spec.ts). */}
         {hub ? (
           <div className="flex min-w-0 flex-1 self-stretch">
             <h1 className="sr-only">{title}</h1>

@@ -174,11 +174,11 @@ const Sidebar = () => {
        never disagree about what exists. Badges: `pending` = amber count waiting
        on you, `agent` = violet running-unattended dot. */
 
-    /* Title bars own their menu button now (`SidebarMenuButton`, in-flow at the
-       start of each header). It fires this event; the sidebar just opens.
-       There is deliberately no floating button here any more: a `fixed`
-       hamburger needed `pl-12` clearance hacks on every page and painted over
-       drawer headers (the "Conversations" collision) on phones. */
+    /* On phones the bottom bar's "More" fires this event; the sidebar just
+       opens. Page headers carry no menu button of their own (2026-11-27): it
+       repeated "More" on every page and cost each header 44px of a 390px row.
+       There is deliberately no floating button either: a `fixed` hamburger
+       needed clearance hacks on every page and painted over drawer headers. */
     useEffect(() => {
         const open = () => setCollapsed(false);
         window.addEventListener(OPEN_SIDEBAR_EVENT, open);

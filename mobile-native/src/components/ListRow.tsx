@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './Text';
 
-import { pressedOpacity, spacing, typography, useTheme } from '../theme';
+import { pressedOpacity, radius, spacing, typography, useTheme } from '../theme';
 import { Icon, type IconName } from './Icon';
 
 interface Props {
@@ -41,8 +41,10 @@ export function ListRow({
   const body = (
     <>
       {icon ? (
-        <View style={styles.leading}>
-          <Icon name={icon} size={22} color={destructive ? colors.danger : colors.primary} />
+        // A soft tinted tile behind the glyph: calmer than a bare coloured
+        // icon, and every row's icon lines up on the same square.
+        <View style={[styles.leading, { backgroundColor: destructive ? colors.dangerBg : colors.primaryBg }]}>
+          <Icon name={icon} size={18} color={destructive ? colors.danger : colors.primary} />
         </View>
       ) : null}
       <View style={styles.main}>
@@ -96,7 +98,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
-  leading: { width: 28, alignItems: 'center' },
+  leading: { width: 32, height: 32, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' },
   main: { flex: 1, gap: 2 },
   detailText: { maxWidth: '40%' },
   detailNode: { alignItems: 'flex-end' },
