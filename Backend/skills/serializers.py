@@ -44,11 +44,21 @@ class SkillSerializer(serializers.ModelSerializer):
     updatedAt = serializers.DateTimeField(source='updated_at', read_only=True)
     content = serializers.CharField(validators=[validate_skill_content])
     used_by = serializers.SerializerMethodField()
+    #: Whether the caller owns this skill. An agent may attach only its owner's
+    #: skills (`agents/config.py::validate_skills`, and the runtime loads by
+    #: owner), so the builder's picker lists these and points at Fork for a
+    #: public one. Never attach someone else's live row: its owner could edit
+    #: or unshare it and silently change what the agent is told.
+    is_mine = serializers.SerializerMethodField()
 
     class Meta:
         model = Skill
-        fields = ['id', 'title', 'description', 'content', 'author', 'isShared', 'category', 'updatedAt', 'used_by']
-        read_only_fields = ['id', 'author', 'updatedAt', 'used_by']
+        fields = ['id', 'title', 'description', 'content', 'author', 'isShared', 'category', 'updatedAt', 'used_by', 'is_mine']
+        read_only_fields = ['id', 'author', 'updatedAt', 'used_by', 'is_mine']
+
+    def get_is_mine(self, obj) -> bool:
+        request = self.context.get('request')
+        return bool(request and obj.user_id == request.user.id)
 
     def get_used_by(self, obj) -> int:
         # List and search views compute the tally once and pass it in context,
