@@ -43,7 +43,6 @@ import AuthorTag from '../components/documents/AuthorTag';
 import FilePreview from '../components/files/FilePreview';
 import PreviewFrame from '../components/files/PreviewFrame';
 import ShareDialog from '../components/files/ShareDialog';
-import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { apiErrorMessage, isStorageFull } from '../lib/apiError';
@@ -727,7 +726,6 @@ export default function Documents() {
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       {/* Address row */}
       <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2 md:px-6">
-        <SidebarMenuButton />
         <button type="button" onClick={() => setNavOpen((o) => !o)} className="inline-flex max-md:h-11 max-md:w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted lg:hidden" aria-label="Show folders">
           <PanelLeft className="h-4 w-4" />
         </button>
@@ -744,7 +742,7 @@ export default function Documents() {
           <RefreshCw className={cn('h-4 w-4', docs.isFetching && 'animate-spin')} />
         </button>
 
-        <nav aria-label="Address" className="mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-md border border-border/60 bg-background px-1.5 py-1 font-mono text-[12.5px]">
+        <nav aria-label="Address" className="mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-full md:rounded-md border border-border/60 bg-secondary/60 md:bg-background px-2 md:px-1.5 py-1 text-[13px] md:font-mono md:text-[12.5px]">
           {loc.kind === 'folder' ? (
             <>
               <Crumb label="Home" icon={<Home className="h-3.5 w-3.5" />} onClick={() => go({ kind: 'folder', id: null })} onDrop={dragging ? () => void move(dragging, null) : undefined} current={!currentFolder} />
@@ -810,6 +808,7 @@ export default function Documents() {
               {!inFolder && (
                 <span className="self-center whitespace-nowrap px-2 text-[12.5px] text-muted-foreground">Open a folder to add files</span>
               )}
+              <span className={cn('contents', !selectedItems.length && !clipboard && 'max-sm:hidden')}>
               <span className="mx-1 h-5 w-px shrink-0 bg-border/70" />
               {cmd('Cut', Scissors, () => setClipboard({ mode: 'cut', items: selectedItems }), !mine || !selectedItems.length)}
               {cmd('Copy', Copy, () => setClipboard({ mode: 'copy', items: selectedItems.filter((i) => i.kind === 'doc') }), !mine || !selectedDocs.length)}
@@ -818,6 +817,7 @@ export default function Documents() {
               {cmd('Share', Share2, () => single?.kind === 'doc' && setLinkShare(single.doc), !mine || single?.kind !== 'doc')}
               {cmd('Delete', Trash2, () => setConfirmDelete(selectedItems), !mine || !selectedItems.length)}
               {cmd('Download', Download, () => selectedDocs.forEach((d) => void download(d)), !selectedDocs.length)}
+              </span>
               <span className="ml-auto" />
               <div className="relative">
                 <button

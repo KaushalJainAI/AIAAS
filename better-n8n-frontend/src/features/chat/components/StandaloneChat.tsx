@@ -22,6 +22,7 @@ import {
   Video,
   File as FileIcon,
   Shield,
+  ShieldCheck,
   ChevronDown,
   Settings2,
   Globe2,
@@ -1938,7 +1939,7 @@ export default function StandaloneChat() {
                         <button
                           onClick={() => setShowModelDropdown(!showModelDropdown)}
                           className={cn(
-                            "flex items-center gap-1.5 sm:gap-2 h-11 md:h-8 px-2 sm:px-3 rounded-md transition-colors text-xs font-semibold border min-w-0 max-w-[34vw] sm:max-w-none",
+                            "flex items-center gap-1.5 sm:gap-2 h-11 md:h-8 px-2.5 sm:px-3 rounded-full md:rounded-md transition-colors text-xs font-medium border min-w-0 max-w-[40vw] sm:max-w-none",
                             showModelDropdown
                               ? "bg-primary/10 border-primary/30 text-primary"
                               : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40"
@@ -1966,7 +1967,7 @@ export default function StandaloneChat() {
                             </span>
                           )}
                           {effortSupported && llmEffort && (
-                            <span className="inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
+                            <span className="hidden sm:inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
                               {EFFORT_LABELS[llmEffort] ?? llmEffort}
                             </span>
                           )}
@@ -3088,12 +3089,12 @@ export default function StandaloneChat() {
                               aria-label="More options"
                               title="More options"
                               className={cn(
-                                "flex sm:hidden items-center justify-center h-11 w-11 rounded-md shrink-0 border",
+                                "flex sm:hidden items-center justify-center h-11 w-11 rounded-full shrink-0 border",
                                 "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                                 "disabled:opacity-40",
                                 attachedFiles.length > 0
                                   ? 'bg-primary/10 border-primary/30 text-primary'
-                                  : "border-transparent text-muted-foreground/50",
+                                  : "border-transparent text-muted-foreground hover:bg-secondary",
                               )}
                             >
                               {isUploading
@@ -3107,12 +3108,17 @@ export default function StandaloneChat() {
                               type="button"
                               onClick={() => setComposerSheetOpen(true)}
                               aria-label={`Approval: ${AUTONOMY_COPY[autonomy].label}. Change`}
-                              className={cn(
-                                "flex sm:hidden items-center h-11 px-2.5 rounded-md border font-mono text-[11px] shrink-0 max-w-[11rem] truncate",
-                                approvalSelectClass(autonomy),
-                              )}
+                              // 44px to tap; the pill drawn inside is 32px so it reads as a chip.
+                              className="flex sm:hidden h-11 items-center shrink-0 max-w-[11rem] min-w-0"
                             >
-                              <span className="truncate">{AUTONOMY_COPY[autonomy].label}</span>
+                              <span className={cn(
+                                "flex h-8 min-w-0 items-center gap-1.5 pl-2.5 pr-2 rounded-full border text-xs font-medium",
+                                approvalSelectClass(autonomy),
+                              )}>
+                                <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                                <span className="truncate">{AUTONOMY_COPY[autonomy].label}</span>
+                                <ChevronDown className="w-3 h-3 shrink-0 opacity-60" aria-hidden />
+                              </span>
                             </button>
                             {/* Desktop (and up): attach straight away. */}
                             <button

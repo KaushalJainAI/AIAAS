@@ -20,7 +20,7 @@ export function Card({ children, style, padded = true }: Props) {
         {
           backgroundColor: colors.surface,
           borderColor: colors.border,
-          borderRadius: radius.md,
+          borderRadius: radius.lg,
           padding: padded ? spacing.lg : 0,
         },
         style,

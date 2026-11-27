@@ -46,9 +46,9 @@ describe('PageHeader', () => {
     expect(row?.className).toMatch(/border-b/);
   });
 
-  it('keeps the mobile menu button in the row', () => {
+  it('has no menu button of its own (phones use the bottom bar More)', () => {
     render(<PageHeader title="Documents" subtitle="" icon={Activity} />);
-    expect(screen.getByRole('button', { name: 'Open menu' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open menu' })).toBeNull();
   });
 
   it('renders children beneath the row', () => {

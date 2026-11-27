@@ -45,7 +45,6 @@ import { ResultCard } from '../components/imagine/ResultCard';
 import { StyleGallery } from '../components/imagine/StyleGallery';
 import { SendButton } from '../components/ui/SendButton';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { cn } from '../lib/utils';
 
 type ViewMode = 'agent' | 'studio';
@@ -146,7 +145,6 @@ export default function Imagine() {
   const header = (
     <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-border/40 min-h-14">
       <div className="flex items-center gap-2 min-w-0">
-        <SidebarMenuButton />
         {viewMode === 'agent' && (
           <button
             onClick={() => setShowAgentHistory(true)}

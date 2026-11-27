@@ -1,15 +1,20 @@
 /**
- * The box a message is written in: staged files, the command palette, the text,
- * the send control, and the row of mode and model chips beneath it. Props only;
- * the screen decides what each control does.
+ * The box a message is written in: staged files, the command palette, then one
+ * rounded field holding the text and, beneath it, attach, the mode and model
+ * chips and a round send button. Props only; the screen decides what each
+ * control does.
+ *
+ * One field instead of a text box, a "Send" button and a separate chip row:
+ * on a phone the old three pieces read as clutter, and the send button's
+ * label changed width as it moved between Send, Steer and Stop.
  */
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { type ReactNode } from 'react';
 
-import { Icon } from '../../components/Icon';
+import { Icon, type IconName } from '../../components/Icon';
 import { Text } from '../../components/Text';
 import { fontFamily } from '../../fonts';
-import { radius, spacing, typography, useTheme } from '../../theme';
+import { pressedOpacity, spacing, typography, useTheme } from '../../theme';
 import { modeColour } from './ChatSheets';
 import { MODE_LABEL, type ChatMode } from './mode';
 import type { StagedFile } from './attachments';
@@ -35,6 +40,48 @@ interface Props {
   notice: string | null;
 }
 
+/** The send button's glyph for each of its three meanings. */
+const PRIMARY_ICON: Record<Props['primaryLabel'], IconName> = {
+  Send: 'arrow-up',
+  Steer: 'arrow-redo',
+  Stop: 'stop',
+};
+
+/** A small rounded chip in the field's bottom row. */
+function Chip({
+  label,
+  accessibilityLabel,
+  icon,
+  tint,
+  onPress,
+  grow = false,
+}: {
+  label: string;
+  accessibilityLabel: string;
+  icon?: IconName;
+  tint: string;
+  onPress: () => void;
+  grow?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      style={({ pressed }) => [styles.chipHit, grow && styles.shrink, { opacity: pressed ? pressedOpacity : 1 }]}
+    >
+      <View style={[styles.chip, grow && styles.shrink, { backgroundColor: colors.surfaceMuted }]}>
+        {icon ? <Icon name={icon} size={13} color={tint} /> : null}
+        <Text numberOfLines={1} style={[typography.caption, styles.shrink, { color: tint, fontFamily: fontFamily.medium }]}>
+          {label}
+        </Text>
+        <Icon name="chevron-down" size={11} color={tint} />
+      </View>
+    </Pressable>
+  );
+}
+
 export function Composer(props: Props) {
   const { colors, spacing: s, radius: r, fontSize: f } = useTheme();
   const {
@@ -42,9 +89,12 @@ export function Composer(props: Props) {
     staged, onRemoveStaged, uploading, palette, mode, onOpenMode, modelLabel, onOpenModel, notice,
   } = props;
   const stop = primaryLabel === 'Stop';
+  // Plain "ask" is the quiet default; every other mode keeps its colour so a
+  // riskier level is never missed.
+  const modeTint = mode === 'ask' ? colors.text : modeColour(mode, colors);
 
   return (
-    <View style={[styles.wrap, { borderTopColor: colors.border, backgroundColor: colors.surface, padding: s.sm, gap: s.sm }]}>
+    <View style={[styles.wrap, { borderTopColor: colors.border, backgroundColor: colors.background, padding: s.sm, gap: s.sm }]}>
       {notice ? (
         <Text accessibilityRole="alert" style={[typography.caption, { color: colors.danger, paddingHorizontal: s.xs }]}>
           {notice}
@@ -58,9 +108,9 @@ export function Composer(props: Props) {
           {staged.map((file) => (
             <View
               key={file.key}
-              style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.background, borderRadius: r.md }]}
+              style={[styles.file, { backgroundColor: colors.surfaceMuted, borderRadius: r.lg }]}
             >
-              <Icon name="attach-outline" size={14} color={colors.mutedText} />
+              <Icon name="document-attach-outline" size={14} color={colors.mutedText} />
               <Text numberOfLines={1} style={[typography.caption, { color: colors.text, maxWidth: 180 }]}>
                 {file.name}
               </Text>
@@ -69,9 +119,9 @@ export function Composer(props: Props) {
                 accessibilityLabel={`Remove ${file.name}`}
                 onPress={() => onRemoveStaged(file.key)}
                 hitSlop={10}
-                style={styles.chipClose}
+                style={styles.fileClose}
               >
-                <Icon name="close" size={14} color={colors.mutedText} />
+                <Icon name="close-circle" size={16} color={colors.mutedText} />
               </Pressable>
             </View>
           ))}
@@ -79,16 +129,7 @@ export function Composer(props: Props) {
         </View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: s.sm }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Attach a file"
-          onPress={onAttach}
-          disabled={busy}
-          style={[styles.round, { borderColor: colors.border, opacity: busy ? 0.5 : 1 }]}
-        >
-          <Icon name="add" size={22} color={colors.text} />
-        </Pressable>
+      <View style={[styles.field, { backgroundColor: colors.surface, borderColor: colors.borderStrong }]}>
         <TextInput
           value={draft}
           onChangeText={onChangeDraft}
@@ -96,56 +137,52 @@ export function Composer(props: Props) {
           placeholderTextColor={colors.mutedText}
           multiline
           accessibilityLabel="Message"
-          style={[
-            styles.input,
-            {
-              color: colors.text,
-              backgroundColor: colors.inputBackground,
-              borderColor: colors.border,
-              borderRadius: r.md,
-              fontSize: f.md,
-              fontFamily: fontFamily.regular,
-            },
-          ]}
+          style={[styles.input, { color: colors.text, fontSize: f.lg, fontFamily: fontFamily.regular }]}
         />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={primaryLabel}
-          disabled={primaryDisabled}
-          onPress={onPrimary}
-          style={({ pressed }) => [
-            styles.send,
-            {
-              backgroundColor: stop ? colors.danger : colors.primary,
-              borderRadius: r.md,
-              opacity: primaryDisabled ? 0.5 : pressed ? 0.8 : 1,
-            },
-          ]}
-        >
-          <Text style={[typography.label, { color: colors.primaryText }]}>{primaryLabel}</Text>
-        </Pressable>
-      </View>
 
-      <View style={styles.toolbar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Mode: ${MODE_LABEL[mode]}`}
-          onPress={onOpenMode}
-          style={[styles.toolChip, { borderColor: modeColour(mode, colors) }]}
-        >
-          <Text style={[typography.caption, { color: modeColour(mode, colors), fontWeight: '600' }]}>{MODE_LABEL[mode]}</Text>
-          <Icon name="chevron-down" size={12} color={modeColour(mode, colors)} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Model: ${modelLabel}`}
-          onPress={onOpenModel}
-          style={[styles.toolChip, styles.modelChip, { borderColor: colors.border }]}
-        >
-          <Icon name="sparkles-outline" size={14} color={colors.mutedText} />
-          <Text numberOfLines={1} style={[typography.caption, { color: colors.mutedText, flexShrink: 1 }]}>{modelLabel}</Text>
-          <Icon name="chevron-down" size={12} color={colors.mutedText} />
-        </Pressable>
+        <View style={styles.toolbar}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Attach a file"
+            onPress={onAttach}
+            disabled={busy}
+            style={({ pressed }) => [styles.iconHit, { opacity: busy ? 0.4 : pressed ? pressedOpacity : 1 }]}
+          >
+            <View style={[styles.iconCircle, { borderColor: colors.border }]}>
+              <Icon name="add" size={20} color={colors.text} />
+            </View>
+          </Pressable>
+
+          <Chip
+            label={MODE_LABEL[mode]}
+            accessibilityLabel={`Mode: ${MODE_LABEL[mode]}`}
+            icon="shield-checkmark-outline"
+            tint={modeTint}
+            onPress={onOpenMode}
+          />
+          <Chip
+            label={modelLabel}
+            accessibilityLabel={`Model: ${modelLabel}`}
+            icon="sparkles-outline"
+            tint={colors.mutedText}
+            onPress={onOpenModel}
+            grow
+          />
+
+          <View style={styles.spacer} />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={primaryLabel}
+            disabled={primaryDisabled}
+            onPress={onPrimary}
+            style={({ pressed }) => [styles.iconHit, { opacity: primaryDisabled ? 0.35 : pressed ? pressedOpacity : 1 }]}
+          >
+            <View style={[styles.send, { backgroundColor: stop ? colors.danger : colors.primary }]}>
+              <Icon name={PRIMARY_ICON[primaryLabel]} size={stop ? 14 : 18} color={colors.primaryText} />
+            </View>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -153,12 +190,16 @@ export function Composer(props: Props) {
 
 const styles = StyleSheet.create({
   wrap: { borderTopWidth: StyleSheet.hairlineWidth },
-  input: { flex: 1, maxHeight: 140, minHeight: 44, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10 },
-  send: { minHeight: 44, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },
-  round: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, borderWidth: StyleSheet.hairlineWidth, paddingLeft: spacing.sm, paddingRight: spacing.xs, minHeight: 32 },
-  chipClose: { minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
-  modelChip: { flex: 1 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  toolChip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 32, paddingHorizontal: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md },
+  field: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, paddingTop: spacing.sm, paddingHorizontal: spacing.xs },
+  input: { maxHeight: 140, minHeight: 40, paddingHorizontal: spacing.sm, paddingTop: 6, paddingBottom: 4, textAlignVertical: 'top' },
+  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  spacer: { flex: 1 },
+  iconHit: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  iconCircle: { width: 34, height: 34, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  send: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  chipHit: { minHeight: 44, justifyContent: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 30, paddingHorizontal: 10, borderRadius: 15 },
+  shrink: { flexShrink: 1 },
+  file: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingLeft: spacing.sm, paddingRight: spacing.xs, minHeight: 32 },
+  fileClose: { minWidth: 28, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
 });

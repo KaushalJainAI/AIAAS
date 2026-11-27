@@ -14,7 +14,6 @@ import authService from '../api/auth';
 import { Button } from '../components/ui/Button';
 import { Alert } from '../components/ui/Alert';
 import { Spinner } from '../components/ui/Loading';
-import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 
 export default function Profile() {
   const { user, logout, refreshUser, isLoading } = useAuth();
@@ -160,11 +159,7 @@ export default function Profile() {
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-        {/* Header — menu button is in-flow (same 40px slot as every title
-            bar), so it centres against the back button instead of floating
-            over it. */}
         <div className="flex items-center gap-2 md:gap-4 min-h-14">
-          <SidebarMenuButton />
 
           <button 
             onClick={() => navigate(-1)}

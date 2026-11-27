@@ -84,7 +84,6 @@ import { statusTone } from '../lib/triggerStatus';
 import { EFFORT_LABELS } from '../hooks/useEffortSelection';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '../hooks/useChatModelSelection';
 import { useAuth } from '../contexts/authState';
-import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 
 /* ---------- small building blocks ---------- */
 
@@ -1064,10 +1063,7 @@ export default function AgentBuilder() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Menu button is in-flow (same 40px slot as every title bar) so it
-          wraps with the actions instead of floating over the corner. */}
       <header className="px-4 md:px-6 py-3 md:py-4 border-b border-border flex flex-wrap items-center gap-3">
-        <SidebarMenuButton />
         <div className="min-w-0 flex-1">
           <h1 className="text-lg md:text-xl font-semibold tracking-tight truncate">
             {isNew ? 'New agent' : cfg.name || 'Agent'}

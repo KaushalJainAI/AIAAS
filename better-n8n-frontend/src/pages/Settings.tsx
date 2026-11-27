@@ -46,7 +46,6 @@ import {
 import { DEFAULT_PROVIDER, DEFAULT_MODEL } from '../hooks/useChatModelSelection';
 import { TTS_MODELS, ttsVoices } from '../lib/tts';
 import { allZones, localZone } from '../lib/cron';
-import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { toast } from 'sonner';
 
 /** Languages the backend accepts (`core/preferences.py::LANGUAGES`), by code.
@@ -1098,22 +1097,17 @@ export default function Settings() {
 
   return (
     <div className="h-full flex flex-col md:flex-row">
-      {/* Settings Sidebar — menu button is in-flow at the rail start on
-          phones, same 40px slot as every title bar. */}
       {/* On phones this is the full-screen list of sections (onPhoneList); a
-          section then replaces it, under a thin bar that holds the menu button. */}
+          section then replaces it whole, and "‹ Settings" leads back. */}
       <div className={cn(
         'w-full md:w-64 border-b md:border-r md:border-b-0 border-border bg-card p-2 md:p-4 shrink-0 overflow-x-auto scrollbar-none',
         onPhoneList && 'flex-1 min-h-0 overflow-y-auto',
+        !isDesktop && !onPhoneList && 'hidden md:block',
       )}>
-        {/* On the phone list the menu button shares the title's row instead
-            of sitting alone on a row of its own. */}
         <div className={cn('flex items-center gap-1 mb-2 md:mb-4', !onPhoneList && 'hidden md:flex')}>
-          {onPhoneList && <SidebarMenuButton className="md:hidden" />}
           <h2 className="text-lg font-semibold px-2">Settings</h2>
         </div>
         <div className="flex flex-col md:flex-row md:items-center gap-1 min-h-10">
-          {!onPhoneList && <SidebarMenuButton className="md:hidden self-start md:self-center" />}
           {(isDesktop || onPhoneList) && (
           <nav className="flex flex-col gap-1 md:gap-0 md:space-y-1 min-w-0 flex-1">
           {tabs.map((tab) => (
