@@ -41,6 +41,7 @@ import {
   Tag,
   Plus,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import nodeService from '../api/nodeService';
@@ -351,15 +352,15 @@ function TagInput({ value, onChange }: {
     setDraft('');
   };
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
       {value.map((tag) => (
-        <span key={tag}
-          className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-md border border-border bg-card text-[12px]">
-          {tag}
+        <span key={tag} title={tag}
+          className="inline-flex items-center gap-0.5 max-w-full min-h-[44px] md:min-h-7 pl-2.5 pr-0.5 rounded-md border border-border bg-card text-[12px] text-foreground">
+          <span className="truncate">{tag}</span>
           <button type="button" onClick={() => onChange(value.filter((t) => t !== tag))}
-            title={`Remove ${tag}`}
-            className="w-4 h-4 rounded-sm text-muted-foreground hover:text-foreground">
-            ×
+            aria-label={`Remove ${tag}`}
+            className="shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[44px] md:min-h-6 md:min-w-6 rounded-sm text-muted-foreground hover:text-foreground hover:bg-secondary">
+            <X className="w-3.5 h-3.5" />
           </button>
         </span>
       ))}
@@ -892,6 +893,52 @@ export default function AgentBuilder() {
     </>
   );
 
+  // Its own section in both views: Essentials used to leave it out, and All
+  // settings tucked it under "Context it is given", so a builder opened in the
+  // default view had no visible way to give an agent a skill.
+  //
+  // Only the caller's own skills are offered. The save path and the runtime
+  // both accept owned ids only, so listing a public skill here used to fail
+  // the save with "No such skill". A public one is forked first; the copy is
+  // then the user's, and its owner editing or unsharing the original cannot
+  // change what this agent is told. `is_mine` absent (an older server) keeps
+  // the old behaviour rather than hiding everything.
+  const ownSkills = skills.filter((s) => s.is_mine !== false);
+  const skillsSection = (
+    <Section icon={Sparkles} title="Skills" hint="Instructions it follows on every run">
+      <Knob path="skills" label="Attached skills"
+            hint={cfg.skills.length ? `${cfg.skills.length} selected` : 'pick any number'}>
+        <MultiSelect
+          options={ownSkills.map((s) => ({
+            id: String(s.id),
+            label: s.title,
+            hint: s.description || s.category,
+          }))}
+          value={cfg.skills.map(String)}
+          onChange={(v) => set('skills', v.map(Number))}
+          placeholder="No skills"
+          searchPlaceholder="Search your skills…"
+          emptyText="None yet — write one in Skills first."
+        />
+        <p className="mt-1.5 px-2 text-[11px] text-muted-foreground">
+          {ownSkills.length === 0 ? (
+            <>
+              <Link to="/skills" className="underline text-primary">Write a skill</Link>{' '}
+              — reusable instructions — and it will be listed here.
+            </>
+          ) : (
+            <>
+              Every skill you pick is added to the agent’s instructions, in full,
+              on every run. Want someone else’s?{' '}
+              <Link to="/skills" className="underline text-primary">Fork it on Skills</Link>{' '}
+              and your copy appears here.
+            </>
+          )}
+        </p>
+      </Knob>
+    </Section>
+  );
+
   const connectionsKnob = (
     <Knob path="connectors" label="Connections"
           hint={cfg.connectors.length ? `${cfg.connectors.length} selected` : undefined}>
@@ -1212,6 +1259,8 @@ export default function AgentBuilder() {
               {connectionsKnob}
             </Section>
 
+            {skillsSection}
+
             <Section icon={ShieldCheck} title="Safety">
               {approvalKnob}
               {spendCapKnob}
@@ -1465,6 +1514,8 @@ export default function AgentBuilder() {
               </p>
             </Section>
 
+            {skillsSection}
+
             <Section icon={Plug} title="Context it is given">
               {connectionsKnob}
               {grantedTools.length > 0 && (
@@ -1562,21 +1613,6 @@ export default function AgentBuilder() {
                   </p>
                 </Knob>
               )}
-              <Knob path="skills" label="Skills"
-                    hint={cfg.skills.length ? `${cfg.skills.length} selected` : undefined}>
-                <MultiSelect
-                  options={skills.map((s) => ({
-                    id: String(s.id),
-                    label: s.title,
-                    hint: s.description || s.category,
-                  }))}
-                  value={cfg.skills.map(String)}
-                  onChange={(v) => set('skills', v.map(Number))}
-                  placeholder="No skills"
-                  searchPlaceholder="Search skills…"
-                  emptyText="None yet — write one in Skills first."
-                />
-              </Knob>
               <Knob path="orgId" label="Team knowledge from">
                 <Select
                   value={cfg.orgId == null ? '' : String(cfg.orgId)}

@@ -3977,3 +3977,11 @@ Hub pages stacked two bars: the hub's tab strip, then the page's title row. Now 
 Found by the phone specs before merging: the hidden title, as a direct child of the row, sat under the floating hamburger; tabs with short labels ("Now", "Evals") were 26px wide, so tabs now have `min-w-11`; the empty state's inline links were 20px tall. The mobile spec's overlap check now cuts each box by clipping ancestors, because a hub tab scrolled out of its strip kept a box under the hamburger while showing nothing. Trade-off kept: on a phone, a hub whose page has a wide action button can scroll its first tab out of view; the strip scrolls sideways to it.
 
 The E2E harness sent the rate-lane header on every browser request (`extraHTTPHeaders`), which made every cross-origin API call (and Google Fonts) fail CORS preflight, so most signed-in specs ended on /login. It now rides only on the Node-side sign-ups.
+
+## H-186 · Skills: their own builder section, own skills only (2026-11-27)
+
+Files: Backend/skills/serializers.py, Backend/skills/tests/test_used_by.py, better-n8n-frontend/src/pages/AgentBuilder.tsx, better-n8n-frontend/src/lib/agentAdvanced.ts, better-n8n-frontend/src/api/skills.ts, mobile-native/src/features/builder/screens/Access.tsx, mobile-native/src/features/skills/types.ts
+
+The builder opens on Essentials, which had no Skills control; the picker lived under All settings, Tools, "Context it is given". People reasonably concluded agents could not be given skills. Skills is now its own section in both views (one block drawn twice, like the other shared blocks), and `skills` is an Essentials field so the "N other settings are changed" count does not treat it as hidden. Any number can be attached, as before: every attached skill goes into the system prompt in full on every run (`agents/agent/runtime.py`).
+
+The picker also listed public skills other people shared, but `AgentSerializer.validate_skills` and the runtime accept only the owner's ids, so picking one failed the save with "No such skill". The list now carries `is_mine` and both pickers offer only those, pointing at Fork for a public one. We chose fork-first over letting agents read shared rows live: a live row's owner could edit or unshare it and silently change, or empty, what someone else's scheduled agent is told.

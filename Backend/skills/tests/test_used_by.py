@@ -79,3 +79,26 @@ class UsedByTests(APITestCase):
         response = self.client.get(reverse('skill-detail', args=[self.writing.id]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['used_by'], 1)
+
+
+class IsMineTests(APITestCase):
+    """The builder's skill picker lists only `is_mine` rows: an agent may
+    attach only its owner's skills, so a public one must be forked first."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='picker', password='pw')
+        self.other = User.objects.create_user(username='sharer', password='pw')
+        self.client.force_authenticate(user=self.user)
+        self.own = _skill(self.user, 'Mine')
+        self.public = Skill.objects.create(
+            user=self.other, title='Theirs', content='x', is_shared=True)
+
+    def test_list_marks_own_and_shared_skills(self):
+        response = self.client.get(reverse('skill-list'))
+        data = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual({r['title']: r['is_mine'] for r in data}, {'Mine': True, 'Theirs': False})
+
+    def test_a_fork_is_mine(self):
+        response = self.client.post(reverse('skill-fork', args=[self.public.id]))
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data['is_mine'])

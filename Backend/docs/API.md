@@ -505,7 +505,7 @@ Model: `Skill`. Router ViewSet.
 
 | URL | Method | What | Access | Complexity | Tested | Serializer | DB tables | Notes |
 |-----|--------|------|--------|-----------|--------|-----------|-----------|-------|
-| `/api/skills/` | GET/POST | List/create skills | Auth | O(1) | ~ | `SkillSerializer` | Skill | **2026-11-11 (UI redesign, `docs/UI_REDESIGN_PLAN.md`):** list, search and detail carry `used_by` — how many of the caller's agents name the skill in `agent_context.skills`, one tally per list. Tests: `skills/tests/test_used_by.py` |
+| `/api/skills/` | GET/POST | List/create skills | Auth | O(1) | ~ | `SkillSerializer` | Skill | **2026-11-11 (UI redesign, `docs/UI_REDESIGN_PLAN.md`):** list, search and detail carry `used_by` — how many of the caller's agents name the skill in `agent_context.skills`, one tally per list. Tests: `skills/tests/test_used_by.py`. **2026-11-27:** every row also carries `is_mine` (the caller owns it); the agent builder's skill picker lists only those, because `AgentSerializer.validate_skills` and the runtime accept owned ids only — a public skill is forked first |
 | `/api/skills/{pk}/` | GET/PUT/PATCH/DELETE | Skill CRUD | Auth (owner/admin write; all read) | O(1) |  | `SkillSerializer` | Skill | Edit/delete owner-or-admin; others read and fork. Content capped at 10,000 words |
 | `/api/skills/search/` | GET | Hybrid search (`query`, `tab`, `category`, `page`, `page_size`) | Auth | O(log N) |  | `SkillSearchSerializer` | Skill | FAISS ANN over the shared skills KB (`inference.engine.get_skills_knowledge_base`, id=-2); fuzzy-text fallback when the embedder is unavailable |
 

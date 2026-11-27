@@ -139,7 +139,10 @@ export function KnowledgeScreen({ id }: { id: string }) {
 export function KnowledgeForm({ b, cfg }: { b: Builder; cfg: AgentConfig }) {
   const [open, setOpen] = useState<'kb' | 'skills' | 'org' | null>(null);
   const bases = useKnowledgeBases().data?.knowledge_bases ?? [];
-  const skills = useSkills().data ?? [];
+  // Only the caller's own skills: an agent may attach nothing else (the save
+  // refuses it), so a public skill is forked on the Skills page first.
+  // `is_mine` absent (an older server) keeps every row.
+  const skills = (useSkills().data ?? []).filter((s) => s.is_mine !== false);
   const orgs = useOrgs().data?.orgs ?? [];
   const orgName = cfg.orgId == null ? 'Personal (no team)' : orgs.find((o) => o.id === cfg.orgId)?.name ?? `Organisation ${cfg.orgId}`;
 
@@ -158,6 +161,10 @@ export function KnowledgeForm({ b, cfg }: { b: Builder; cfg: AgentConfig }) {
           error={b.errors.skills}
           onPress={() => setOpen('skills')}
         />
+        <Note>
+          Pick any number of skills. Each is added to the agent’s instructions, in full, on every run. To use
+          someone else’s, fork it on the Skills page and pick your copy.
+        </Note>
       </Panel>
       <Panel>
         <PickerRow
