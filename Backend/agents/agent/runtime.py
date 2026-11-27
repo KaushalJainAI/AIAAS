@@ -1671,15 +1671,48 @@ class AgentRun:
     intents: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _conversation_of(user, key: str):
+    """The chat a run works for, from the key of whatever started it. Sync.
+
+    `key` is the starter's session key: a chat's id when chat delegated, or an
+    agent run's thread id when an agent did. A chat id names itself; a run's
+    thread is followed to the chat that run worked for, so a worker two levels
+    down still counts against the conversation. None when neither applies
+    (a schedule, the Run button, a mission). Never raises: provenance is
+    worth having and never worth failing a run over.
+    """
+    if not key or user is None:
+        return None
+    from django.core.exceptions import ValidationError
+
+    try:
+        from chat.models import ChatSession
+        from logs.models import ExecutionLog
+
+        try:
+            if ChatSession.objects.filter(id=key, user=user).exists():
+                return key
+        except (ValueError, ValidationError):
+            pass  # not a UUID: a run's thread id
+        return (ExecutionLog.objects.filter(thread_id=key[:200], user=user)
+                .exclude(chat_session__isnull=True)
+                .values_list('chat_session_id', flat=True).first())
+    except Exception:  # noqa: BLE001
+        logger.warning('Could not resolve the chat behind %s', key, exc_info=True)
+        return None
+
+
 @sync_to_async
 def _open_log(agent, user, goal: str, trigger_type: str, thread_id: str = '',
               *, caller: str = 'api', depth: int = 0,
               parent_step_id: int | None = None, delegation_task: str = '',
               delegation_index: int = 0, model_used: str = '',
               fallback_from: str = '', mission_id: int | None = None,
-              taint: str = ''):
+              taint: str = '', chat_session_key: str = ''):
     from logs.models import ExecutionLog
     from logs import revisions
+
+    chat_session_id = _conversation_of(user, chat_session_key)
 
     # The configuration this run will execute under, pinned at open time rather
     # than read back at close: an agent edited mid-run must not retroactively
@@ -1703,6 +1736,7 @@ def _open_log(agent, user, goal: str, trigger_type: str, thread_id: str = '',
         parent_step_id=parent_step_id,
         delegation_task=delegation_task,
         delegation_index=delegation_index,
+        chat_session_id=chat_session_id,
         # `thread_id` is stored, not just the goal: it is the checkpointer key,
         # and resuming an approved run has to find the *same* log so the trace
         # stays one execution instead of splitting into two the canvas cannot
@@ -1799,6 +1833,50 @@ def _close_log(log, *, status: str, result: dict[str, Any], tokens: int,
                     execution_id=str(log.execution_id), detail={})
     except Exception:  # noqa: BLE001
         pass
+    if status in ('failed', 'timeout') and log.caller in NOTIFY_FAILURE_CALLERS:
+        tell_owner_run_failed(log)
+
+
+#: Callers whose failure nobody is watching for: a schedule or webhook
+#: (`trigger`) and a mission step. Chat runs report into their chat
+#: (`chat/tools/tasks.py`), the Run button shows its own result, and a run
+#: started by another agent is its parent's to report (H-187).
+NOTIFY_FAILURE_CALLERS = frozenset({'trigger', 'mission'})
+
+
+def tell_owner_run_failed(log, *, reason: str = '') -> None:
+    """Notify the owner that a run nobody was watching ended without finishing. Sync.
+
+    The `workflow_failed` notification type existed with nothing sending it,
+    so a scheduled agent that failed every morning was only ever found by
+    opening /runs (H-187). Only for a top-level run: a worker's failure is its
+    parent's to explain. Never raises: the run is already closed.
+    """
+    if log.parent_step_id is not None:
+        return
+    try:
+        from notifications.utils import create_notification
+
+        name = (log.subagent.name if log.subagent_id and log.subagent else '') or 'An agent'
+        ended = 'timed out' if log.status == 'timeout' else 'failed'
+        detail = (reason or log.error_message or '').strip()
+        create_notification(
+            log.user, 'workflow_failed',
+            f'"{name}" {ended}',
+            (detail[:300] if detail else f'The run {ended} before it finished.')
+            + ' Open the run to see what it did.',
+            data={
+                'execution_id': str(log.execution_id),
+                'agent_id': log.subagent_id,
+                'caller': log.caller,
+                'action_url': f'/runs?run={log.execution_id}',
+            },
+            # Email belongs to the digest alone (`test_email_policy`).
+            send_email=False,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning('Could not notify the owner of failed run %s', log.id,
+                       exc_info=True)
 
 
 #: Tools that spend money themselves, beside the model calls — their results
@@ -2171,6 +2249,7 @@ async def run_agent(agent, goal: str, *, user, sink=None,
             caller=caller, depth=depth, parent_step_id=parent_step_id,
             delegation_task=delegation_task, delegation_index=delegation_index,
             mission_id=mission_id, taint=initial_taint or '',
+            chat_session_key=parent_session_key,
         )
     else:
         # A resumed run (recovery, approval) arrives with its log and no
@@ -2667,8 +2746,12 @@ async def start_agent_run(agent, goal: str, *, user,
                           org_id: int | None = None,
                           share_solutions: bool = False,
                           inherited_taint: str | None = None,
-                          change_parent_id: int | None = None) -> str:
+                          change_parent_id: int | None = None,
+                          parent_session_key: str = '') -> str:
     """Begin a run in the background and return its execution id immediately.
+
+    `parent_session_key` is the starter's session (a chat id, or a run's
+    thread): the run is recorded against that conversation's spend.
 
     `inherited_taint` and `delegation_task` are passed down to `run_agent`,
     which decides the worker's taint (see there). `change_parent_id` is passed
@@ -2721,7 +2804,7 @@ async def start_agent_run(agent, goal: str, *, user,
         caller=caller, parent_step_id=parent_step_id,
         delegation_task=delegation_task, delegation_index=delegation_index,
         model_used=model, fallback_from=fallback_from,
-        mission_id=mission_id,
+        mission_id=mission_id, chat_session_key=parent_session_key,
     )
 
     async def _run() -> None:

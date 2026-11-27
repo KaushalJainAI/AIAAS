@@ -15,6 +15,15 @@ offline — "workflow failed", "image ready".
 `image_ready`, `system`, …), a `User` FK, a title, a message, a `data`
 JSONField (e.g. `execution_id`), and `is_read`.
 
+Who sends what (2026-11-27, H-185/H-187):
+
+- `workflow_failed`: a scheduled (`trigger`) or mission run that ends
+  `failed` or `timeout`, and any such run the restart sweep closes
+  (`agents/agent/runtime.py::tell_owner_run_failed`). Links to the run.
+- `agent_update`: an agent's result was posted into a chat after the turn
+  that started it (`chat/tools/tasks.py::post_run_result`). `data.session_id`
+  names the chat; the socket frame carries it, so an open chat reloads.
+
 From any backend code:
 
 ```python

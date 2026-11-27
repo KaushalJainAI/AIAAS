@@ -217,6 +217,18 @@ class ChatMessage(models.Model):
     def __str__(self):
         return f"{self.role}: {self.content[:30]}"
 
+    #: `metadata[RECORD_KEY]` marks a session record: what happened to a turn or
+    #: to work it started (a reply that failed, a reply that was stopped, an
+    #: agent's result that arrived after its turn). Records are the
+    #: conversation's log, so they are never deleted: a rewind or regenerate
+    #: removes the messages after a point *except* these, and deleting one on
+    #: its own is refused (`chat/views.py::delete_message`, H-187).
+    RECORD_KEY = 'record'
+
+    @property
+    def is_record(self) -> bool:
+        return bool((self.metadata or {}).get(self.RECORD_KEY))
+
 
 class ChatAttachment(models.Model):
     """

@@ -925,6 +925,9 @@ export default function ChatMessageItem({
             Edit
           </button>
         )}
+        {/* An assistant record has nothing in this menu (it is never
+            deleted), so the button is not drawn for it. */}
+        {(isUser || !message.metadata?.record) && (
         <PopMenu
           label="More actions for this message"
           open={moreOpen}
@@ -955,15 +958,20 @@ export default function ChatMessageItem({
               Take back
             </PopMenuItem>
           )}
-          <PopMenuItem
-            destructive
-            disabled={deleting}
-            onClick={() => { setMoreOpen(false); onDelete(message.id as number); }}
-          >
-            <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-            Delete
-          </PopMenuItem>
+          {/* A session record (a failed or stopped reply, an agent's late
+              result) is the conversation's log and is never deleted (H-187). */}
+          {!message.metadata?.record && (
+            <PopMenuItem
+              destructive
+              disabled={deleting}
+              onClick={() => { setMoreOpen(false); onDelete(message.id as number); }}
+            >
+              <Trash2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              Delete
+            </PopMenuItem>
+          )}
         </PopMenu>
+        )}
       </div>
       {/* Which model wrote this answer. Attribution belongs to
           the answer, not to the picker in the composer: the

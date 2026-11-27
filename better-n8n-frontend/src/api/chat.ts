@@ -73,6 +73,12 @@ export interface ChatSession {
   /** Whose money the total is — see `lib/cost.ts::Payer`. Absent on an older payload. */
   paid_by?: Payer;
   /**
+   * What the agents this chat delegated to spent (USD decimal string) and how
+   * many runs that was. Apart from `total_cost_usd`, which is the chat's own
+   * model calls. Absent on the list payload and on an older server.
+   */
+  agent_spend?: { cost_usd: string; runs: number };
+  /**
    * What the conversation is doing right now, from the session list. `waiting`
    * means a run is paused on a person (an approval or a question). Absent on
    * an older server, where the sidebar falls back to its plain list.
@@ -308,6 +314,16 @@ export interface FileCardData {
 }
 
 export interface ChatMessageMetadata {
+  /**
+   * A session record: a failed or stopped reply, or an agent's result that
+   * arrived after its turn. Never deleted — a rewind keeps it (H-187).
+   */
+  record?: boolean;
+  /** The reply failed; `error` says why in words the person can act on. */
+  failed?: boolean;
+  error?: string;
+  /** An agent's result posted into the chat after the turn that started it. */
+  delegated_run?: { execution_id: string; agent_name?: string; status?: string; title?: string };
   sources?: ChatSource[];
   images?: ChatMediaItem[];
   videos?: ChatMediaItem[];
@@ -460,6 +476,14 @@ export const chatService = {
 
   async deleteSession(id: string): Promise<void> {
     await apiClient.delete(`/chat/sessions/${id}/`);
+  },
+
+  /** Tick a saved reply's plan step done, or open it again (`set_plan_step`). */
+  async setPlanStep(sessionId: string, messageId: number, text: string, done: boolean):
+    Promise<{ todos: TodoItem[]; todo_history: { n?: number; todos?: TodoItem[]; by?: string }[] }> {
+    const { data } = await apiClient.post(
+      `/chat/sessions/${sessionId}/messages/${messageId}/plan/`, { text, done });
+    return data;
   },
 
   async deleteMessage(sessionId: string, messageId: number, rewind: boolean = false, rewindAfter: boolean = false): Promise<void> {

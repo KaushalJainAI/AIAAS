@@ -176,7 +176,10 @@ handlers. Smaller pieces draw the screen from the data and callbacks they are gi
 | `hooks/useChatDraft.ts` | Keeps unsent text per conversation |
 | `components/content/MarkdownMessage.tsx` | Draws one answer |
 | `components/content/ChartArtifact.tsx`, `features/chat/components/HtmlArtifact.tsx` | Charts and HTML the AI produced |
-| `components/plan/PlanView.tsx`, `components/plan/PlanDock.tsx` | The plan while the AI works, pinned above the message box |
+| `components/plan/PlanView.tsx`, `components/plan/PlanDock.tsx` | The plan while the AI works, pinned above the message box. Once the reply has ended you can tick a step done (or untick it); a step left "doing" shows as not finished |
+| `features/chat/lib/records.ts` | Session records (a failed or stopped reply, an agent's late result) are never deleted: a retry or edit keeps them on screen |
+| `lib/chatEvents.ts` | Tells an open chat to reload when a notification says an agent's result was posted into it |
+| `components/activity/RecentList.tsx` | Activity → Now: "Recently finished", the runs and chat replies of the last day |
 | `components/orchestration/PlanPanel.tsx` | Several agents at once: one lane per worker, with Steer and Stop. A side rail on desktop, a sheet on phones |
 | `components/content/QuestionCard.tsx` | A question the AI paused to ask you. The Activity page uses the same card |
 | `components/content/PendingSends.tsx`, `hooks/usePendingSends.ts` | Messages the AI is holding before they go out, with Cancel and Send now. The hook re-reads the list every 2 s, and only while one is still waiting. Shown above the box in chat and at the top of a run |

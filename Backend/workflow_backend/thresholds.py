@@ -488,13 +488,18 @@ PUBLISHED_PAGE_LIST_LIMIT = 60
 # Denominated in seconds throughout and shown in minutes, for the same reason
 # the spend cap is stored in rupees: the stored unit should be the one the
 # runtime compares against, so no reader has to remember a conversion.
-DEFAULT_RUN_SECONDS = 15 * 60
+#: Raised from 15 to 60 minutes (2026-11-27, H-185): a research worker that
+#: reads a dozen pages and writes a table ran out of clock mid-answer. Twinned
+#: with the builders' defaults (`better-n8n-frontend/src/types/agentConfig.ts`,
+#: `mobile-native/src/features/builder/config.ts`); migration
+#: `orchestrator.0029` moved agents saved at the old default.
+DEFAULT_RUN_SECONDS = 60 * 60
 MIN_RUN_SECONDS = 30
 #: The ceiling a user may set. Raised from 2 h to 8 h (2026-11-17) for
 #: long-horizon agents, matching the orchestrator's own maximum
 #: (`MAX_CHAT_TURN_SECONDS`) so a worker is not cut off long before the chat
 #: that started it. Past this, work belongs in a mission — a chain of runs
-#: that survives restarts — not in one run. The default stays 15 minutes.
+#: that survives restarts — not in one run. The default is 60 minutes.
 MAX_RUN_SECONDS = 8 * 60 * 60
 
 #: Left for the run to write its answer once the clock is nearly out. The soft

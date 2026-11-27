@@ -21,6 +21,7 @@ import PageHeader from '../components/layout/PageHeader';
 import PageTabs from '../components/layout/PageTabs';
 import NeedsYou from '../components/activity/NeedsYou';
 import LiveList from '../components/activity/LiveList';
+import RecentList from '../components/activity/RecentList';
 import MissionsSection from '../components/activity/MissionsSection';
 import ScheduledSection from '../components/activity/ScheduledSection';
 import RecentlyDone from '../components/activity/RecentlyDone';
@@ -75,8 +76,12 @@ export default function Runs() {
             {/* Every live process of any kind — runs, code tasks, eval sweeps,
                 world generation, chat turns. */}
             <LiveList />
-            {/* Both sections hide themselves when empty, so a quiet Now tab
-                says so and points at the other tabs instead of going blank. */}
+            {/* What ended in the last day — runs (delegated workers too) and
+                each chat's latest reply — so work that stops being live does
+                not vanish into History. */}
+            <RecentList />
+            {/* The sections above hide themselves when empty, so a quiet Now
+                tab says so and points at the other tabs instead of going blank. */}
             {pending.length === 0 && live.length === 0 && (
               <div className="mx-auto max-w-md py-16 text-center">
                 <p className="text-sm font-medium text-foreground">All clear</p>

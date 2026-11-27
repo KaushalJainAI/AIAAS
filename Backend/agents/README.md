@@ -52,12 +52,12 @@ What a run *did* is stored in the `logs` app.
 
 | File | What it does |
 |---|---|
-| `agent/runtime.py` | Builds the toolbox, enforces guardrails, starts and runs every run. A worker inherits its parent's taint |
+| `agent/runtime.py` | Builds the toolbox, enforces guardrails, starts and runs every run. A worker inherits its parent's taint. Each run records the chat it worked for (`_conversation_of`), and a scheduled or mission run that fails notifies its owner (`tell_owner_run_failed`). Runs get 60 minutes by default |
 | `agent/stream.py` | Saves each turn and tool call as it happens, and sends live updates |
 | `agent/orchestrator.py` | Delegation: one agent handing work to others, bounded by depth, budget and result size |
 | `agent/hitl.py` | Opens and closes `HITLRequest` rows when a run pauses |
 | `agent/tasks.py` | Detached coding tasks, so a lead can steer workers while they run |
-| `recovery.py` | Finds runs whose process died, and resumes or closes them |
+| `recovery.py` | Finds runs whose process died, and resumes or closes them. A closed one is reported: into the chat that started it, or to its owner if it was scheduled |
 | `admission.py`, `budget.py`, `spend.py` | Limits: runs at once, wall-clock time, money |
 | `gallery/` | Installable templates, one file per pack. `playbooks/` holds the coding templates' instructions |
 

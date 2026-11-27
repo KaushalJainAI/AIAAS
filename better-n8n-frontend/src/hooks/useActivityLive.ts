@@ -11,6 +11,23 @@ import activityService from '../api/activity';
 
 export const ACTIVITY_LIVE_KEY = ['activity', 'live'];
 export const ACTIVITY_FILES_KEY = ['activity', 'files'];
+export const ACTIVITY_RECENT_KEY = ['activity', 'recent'];
+
+/** What finished in the last day. Refreshed slowly, and whenever the live list
+ *  changes size (something just ended), by the page. */
+export function useActivityRecent(options?: { enabled?: boolean }) {
+  const query = useQuery({
+    queryKey: ACTIVITY_RECENT_KEY,
+    queryFn: () => activityService.recent(),
+    enabled: options?.enabled ?? true,
+    refetchInterval: 30_000,
+  });
+  return {
+    items: query.data?.items ?? [],
+    truncated: query.data?.truncated ?? false,
+    hours: query.data?.hours ?? 24,
+  };
+}
 
 export function useActivityLive(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;

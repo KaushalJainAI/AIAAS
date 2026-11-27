@@ -103,6 +103,20 @@ export default function ThisChatMenu({ session, isGuest, onSaveSettings, onEditS
             : undefined}
         />
       </div>
+      {/* The agents this chat handed work to spend on their own runs; that
+          is part of what the conversation cost, so it is shown with it. */}
+      {(session.agent_spend?.runs ?? 0) > 0 && (
+        <div className="flex min-h-11 items-center justify-between gap-3 px-3 text-[13px] md:min-h-8 md:text-[12px]">
+          <span className="text-muted-foreground">
+            Agents it used ({session.agent_spend!.runs} run{session.agent_spend!.runs === 1 ? '' : 's'})
+          </span>
+          <CostFigure
+            usd={session.agent_spend!.cost_usd}
+            source="estimated"
+            title="What the agents this chat delegated to spent on their own runs. Each run is listed on Activity."
+          />
+        </div>
+      )}
       <p className="flex items-start gap-2 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         Sent over an encrypted connection. Your API keys are encrypted at rest.

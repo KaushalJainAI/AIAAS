@@ -127,7 +127,8 @@ export const DEFAULT_AGENT: AgentConfig = {
   autonomy: 'ask',
   notifyOnHitl: true,
   spendCapRupees: 500,
-  maxRunSeconds: 15 * 60,
+  // Twin of `DEFAULT_RUN_SECONDS` (Backend/workflow_backend/thresholds.py).
+  maxRunSeconds: 60 * 60,
 
   summaryModel: '',
   summaryProvider: '',

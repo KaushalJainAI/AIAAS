@@ -334,7 +334,8 @@ async def _read_run(execution_id: str) -> dict | None:
         return None
 
 
-async def _follow_approval(record, parent_thread: str, *, read_run=None) -> dict | None:
+async def _follow_approval(record, parent_thread: str, *, read_run=None,
+                           poll_seconds: float | None = None) -> dict | None:
     """Stay with a worker that paused for approval until its run ends.
 
     The approval is given in the Inbox, which resumes the run on the same
@@ -348,7 +349,7 @@ async def _follow_approval(record, parent_thread: str, *, read_run=None) -> dict
 
     read = read_run or _read_run
     while not record.done.is_set():
-        await asyncio.sleep(APPROVAL_POLL_SECONDS)
+        await asyncio.sleep(APPROVAL_POLL_SECONDS if poll_seconds is None else poll_seconds)
         if record.done.is_set():
             return None
         row = await read(record.execution_id)
@@ -460,6 +461,7 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
             caller=worker_caller(context)[0], depth=depth + 1,
             parent_step_id=await _parent_step(context),
             delegation_task=instructions, delegation_index=share_index,
+            chat_session_key=parent_thread,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception('[Tasks] Could not open log for task %s', task_id)
@@ -560,6 +562,10 @@ async def _launch_one(*, parent_thread, bucket, task_id, title, item, worker,
             await _emit_task(parent_thread, record, force=True)
             if record.project_id:
                 await _emit_leases(parent_thread, record.project_id)
+        # A lead whose turn is over hears nothing at its "next step": the
+        # result goes into the chat instead, as a run_agent result does (H-187).
+        # Not reached on a stop: `CancelledError` re-raises above.
+        await _deliver_late(record, parent_thread, context.get('user_id'))
 
     spawn(_run(), name=f'code-task:{record.execution_id}')
     return {'handle': handle, 'task_id': task_id, 'title': title,
@@ -995,6 +1001,8 @@ def _collect_events(records: list) -> list[str]:
 
 
 def _event_line(r) -> str:
+    if r.kind == 'agent_run':
+        return _agent_run_line(r)
     if r.status == 'done':
         return (f'{r.handle} ({r.title}): done by {r.label}'
                 + (f' — {r.answer[-500:]}' if r.answer else ''))
@@ -1336,3 +1344,242 @@ async def _workspace_of(context: Dict):
     if user is None:
         raise _engine.WorkspaceError('No user context.')
     return await sync_to_async(_engine.ensure)(user)
+
+
+# ── Runs started by `run_agent` that outlived their wait (H-185) ─────────────
+#
+# `run_agent` waits for its run and hands the answer back in the same call. A
+# run longer than that wait used to be left to the model to poll, and a model
+# that gave up before the run ended told the user "no output yet" while the
+# answer landed in /runs, where nobody looked. Now the run is adopted into the
+# lead's task records, so the machinery `start_tasks` already has applies: the
+# lead's answer is held open while it runs (`await_reports`), its end is
+# reported at the next step (`take_reports`), and if the lead's turn is over by
+# then the result is posted into the conversation (`_deliver_late`).
+
+#: How often an adopted run's row is read. The lead's turn may be held open on
+#: it, so this is the most a finished run waits before the lead hears.
+ADOPTED_RUN_POLL_SECONDS = 3.0
+
+#: How long a finished run's result waits for a lead turn that is still going
+#: to take it before it is posted into the chat regardless. Above any turn's
+#: own limit, so it only ends a wait on a turn that has lost track of its end.
+LATE_DELIVERY_MAX_WAIT_SECONDS = 3 * 60 * 60
+
+#: A posted answer longer than this is cut, and the message says where the rest is.
+LATE_ANSWER_CHARS = 50_000
+
+#: Run status -> record status.
+_RECORD_STATUS = {'completed': 'done', 'cancelled': 'cancelled'}
+
+
+def _adopted(parent_thread: str, execution_id: str):
+    from agents.agent import tasks as _tasks
+
+    for record in _tasks.records_for(parent_thread):
+        if record.execution_id == execution_id:
+            return record
+    return None
+
+
+async def adopt_run(context: Dict, *, execution_id: str, agent_name: str = '',
+                    title: str = ''):
+    """Follow a `run_agent` run its caller stopped waiting on. Idempotent."""
+    from agents.agent import tasks as _tasks
+    from workflow_backend.background import spawn
+
+    parent_thread = str(context.get('session_id') or 'run')
+    record = _adopted(parent_thread, execution_id)
+    if record is not None:
+        return record
+    bucket = _tasks._bucket(parent_thread)
+    name = agent_name or 'Agent'
+    short = ' '.join(str(title or '').split())
+    record = _tasks.CodeTask(
+        handle=_tasks.make_handle(f'run-{execution_id[:8]}', bucket),
+        task_id=f'run-{execution_id[:8]}',
+        title=(short[:117] + '...') if len(short) > 120 else (short or name),
+        agent_id=None, agent_name=name,
+        label=_tasks.make_label(name, bucket),
+        project_id=None, project_name='',
+        execution_id=execution_id, kind='agent_run',
+    )
+    bucket[record.handle] = record
+    if context.get('sink') is not None:
+        _tasks.set_sink(parent_thread, context.get('sink'))
+    await _emit_task(parent_thread, record, force=True)
+    spawn(_follow_adopted(record, parent_thread, context),
+          name=f'agent-run-follow:{execution_id}')
+    return record
+
+
+def mark_heard(context: Dict, execution_id: str, status: str) -> None:
+    """The lead read this run's outcome itself (`get_agent_run`): not news any more."""
+    from agents.agent import tasks as _tasks
+
+    record = _adopted(str(context.get('session_id') or 'run'), execution_id)
+    if record is None:
+        return
+    if status in ('completed', 'failed', 'cancelled', 'timeout'):
+        _tasks.finish(record, status=_RECORD_STATUS.get(status, 'failed'))
+    elif status == 'paused' and record.status != 'paused':
+        _tasks.set_paused(record)
+    if record.status in _tasks.REPORTED_STATUSES:
+        record.reported_status = record.status
+
+
+async def _follow_adopted(record, parent_thread: str, context: Dict) -> None:
+    from agents.agent import tasks as _tasks
+
+    try:
+        row = await _follow_approval(record, parent_thread,
+                                     poll_seconds=ADOPTED_RUN_POLL_SECONDS)
+        if row is not None:
+            await _finish_from_run(record, row, context)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('[Tasks] Lost track of run %s', record.execution_id)
+        _tasks.finish(record, status='failed', error=f'Lost track of the run: {exc}')
+    finally:
+        await _emit_task(parent_thread, record, force=True)
+    await _deliver_late(record, parent_thread, context.get('user_id'))
+
+
+async def _deliver_late(record, parent_thread: str, user_id) -> None:
+    """Post a finished run's result into the chat if no lead turn heard it.
+
+    A lead turn that is still going takes it at its next step (`take_reports`
+    marks it reported), so this waits while one runs. When no turn is going,
+    because it was stopped, ran out of time or never waited, the result is
+    written into the conversation and the person is notified: "no output yet"
+    must never be the last word on a run that finished.
+    """
+    from chat.turn import runs as chat_runs
+
+    deadline = time.monotonic() + LATE_DELIVERY_MAX_WAIT_SECONDS
+    while record.reported_status != record.status:
+        live = chat_runs.get(parent_thread)
+        if live is None or live.status != 'running' or time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(ADOPTED_RUN_POLL_SECONDS)
+    if record.reported_status == record.status:
+        return
+    # Claimed before the write: a turn starting meanwhile must not report it too.
+    record.reported_status = record.status
+    try:
+        from asgiref.sync import sync_to_async
+
+        posted = await sync_to_async(post_run_result)(
+            parent_thread, user_id, record.execution_id,
+            agent_name=record.agent_name, title=record.title)
+    except Exception:  # noqa: BLE001
+        logger.exception('[Tasks] Could not post the result of %s', record.execution_id)
+        posted = False
+    if not posted:
+        # Not a chat (an agent lead), or the write failed: leave it for the
+        # lead's next step.
+        record.reported_status = ''
+
+
+def late_result_text(*, agent_name: str, title: str, status: str,
+                     answer: str, error: str) -> str:
+    """The chat message for a run whose result arrived after its turn."""
+    who = agent_name or 'The agent'
+    task = f' on "{title}"' if title and title != agent_name else ''
+    if len(answer) > LATE_ANSWER_CHARS:
+        answer = answer[:LATE_ANSWER_CHARS] + '\n\n[Cut here. The whole answer is on /runs.]'
+    if status == 'completed':
+        body = answer or '(It returned no text.)'
+        return f'**{who} finished**{task}. Here is its answer:\n\n{body}'
+    if status == 'cancelled':
+        head = f'**{who} was stopped**{task} before it finished.'
+    else:
+        head = f'**{who} stopped before finishing**{task}: {error or status}.'
+    found = f'\n\nWhat it had written so far:\n\n{answer}' if answer else ''
+    return (f'{head}{found}\n\nEverything it did is kept on /runs, and I can read '
+            f'its transcript and tell you what it found if you ask.')
+
+
+def post_run_result(session_id: str, user_id, execution_id: str, *,
+                    agent_name: str = '', title: str = '') -> bool:
+    """Write a delegated run's result into its chat and notify the owner. Sync.
+
+    False when `session_id` is not this user's chat (an agent lead's thread,
+    or a deleted chat). The message carries `delegated_run`, which history
+    replays as a pointer, not as the worker's text: that text is third-party
+    data and reaches the model only through `get_agent_run`, inside the
+    untrusted envelope.
+    """
+    from django.contrib.auth import get_user_model
+    from django.core.exceptions import ValidationError
+    from django.utils import timezone
+
+    from chat.models import ChatMessage, ChatSession
+    from logs.models import ExecutionLog
+    from notifications.utils import create_notification
+
+    if not user_id:
+        return False
+    try:
+        session = ChatSession.objects.filter(id=session_id, user_id=user_id).first()
+    except (ValueError, ValidationError):
+        return False
+    if session is None:
+        return False
+    if ChatMessage.objects.filter(
+            session=session,
+            metadata__delegated_run__execution_id=execution_id).exists():
+        # Already posted: by the in-process follower, or by crash recovery.
+        return True
+    row = (ExecutionLog.objects.filter(execution_id=execution_id, user_id=user_id)
+           .values('status', 'output_data', 'error_message').first())
+    if row is None:
+        return False
+    output = row['output_data'] if isinstance(row['output_data'], dict) else {}
+    status = row['status']
+    content = late_result_text(
+        agent_name=agent_name, title=title, status=status,
+        answer=str(output.get('answer') or ''), error=row['error_message'] or '')
+    ChatMessage.objects.create(
+        session=session, role='assistant', content=content,
+        metadata={'delegated_run': {
+            'execution_id': execution_id, 'agent_name': agent_name,
+            'status': status, 'title': title,
+        }, ChatMessage.RECORD_KEY: True},
+    )
+    ChatSession.objects.filter(pk=session.pk).update(updated_at=timezone.now())
+
+    finished = status == 'completed'
+    where = f': {title}' if title else ''
+    create_notification(
+        user=get_user_model().objects.filter(id=user_id).first(),
+        type='agent_update',
+        title=f'{agent_name or "Agent"} {"finished" if finished else "stopped"}',
+        message=(f'Its result is in your chat{where}.' if finished
+                 else 'It stopped before finishing. Open the chat to see why.'),
+        data={'session_id': str(session.pk), 'execution_id': execution_id,
+              'action_url': f'/ai-chat?session={session.pk}'},
+        # Email belongs to the digest; this is a live nudge.
+        send_email=False,
+    )
+    return True
+
+
+def _agent_run_line(r) -> str:
+    """The report line for an adopted run. Points at the answer, never inlines
+    it: reports reach the model as system text, outside the untrusted envelope,
+    and the worker's answer is built from third-party pages."""
+    head = f'{r.handle}: {r.agent_name} run {r.execution_id}'
+    if r.status == 'done':
+        return (f'{head} finished. Read its answer now with get_agent_run '
+                f'(execution_id {r.execution_id}, wait_seconds 0) and give the '
+                f'user what they asked for.')
+    if r.status == 'failed':
+        return (f'{head} failed: {r.error[:500]}. Call get_agent_run with its '
+                f'execution_id; it returns the worker transcript, so you can '
+                f'still tell the user what it found before it failed.')
+    if r.status == 'paused':
+        return (f'{head} paused and is waiting on you. Call get_agent_run to see '
+                f'what it asks (waiting_on), then answer it with answer_subagent.')
+    return f'{head} was stopped. get_agent_run returns what it did before that.'

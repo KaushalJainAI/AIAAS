@@ -10,6 +10,7 @@ file and RAG lifecycle.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from uuid import UUID
@@ -280,7 +281,17 @@ async def send_message_stream(request, session_id: str):
                 sink=sink,
             )
         except TurnError as exc:
-            await sink(Event.ERROR, {"message": str(exc)})
+            record = await _record_failed_turn(session_id, user, str(exc))
+            await sink(Event.ERROR, {"message": str(exc), "ai_response": record})
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — reported in words, kept as a record
+            logger.exception("[Run] Turn failed for session %s", session_id)
+            record = await _record_failed_turn(session_id, user, runs.UNEXPECTED_FAILURE)
+            await sink(Event.ERROR, {"message": runs.UNEXPECTED_FAILURE, "ai_response": record})
+            if (run := runs.get(session_id)) is not None:
+                runs.finish(run, "error", str(exc))
             return
 
         await sink(Event.DONE, {
@@ -289,6 +300,31 @@ async def send_message_stream(request, session_id: str):
         })
 
     return stream_response(runs.start(session_id, user.id, work))
+
+
+async def _record_failed_turn(session_id: str, user, error: str) -> dict | None:
+    """Keep a failed turn in the transcript, as a session record (H-187).
+
+    Only for a turn that got as far as saving the person's message: a turn
+    refused before that (preflight, the sanitizer) saved nothing, and the
+    client already takes the message back out. What had streamed and the plan
+    as it stood are kept with the error. Returns the serialized message for
+    the error frame, or None. Never raises: the error frame must still go out.
+    """
+    try:
+        run = runs.get(session_id)
+        if run is None or runs.turn_user_message_id(run) is None:
+            return None
+        session = await get_session(session_id, user)
+        message = await persist_interrupted_answer(
+            session, user, runs.partial_answer(run), runs.last_plan(run),
+            failure=error,
+        )
+        return await serialize_message(message) if message is not None else None
+    except Exception:  # noqa: BLE001
+        logger.warning("[Run] Could not record the failed turn for %s", session_id,
+                       exc_info=True)
+        return None
 
 
 @csrf_exempt
@@ -337,7 +373,7 @@ async def stop_message_stream(request, session_id: str):
     try:
         session = await get_session(session_id, user)
         message = await persist_interrupted_answer(
-            session, user, runs.partial_answer(run)
+            session, user, runs.partial_answer(run), runs.last_plan(run)
         )
     except TurnError:
         logger.warning("[Stop] Session %s vanished mid-turn", session_id)
@@ -470,6 +506,12 @@ def delete_message(request, session_id: str, message_id: int):
 
     `?rewind=true` removes this message and everything after it;
     `?rewind_after=true` keeps this message and removes what follows.
+
+    Session records (`ChatMessage.RECORD_KEY`: a failed or stopped reply, an
+    agent's late result) are never deleted (H-187). A rewind removes every
+    other message in its range and leaves them where they were, so a retry
+    does not erase the record of what went wrong or what an agent delivered;
+    deleting one on its own is a 409. The response names the ids it kept.
     """
     try:
         session = ChatSession.objects.filter(id=UUID(session_id), user=request.user).first()
@@ -480,6 +522,12 @@ def delete_message(request, session_id: str, message_id: int):
         return Response({"error": "Chat session not found."}, status=404)
 
     message = get_object_or_404(ChatMessage, id=message_id, session=session)
+    rewinding = (request.query_params.get("rewind", "").lower() == "true"
+                 or request.query_params.get("rewind_after", "").lower() == "true")
+    if message.is_record and not rewinding:
+        return Response(
+            {"error": "This is a record of what happened in the conversation, and it is kept."},
+            status=status.HTTP_409_CONFLICT)
 
     def flag(name: str) -> bool:
         return request.query_params.get(name, "").lower() == "true"
@@ -496,11 +544,73 @@ def delete_message(request, session_id: str, message_id: int):
 
     # Ids are sequential, so `id >=` is both cheaper and more precise than a
     # timestamp comparison when two messages share a creation second.
+    kept = [m.id for m in targets if m.is_record]
+    targets = targets.exclude(id__in=kept)
     for target in targets:
         attachments.release_attachment(session, target)
     targets.delete()
 
+    if kept:
+        return Response({"status": detail, "kept": kept}, status=status.HTTP_200_OK)
     return Response({"status": detail}, status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Ticking a plan step by hand ──────────────────────────────────────────────
+
+@sync_api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def set_plan_step(request, session_id: str, message_id: int):
+    """Mark one step of a saved reply's plan done, or open it again.
+
+    The person is the judge of whether the work is finished: a step the agent
+    left open (it stopped, failed, or simply never ticked it) is theirs to
+    close, and one ticked by mistake is theirs to reopen. Body: `text` (the
+    step, exactly as shown) and `done` (bool). The change is a new plan
+    revision marked `by: user`, so the history shows who ticked it. Only a
+    turn that has ended can be edited: a running one owns its plan.
+    """
+    from .turn import todos as plan
+
+    try:
+        session = ChatSession.objects.filter(id=UUID(session_id), user=request.user).first()
+    except (ValueError, TypeError):
+        return Response({"error": "Invalid session id."}, status=400)
+    if session is None:
+        return Response({"error": "Chat session not found."}, status=404)
+    message = get_object_or_404(ChatMessage, id=message_id, session=session,
+                                role="assistant")
+
+    text = str(request.data.get("text") or "").strip()
+    done = request.data.get("done")
+    if not text or not isinstance(done, bool):
+        return Response({"error": "Send the step's `text` and `done` (true or false)."},
+                        status=400)
+
+    live = runs.get(str(session.id))
+    if live is not None and live.status == "running":
+        return Response({"error": "This chat is still working. Wait for the reply to end."},
+                        status=409)
+
+    meta = dict(message.metadata or {})
+    items = plan.normalize(meta.get("todos"))
+    match = next((i for i, item in enumerate(items) if item["text"] == text), None)
+    if match is None:
+        return Response({"error": "That step is not in this reply's plan."}, status=404)
+
+    item = dict(items[match])
+    item["status"] = plan.DONE if done else plan.OPEN
+    if done:
+        # A note on an unfinished step ("not finished when the reply ended")
+        # stops being true once the person says it is done.
+        item.pop("note", None)
+    items[match] = item
+    meta["todos"] = items
+    revision = plan.record_revision(meta, items)
+    if revision is not None:
+        meta["todo_history"][-1]["by"] = "user"
+    message.metadata = meta
+    message.save(update_fields=["metadata"])
+    return Response({"todos": items, "todo_history": meta.get("todo_history") or []})
 
 
 # ── File upload ──────────────────────────────────────────────────────────────
