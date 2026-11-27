@@ -12,6 +12,7 @@
 import { api } from '../../api/client';
 import type {
   Credential,
+  CredentialBalance,
   CredentialType,
   CredentialVerifyResult,
   CreateCredentialInput,
@@ -51,6 +52,11 @@ export function deleteCredential(id: number): Promise<null> {
 /** Check the stored secret against its provider. */
 export function verifyCredential(id: number): Promise<CredentialVerifyResult> {
   return api<CredentialVerifyResult>(`/credentials/${id}/verify/`, { method: 'POST', body: {} });
+}
+
+/** What is left on an OpenRouter key. Other credential types are refused (400). */
+export function getCredentialBalance(id: number): Promise<CredentialBalance> {
+  return api<CredentialBalance>(`/credentials/${id}/balance/`);
 }
 
 /**

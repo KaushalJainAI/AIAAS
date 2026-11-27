@@ -6,11 +6,17 @@
  * run was configured (revision), who asked for it (delegation banner), the
  * plan it worked to, anything it drew or wrote, and the turn-by-turn trace.
  */
+import { useState } from 'react';
 import { Coins, CornerDownRight, GitBranch, Settings2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/Button';
+import { ChangesSheetContainer } from '@/components/changes';
+import type { ChangeSetSummary } from '@/api/changes';
 import { cn } from '../../lib/utils';
 import { describeCost, formatCost } from '../../lib/cost';
 import MarkdownMessage from '@/components/content/MarkdownMessage';
+import PendingSends from '@/components/content/PendingSends';
+import { usePendingSends } from '@/hooks/usePendingSends';
 import ChartArtifact from '@/components/content/ChartArtifact';
 import PlanView from '../plan/PlanView';
 import { historyFrom } from '../../lib/planView';
@@ -230,6 +236,26 @@ function RunActions({ detail }: { detail: ExecutionDetail }) {
   );
 }
 
+/** What the run changed, and the sheet that puts it back (Backend/docs/UNDO_PLAN.md §6.8). */
+function RunChanges({ changeSet }: { changeSet: ChangeSetSummary }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section
+      aria-label="Changes"
+      className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-card px-4 py-3"
+    >
+      <h3 className="text-sm font-semibold">Changes ({changeSet.total})</h3>
+      <p className="text-[12px] text-muted-foreground">
+        {changeSet.revertible} can be undone from here
+      </p>
+      <Button variant="secondary" size="sm" className="ml-auto" onClick={() => setOpen(true)}>
+        Undo changes…
+      </Button>
+      {open && <ChangesSheetContainer setId={changeSet.set_id} onClose={() => setOpen(false)} />}
+    </section>
+  );
+}
+
 export default function RunDetail({ detail }: { detail: ExecutionDetail }) {
   // One scale across the whole run, so a bar means the same thing in every
   // turn. Scaling per turn would make a 20ms call in a fast turn look as
@@ -239,9 +265,17 @@ export default function RunDetail({ detail }: { detail: ExecutionDetail }) {
     ...detail.unattributed_steps,
   ];
   const slowest = Math.max(1, ...allSteps.map((s) => s.duration_ms || 0));
+  // Messages this run is holding before they go out, at the top of the run.
+  const pendingSends = usePendingSends({ executionId: detail.execution_id });
 
   return (
     <div className="space-y-3">
+      <PendingSends
+        holds={pendingSends.holds}
+        onCancel={pendingSends.cancel}
+        onSendNow={pendingSends.sendNow}
+      />
+
       {detail.delegated_by && (
         <OrchestratorBanner detail={{ delegated_by: detail.delegated_by }} />
       )}
@@ -249,6 +283,10 @@ export default function RunDetail({ detail }: { detail: ExecutionDetail }) {
       <RunActions detail={detail} />
 
       <RunCostSummary detail={detail} />
+
+      {detail.change_set && detail.change_set.total > 0 && (
+        <RunChanges changeSet={detail.change_set} />
+      )}
 
       {/* The plan the run worked to, and anything it drew. Both live on
           `output_data` because a run's metadata dies with the graph — without

@@ -79,6 +79,7 @@ export default function NotificationsTab() {
   const getIcon = (type: string) => {
     switch (type) {
       case 'workflow_failed': return <AlertTriangle className="w-5 h-5 text-destructive" />;
+      case 'outbound_failed': return <AlertTriangle className="w-5 h-5 text-destructive" />;
       case 'hitl_request': return <ShieldAlert className="w-5 h-5 text-warning" />;
       case 'hitl_reminder': return <ShieldAlert className="w-5 h-5 text-warning" />;
       case 'hitl_digest': return <Bell className="w-5 h-5 text-agent" />;

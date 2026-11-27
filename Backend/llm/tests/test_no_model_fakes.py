@@ -6,7 +6,7 @@ request builder skips the code under that seam: credentials, clamping, usage,
 the handler's parser, the error classifier. The auto-mode reviewer called a
 function that did not exist and raised on every call in production, while
 every test passed, because every test replaced the judge as a whole
-(DESIGN_HISTORY.md, H-171).
+(DESIGN_HISTORY.md, H-174).
 
 So the model is scripted at the HTTP client (`llm/testing.py`) or replayed from
 a recording (`llm/recorded.py`), and this test fails, naming the file and line,

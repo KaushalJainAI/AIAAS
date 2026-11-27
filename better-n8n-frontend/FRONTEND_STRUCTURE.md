@@ -10,7 +10,7 @@ For a tour of the pages, read `BEGINNER_GUIDE.md` first.
 
 ```
 src/
-├── features/          ← one folder per product feature (new)
+├── features/          ← one folder per product feature
 │   └── chat/          ← the first one moved
 ├── components/        ← shared UI: ui/, content/, layout/ …
 ├── api/               ← every call to the backend
@@ -73,7 +73,7 @@ They are not chat code, so they now live in `components/content/`, meaning
 make five other screens depend on chat's insides.
 
 Some chat-shaped files stay shared for the same reason. These include
-`api/chat.ts` (17 importers), `lib/streamHeal.ts` and `lib/sourceSpans.ts`
+`api/chat.ts`, `lib/streamHeal.ts` and `lib/sourceSpans.ts`
 (used by `MarkdownMessage`), `lib/chatRuns.ts` (used at sign-out),
 `hooks/useChatDraft.ts` (the apps pre-fill a new chat with it) and
 `hooks/useChatModelSelection.ts` (Settings and the agent builder).
@@ -193,11 +193,11 @@ you next work on each, in the same way chat was moved:
 Moving one feature at a time keeps each change reviewable. One huge move
 would touch hundreds of import lines and make `git blame` useless.
 
-Two more changes to consider later:
+One more change to consider later:
 
 - **Tailwind CSS v4** (we are on v3). It is faster and is configured in CSS.
   The upgrade changes class names and config, so give it its own change.
-- **Fix the unit-test runner.** On 2026-11-16 every test file failed inside
-  Vitest 5 with `Cannot read properties of undefined (reading 'config')`,
-  before any of the changes above. Type check, lint and build all pass;
-  `npm test` does not.
+
+Unit tests run through `scripts/vitest.mjs` (`npm test`). It starts Vitest with
+an upper-case drive letter, which fixes a Windows bug that made every suite fail
+at collection. Use `npm test`, not a bare `npx vitest`.

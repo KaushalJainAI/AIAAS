@@ -14,12 +14,15 @@
  *   2. Every page owns a scroller. The shell is `h-full overflow-hidden`, so a
  *      page declaring only `min-h-screen` has no scrolling ancestor and
  *      everything below the fold is unreachable.
- *   3. The floating hamburger overlaps nothing. It is `position: fixed`, so no
- *      page can make room for it on its own — each header reserves the space.
+ *   3. The drawer opens from the bottom bar's More. Page headers carry no
+ *      menu button (removed 2026-11-27): it repeated More and crowded every
+ *      phone header, which is where the overlaps came from.
  *
  * Requires a backend on :8000 and the Vite dev server (Playwright starts it).
  */
 import { expect, request, test, type Page } from '@playwright/test';
+
+import { BYPASS_HEADERS } from './helpers/session';
 
 const API = process.env.E2E_API_URL ?? 'http://localhost:8000';
 
@@ -53,7 +56,8 @@ const ROUTES = [
 let TOKEN = '';
 
 test.beforeAll(async () => {
-  const ctx = await request.newContext();
+  // The rate lane: this file mints its own account, outside helpers/session.ts.
+  const ctx = await request.newContext({ extraHTTPHeaders: BYPASS_HEADERS });
   const id = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
   const email = `e2e_${id}@example.com`;
   const password = 'Sup3r$ecret-e2e!';
@@ -152,65 +156,13 @@ test.describe('mobile layout', () => {
     });
   }
 
-  for (const route of ROUTES) {
-  test(`the floating hamburger covers nothing on ${route}`, async ({ page }) => {
-    await signedIn(page);
-    await page.goto(route);
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await page.waitForTimeout(600);
-
-    const burger = page.getByRole('button', { name: /open menu/i });
-    await expect(burger).toBeVisible();
-    const box = (await burger.boundingBox())!;
-
-    const covered = await page.evaluate((b) => {
-      const cx = b.x + b.width / 2;
-      const cy = b.y + b.height / 2;
-      const top = document.elementFromPoint(cx, cy);
-      const hitsButton = !!top?.closest('button[aria-label="Open menu"]');
-      /* Anything that *renders something* under the button, not just anything
-         clickable: what a PageHeader puts in the top-left is an icon tile and
-         an <h1>, both plain elements, so an interactive-only filter watched the
-         one corner where the collision never happened. A leaf with its own text
-         or an svg is the honest test of "something is painted here". */
-      const clash = Array.from(document.querySelectorAll('body *')).filter((el) => {
-        if (el.closest('button[aria-label="Open menu"]')) return false;
-        if (el.closest('#app-sidebar')) return false;
-        const paints =
-          el.tagName === 'svg' ||
-          el.tagName === 'IMG' ||
-          Array.from(el.childNodes).some(
-            (n) => n.nodeType === Node.TEXT_NODE && (n.textContent || '').trim().length > 0,
-          );
-        if (!paints) return false;
-        // A closed drawer keeps its layout box but paints nothing.
-        if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false;
-        const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) return false;
-        return r.left < b.x + b.width && r.right > b.x && r.top < b.y + b.height && r.bottom > b.y;
-      });
-      return {
-        hitsButton,
-        clash: clash.map(
-          (el) => `${el.tagName.toLowerCase()} "${(el.textContent || '').trim().slice(0, 40)}"`,
-        ),
-      };
-    }, box);
-
-    expect(covered.hitsButton, 'the hamburger is not topmost at its own centre').toBe(true);
-    expect(
-      covered.clash,
-      `${route}: content sits under the hamburger — ${covered.clash.join(', ')}`,
-    ).toEqual([]);
-  });
-  }
-
   test('the drawer opens, navigates, and closes behind it', async ({ page }) => {
     await signedIn(page);
     await page.goto('/overview');
     await page.waitForTimeout(600);
 
-    await page.getByRole('button', { name: /open menu/i }).click();
+    // The bottom bar's More is the one way into the drawer on a phone.
+    await page.getByRole('button', { name: /more destinations/i }).click();
     // Scoped to the drawer: the phone bottom bar has its own "Activity" link.
     // A pending count can sit in the name ("Activity 2"), so match the start only.
     const activity = page.locator('#app-sidebar').getByRole('link', { name: /^Activity\b/ });
@@ -218,8 +170,10 @@ test.describe('mobile layout', () => {
     await activity.click();
 
     await expect(page).toHaveURL(/\/runs/);
-    // The drawer auto-closes on navigation, which is what puts the hamburger back.
-    await expect(page.getByRole('button', { name: /open menu/i })).toBeVisible();
+    // The drawer auto-closes on navigation, and no page draws a menu button
+    // of its own (2026-11-27: it repeated More and crowded every header).
+    await expect(page.getByRole('button', { name: /more destinations/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /open menu/i })).toHaveCount(0);
   });
 
   test('the agent builder exposes its settings on a phone', async ({ page }) => {

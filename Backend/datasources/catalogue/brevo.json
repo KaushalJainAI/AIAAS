@@ -1,0 +1,51 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Brevo API (read-only subset)",
+    "version": "3",
+    "description": "GET operations from the Brevo API reference. Base URL: https://api.brevo.com/v3"
+  },
+  "paths": {
+    "/account": {
+      "get": {
+        "summary": "Get your account details",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "Account details and plan"}}
+      }
+    },
+    "/contacts": {
+      "get": {
+        "summary": "Get all contacts",
+        "parameters": [
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}},
+          {"name": "sort", "in": "query", "required": false, "schema": {"type": "string", "enum": ["asc", "desc"]}}
+        ],
+        "responses": {"200": {"description": "A page of contacts"}}
+      }
+    },
+    "/emailCampaigns": {
+      "get": {
+        "summary": "Return all your created email campaigns",
+        "parameters": [
+          {"name": "type", "in": "query", "required": false, "schema": {"type": "string", "enum": ["classic", "trigger"]}},
+          {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["suspended", "archive", "sent", "queued", "draft", "inProcess", "inReview", "cancelling", "cancelled"]}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "A page of email campaigns"}}
+      }
+    },
+    "/smtp/templates": {
+      "get": {
+        "summary": "Get all transactional email templates",
+        "parameters": [
+          {"name": "templateStatus", "in": "query", "required": false, "schema": {"type": "boolean"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "A page of transactional templates"}}
+      }
+    }
+  }
+}

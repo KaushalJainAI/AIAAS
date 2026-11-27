@@ -229,6 +229,33 @@ def current_step(todos: list[dict[str, str]]) -> str:
     return ''
 
 
+#: The note a step gets when its turn ended with it still in progress.
+UNFINISHED_NOTE = 'Not finished when the reply ended.'
+STOPPED_NOTE = 'Stopped before this finished.'
+FAILED_NOTE = 'The reply failed before this finished.'
+
+
+def settle(todos: list[dict[str, str]], note: str = UNFINISHED_NOTE) -> list[dict[str, str]]:
+    """The plan as a turn that has ended leaves it: nothing is still `doing`.
+
+    A saved plan is read long after its turn, and a step frozen at `doing`
+    pulses as if the work were going on (H-185: a research run "compiling the
+    CSV; no output yet" for ever). An ended turn's in-progress steps become
+    `blocked` with a note saying so. The person can still tick them
+    (`chat/views.py::set_plan_step`). Returns a new list; `todos` is untouched.
+    """
+    out = []
+    for item in todos or []:
+        if isinstance(item, dict) and item.get('status') == DOING:
+            # The model's own note was written while the step was going ("no
+            # output yet"); kept after ours, because it is no longer current.
+            last = str(item.get('note') or '').strip()
+            merged = f'{note} Last update: {last}' if last else note
+            item = {**item, 'status': BLOCKED, 'note': merged[:MAX_NOTE_CHARS]}
+        out.append(item)
+    return out
+
+
 def record_revision(meta: dict, todos: list[dict[str, str]]) -> int | None:
     """Append `todos` to `meta['todo_history']`; the new revision number, or None.
 

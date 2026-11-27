@@ -39,6 +39,7 @@ import binascii
 import logging
 import re
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
@@ -410,17 +411,65 @@ def get_sanitizer() -> InputSanitizer:
     return _default_sanitizer
 
 
+#: A query-string parameter whose name says it carries a credential. Matches
+#: `key`, `token`, `appid`, `apikey`, `api_key`, `access_token`, `x-api-key`...
+#: on a word boundary, so `monkey` is left alone.
+_SECRET_PARAM_NAME = re.compile(
+    r'(?i)(?:^|[_.-])(?:key|token|appid|apikey|secret|password|passwd|sig|signature)$')
+#: `?name=value` or `&name=value` inside any text (a URL, usually).
+_URL_QUERY_PARAM = re.compile(r'([?&;])([^=&#\s"\'<>]+)=([^&#\s"\'<>]*)')
+
+
+def redact_url_query(text: str) -> str:
+    """Blank the value of every secret-named query parameter in `text`."""
+    def sub(match: re.Match) -> str:
+        if not _SECRET_PARAM_NAME.search(match.group(2)):
+            return match.group(0)
+        return f'{match.group(1)}{match.group(2)}=***REDACTED***'
+    return _URL_QUERY_PARAM.sub(sub, text)
+
+
+def _scrub_log_text(sanitizer: 'LogSanitizer', text: str) -> str:
+    return redact_url_query(sanitizer.sanitize(text, redact_pii=True))
+
+
+def _scrub_log_arg(sanitizer: 'LogSanitizer', value):
+    """One `%`-format argument, scrubbed. Numbers keep their type (`%d` needs
+    one); anything else is read as text, so an `httpx.URL` (which `%s`
+    prints with its query string) is checked as the URL it is."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _scrub_log_text(sanitizer, value)
+    try:
+        text = str(value)
+    except Exception:  # noqa: BLE001 - a log line must never fail because of its argument
+        return value
+    scrubbed = _scrub_log_text(sanitizer, text)
+    return value if scrubbed == text else scrubbed
+
+
 class SensitiveDataFilter(logging.Filter):
     """
     Logging filter that redacts sensitive data from log records.
     Used in Django LOGGING config as 'core.safety.security.SensitiveDataFilter'.
+
+    The message and its arguments both pass through the sanitizer. Arguments
+    matter: `logging.Formatter` interpolates them after this filter runs, so a
+    message that is only `%s` placeholders carried the secret in `args`
+    (httpx logs every request URL that way, query string and all).
     """
-    
+
     def filter(self, record):
-        if hasattr(record, 'msg') and isinstance(record.msg, str):
-            # Lazy-init sanitizer to avoid circular imports at module load
-            sanitizer = get_log_sanitizer()
-            record.msg = sanitizer.sanitize(record.msg, redact_pii=True)
+        # Lazy-init sanitizer to avoid circular imports at module load
+        sanitizer = get_log_sanitizer()
+        if isinstance(record.msg, str):
+            record.msg = _scrub_log_text(sanitizer, record.msg)
+        args = record.args
+        if isinstance(args, Mapping):
+            record.args = {k: _scrub_log_arg(sanitizer, v) for k, v in args.items()}
+        elif isinstance(args, tuple):
+            record.args = tuple(_scrub_log_arg(sanitizer, v) for v in args)
         return True
 
 

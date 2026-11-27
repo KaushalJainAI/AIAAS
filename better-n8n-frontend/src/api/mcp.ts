@@ -68,10 +68,47 @@ export class MCPToolsError extends Error {
   }
 }
 
+/** What a connector is, for the Connections page: `native` for built-in REST tools, `api` / `sql` for the API and database callers. */
+export type ConnectorKind = 'mcp' | 'native' | 'api' | 'sql';
+
+export interface SetupStep {
+  text: string;
+  url?: string;
+}
+
+/** The "Get started" guide a connector shows before the user connects it. */
+export interface SetupGuide {
+  you_need: string[];
+  admin_needed: string | null;
+  cost: string;
+  time: string;
+  /** 1..12 steps when the guide is non-empty. */
+  steps: SetupStep[];
+  limits: string[];
+}
+
+/** The backend sends `{}` for a connector with no guide. */
+export type SetupGuideValue = SetupGuide | Record<string, never>;
+
+/**
+ * A non-secret value an API card asks the user to type (a Freshdesk subdomain,
+ * a region). Secrets never come through here: they go in the credential form.
+ */
+export interface CardField {
+  name: string;
+  label: string;
+  help?: string;
+  /** An HTML `pattern`: the browser refuses a value that does not match. */
+  pattern?: string;
+  /** When given, the user picks one of these instead of typing. */
+  options?: string[];
+}
+
 export interface MCPServer {
   id: number;
   name: string;
   type: MCPServerType;
+  kind: ConnectorKind;
   
   // Stdio Config
   command?: string;
@@ -100,6 +137,8 @@ export interface MCPServer {
   help_url?: string;
 
   setup_notes?: string;
+  /** What to know before connecting; `{}` when there is no guide. */
+  setup_guide: SetupGuideValue;
   /** The server's own flag. Shared templates have this on for everyone. */
   enabled: boolean;
   /** Announced, not yet shippable. Presentation only: always paired with
@@ -117,6 +156,10 @@ export interface MCPServer {
   supports_oauth: boolean;
   /** Whether this user has completed an authorization for this server. */
   oauth_connected: boolean;
+  /** Non-secret fields to collect when connecting an API card; `[]` when none. */
+  template_fields: CardField[];
+  /** For `kind === 'api'`: whether this user's connection to the card exists. */
+  card_connected: boolean;
   user: number | null;
   created_at: string;
   updated_at: string;
@@ -278,6 +321,24 @@ export const mcpService = {
    * new ones whose description is addressed to an AI, and ones a server
    * changed after the user connected it.
    */
+  /**
+   * Connect an API card: save its non-secret fields and link the user's
+   * credential to it. The credential itself is saved first, through
+   * `credentialsService.create`. `error` in a 400/409 body is shown to the user.
+   */
+  async cardConnect(id: number, fields: Record<string, string>): Promise<{ connection_id: number }> {
+    const response = await apiClient.post<{ connection_id: number }>(
+      `/mcp/servers/${id}/card/connect/`,
+      { fields },
+    );
+    return response.data;
+  },
+
+  /** Unlink an API card. The stored credential is left alone; delete it separately. */
+  async cardDisconnect(id: number): Promise<void> {
+    await apiClient.post(`/mcp/servers/${id}/card/disconnect/`, {});
+  },
+
   async heldTools(): Promise<{ servers: HeldToolsGroup[] }> {
     const response = await apiClient.get<{ servers: HeldToolsGroup[] }>('/mcp/servers/held-tools/');
     return response.data;

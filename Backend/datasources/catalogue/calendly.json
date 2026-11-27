@@ -1,0 +1,56 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Calendly API v2 (read-only subset)",
+    "version": "2.0.0",
+    "description": "GET operations from the Calendly API v2 reference. Base URL: https://api.calendly.com"
+  },
+  "paths": {
+    "/users/me": {
+      "get": {
+        "summary": "Get the current user",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Current user" } }
+      }
+    },
+    "/event_types": {
+      "get": {
+        "summary": "List event types",
+        "responses": { "200": { "description": "Event types" } }
+      }
+    },
+    "/event_types/{uuid}": {
+      "get": {
+        "summary": "Get an event type",
+        "parameters": [
+          { "name": "uuid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Event type" } }
+      }
+    },
+    "/scheduled_events": {
+      "get": {
+        "summary": "List scheduled events",
+        "responses": { "200": { "description": "Scheduled events" } }
+      }
+    },
+    "/scheduled_events/{uuid}": {
+      "get": {
+        "summary": "Get a scheduled event",
+        "parameters": [
+          { "name": "uuid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Scheduled event" } }
+      }
+    },
+    "/scheduled_events/{uuid}/invitees": {
+      "get": {
+        "summary": "List invitees of a scheduled event",
+        "parameters": [
+          { "name": "uuid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Invitees" } }
+      }
+    }
+  }
+}

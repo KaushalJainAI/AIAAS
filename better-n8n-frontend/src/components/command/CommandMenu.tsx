@@ -1,22 +1,25 @@
 import { Fragment, useEffect, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Modal, ModalBody } from '../ui/Modal';
 import {
   buildCommands,
+  defaultActiveIndex,
   normaliseQuery,
   nextIndex,
   rankCommands,
   readCachedSources,
 } from '../../lib/commandMenu';
 import type { CommandItem } from '../../lib/commandMenu';
+import { normalisePath } from '../../lib/recentPages';
+import { useRecentPages } from '../../hooks/useRecentPages';
 import { cn } from '../../lib/utils';
 
 /* Cmd+K. One search over what the app can open: the actions, the five
- * destinations with their tabs, the Settings sections, and the chats and
- * agents already in the cache. Opened by App.tsx (the shortcut) or by the
- * Search buttons in the sidebar and the phone top bar.
+ * destinations with their tabs, the Settings sections, the recent pages, and
+ * the chats and agents already in the cache. Opened by App.tsx (the shortcut)
+ * or by the Search buttons in the sidebar and the phone top bar.
  *
  * Phones: Modal is a bottom sheet already; this gives it a fixed height so the
  * input stays at the top while the results change. Rows are 44px on phones.
@@ -28,11 +31,21 @@ const optionId = (listId: string, index: number) => `${listId}-option-${index}`;
 
 export default function CommandMenu({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
+  const recentPages = useRecentPages();
   // Read once, on open: whatever the cache holds now. Nothing is fetched here.
-  const [commands] = useState(() => buildCommands(readCachedSources(queryClient)));
+  // The page the menu opened on is left out of Recent, so the first Recent row
+  // is the previous page and Cmd+K then Enter goes back.
+  const [commands] = useState(() =>
+    buildCommands({
+      ...readCachedSources(queryClient),
+      recentPages,
+      currentPath: normalisePath(location.pathname, location.search) ?? location.pathname,
+    }),
+  );
   const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(() => defaultActiveIndex(rankCommands('', commands)));
   const results = useMemo(() => rankCommands(query, commands), [query, commands]);
   const listId = useId();
   // Headings group the rows only while nothing is typed. A search is one ranked list.
@@ -119,7 +132,7 @@ export default function CommandMenu({ onClose }: { onClose: () => void }) {
                   {/* Context on the right: the hub or Settings a row belongs to,
                       or, while searching, the section it came from. */}
                   <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">
-                    {showHeadings ? item.hint : (item.hint ?? item.section)}
+                    {[item.note, showHeadings ? item.hint : (item.hint ?? item.section)].filter(Boolean).join(' · ')}
                   </span>
                 </div>
               </Fragment>

@@ -20,6 +20,8 @@ interface Props {
   live?: boolean;
   /** Whose plan this is. Left out, it is the chat's own. */
   label?: string;
+  /** Tick or reopen a step by hand; only offered once the turn has ended. */
+  onToggle?: (text: string, done: boolean) => void;
 }
 
 function segmentClass(status: TodoItem['status'], current: boolean): string {
@@ -29,7 +31,7 @@ function segmentClass(status: TodoItem['status'], current: boolean): string {
   return 'bg-muted';
 }
 
-function PlanDock({ history, actions, live = false, label }: Props) {
+function PlanDock({ history, actions, live = false, label, onToggle }: Props) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const view = useMemo(() => buildPlanView(history), [history]);
@@ -50,7 +52,7 @@ function PlanDock({ history, actions, live = false, label }: Props) {
           id={panelId}
           className="absolute bottom-full left-0 right-0 z-20 max-h-[50vh] animate-fade-in overflow-y-auto rounded-t-md border border-border bg-card"
         >
-          <PlanView history={history} actions={actions} bare live={live} />
+          <PlanView history={history} actions={actions} bare live={live} onToggle={onToggle} />
         </div>
       )}
       <button

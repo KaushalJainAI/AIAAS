@@ -23,7 +23,7 @@ library the editors save through is [`office/`](../office/README.md).
 |---|---|
 | `Folder` | A folder. `folder=NULL` on a document means the root (there is no root row) |
 | `Document` | A file: bytes, extracted text, folder, KB, `deleted_at` if in the bin. `metadata.spec` is an office file's editable structure; `metadata.draft` a parked autosave |
-| `DocumentVersion` | What a file held before an overwrite. Capped at 25 |
+| `DocumentVersion` | What a file held before an overwrite. Files over the size cap keep no copy |
 | `KnowledgeBase` | A searchable set of documents. `backend` says how it is searched |
 | `DocumentChunk`, `IndexedTerm` | Pieces of documents for vector search, and words for keyword search |
 | `ExtractionSchema`, `ExtractedRow` | "Pull these fields out of these files", and the rows that came out |
@@ -55,6 +55,9 @@ Trashed rows are hidden by the default manager (`LiveManager`), so ordinary quer
 | `pages.py`, `page_views.py` | Publishing and serving shared pages |
 | `dashboards.py`, `dashboard_views.py` | Dashboard spec validator (shared with the `save_dashboard` tool) and its API |
 | `extraction.py`, `extraction_views.py`, `extraction_urls.py` | The extraction engine, served at `/api/extraction/` |
+| `kb_folders.py` | Knowledge bases bound to folders. The folder tree is the hierarchy |
+| `admin.py`, `apps.py` | Django admin and app config |
+| `management/commands/` | `purge_recycle_bin`, `reindex_all`, `retype_documents`, `run_extraction` |
 
 ## Rules
 

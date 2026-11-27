@@ -7,7 +7,7 @@ the assistant makes.
 
 It imports nothing from the rest of the backend except
 `workflow_backend.thresholds`. The import contract `office-standalone` in
-`Backend/.importlinter` enforces that.
+[`.importlinter`](../.importlinter) enforces that.
 
 ## Who uses it
 

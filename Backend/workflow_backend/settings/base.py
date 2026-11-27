@@ -477,6 +477,10 @@ RUN_DETAIL_RETENTION_SWEEP_SECONDS = int(
 CONTENT_MODERATION_MODEL = os.environ.get(
     'CONTENT_MODERATION_MODEL', 'openai/gpt-oss-safeguard-20b')
 CONTENT_MODERATION_TIMEOUT_S = float(os.environ.get('CONTENT_MODERATION_TIMEOUT_S', '4'))
+# Vision check on raw images in auto/full turns (`moderation.image_injection_check`).
+# Platform key pays; blank model = off. Only `openrouter` has a route here. Fails open.
+INJECTION_IMAGE_PROVIDER = os.environ.get('INJECTION_IMAGE_PROVIDER', 'openrouter')
+INJECTION_IMAGE_MODEL = os.environ.get('INJECTION_IMAGE_MODEL', 'meta-llama/llama-4-scout')
 # How often the mission sweep settles finished runs and starts due ones.
 MISSION_SWEEP_SECONDS = int(os.environ.get('MISSION_SWEEP_SECONDS', '120'))
 
@@ -699,6 +703,15 @@ TOOL_OUTPUT_PURGE_SECONDS = int(os.environ.get('TOOL_OUTPUT_PURGE_SECONDS', '360
 # Defined here, not with the other SOLUTION_* settings, because the beat entry
 # below reads it and that dict is built first.
 SOLUTION_STALE_SWEEP_SECONDS = int(os.environ.get('SOLUTION_STALE_SWEEP_SECONDS', '604800'))
+# How long a send made while a person is watching waits, so they can cancel it
+# (docs/UNDO_PLAN.md §5). 0 = send at once. Defined here, not with the other
+# OUTBOUND_* settings, because the sweep interval below is read by the beat
+# schedule, and that dict is built first.
+OUTBOUND_HOLD_SECONDS = int(os.environ.get('OUTBOUND_HOLD_SECONDS', '20'))
+OUTBOUND_HOLD_SWEEP_SECONDS = int(os.environ.get('OUTBOUND_HOLD_SWEEP_SECONDS', '15'))
+# Daily: change sets past CHANGE_HISTORY_DAYS are purged (`logs/changes.py`).
+# Defined here because the beat entry below reads it.
+CHANGE_SET_SWEEP_SECONDS = int(os.environ.get('CHANGE_SET_SWEEP_SECONDS', '86400'))
 CELERY_BEAT_SCHEDULE = {
     'sweep-hitl-reminders': {
         'task': 'notifications.sweep_hitl_reminders',
@@ -771,6 +784,18 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'solutions.sweep_stale',
         'schedule': SOLUTION_STALE_SWEEP_SECONDS,
     },
+    # Held sends whose timer was lost (a restart, another worker), and sends
+    # stuck in `sending`. See messaging/holds.py::sweep.
+    'deliver-held-sends': {
+        'task': 'messaging.deliver_held_sends',
+        'schedule': OUTBOUND_HOLD_SWEEP_SECONDS,
+    },
+    # Daily: what a chat message or run changed, kept for undo past
+    # CHANGE_HISTORY_DAYS — see logs/changes.py::purge_old_sets.
+    'purge-change-sets': {
+        'task': 'logs.purge_change_sets',
+        'schedule': CHANGE_SET_SWEEP_SECONDS,
+    },
 }
 
 # ── Safety and guardrails (Backend/docs/SAFETY_AND_GUARDRAILS.md) ──
@@ -788,6 +813,9 @@ OUTBOUND_AI_DISCLOSURE = os.environ.get('OUTBOUND_AI_DISCLOSURE', 'unattended')
 # env-tunable — and the API reports it as `purges_after_days` rather than
 # letting any client hardcode 30.
 RECYCLE_BIN_RETENTION_DAYS = int(os.environ.get('RECYCLE_BIN_RETENTION_DAYS', '30'))
+# How long a change set (what a chat message or run changed, for undo) is kept.
+# Defaults to the bin's window: past that a trashed file cannot come back anyway.
+CHANGE_HISTORY_DAYS = int(os.environ.get('CHANGE_HISTORY_DAYS', str(RECYCLE_BIN_RETENTION_DAYS)))
 
 # Default wall-clock time for the daily HITL digest, applied to new users.
 HITL_DIGEST_DEFAULT_TIME = os.environ.get('HITL_DIGEST_DEFAULT_TIME', '09:00')
@@ -817,6 +845,15 @@ if not CREDENTIAL_ENCRYPTION_KEY:
 # at save time by the serializer and at connect time by `client._connect_stdio`,
 # so a row created before the switch cannot start a process either.
 MCP_ALLOW_STDIO = os.environ.get('MCP_ALLOW_STDIO', 'True').lower() in ('true', '1', 'yes')
+
+# Whether users may add their own MCP servers (the retired "Add custom server"
+# form). Off everywhere since 2026-11-23: connectors come from the curated
+# catalogue only (Backend/docs/CONNECTOR_CATALOGUE_PLAN.md, Phase 0). Off means
+# no create, user-owned rows are neither listed nor offered to any agent, and
+# their owner can still delete them. Rows are kept, so turning this back on
+# restores every one. Read at call time by `client.custom_servers_enabled`.
+MCP_CUSTOM_SERVERS_ENABLED = os.environ.get(
+    'MCP_CUSTOM_SERVERS_ENABLED', 'False').lower() in ('true', '1', 'yes')
 
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH_CLIENT_SECRET', '')
@@ -913,6 +950,12 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        # httpx logs every request at INFO as `HTTP Request: GET <url>`, and
+        # some API cards put the credential in the URL's query string (Trello,
+        # Pipedrive, OpenWeather). Off at INFO: the URL never reaches a log
+        # line at all, and SensitiveDataFilter covers the warnings that do.
+        'httpx': {'level': 'WARNING'},
+        'httpcore': {'level': 'WARNING'},
     },
 }
 

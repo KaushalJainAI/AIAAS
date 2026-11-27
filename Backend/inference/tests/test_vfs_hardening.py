@@ -80,6 +80,16 @@ class ExpectedVersionTests(Base):
         super().setUp()
         self.clock = freeze_for(self)
         vfs.write_file(self.full, '/f.md', 'alpha beta')
+        # The version is `updated_at`, and the Windows clock ticks every
+        # ~15.6 ms, so a write in the same tick kept the same version and these
+        # tests failed about two runs in three. Start the file in the past, so
+        # every later write is plainly newer.
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        Document.all_objects.filter(user=self.user, name='f.md').update(
+            updated_at=timezone.now() - timedelta(minutes=1))
         self.v = vfs.read_file(self.full, '/f.md')['version']
         self.clock.advance(seconds=1)
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '../../../src/components/Button';
@@ -49,9 +49,12 @@ import {
   splitCommandLine,
   taskAfterPrefix,
 } from '../../../src/features/chat/commandLine';
+import { takeHandOff } from '../../../src/features/chat/handOff';
 import { isChatMode, nextChatMode, toChatMode, type ChatMode } from '../../../src/features/chat/mode';
 import type { ChatMessage, ChatSessionDetail, CommandCandidate, CommandChip, CommandDef } from '../../../src/features/chat/types';
 import { hasLiveContent, useChatTurn } from '../../../src/features/chat/useChatTurn';
+import { PendingSends } from '../../../src/components/PendingSends';
+import { usePendingSends } from '../../../src/hooks/usePendingSends';
 
 /** Plain words for the kind of thing a command argument names, for the completion heading. */
 const ARG_NOUN: Record<string, string> = {
@@ -102,7 +105,10 @@ export default function ConversationScreen() {
   const catalogue = useAIModels();
   const mode: ChatMode = toChatMode(session.data?.autonomy);
 
+  /** Bumped when a send tool shows up in the live turn, so the pending-sends bar re-reads. */
+  const [sendNudge, setSendNudge] = useState(0);
   const turn = useChatTurn(sessionId, {
+    onSendTool: () => setSendNudge((n) => n + 1),
     onSteersReturned: (texts) => {
       const text = texts.join('\n');
       setDraft((prev) => (prev.trim() ? `${text}\n${prev}` : text));
@@ -114,9 +120,37 @@ export default function ConversationScreen() {
     },
   });
   const { state } = turn;
+  // Messages the agent is holding in this chat before they go out (the send window).
+  const pendingSends = usePendingSends({ sessionId, nudge: sendNudge });
   const busy = state.active;
   const text = draft.trim();
   const commandList = commands.data ?? [];
+
+  // "I'm done" from the Browser screen comes back here as a hand-off. It goes
+  // the way a typed message does: a steer while a turn runs, a send otherwise.
+  const sendHandOff = async (done: string) => {
+    success();
+    if (busy) {
+      try {
+        await turn.steer(done);
+      } catch {
+        setNotice('The agent finished before reading your message. Send it again.');
+      }
+      return;
+    }
+    void turn.send(done);
+  };
+  // The focus callback reads the latest sender through a ref, so it never goes stale.
+  const sendHandOffRef = useRef(sendHandOff);
+  useEffect(() => {
+    sendHandOffRef.current = sendHandOff;
+  });
+  useFocusEffect(
+    useCallback(() => {
+      const done = takeHandOff();
+      if (done) void sendHandOffRef.current(done);
+    }, []),
+  );
 
   // --- the palette: commands while a name is typed, arguments once a command is picked ---
 
@@ -557,6 +591,19 @@ export default function ConversationScreen() {
               case 'message':
                 return <MessageBubble message={item.message} onLongPress={setMessageFor} onReviewSolution={reviewSolution} />;
             }
+          }}
+        />
+
+        {/* Messages the agent is holding before they go out. Cancel stops one while it is still waiting. */}
+        <PendingSends
+          holds={pendingSends.holds}
+          failure={pendingSends.failure}
+          onCancel={(id) => {
+            tap();
+            void pendingSends.cancel(id);
+          }}
+          onSendNow={(id) => {
+            void pendingSends.sendNow(id).then((result) => (result?.status === 'sending' ? success() : tap()));
           }}
         />
 

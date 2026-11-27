@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { prettyModel } from '@/lib/modelNames';
-import SidebarMenuButton from '@/components/layout/SidebarMenuButton';
 
 const DISMISS_KEY = 'guest_banner_collapsed';
 
@@ -66,7 +65,6 @@ export default function GuestBanner({ model }: { model?: string | null }) {
   return (
     <div className="absolute top-0 left-0 right-0 z-40">
       <div className="bg-primary-subtle border-b border-primary-line backdrop-blur-md px-2 md:px-4 py-1.5 min-h-14 md:min-h-0 flex items-center gap-2 md:gap-3 text-sm">
-        <SidebarMenuButton />
         <Info className="w-4 h-4 text-primary shrink-0 hidden sm:block" />
 
         <div className="min-w-0 flex items-center gap-2 flex-wrap">

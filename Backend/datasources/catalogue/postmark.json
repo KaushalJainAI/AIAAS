@@ -1,0 +1,58 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Postmark Server API (read-only subset)",
+    "version": "1",
+    "description": "GET operations from the Postmark Server API reference. Base URL: https://api.postmarkapp.com"
+  },
+  "paths": {
+    "/server": {
+      "get": {
+        "summary": "Get the server these tokens belong to",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "The server's name, ID and settings"}}
+      }
+    },
+    "/stats/outbound": {
+      "get": {
+        "summary": "Get outbound overview",
+        "parameters": [
+          {"name": "fromdate", "in": "query", "required": false, "schema": {"type": "string", "format": "date"}},
+          {"name": "todate", "in": "query", "required": false, "schema": {"type": "string", "format": "date"}},
+          {"name": "tag", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "messagestream", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Sent, bounced, spam and open totals"}}
+      }
+    },
+    "/stats/outbound/bounces": {
+      "get": {
+        "summary": "Get bounce counts",
+        "parameters": [
+          {"name": "fromdate", "in": "query", "required": false, "schema": {"type": "string", "format": "date"}},
+          {"name": "todate", "in": "query", "required": false, "schema": {"type": "string", "format": "date"}},
+          {"name": "tag", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "messagestream", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "Bounce counts by day"}}
+      }
+    },
+    "/message-streams": {
+      "get": {
+        "summary": "List message streams",
+        "responses": {"200": {"description": "The server's message streams"}}
+      }
+    },
+    "/templates": {
+      "get": {
+        "summary": "List templates",
+        "parameters": [
+          {"name": "Count", "in": "query", "required": true, "schema": {"type": "integer", "minimum": 1}},
+          {"name": "Offset", "in": "query", "required": true, "schema": {"type": "integer", "minimum": 0}},
+          {"name": "TemplateType", "in": "query", "required": false, "schema": {"type": "string", "enum": ["All", "Standard", "Layout"]}}
+        ],
+        "responses": {"200": {"description": "A page of templates"}}
+      }
+    }
+  }
+}

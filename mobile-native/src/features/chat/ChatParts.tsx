@@ -11,6 +11,7 @@ import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { Text } from '../../components/Text';
 import { fontFamily } from '../../fonts';
+import { UndoChangesLink } from '../changes/UndoChangesLink';
 import { radius, spacing, typography, useTheme } from '../../theme';
 import { AgentRunCard, AnswerExtras, BlockedNotice } from './AnswerExtras';
 import { CommandCard } from './CommandCard';
@@ -154,6 +155,7 @@ export function MessageBubble({
           }}
         />
       ) : null}
+      {meta.changes && meta.changes.total > 0 ? <UndoChangesLink setId={meta.changes.set_id} /> : null}
     </View>,
   );
 }

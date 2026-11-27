@@ -156,3 +156,52 @@ class InboundMessage(models.Model):
 
     def __str__(self):
         return f'{self.channel} from {self.sender or "?"}'
+
+
+class PendingSend(models.Model):
+    """An outgoing message waiting for its send time (docs/UNDO_PLAN.md §5).
+
+    A send made while a person is watching waits `OUTBOUND_HOLD_SECONDS` so
+    they can cancel it. Only `messaging/holds.py` moves a row between states.
+    """
+
+    STATUS_CHOICES = [
+        ('held', 'Waiting'),          # can be cancelled
+        ('sending', 'Sending'),       # claimed by deliver(); cannot be cancelled
+        ('sent', 'Sent'),
+        ('cancelled', 'Cancelled'),
+        ('failed', 'Failed'),         # the provider refused; nothing went out
+        ('unknown', 'Unknown'),       # stuck in `sending`; may or may not have gone (D14)
+    ]
+    TOOL_CHOICES = [('message_send', 'Message'), ('gmail_send_message', 'Email')]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='pending_sends',
+    )
+    tool = models.CharField(max_length=32, choices=TOOL_CHOICES)
+    #: Everything deliver() needs, already checked and with the AI line added.
+    #: For message_send: {channel, to, body, draft_id|None}.
+    #: For gmail_send_message: the tool's args after `outbound.disclose`.
+    #: Never a token or a secret: credentials are looked up at send time.
+    payload = models.JSONField()
+    #: Short words for the bar: "Email to sam@example.com", "Slack #general".
+    label = models.CharField(max_length=200)
+    send_at = models.DateTimeField(db_index=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='held')
+    #: What the tool would have returned on success, kept for the UI.
+    result = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True, default='')
+    chat_session_id = models.CharField(max_length=100, blank=True, default='')
+    execution_id = models.CharField(max_length=64, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['status', 'send_at']),
+            models.Index(fields=['user', 'status']),
+        ]
+
+    def __str__(self):
+        return f'{self.tool} for {self.user_id} ({self.status})'

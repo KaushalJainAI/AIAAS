@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from "react";
 import { navGroups } from "../../lib/navigation";
 import { commandMenuShortcutLabel, requestCommandMenu } from "../../lib/commandMenu";
 import { OPEN_SIDEBAR_EVENT } from "./sidebarBus";
+import { TOGGLE_SIDEBAR_EVENT } from "../../lib/shortcuts";
 import { useQuery } from "@tanstack/react-query";
 import { useHitlPending } from "../../hooks/useHitlPending";
 import { useLiveCount } from "../../hooks/useActivityLive";
@@ -173,15 +174,22 @@ const Sidebar = () => {
        never disagree about what exists. Badges: `pending` = amber count waiting
        on you, `agent` = violet running-unattended dot. */
 
-    /* Title bars own their menu button now (`SidebarMenuButton`, in-flow at the
-       start of each header). It fires this event; the sidebar just opens.
-       There is deliberately no floating button here any more: a `fixed`
-       hamburger needed `pl-12` clearance hacks on every page and painted over
-       drawer headers (the "Conversations" collision) on phones. */
+    /* On phones the bottom bar's "More" fires this event; the sidebar just
+       opens. Page headers carry no menu button of their own (2026-11-27): it
+       repeated "More" on every page and cost each header 44px of a 390px row.
+       There is deliberately no floating button either: a `fixed` hamburger
+       needed clearance hacks on every page and painted over drawer headers. */
     useEffect(() => {
         const open = () => setCollapsed(false);
         window.addEventListener(OPEN_SIDEBAR_EVENT, open);
         return () => window.removeEventListener(OPEN_SIDEBAR_EVENT, open);
+    }, []);
+
+    // Ctrl/Cmd+\ (see lib/shortcuts.ts) flips the sidebar between shown and hidden.
+    useEffect(() => {
+        const toggle = () => setCollapsed((c) => !c);
+        window.addEventListener(TOGGLE_SIDEBAR_EVENT, toggle);
+        return () => window.removeEventListener(TOGGLE_SIDEBAR_EVENT, toggle);
     }, []);
 
     // The primary action is starting a fresh conversation. Guests get their own

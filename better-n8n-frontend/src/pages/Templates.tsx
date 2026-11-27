@@ -921,7 +921,7 @@ export default function Templates() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search templates and packs…"
+              data-page-search placeholder="Search templates and packs…"
               className="w-full pl-8 pr-8 py-2 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             />
             {query && (

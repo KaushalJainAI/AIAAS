@@ -188,7 +188,7 @@ function AgentCard({
   return (
     <article
       key={agent.id}
-      className="bg-card border border-border rounded-md flex flex-col hover:border-border-strong transition-colors"
+      className="min-w-0 bg-card border border-border rounded-lg flex flex-col shadow-sm hover:border-border-strong transition-colors"
     >
       <Link to={`/agents/${agent.id}`} className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start gap-3">
@@ -399,7 +399,7 @@ export default function Agents() {
      sub-groups, and the archive bin all render through it, so a card looks
      the same wherever it sits. */
   const renderGrid = (list: Agent[]) => (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-3">
       {list.map((a) => (
         <AgentCard
           key={a.id}
@@ -426,15 +426,18 @@ export default function Agents() {
             <Button variant="secondary" size="md"
               onClick={() => setShowArchived((v) => !v)}>
               <Archive className="w-4 h-4" />
-              {showArchived ? 'Back to agents' : `Archived (${archivedCount})`}
+              {/* Phones: the icon and the count, so the tabs keep their room. */}
+              <span className="hidden sm:inline">{showArchived ? 'Back to agents' : `Archived (${archivedCount})`}</span>
+              <span className="sm:hidden">{showArchived ? 'Back' : archivedCount}</span>
             </Button>
           )}
           {/* No Explore button: the Agents tab strip above the page already
               has Explore, one tap away on both widths. */}
-          <Link to="/agents/new">
-            <Button size="md">
+          <Link to="/agents/new" aria-label="New agent">
+            {/* Phones: a round "+" so the tab row beside it is not squeezed. */}
+            <Button size="md" className="max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:px-0">
               <Plus className="w-4 h-4" />
-              New agent
+              <span className="hidden sm:inline">New agent</span>
             </Button>
           </Link>
           </div>
@@ -449,7 +452,7 @@ export default function Agents() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search agents by name, description, category or tag…"
+                data-page-search placeholder="Search agents by name, description, category or tag…"
                 className="w-full pl-8 pr-8 h-9 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
               />
               {query && (

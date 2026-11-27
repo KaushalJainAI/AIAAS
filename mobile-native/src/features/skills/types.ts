@@ -17,6 +17,9 @@ export interface Skill {
   updatedAt: string;
   /** How many agents attach this skill. Optional: an older server omits it. */
   used_by?: number | null;
+  /** Whether the caller owns it. Agents attach only their owner's skills, so
+   *  the builder's picker lists these. Optional: an older server omits it. */
+  is_mine?: boolean;
 }
 
 export type SkillTab = 'mine' | 'public';

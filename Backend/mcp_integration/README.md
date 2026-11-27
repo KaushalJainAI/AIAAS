@@ -13,8 +13,7 @@ the credential it needs. Two kinds of connection sit behind it:
   `MCPServer` row holds only the switch and the credential. Native is the
   default for these because a Node process per connector did not fit the box.
 
-Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
-`MCP_INTEGRATION.md` was folded into it).
+Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md). The connector list is in [`docs/CONNECTOR_CATALOGUE.md`](../docs/CONNECTOR_CATALOGUE.md).
 
 ## Data (`models.py`)
 
@@ -38,17 +37,24 @@ Design: [`docs/MCP_ARCHITECTURE.md`](../docs/MCP_ARCHITECTURE.md) (the old
 | `supervisor.py` | Memory budget for local MCP processes, so they cannot take down the server |
 | `launch.py` | How a local server process is started |
 | `native.py` | Which native connectors are live for a user: switched on **and** credential present |
+| `setup_guide.py` | The Get started panel on a card (`setup_guide`, what you need, steps, cost, limits). Checks the shape before it is stored; curated guides are written by migration `0024` through it |
+| `card_template.py` | API cards (`kind='api'`): validates a card's `template` (base URL with `{field}` placeholders, auth parts, form fields, spec file name), renders the user's base URL from their field values, and loads the card's OpenAPI spec from `datasources/catalogue/`. Pure: no ORM, no HTTP. A card is never dialled as an MCP server (`MCPServer.NON_MCP_KINDS`) |
+| `management/commands/connector_check.py` | `manage.py connector_check <icon_slug> --user <email> [--field n=v] [--enable]`: one live GET of a card's `x-aiaas-check` operation with the user's credential, PASS/FAIL, never prints a secret. `manage.py connector_check --probe --all`: the same GET for every API card with a fake key and no account; REACHABLE / WARN / FAIL / SKIPPED per card, never enables anything |
 | `oauth.py` | OAuth for remote MCP servers |
 | `views.py`, `urls.py`, `serializers.py` | `/api/mcp/servers/...` |
+| `admin.py`, `apps.py` | Django admin and app config |
 
 ## Rules
 
 - A local MCP server gets a short allow-listed environment, never the server's own (see `client.py::_build_subprocess_env`).
 - Listing tools never starts a server. Only calling a tool does.
 - In production `MCP_ALLOW_STDIO=False`, so local-process servers are refused.
+- Users cannot add their own servers. `MCP_CUSTOM_SERVERS_ENABLED` is off by default. Old rows are kept but reach no agent, and the owner can still delete them. Connectors come from the curated catalogue ([plan](../docs/CONNECTOR_CATALOGUE_PLAN.md)).
 - Connector tools are offered only when the connection is live. A failed read means "not live".
 
 ## Tests
 
-`mcp_integration/tests/`: `test_connections.py`, `test_native_connectors.py`,
-`test_subprocess_env.py`, `test_supervisor.py`, `test_tool_pins.py`.
+`mcp_integration/tests/`. Start with `test_native_connectors.py`,
+`test_subprocess_env.py`, `test_supervisor.py`, `test_tool_pins.py`,
+`test_custom_servers_retired.py`, and `test_api_cards.py` (template validator,
+card routes, `connector_check`).

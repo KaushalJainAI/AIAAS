@@ -22,12 +22,12 @@ import {
   Video,
   File as FileIcon,
   Shield,
+  ShieldCheck,
   ChevronDown,
   Settings2,
   Globe2,
   Code,
   Slash,
-  CornerDownRight,
   Cpu,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -42,8 +42,12 @@ import { MediaPreview } from '@/components/content/MediaPreview';
 import HtmlArtifact from './HtmlArtifact';
 import AutoOpenFiles from './AutoOpenFiles';
 import ChartArtifact from '@/components/content/ChartArtifact';
+import PendingSends from '@/components/content/PendingSends';
+import { HELD_SEND_TOOLS, usePendingSends } from '@/hooks/usePendingSends';
 import PlanDock from '@/components/plan/PlanDock';
-import { actionsFrom, historyFrom } from '@/lib/planView';
+import { actionsFrom, historyFrom, settleHistory } from '@/lib/planView';
+import { CHAT_SESSION_UPDATED_EVENT } from '@/lib/chatEvents';
+import { isRecord, keepRecords } from '../lib/records';
 import PlanPanel, { PLAN_RAIL_WIDTH } from '@/components/orchestration/PlanPanel';
 import { MIN_PAGE_WIDTH } from '@/components/pane/SidePane';
 import FileCards from '@/components/files/FileCards';
@@ -82,6 +86,7 @@ import ChatMessageItem, { AssistantHeader, TurnOrPlain } from './ChatMessageItem
 import { formatSteps } from './format';
 import { useSpeech } from '@/hooks/useSpeech';
 import ChatSettingsDialog, { type SettingsTab } from './ChatSettingsDialog';
+import { ChangesSheetContainer } from '@/components/changes';
 import ChatContextView from './ChatContextView';
 import ToolApprovalCard from './ToolApprovalCard';
 import QuestionCard from '@/components/content/QuestionCard';
@@ -263,6 +268,14 @@ export default function StandaloneChat() {
   // What is waiting on this person, for the empty screen. Shared query, so
   // it costs nothing beyond what the sidebar badge already fetches.
   const { data: pendingHitl = [] } = useHitlPending(!isGuest);
+  // Sends the agent is holding in this chat (the send window). The live turn
+  // bumps `sendNudge` when a send tool is called, so the bar re-reads at once.
+  // Guests have no account, so the list is not asked for.
+  const [sendNudge, setSendNudge] = useState(0);
+  const pendingSends = usePendingSends({
+    sessionId: !isGuest && conversationId ? conversationId : undefined,
+    nudge: sendNudge,
+  });
   const { data: conversations = [], refetch: loadHistory } = useQuery({
     queryKey: ['chatSessions'],
     queryFn: async () => {
@@ -311,7 +324,6 @@ export default function StandaloneChat() {
   });
 
   // --- Agentic Features State ---
-  const [isFollowUpsExpanded, setIsFollowUpsExpanded] = useState(true);
   const [activeIntent, setActiveIntent] = useState<ChatIntent>('normal');
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null);
   const { toggle: togglePanel, isOpen: isPanelOpen } = useMessagePanels();
@@ -392,14 +404,16 @@ export default function StandaloneChat() {
   // Saved replies no longer draw their own plan; this is the only copy.
   const dockPlan = useMemo(() => {
     if (isLoading && live.todoHistory.length > 0) {
-      return { history: live.todoHistory, actions: actionsFrom(live.activity), live: true };
+      return { history: live.todoHistory, actions: actionsFrom(live.activity), live: true, messageId: undefined };
     }
     const last = [...messages].reverse().find(
       m => m.role === 'assistant' && Array.isArray(m.metadata?.todos) && m.metadata.todos.length > 0);
     return {
-      history: last ? historyFrom(last.metadata?.todo_history, last.metadata?.todos) : [],
+      // Settled: the turn is over, so no step can still be in progress.
+      history: last ? settleHistory(historyFrom(last.metadata?.todo_history, last.metadata?.todos)) : [],
       actions: last ? actionsFrom(last.metadata?.tool_trace) : [],
       live: false,
+      messageId: typeof last?.id === 'number' ? last.id : undefined,
     };
   }, [isLoading, live.todoHistory, live.activity, messages]);
 
@@ -412,10 +426,37 @@ export default function StandaloneChat() {
     const last = [...messages].reverse().find(m => m.role === 'assistant');
     return Object.entries(last?.metadata?.worker_plans ?? {}).flatMap(([id, wp]) => (
       Array.isArray(wp?.todos) && wp.todos.length > 0
-        ? [{ id, label: wp.agent_name || 'Agent', todos: wp.todos }]
+        ? [{ id, label: wp.agent_name || 'Agent', todos: settleHistory([wp.todos])[0] }]
         : []
     ));
   }, [isLoading, live.workerPlans, messages]);
+
+  // The person ticks a step of a finished reply's plan, or reopens it. The
+  // server keeps it as a plan revision by the user (`set_plan_step`).
+  const togglePlanStep = useCallback(async (text: string, done: boolean) => {
+    const messageId = dockPlan.messageId;
+    if (!conversationId || messageId === undefined || isGuest) return;
+    try {
+      const { todos, todo_history } = await chatService.setPlanStep(conversationId, messageId, text, done);
+      setMessages(prev => prev.map(m => (m.id === messageId
+        ? { ...m, metadata: { ...m.metadata, todos, todo_history } } as ChatMessage
+        : m)));
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Could not update that step'));
+    }
+  }, [conversationId, dockPlan.messageId, isGuest]);
+
+  // A worker's result posted after its turn ended (`post_run_result`) comes
+  // with a notification naming this chat: show it without a reload.
+  const loadConversationRef = useRef<(id: string) => void>(() => {});
+  useEffect(() => {
+    const onUpdated = (e: Event) => {
+      const id = (e as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (id && id === conversationId && !isLoading) loadConversationRef.current(id);
+    };
+    window.addEventListener(CHAT_SESSION_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(CHAT_SESSION_UPDATED_EVENT, onUpdated);
+  }, [conversationId, isLoading]);
 
   // Bound as consts so a `&&` guard narrows them inside event handlers too,
   // which a `live.x` property read does not.
@@ -530,6 +571,9 @@ export default function StandaloneChat() {
       setIsLoading(getChatRun(id)?.status === 'running');
     }
   };
+
+  // Read by the late-result listener above, which is set up before this exists.
+  useEffect(() => { loadConversationRef.current = loadConversation; });
 
   /**
    * A notification's "Open" lands here as `?session=<id>` (the chat approval
@@ -757,6 +801,11 @@ export default function StandaloneChat() {
 
   const handleDeleteMessage = async (msgId: number) => {
     if (!conversationId) return;
+    if (isRecord(messages.find(m => m.id === msgId))) {
+      // The server refuses too (409); the menu does not offer it.
+      toast.info('This is a record of what happened, so it is kept.');
+      return;
+    }
     
     // Safety: If it's a timestamp ID (> 10^12), it hasn't been synced yet
     // but in most cases our new SSE sync will handle this.
@@ -881,7 +930,7 @@ export default function StandaloneChat() {
 
       await chatService.deleteMessage(conversationId, userMsg.id as number, true);
       
-      setMessages(messages.slice(0, precedingUserMsgIndex));
+      setMessages(keepRecords(messages, precedingUserMsgIndex));
       
       handleSend(userMsg.content);
       toast.success('Regenerating response...');
@@ -918,7 +967,7 @@ export default function StandaloneChat() {
         setDeletingMsgId(null);
       }
     }
-    setMessages(messages.slice(0, targetIndex));
+    setMessages(keepRecords(messages, targetIndex));
     setInput(targetMessage.content);
     setTimeout(() => textareaRef.current?.focus(), 50);
   };
@@ -931,7 +980,7 @@ export default function StandaloneChat() {
       
       const targetIndex = messages.findIndex(m => m.id === messageId);
       if (targetIndex !== -1) {
-        setMessages(messages.slice(0, targetIndex));
+        setMessages(keepRecords(messages, targetIndex));
       }
       setInput(content);
       setTimeout(() => {
@@ -1201,6 +1250,16 @@ export default function StandaloneChat() {
         break;
       }
 
+      case 'agent_trace': {
+        // A send tool was called. Its hold row is written a moment after this
+        // frame, so the bar re-reads (usePendingSends follows up once more).
+        if (event.sub_type === 'tool' && typeof event.tool === 'string'
+          && HELD_SEND_TOOLS.has(event.tool)) {
+          setSendNudge(n => n + 1);
+        }
+        break;
+      }
+
       case 'ask_permission':
       case 'ask_question':
         setIsLoading(false);
@@ -1280,6 +1339,15 @@ export default function StandaloneChat() {
           // No-credential also pins a banner with the fix, since a toast alone
           // vanishes before anyone reaches Credentials + Verify.
           setCredentialError(isNoCredentialError(event.message) ? event.message : null);
+        }
+        // A turn that failed after saving the question is kept in the
+        // transcript as a record (what streamed, the plan, the error), so it
+        // is there after a reload too, not only in a toast (H-187).
+        {
+          const failed = event.ai_response as ChatMessage | null | undefined;
+          if (failed && typeof failed === 'object' && failed.id) {
+            setMessages(prev => (prev.some(m => m.id === failed.id) ? prev : [...prev, failed]));
+          }
         }
         setIsLoading(false);
         break;
@@ -1808,6 +1876,20 @@ export default function StandaloneChat() {
   // which was also true while a transcript was being fetched and while the
   // first answer was streaming, so the hero rendered underneath both.
   const isInitialState = messages.length === 0 && !isLoading && !isRestoring;
+  // One suggested next question, shown as ghost text in the empty composer.
+  // Tab (or tapping the Tab chip on a phone) writes it into the box; it is
+  // never sent on its own. Only the first of the model's follow-ups is used.
+  const composerSuggestion: string | null = (() => {
+    if (isInitialState || isLoading || input || pickedCommand || paletteOpen) return null;
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    const first = lastAssistant?.metadata?.follow_ups?.[0];
+    return typeof first === 'string' && first.trim() ? first.trim() : null;
+  })();
+  const acceptSuggestion = () => {
+    if (!composerSuggestion) return;
+    setInput(composerSuggestion);
+    textareaRef.current?.focus();
+  };
   // Cold cache: nothing to paint but the request is out. With a cache hit the
   // transcript is already up and this never renders.
   // A turn already running is better news than a placeholder, so it wins.
@@ -1832,6 +1914,9 @@ export default function StandaloneChat() {
   // Phone composer: the "+" sheet that holds the tools the row hides below sm.
   const [composerSheetOpen, setComposerSheetOpen] = useState(false);
 
+  // The "Undo what this run changed" sheet: the change set open, if any.
+  const [openChangeSetId, setOpenChangeSetId] = useState<number | null>(null);
+
   // Run settings: the model and effort the next turn uses. Lives in the
   // header now, so the composer is only the message box and its send controls.
   const runSettings = (
@@ -1854,7 +1939,7 @@ export default function StandaloneChat() {
                         <button
                           onClick={() => setShowModelDropdown(!showModelDropdown)}
                           className={cn(
-                            "flex items-center gap-1.5 sm:gap-2 h-11 md:h-8 px-2 sm:px-3 rounded-md transition-colors text-xs font-semibold border min-w-0 max-w-[34vw] sm:max-w-none",
+                            "flex items-center gap-1.5 sm:gap-2 h-11 md:h-8 px-2.5 sm:px-3 rounded-full md:rounded-md transition-colors text-xs font-medium border min-w-0 max-w-[40vw] sm:max-w-none",
                             showModelDropdown
                               ? "bg-primary/10 border-primary/30 text-primary"
                               : "border-transparent text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40"
@@ -1882,7 +1967,7 @@ export default function StandaloneChat() {
                             </span>
                           )}
                           {effortSupported && llmEffort && (
-                            <span className="inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
+                            <span className="hidden sm:inline px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary shrink-0">
                               {EFFORT_LABELS[llmEffort] ?? llmEffort}
                             </span>
                           )}
@@ -2086,6 +2171,10 @@ export default function StandaloneChat() {
           }}
         />
 
+        {openChangeSetId !== null && (
+          <ChangesSheetContainer setId={openChangeSetId} onClose={() => setOpenChangeSetId(null)} />
+        )}
+
         {/* Per-chat settings: system prompt + memory. */}
         {showSessionSettings && currentSession && (
           <ChatSettingsDialog
@@ -2202,6 +2291,7 @@ export default function StandaloneChat() {
                       void runCommandConfirm(name, args, confirm);
                     }}
                     onReviewSolution={(id, kind) => handleReviewSolution(id, kind)}
+                    onOpenChanges={setOpenChangeSetId}
                     onDraftAction={(id, action) => { void handleDraftAction(id, action); }}
                     draftBusy={draftBusyId != null
                       && (message.metadata as { solution_draft?: { id?: number } } | undefined)?.solution_draft?.id === draftBusyId}
@@ -2646,12 +2736,22 @@ export default function StandaloneChat() {
 
             <div className="relative group/input">
 
+              {/* Messages the agent is holding before they go out. Cancel stops
+                  one while it is still waiting. */}
+              <PendingSends
+                holds={pendingSends.holds}
+                onCancel={pendingSends.cancel}
+                onSendNow={pendingSends.sendNow}
+              />
+
               {/* The plan, pinned above the composer so it never scrolls
                   away. A team run shows it in the side panel instead. */}
               <div className="enter-each">
               {plan.tasks.length === 0 && dockPlan.history.length > 0 && (
                 <PlanDock history={dockPlan.history} actions={dockPlan.actions}
-                  live={dockPlan.live} />
+                  live={dockPlan.live}
+                  onToggle={!dockPlan.live && dockPlan.messageId !== undefined && !isGuest
+                    ? togglePlanStep : undefined} />
               )}
               {/* Each agent working for this turn shows its own plan too. */}
               {dockWorkerPlans.map(wp => (
@@ -2659,59 +2759,6 @@ export default function StandaloneChat() {
                   label={wp.label} />
               ))}
               </div>
-
-              {/* Continue Exploring — above the chatbox */}
-              {!isInitialState && !isLoading && (() => {
-                const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
-                const followUps = lastAssistant?.metadata?.follow_ups;
-                if (!followUps || followUps.length === 0) return null;
-                return (
-                  <div className="mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-card border border-border rounded-md overflow-hidden shadow-sm">
-                    <button 
-                      onClick={() => setIsFollowUpsExpanded(!isFollowUpsExpanded)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground/60" />
-                        <span className="label-mono">Continue exploring</span>
-                      </div>
-                      <ChevronDown className={cn(
-                        "w-4 h-4 text-muted-foreground/50 transition-transform duration-300",
-                        isFollowUpsExpanded ? "rotate-180" : ""
-                      )} />
-                    </button>
-                    
-                    <div className={cn(
-                      "grid transition-[grid-template-rows,opacity] duration-slow ease-standard",
-                      isFollowUpsExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                    )}>
-                      <div className="overflow-hidden">
-                        <div className="flex flex-wrap gap-2.5 p-3.5 pt-0">
-                          {followUps.map((q: string, i: number) => (
-                            <button
-                              key={i}
-                              onClick={() => handleSend(q)}
-                              // Staggered entrance: three chips appearing at once
-                              // read as a block of UI to skip past, where a quick
-                              // cascade reads as suggestions worth a glance.
-                              style={{ animationDelay: `${i * 70}ms`, animationFillMode: 'backwards' }}
-                              className="flex flex-1 min-w-[200px] items-center px-4 py-3 bg-background
-                                         border border-border rounded-md shadow-sm text-left
-                                         text-muted-foreground hover:text-foreground
-                                         hover:bg-primary/5 hover:border-primary/30
-                                         transition-colors duration-200 ease-out
-                                         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring
-                                         animate-in fade-in slide-in-from-bottom-2"
-                            >
-                              <span className="text-[13px] font-medium leading-relaxed">{q}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* No API key for this provider. Persistent like the blocked-file
                   notice: the fix (add + verify in Credentials) needs to stay
@@ -2849,7 +2896,7 @@ export default function StandaloneChat() {
                     />
                   )}
                   {/* Textarea row */}
-                  <div className="p-4 pb-0">
+                  <div className="relative p-4 pb-0">
                     {/* Phone: Search and Deep research live in the "+" sheet,
                         so their state shows here as a chip that turns them off. */}
                     {!isGuest && (activeIntent === 'search' || activeIntent === 'research') && (
@@ -2956,6 +3003,12 @@ export default function StandaloneChat() {
                         }
                       }}
                       onKeyDown={(e) => {
+                        // Tab writes the suggested question into the empty box.
+                        if (e.key === 'Tab' && !e.shiftKey && composerSuggestion) {
+                          e.preventDefault();
+                          acceptSuggestion();
+                          return;
+                        }
                         if (e.key === 'Enter' && !e.shiftKey) {
                           // With the palette open, Enter picks the command.
                           if (paletteOpen) return;
@@ -2986,10 +3039,25 @@ export default function StandaloneChat() {
                           }
                         }
                       }}
-                      placeholder={activeIntent !== 'normal' ? `Type your ${activeIntent} query...` : "Ask anything..."}
-                      className="w-full min-h-[56px] max-h-[200px] px-2 py-2 bg-transparent border-none focus:ring-0 focus:outline-none resize-none text-[17px] font-medium placeholder:text-muted-foreground/50 scrollbar-none leading-[1.7] tracking-[-0.01em]"
+                      placeholder={composerSuggestion ?? (activeIntent !== 'normal' ? `Type your ${activeIntent} query...` : "Ask anything...")}
+                      aria-describedby={composerSuggestion ? 'chat-input-suggestion-hint' : undefined}
+                      className={cn(composerSuggestion && "pr-16", "w-full min-h-[56px] max-h-[200px] px-2 py-2 bg-transparent border-none focus:ring-0 focus:outline-none resize-none text-[17px] font-medium placeholder:text-muted-foreground/50 scrollbar-none leading-[1.7] tracking-[-0.01em]")}
                       rows={2}
                     />
+                    {/* The Tab key, drawn as a button so a phone (no Tab key)
+                        can accept the suggestion with a tap. */}
+                    {composerSuggestion && (
+                      <button
+                        type="button"
+                        id="chat-input-suggestion-hint"
+                        onClick={acceptSuggestion}
+                        aria-label="Write the suggested question into the box (Tab)"
+                        title="Press Tab to use this suggestion"
+                        className="absolute bottom-2 right-6 z-10 inline-flex h-7 items-center rounded-md border border-border bg-muted/60 px-2 font-mono text-[11px] font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground animate-in fade-in duration-300"
+                      >
+                        Tab
+                      </button>
+                    )}
                   </div>
 
                   {/* Bottom toolbar — pills + voice + model + send, all inside the chatbox */}
@@ -3021,12 +3089,12 @@ export default function StandaloneChat() {
                               aria-label="More options"
                               title="More options"
                               className={cn(
-                                "flex sm:hidden items-center justify-center h-11 w-11 rounded-md shrink-0 border",
+                                "flex sm:hidden items-center justify-center h-11 w-11 rounded-full shrink-0 border",
                                 "transition-[color,background-color,border-color,transform] duration-200 ease-out active:scale-95",
                                 "disabled:opacity-40",
                                 attachedFiles.length > 0
                                   ? 'bg-primary/10 border-primary/30 text-primary'
-                                  : "border-transparent text-muted-foreground/50",
+                                  : "border-transparent text-muted-foreground hover:bg-secondary",
                               )}
                             >
                               {isUploading
@@ -3040,12 +3108,17 @@ export default function StandaloneChat() {
                               type="button"
                               onClick={() => setComposerSheetOpen(true)}
                               aria-label={`Approval: ${AUTONOMY_COPY[autonomy].label}. Change`}
-                              className={cn(
-                                "flex sm:hidden items-center h-11 px-2.5 rounded-md border font-mono text-[11px] shrink-0 max-w-[11rem] truncate",
-                                approvalSelectClass(autonomy),
-                              )}
+                              // 44px to tap; the pill drawn inside is 32px so it reads as a chip.
+                              className="flex sm:hidden h-11 items-center shrink-0 max-w-[11rem] min-w-0"
                             >
-                              <span className="truncate">{AUTONOMY_COPY[autonomy].label}</span>
+                              <span className={cn(
+                                "flex h-8 min-w-0 items-center gap-1.5 pl-2.5 pr-2 rounded-full border text-xs font-medium",
+                                approvalSelectClass(autonomy),
+                              )}>
+                                <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                                <span className="truncate">{AUTONOMY_COPY[autonomy].label}</span>
+                                <ChevronDown className="w-3 h-3 shrink-0 opacity-60" aria-hidden />
+                              </span>
                             </button>
                             {/* Desktop (and up): attach straight away. */}
                             <button

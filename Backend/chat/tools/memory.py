@@ -28,6 +28,85 @@ def _user(context: Dict):
     return get_user_model().objects.filter(id=user_id).first()
 
 
+def _record_added(row) -> None:
+    """Journal a fact this call stored, so the run's undo can take it back out.
+
+    Sync, and never raises: `logs.changes` already swallows its own failures,
+    and a recording problem must not fail the tool that wrote the fact.
+    """
+    from logs import changes
+
+    try:
+        changes.record_memory(
+            memory_id=row.id, before=None,
+            after={"text": row.text, "category": row.category},
+            label=f"Memory: {row.text[:80]}",
+        )
+    except Exception:  # noqa: BLE001 — recording must never fail the tool
+        logger.exception("[Memory] Could not record a stored fact for undo")
+
+
+def _remember(user, text: str, category: str):
+    """`core.memory.remember`, journaling the fact it stores *and* any it evicts.
+
+    A full category makes `remember` drop its least recently touched facts
+    (`core/memory.py::_enforce_cap`). Undoing the run must bring those back,
+    so the user's facts are read first and every one that went is recorded as
+    removed. The set is small (a cap per category), so reading it is cheap.
+    """
+    from core import memory as user_memory
+    from core.models import UserMemory
+    from logs import changes
+
+    known = {r.id: r for r in UserMemory.objects.filter(user=user).only("id", "text", "category")}
+    row, created = user_memory.remember(user, text, category)
+    if row is None:
+        return row, created
+    if created:
+        _record_added(row)
+    still = set(UserMemory.objects.filter(user=user, id__in=list(known))
+                .values_list("id", flat=True))
+    for gone_id in set(known) - still:
+        gone = known[gone_id]
+        try:
+            changes.record_memory(
+                memory_id=gone.id, before={"text": gone.text, "category": gone.category},
+                after=None, label=f"Memory pushed out: {gone.text[:80]}",
+            )
+        except Exception:  # noqa: BLE001 — recording must never fail the tool
+            logger.exception("[Memory] Could not record an evicted fact for undo")
+    return row, created
+
+
+def _forget(user, text: str) -> int:
+    """`core.memory.forget`, journaling each row it removes (sync).
+
+    The matching rows are read first, because `forget` deletes them and the
+    undo needs their text and category. They are matched the way `forget`
+    matches (`normalise`), so the two agree on which rows went.
+    """
+    from core import memory as user_memory
+    from core.models import UserMemory
+    from logs import changes
+
+    key = user_memory.normalise(text)
+    rows = []
+    if key:
+        rows = [row for row in UserMemory.objects.filter(user=user).only("id", "text", "category")
+                if user_memory.normalise(row.text) == key]
+    removed = user_memory.forget(user, text)
+    if removed:
+        for row in rows:
+            try:
+                changes.record_memory(
+                    memory_id=row.id, before={"text": row.text, "category": row.category},
+                    after=None, label=f"Memory removed: {row.text[:80]}",
+                )
+            except Exception:  # noqa: BLE001 — recording must never fail the tool
+                logger.exception("[Memory] Could not record a removed fact for undo")
+    return removed
+
+
 @tool({
     "type": "function",
     "function": {
@@ -109,7 +188,7 @@ async def remember_about_user(args: Dict, context: Dict) -> str:
             "error": "Not stored: that reads as an instruction, not a fact about the user.",
         })
 
-    row, created = await sync_to_async(user_memory.remember)(
+    row, created = await sync_to_async(_remember)(
         user, text, (args.get("category") or "context").strip().lower(),
     )
     if row is None:
@@ -159,13 +238,11 @@ async def remember_about_user(args: Dict, context: Dict) -> str:
     },
 }, effect="reversible")
 async def forget_about_user(args: Dict, context: Dict) -> str:
-    from core import memory as user_memory
-
     user = await sync_to_async(_user)(context)
     if user is None:
         return json.dumps({"error": "No user in context."})
 
-    removed = await sync_to_async(user_memory.forget)(user, args.get("text") or "")
+    removed = await sync_to_async(_forget)(user, args.get("text") or "")
     if not removed:
         # Named rather than reported as success: a model told "done" would tell
         # the user their fact was forgotten when it is still there and will

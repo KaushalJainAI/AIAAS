@@ -825,7 +825,7 @@ export default function Tools() {
     return (
       <div className="h-full flex flex-col">
         <PageHeader icon={Wrench} title="Tools" subtitle="Loading your tool library…" />
-        <div className="flex-1 p-4 md:p-8 space-y-3">
+        <div className="flex-1 px-4 md:px-6 py-6 space-y-3">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-20 rounded-md bg-card border border-border/60 animate-pulse" />
           ))}
@@ -866,7 +866,7 @@ export default function Tools() {
             <SearchInput
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search tools by name or what they do…"
+              data-page-search placeholder="Search tools by name or what they do…"
             />
           </div>
           {/* Segmented control: one bordered strip, the chosen segment raised. */}
@@ -892,7 +892,7 @@ export default function Tools() {
       </PageHeader>
 
       {mutation.isError && (
-        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-3 rounded-md border border-destructive/20 flex items-center gap-3">
+        <div className="mx-4 md:mx-6 mt-4 bg-destructive/10 text-destructive p-3 rounded-md border border-destructive/20 flex items-center gap-3">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <p className="text-sm font-medium">
             That change didn't save. Nothing has been switched off — try again.
@@ -900,7 +900,7 @@ export default function Tools() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-8 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-8 custom-scrollbar">
         {!searching && (
           <>
             <MyToolsSection onNew={() => setShowNewTool(true)} />

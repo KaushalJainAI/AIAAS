@@ -31,24 +31,73 @@ Layers, outermost first:
 1. **Container** (`sandbox_service/Dockerfile` + `docker-compose*.yml`):
    - lives only on an `internal: true` docker network — **no route to the
      internet**, no published ports; the backend joins that network to reach it.
-   - `cap_drop: ALL`, `security_opt: no-new-privileges`, **read-only root** with
-     a small tmpfs `/tmp` for scratch, a **non-root** user.
+   - `cap_drop: ALL` plus only `SETUID`, `SETGID`, `CHOWN`, `DAC_OVERRIDE`
+     for the server, `security_opt: no-new-privileges`, **read-only root**
+     with a small tmpfs `/tmp` (mode 0711) for scratch, `init: true`.
    - `mem_limit` + `pids_limit` caps.
    - holds **no application code and no secrets** — a full interpreter breakout
      lands in a throwaway container with nothing to steal and nowhere to send it.
-2. **Per-run subprocess** (`sandbox_service/executor.py`): a fresh process in its
+2. **A Unix user per slot** (2026-11-24, `executor.py::_slot_user`): the
+   server hands each run a concurrency slot, and slot *n* runs as its own
+   user, uid/gid `20000 + n` (`sbx1`..`sbx8`). The server is root with only
+   the four capabilities above and never runs model-written code; a child
+   switches to its slot's user first, which clears them all. The run's folder
+   (`/tmp/run-*/work` as cwd, `/tmp/run-*/tmp` as HOME and TMPDIR) is owned by
+   that user with mode 0700, and `/tmp` itself cannot be listed or written.
+   Before and after each run every process of that user is killed
+   (`_reap`: `kill(-1)` run *as* the user), and `RLIMIT_NPROC` caps a slot
+   at 64 processes. Running as root without a slot is refused.
+   **Why:** measured before this, a Python run forked a process that
+   `setsid`-ed out of its group (so the timeout kill missed it) and read the
+   next run's input file from /tmp. `sandbox_service/tests/test_isolation.py`
+   pins the fix.
+3. **Per-run subprocess** (`sandbox_service/executor.py`): a fresh process in its
    own session, so `os.killpg(SIGKILL)` reaps a fork bomb; `setrlimit` for CPU,
    address space (memory), file size and core; a scrubbed environment; an
    ephemeral cwd removed afterwards; a wall-clock timeout that kills the group.
-3. **In-child seccomp** (`sandbox_service/runner.py`): a best-effort filter
+4. **In-child seccomp** (`sandbox_service/runner.py`): a best-effort filter
    blocking socket creation, so a snippet cannot open a connection back to the
-   backend over the internal network. Best-effort because the network already
-   has no egress — this is the inner of two network controls, not the only one.
+   backend over the internal network, and blocking `execve`, so a snippet
+   cannot start a shell (`subprocess.run(["bash", ...])`) or any other
+   program. Best-effort because the container is the wall; this is the inner
+   layer, not the only one.
 
-The sidecar exposes two internal routes (`server.py`): `GET /health` and
-`POST /execute {code, wall_seconds?, cpu_seconds?, mem_mb?}`. No auth — the
-network it sits on has no route in from anywhere but the backend. A concurrency
-semaphore stops a burst from spawning more subprocesses than the box can hold.
+The sidecar exposes three internal routes (`server.py`): `GET /health`,
+`POST /execute {code, language?, wall_seconds?, cpu_seconds?, mem_mb?, files?, collect?}`
+and `POST /commands {pipeline, stdin?, files?, ...}`. No auth — the network it
+sits on has no route in from anywhere but the backend. A concurrency semaphore
+stops a burst from spawning more subprocesses than the box can hold.
+
+### JavaScript and commands (2026-11-24)
+
+Two more things run on the sidecar, and **only** there: the in-process engine
+has nothing that could confine Node or a native program, so their tools
+(`execute_javascript`, `run_command`) carry `requires="sidecar"` and are not
+offered on it (`sandbox/engine.py::sidecar_available`).
+
+- **JavaScript/TypeScript** (`language` on `/execute`): the `node` binary
+  copied from the official image (no npm, no packages), run with
+  `--permission` so child processes, workers, addons and files outside the
+  run's folder are refused, and a heap cap under the memory limit. TypeScript
+  is stripped by Node itself (`--input-type=module-typescript`,
+  `--experimental-transform-types` for enums). Memory is capped with
+  `RLIMIT_DATA`, not `RLIMIT_AS`: V8 reserves about 1 GB of address space
+  just to start, so a 256 MB `RLIMIT_AS` kills it before it runs a line.
+- **Commands** (`/commands`): a pipeline of up to 5 stages, each a command
+  from `sandbox_service/commands.py::COMMANDS` plus an argument list. No shell
+  is involved, so `;`, `|`, `$( )` and `>` inside an argument are plain text.
+  The list holds text tools (`grep`, `sed`, `awk`, `sort`, `jq`, ...) and
+  leaves out everything that can start another program (shells, interpreters,
+  `env`, `xargs`, `find`, `tar`, ...). `sed` and `awk` (gawk) always run with
+  `--sandbox`; `sort --compress-program` is refused. Input files arrive in
+  the run's folder by name; nothing written comes back.
+- **The exec guard** (`sandbox_service/launch.py`): both of these run through
+  a harness that forks each process and installs a seccomp filter in which
+  `execve` succeeds only for the exact buffer holding the chosen binary's
+  path, then calls `execve` with that buffer. The program starts; any later
+  `execve` (a missed flag, a `system()` call) fails. gawk *without*
+  `--sandbox` cannot run `system("id")` under it (`test_languages.py` proves
+  it). It **fails closed**: no pyseccomp, nothing runs.
 
 numpy and pandas are installed in the image; they are the whole reason the
 sandbox is a container and not a WASM guest (C extensions WASM cannot load).
@@ -77,6 +126,20 @@ AST denylist is not a real isolation boundary — it guards against an infinite
 space of expressions by pattern — which is exactly why production uses the
 container instead.
 
+### What slots do not isolate
+
+- **Command lines of concurrent runs.** `/proc` is not mounted with
+  `hidepid` (Docker cannot set it without `SYS_ADMIN`), so a run can read the
+  arguments of a `run_command` stage running in the *other* slot at that
+  moment, such as a grep pattern (measured). Files, stdin, environment and
+  open files stay private, and Python/JavaScript code travels on stdin, not
+  the command line.
+- **The kernel.** Every slot shares one kernel inside one container; a kernel
+  exploit crosses slots. gVisor (`runtime: runsc`) or a microVM per user (the
+  workspace plan, `COMPUTE_ISOLATION_PLAN.md`) is the step past this.
+- **CPU and memory between slots.** Each run has its own limits, but two runs
+  share the container's memory cap.
+
 ## Deploying the sidecar
 
 - Local: `docker compose up --build` brings up the `sandbox` service alongside
@@ -84,7 +147,9 @@ container instead.
 - EC2: push `kaushaljainai/aiaas-sandbox:latest` from a dev machine, then
   `docker compose -f docker-compose.prod.yml pull sandbox && ... up -d` on the
   box — nothing is built there. A run's memory is capped by
-  `SANDBOX_MEM_MB`.
+  `SANDBOX_MEM_MB`. **The compose file and the image change together**: the
+  per-slot image needs the `cap_add` list and `init: true` from
+  `docker-compose.prod.yml`, so copy that file to the box with the image.
 
 ## Tests
 
@@ -94,3 +159,14 @@ container instead.
   the thread.
 - `sandbox_service/tests/test_executor.py` — the subprocess executor: result
   capture, error reporting, timeout kill, and (POSIX) the memory cap.
+- `sandbox_service/tests/test_commands.py` — the command allowlist (any platform).
+- `sandbox_service/tests/test_isolation.py` — the per-slot users: a run's
+  uid, `/tmp` closed, another slot refused a run's file even with its path,
+  nothing alive after a run (the setsid spy), a fork bomb capped. Image only,
+  as root.
+- `sandbox_service/tests/test_languages.py` — Node, TypeScript, command
+  pipelines and the exec guard, run for real; skips off the image, so run it in
+  the container (command in `sandbox_service/README.md`).
+- `chat/tests/test_sandbox_languages.py` — the backend half: both tools
+  offered only on the sidecar, the `codeExecution` grant, approval sets, and
+  the command list the model reads equal to the sidecar's.

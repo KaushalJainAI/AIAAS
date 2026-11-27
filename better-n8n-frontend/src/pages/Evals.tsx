@@ -213,7 +213,7 @@ export default function Evals() {
         }
       />
 
-      <div className="px-4 py-6 md:px-8 space-y-6">
+      <div className="px-4 py-6 md:px-6 space-y-6">
         <JudgeCard data={judgeQuery.data as { calibrations?: Record<string, { judge_model: string; agreement: number; false_pass_rate: number; created_at: string }> } | null} />
 
         <div className="flex items-center gap-1 border-b border-border/60 overflow-x-auto scrollbar-none">

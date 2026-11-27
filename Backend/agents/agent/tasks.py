@@ -73,6 +73,11 @@ class CodeTask:
     #: once — at a steering boundary or by a `wait_tasks` return, whichever
     #: delivers it first. '' until something is reported.
     reported_status: str = ''
+    #: `code` for a `start_tasks` worker; `agent_run` for a `run_agent` run
+    #: that outlived its wait and was adopted (`chat/tools/tasks.py::adopt_run`).
+    #: An adopted run is reported with its whole answer, since the manager has
+    #: no other copy, and is posted into the chat if nobody was left to hear it.
+    kind: str = 'code'
 
 
 #: Statuses the lead is told about. `running` is not one of them: a worker

@@ -90,7 +90,7 @@ export default function ItemsView(props: Props) {
 function DetailsView(props: Props) {
   const { items, sort, onSort, showLocation, sortable = true } = props;
   const header = (key: SortKey | null, label: string, className?: string) => (
-    <th className={cn('sticky top-0 z-10 bg-card px-2 py-1.5 text-left font-medium', className)}>
+    <th className={cn('sticky top-0 z-10 bg-card px-2 py-1.5 text-left font-medium whitespace-nowrap', className)}>
       {key && sortable ? (
         <button
           type="button"
@@ -132,7 +132,7 @@ function DetailsView(props: Props) {
         <tr>
           {header('name', 'Name', 'pl-4')}
           {showLocation && header(null, showLocation === 'author' ? 'Shared by' : 'Location', 'hidden lg:table-cell')}
-          {header('modified', 'Date modified')}
+          {header('modified', 'Modified')}
           {header('type', 'Type', 'hidden md:table-cell')}
           {header('size', 'Size', 'hidden text-right sm:table-cell')}
           <th className="sticky top-0 z-10 bg-card" aria-label="Actions" />

@@ -12,6 +12,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   approveHeldTool,
+  cardConnect,
+  cardDisconnect,
   createApiConnection,
   createDataConnection,
   createMessagingAccount,
@@ -157,6 +159,38 @@ export function useMcpOAuthDisconnect() {
       void queryClient.invalidateQueries({ queryKey: connectionKeys.servers });
       void queryClient.invalidateQueries({ queryKey: ['connections', 'validation'] });
       void queryClient.invalidateQueries({ queryKey: connectionKeys.tools(id) });
+    },
+  });
+}
+
+/**
+ * Connect an API card. A new connection changes the server list (`card_connected`),
+ * the credential list (the secret may have just been saved) and the credential
+ * checks, so all three are re-read, as after any sign-in.
+ */
+export function useCardConnect(serverId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (fields: Record<string, string>) => cardConnect(serverId, fields),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: connectionKeys.servers });
+      void queryClient.invalidateQueries({ queryKey: ['connections', 'validation'] });
+      void queryClient.invalidateQueries({ queryKey: connectionKeys.tools(serverId) });
+      void queryClient.invalidateQueries({ queryKey: credentialKeys.all });
+    },
+  });
+}
+
+/** Disconnect an API card. The stored credentials stay until the caller removes them. */
+export function useCardDisconnect(serverId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => cardDisconnect(serverId),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: connectionKeys.servers });
+      void queryClient.invalidateQueries({ queryKey: ['connections', 'validation'] });
+      void queryClient.invalidateQueries({ queryKey: connectionKeys.tools(serverId) });
+      void queryClient.invalidateQueries({ queryKey: credentialKeys.all });
     },
   });
 }

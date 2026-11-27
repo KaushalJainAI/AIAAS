@@ -12,8 +12,12 @@ drag-and-drop canvas, which is gone. The app is about **chat** and **agents**.
 ## What the app does
 
 You sign in and land on **Ask** (the chat). The menu has five places. Three of
-them are hubs: a strip of tabs above the page (`components/layout/HubTabs.tsx`)
-switches between their sections. Every section still has its own address.
+them are hubs: their tabs (`components/layout/HubTabs.tsx`) switch between the
+sections. A page with a `PageHeader` draws the tabs inside that header, in the
+title's place, so tabs and buttons share one row; a hub page without one gets a
+standalone strip (`lib/hubHeader.ts` decides which). Every section still has its
+own address. Activity (`/runs`) has its own tabs (Now, Planned, History, Files;
+`?tab=`, rules in `lib/activityTabs.ts`), drawn with `components/layout/PageTabs.tsx`.
 
 | Menu | Sections (tabs) |
 |---|---|
@@ -35,11 +39,12 @@ The bell opens your notifications (`components/notifications/NotificationsPanel.
 | Agents | `/agents`, `/agents/:id` | `pages/Agents.tsx`, `pages/AgentBuilder.tsx` | Your saved agents, and the editor for one |
 | Explore | `/templates` | `pages/Templates.tsx` | Ready-made agents and packs to install |
 | Tools | `/tools` | `pages/Tools.tsx` | Switch tools on and off |
+| Code | `/code` | `pages/Code.tsx` | A placeholder. The `/code` command lands here; the coding workspace it will open is not built yet |
 | Schedules | `/schedules` | `pages/Schedules.tsx` | When agents run automatically |
 | Studio | `/imagine` | `pages/Imagine.tsx` | Image, video and audio generation |
 | Skills | `/skills` | `pages/Skills.tsx` | Reusable instruction snippets |
 | Evals | `/evals` | `pages/Evals.tsx` | Testing how good an agent is |
-| Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack, MCP servers |
+| Connections | `/connections` | `pages/Connections.tsx` | Gmail, Drive, Slack and the curated connectors. Adding your own MCP server is off |
 | Keys | `/credentials` | `pages/Credentials.tsx` | Saved API keys |
 | Apps | `/apps`, `/apps/:appId` | `pages/Apps.tsx`, `components/apps/AppFrame.tsx` | The launcher, and the full-screen Docs, Sheets, Slides, code and PDF apps |
 | Files | `/documents` | `pages/Documents.tsx` | Your files, folders and knowledge bases |
@@ -171,9 +176,14 @@ handlers. Smaller pieces draw the screen from the data and callbacks they are gi
 | `hooks/useChatDraft.ts` | Keeps unsent text per conversation |
 | `components/content/MarkdownMessage.tsx` | Draws one answer |
 | `components/content/ChartArtifact.tsx`, `features/chat/components/HtmlArtifact.tsx` | Charts and HTML the AI produced |
-| `components/plan/PlanView.tsx`, `components/plan/PlanDock.tsx` | The plan while the AI works, pinned above the message box |
+| `components/plan/PlanView.tsx`, `components/plan/PlanDock.tsx` | The plan while the AI works, pinned above the message box. Once the reply has ended you can tick a step done (or untick it); a step left "doing" shows as not finished |
+| `features/chat/lib/records.ts` | Session records (a failed or stopped reply, an agent's late result) are never deleted: a retry or edit keeps them on screen |
+| `lib/chatEvents.ts` | Tells an open chat to reload when a notification says an agent's result was posted into it |
+| `components/activity/RecentList.tsx` | Activity → Now: "Recently finished", the runs and chat replies of the last day |
 | `components/orchestration/PlanPanel.tsx` | Several agents at once: one lane per worker, with Steer and Stop. A side rail on desktop, a sheet on phones |
 | `components/content/QuestionCard.tsx` | A question the AI paused to ask you. The Activity page uses the same card |
+| `components/content/PendingSends.tsx`, `hooks/usePendingSends.ts` | Messages the AI is holding before they go out, with Cancel and Send now. The hook re-reads the list every 2 s, and only while one is still waiting. Shown above the box in chat and at the top of a run |
+| `components/changes/ChangesSheet.tsx`, `components/changes/ChangesSheetContainer.tsx`, `hooks/useChangeSet.ts` | "Undo what this run changed": the files a reply or run changed, with a checkbox per change to put it back. The hook loads the set when the sheet opens and again after a revert (no polling). The sheet only draws what it is given. Opened from "Undo changes…" under a reply, or from "Changes" on a run's page |
 | `components/files/PreviewFrame.tsx` | The one file preview: chat's side drawer, the Documents page, the preview dialog |
 | `features/chat/components/CommandPalette.tsx`, `CommandCard.tsx` | The `/` command menu and its results |
 | `features/chat/components/ThinkingTimer.tsx` | The ticking timer, kept apart so it does not redraw everything |
@@ -257,9 +267,8 @@ and `components/solutions/`.
   "Live updates".
 - **One WebSocket helper.** `lib/websocket.ts::useSocket` owns the URL, the
   exponential backoff and the remount race guard. No feature opens its own socket.
-- **Lazy routes.** Every page except the sign-in screens is code-split. The app
-  used to ship as one 1.2 MB chunk behind a login screen that needed none of it.
-  Add a new page to the lazy block in `App.tsx`, not to the static imports.
+- **Lazy routes.** Every page except the sign-in screens is code-split. Add a new
+  page to the lazy block in `App.tsx`, not to the static imports.
 - **Render isolation.** The ticking timer is its own component, and
   `MarkdownMessage` is memoised. Anything that updates faster than a reader can
   read gets isolated the same way.
@@ -302,16 +311,19 @@ Below 768 px every button or link must be at least 44 x 44 px and have a name.
 bottom sheet on a phone. Never hide an action behind hover or right-click alone;
 `hooks/useLongPress.ts` is a shortcut to a visible "More actions" button, not a
 replacement for it. Never use `window.confirm`: use `ConfirmDialog`.
-`tests/e2e/mobile-layout.spec.ts` measures every control on five pages.
+`tests/e2e/mobile-layout.spec.ts` measures every control on the pages it lists.
 
 ## Checks before you push
 
 ```bash
 npx tsc -b --force     # type check. Plain `tsc --noEmit` checks nothing in this repo
 npm run lint           # should report 0 problems
-npm test               # unit tests (vitest)
+npm test               # unit tests (vitest, run through scripts/vitest.mjs)
 npm run build          # production build
 ```
+
+Use `npm test`, not a bare `npx vitest`: the wrapper keeps the tests working when
+the terminal opens at a lower-case `c:\` path.
 
 ## Gotchas
 
@@ -324,3 +336,6 @@ npm run build          # production build
   use it. Never redirect to a URL taken straight from the query string.
 - Import another feature through its front door, `@/features/<name>`. Lint rejects
   imports of its inner files.
+- Desktop pages share one 24px gutter: the page header row (`PageHeader`, with
+  the hub tabs in it) lines up with the content (`md:px-6`). A new hub page should
+  use it too. On phones every tab and button is at least 44px (`min-w-11`/`min-h-11`).

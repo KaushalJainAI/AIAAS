@@ -46,6 +46,36 @@ class MCPServer(models.Model):
     name = models.CharField(max_length=255, help_text="Human-readable name for this server")
     type = models.CharField(max_length=10, choices=SERVER_TYPES, default='stdio')
 
+    #: Which engine runs the card. `type` stays the transport: a `native` kind
+    #: is a built-in connector whatever its transport column says, and the
+    #: other three are the engines the connector catalogue is growing into.
+    KIND_CHOICES = (
+        ('mcp', 'Hosted MCP server'),
+        ('native', 'Built-in tools'),
+        ('api', 'API card'),
+        ('sql', 'Database'),
+    )
+    kind = models.CharField(
+        max_length=8,
+        choices=KIND_CHOICES,
+        default='mcp',
+        help_text="Which engine runs this connector. `type` stays the transport.",
+    )
+    #: Kinds that are not MCP servers and must never be dialled as one. An API
+    #: card is a template for the user's own `ApiConnection`
+    #: (`card_template.py`); a database card is for `query_sql`. Every path that
+    #: would start an MCP session filters these out.
+    NON_MCP_KINDS = ('api', 'sql')
+
+    #: For `kind='api'`: how the card builds the user's `ApiConnection` — base
+    #: URL with `{field}` placeholders, the auth parts, the form fields and the
+    #: allowed methods. Shape and checks: `mcp_integration/card_template.py`.
+    template = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="API-card template (see card_template.py). Empty for other kinds.",
+    )
+
     # Stdio Config
     command = models.CharField(max_length=1024, blank=True, null=True, help_text="Executable command (e.g., 'npx', 'python', 'docker')")
     args = models.JSONField(default=list, blank=True, help_text="List of arguments for the command")
@@ -130,6 +160,15 @@ class MCPServer(models.Model):
     )
 
     setup_notes = models.TextField(blank=True, help_text="Human-readable setup notes shown in the UI")
+
+    #: The "Get started" panel: you_need, admin_needed, cost, time, steps, limits.
+    #: Data, not code, so a card's setup is a row rather than a frontend edit.
+    #: Shape and checks: `mcp_integration/setup_guide.py`.
+    setup_guide = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Get started panel for this connector (see setup_guide.py).",
+    )
 
     enabled = models.BooleanField(default=True)
 

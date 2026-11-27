@@ -21,6 +21,7 @@ from email.utils import getaddresses
 from typing import Any, Dict
 
 from tools_config.overlay import alimit
+from workflow_backend.background import spawn
 
 from ..registry import tool
 from .client import GoogleAPIError, get_json, handles_google_errors, send_json
@@ -364,8 +365,11 @@ async def gmail_create_draft(args: Dict, context: Dict) -> str:
     "function": {
         "name": "gmail_send_message",
         "description": (
-            "[Gmail] Send an email from the user's account. This cannot be "
-            "undone — only use when the user asked for the email to be sent."
+            "[Gmail] Send an email from the user's account. When the user is "
+            "watching, the email waits a few seconds so they can cancel it; once "
+            "sent it cannot be undone. Only use when the user asked for the email "
+            "to be sent. A result with `queued: true` has not been sent yet, so "
+            "say it will be sent."
         ),
         "parameters": {
             "type": "object",
@@ -388,14 +392,52 @@ async def gmail_send_message(args: Dict, context: Dict) -> str:
     if refused:
         return json.dumps({"status": "error", "error": refused})
     args = {**args, "body": outbound.disclose(args.get("body") or "", context)}
-    message = await _compose(args, context)
-    sent = await send_json(context, "POST", f"{API}/messages/send", json=message)
-    return json.dumps({
+
+    from messaging import holds
+    from messaging.holds import DeliveryError
+
+    if holds.should_hold(context):
+        # Compose it now too, so a bad address fails at once rather than 20 s
+        # later. The send composes it again from the stored args.
+        await _compose(args, context)
+        row = await sync_to_async(holds.create)(
+            context["user_id"], "gmail_send_message", args,
+            f"Email to {args.get('to') or 'the sender'}", context)
+        spawn(holds.deliver_after(row.id, holds.hold_seconds()), name=f"hold:{row.id}")
+        return json.dumps({
+            "status": "queued", "queued": True, "hold_id": row.id,
+            "send_at": row.send_at.isoformat(),
+            "text": f"Email will be sent in {holds.hold_seconds()} s. "
+                    "The user can cancel it until then.",
+        })
+
+    try:
+        sent = await deliver_gmail(context.get("user_id"), args)
+    except DeliveryError as exc:
+        # The same shape `GoogleAPIError.as_json()` gave before the split.
+        return json.dumps({"error": str(exc), "code": exc.code})
+    return json.dumps(sent)
+
+
+async def deliver_gmail(user_id: int, payload: dict) -> dict:
+    """Send an email that has already passed every check. Takes no run context:
+    Google calls need only the user (`client._request`). Used at once for an
+    unheld send, and later by the send window (`messaging/holds.py`).
+    Raises `DeliveryError` with plain words when the email did not go out."""
+    from messaging.holds import DeliveryError
+
+    context = {"user_id": user_id}
+    try:
+        message = await _compose(payload, context)
+        sent = await send_json(context, "POST", f"{API}/messages/send", json=message)
+    except GoogleAPIError as exc:
+        raise DeliveryError(exc.message, code=exc.code) from exc
+    return {
         "status": "success",
         "message_id": sent.get("id"),
         "thread_id": sent.get("threadId"),
         "text": "Email sent.",
-    })
+    }
 
 
 async def _label_ids(context: Dict, names: list) -> list[str]:

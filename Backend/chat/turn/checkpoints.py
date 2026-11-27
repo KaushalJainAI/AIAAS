@@ -48,6 +48,50 @@ logger = logging.getLogger(__name__)
 active_backend: str = 'memory'
 
 
+def checkpoint_types() -> tuple[type, ...]:
+    """Our own classes that ride in checkpointed state, allowed by name.
+
+    LangGraph's checkpoint loader rebuilds any class a checkpoint names, which
+    is a code-execution risk if the store is ever written by someone else, and
+    it warns that a future version will refuse classes it was not told about.
+    So every saver here gets an explicit list: LangGraph's built-in safe types
+    plus these. Anything else comes back as raw data and is logged
+    (`_log_blocked`), and `chat/tests/test_checkpoint_types.py` runs a real
+    turn and fails if state carries a class missing from this list.
+    """
+    from llm.usage import TokenUsage  # `AgentState.usage`
+
+    return (TokenUsage,)
+
+
+def serializer():
+    """The strict checkpoint serializer every backend below is built with."""
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    _watch_blocked()
+    return JsonPlusSerializer(allowed_msgpack_modules=checkpoint_types())
+
+
+_watching = False
+
+
+def _watch_blocked() -> None:
+    """Log a refused class once per process, loudly, with the fix."""
+    global _watching
+    if _watching:
+        return
+    from langgraph.checkpoint.serde.event_hooks import register_serde_event_listener
+
+    def _log_blocked(event) -> None:
+        if event.get('kind') == 'msgpack_blocked':
+            logger.error(
+                '[Checkpoints] %s.%s was loaded as raw data: add it to '
+                'checkpoints.checkpoint_types()', event.get('module'), event.get('name'))
+
+    register_serde_event_listener(_log_blocked)
+    _watching = True
+
+
 def _configured() -> str:
     """The backend this deployment asked for, normalised."""
     raw = getattr(settings, 'AGENT_CHECKPOINTER', '') or ''
@@ -100,7 +144,7 @@ def build():
 def _memory():
     from langgraph.checkpoint.memory import MemorySaver
 
-    return MemorySaver()
+    return MemorySaver(serde=serializer())
 
 
 def _sqlite():
@@ -121,7 +165,7 @@ def _sqlite():
     path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = aiosqlite.connect(str(path), check_same_thread=False)
-    saver = AsyncSqliteSaver(conn)
+    saver = AsyncSqliteSaver(conn, serde=serializer())
     logger.info('[Checkpoints] SQLite checkpointer at %s', path)
     return saver
 
@@ -255,7 +299,7 @@ def _postgres():
                                open=False,
                                check=AsyncConnectionPool.check_connection,
                                kwargs={'autocommit': True, 'prepare_threshold': 0})
-    saver = _pooled_saver_class()(pool)
+    saver = _pooled_saver_class()(pool, serde=serializer())
     logger.info('[Checkpoints] Postgres checkpointer configured (pool max=%d)', max_size)
     return saver
 

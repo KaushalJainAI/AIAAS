@@ -184,9 +184,44 @@ class CredentialViewSet(viewsets.ModelViewSet):
         await sync_to_async(credential.save)()
         
         return Response({
-            'valid': is_valid, 
+            'valid': is_valid,
             'message': message
         })
+
+    @action(detail=True, methods=['get'])
+    async def balance(self, request, pk=None):
+        """
+        What is left on an OpenRouter key, read from OpenRouter (llm/balance.py).
+
+        `get_object` is owner-scoped, so an unknown id and someone else's id are
+        the same 404. Only OpenRouter keys have a balance; any other type is a
+        400. A provider failure is a 200 with `available: false` and a reason,
+        so the page can say why rather than show a broken row.
+        """
+        credential = await sync_to_async(self.get_object)()
+        if credential.credential_type.slug != 'openrouter':
+            return Response(
+                {'error': 'Only OpenRouter keys report a balance.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Decrypting writes an 'accessed' audit row, as verify does.
+            secrets = await sync_to_async(credential.get_credential_data)(
+                user=request.user,
+                ip_address=client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT') or '',
+            )
+        except Exception:
+            logger.warning('credential %s could not be decrypted for a balance check', credential.pk)
+            return Response({
+                'available': False,
+                'reason': 'This key could not be read. Edit it and save it again.',
+            })
+
+        from llm.balance import openrouter_key_balance
+
+        return Response(await openrouter_key_balance((secrets or {}).get('apiKey') or ''))
 
 
 class GoogleCredentialOAuthViewSet(viewsets.ViewSet):

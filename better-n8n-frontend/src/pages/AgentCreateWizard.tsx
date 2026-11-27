@@ -78,16 +78,19 @@ export default function AgentCreateWizard() {
   });
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      <Link to="/agents" className="text-xs text-muted-foreground inline-flex items-center gap-1 mb-3">
-        <ArrowLeft className="w-3 h-3" /> All agents
-      </Link>
+    <div>
+      <div className="px-4 pt-6 pb-3 md:px-6">
+        <Link to="/agents" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+          <ArrowLeft className="w-3 h-3" /> All agents
+        </Link>
+      </div>
       <PageHeader
         title="Create an agent"
         subtitle="Describe the job. The orchestrator asks what it needs, proposes the config, and you approve before anything exists."
         icon={Workflow}
       />
 
+      <div className="max-w-2xl px-4 py-6 md:px-6">
       {step === 'describe' && (
         <section className="border border-border rounded-md bg-card p-4 space-y-3">
           <label className="text-[13px] font-semibold">What should this agent do?</label>
@@ -183,6 +186,7 @@ export default function AgentCreateWizard() {
           )}
         </section>
       )}
+      </div>
     </div>
   );
 }

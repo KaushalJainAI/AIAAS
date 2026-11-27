@@ -16,7 +16,7 @@
  * with clear section headings (Plugins above, Connectors wiring inline).
  * Standard tools are not configured here — see /tools for the code-owned library.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -44,6 +44,11 @@ import {
 } from '../api/credentials';
 import { mcpService, MCPToolsError, type MCPServer, type MCPServerCategory } from '../api/mcp';
 import MCPServerModal from '../components/mcp/MCPServerModal';
+import GetStartedPanel from '../components/connections/GetStartedPanel';
+import CardFieldsForm from '../components/connections/CardFieldsForm';
+import { hasSetupGuide } from '../lib/setupGuide';
+import { apiErrorMessage } from '../lib/apiError';
+import { CUSTOM_MCP_SERVERS } from '../lib/features';
 import HeldToolsPanel from '../components/mcp/HeldToolsPanel';
 import MessagingChannels from '../components/messaging/MessagingChannels';
 import PageHeader from '../components/layout/PageHeader';
@@ -205,7 +210,9 @@ function ConnectModal({
         credential_type: credType.id,
         data: formData,
       });
-      toast.success(`${server.label} connected`);
+      // An API card is not connected yet: its own fields and link come next
+      // (CardConnectModal), and that step is the one that toasts.
+      if (server.kind !== 'api') toast.success(`${server.label} connected`);
       onConnected();
       onClose();
     } catch (err: unknown) {
@@ -224,7 +231,7 @@ function ConnectModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative bg-card border border-border rounded-md shadow-lg w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative bg-card border border-border rounded-md shadow-lg w-full max-w-md max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-4 p-6 border-b border-border/60">
           <div className="w-11 h-11 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/60">
             <Icon style={{ color }} className="w-6 h-6" />
@@ -243,6 +250,14 @@ function ConnectModal({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {hasSetupGuide(server.setup_guide) && (
+          // The body below supplies its own p-6, so pull it up by the same
+          // amount: the gap between the panel and the form stays one 24px step.
+          <div className="px-6 pt-6 -mb-6">
+            <GetStartedPanel guide={server.setup_guide} />
+          </div>
+        )}
 
         {isOAuth ? (
           <div className="p-6 space-y-4">
@@ -360,6 +375,122 @@ function ConnectModal({
               </Button>
             </div>
           </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// API cards: the card's own fields, then the link
+// ---------------------------------------------------------------------------
+
+/**
+ * The second half of connecting an API card. The credential is already held by
+ * the time this opens (ConnectModal saved it, or it was there before), so this
+ * step collects the card's non-secret fields and links the two. A card with no
+ * fields is linked straight away, and a failure there offers Try again.
+ */
+function CardConnectModal({ server, onClose }: { server: MCPServer; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const fields = server.template_fields ?? [];
+  const noFields = fields.length === 0;
+  const { icon: Icon, color } = connectorVisual(server.icon_slug, server.is_system);
+
+  const link = useMutation({
+    mutationFn: (values: Record<string, string>) => mcpService.cardConnect(server.id, values),
+    onMutate: () => setError(null),
+    onSuccess: () => {
+      toast.success(`${server.label} connected`);
+      queryClient.invalidateQueries({ queryKey: ['mcpServers'] });
+      queryClient.invalidateQueries({ queryKey: ['credentials'] });
+      queryClient.invalidateQueries({ queryKey: ['mcpValidation'] });
+      onClose();
+    },
+    onError: (err: unknown) =>
+      setError(apiErrorMessage(err, 'Could not connect. Please try again.')),
+  });
+
+  // No fields to ask for: link now, once. The ref keeps a StrictMode double
+  // effect from sending the request twice.
+  const { mutate } = link;
+  const linkedOnOpen = useRef(false);
+  useEffect(() => {
+    if (!noFields || linkedOnOpen.current) return;
+    linkedOnOpen.current = true;
+    mutate({});
+  }, [noFields, mutate]);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Connect ${server.label}`}
+        className="relative bg-card border border-border rounded-md shadow-lg w-full max-w-md max-h-[90dvh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
+      >
+        <div className="flex items-center gap-4 p-6 border-b border-border/60">
+          <div className="w-11 h-11 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/60">
+            <Icon style={{ color }} className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-lg text-foreground">Connect {server.label}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {noFields ? 'Linking your account' : 'A few details this connection needs'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-muted rounded-md transition-colors text-muted-foreground"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {noFields ? (
+          <div className="p-6 space-y-4">
+            {link.isPending && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Connecting…
+              </div>
+            )}
+            {error && (
+              <div role="alert" className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            {error && !link.isPending && (
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2.5 rounded-md border border-border/60 text-sm font-semibold hover:bg-muted/50 transition-colors"
+                >
+                  Close
+                </button>
+                <Button type="button" onClick={() => mutate({})} className="flex-1">
+                  Try again
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-6">
+            <CardFieldsForm
+              fields={fields}
+              submitLabel="Connect"
+              busy={link.isPending}
+              error={error}
+              onSubmit={(values) => link.mutate(values)}
+              onCancel={onClose}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -509,6 +640,8 @@ function ConnectionCard({
   busy,
 }: ConnectionCardProps) {
   const [showCapabilities, setShowCapabilities] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const guide = server.setup_guide;
   const { icon: Icon, color } = connectorVisual(server.icon_slug, server.is_system);
   const view = STATUS_VIEWS[status];
   const isOn = server.effective_enabled;
@@ -565,6 +698,8 @@ function ConnectionCard({
         </p>
       )}
 
+      {showGuide && hasSetupGuide(guide) && <GetStartedPanel guide={guide} />}
+
       {canShowCapabilities && (
         <div className="border-t border-border/40 pt-2">
           <button
@@ -592,6 +727,17 @@ function ConnectionCard({
           />
           {isOn || platformOff ? view.label : STATUS_VIEWS.off.label}
         </span>
+
+        {hasSetupGuide(guide) && (
+          <button
+            type="button"
+            onClick={() => setShowGuide((v) => !v)}
+            aria-expanded={showGuide}
+            className="h-8 px-2 rounded-md text-[13px] font-medium text-primary hover:underline transition-colors"
+          >
+            {showGuide ? 'Hide steps' : 'Get started'}
+          </button>
+        )}
 
         {/* Connect is the one solid dark button on the page: it is the next
             step for this row, and a text link undersold it. */}
@@ -740,6 +886,8 @@ function CustomServerRow({
 export default function Connections() {
   const queryClient = useQueryClient();
   const [connecting, setConnecting] = useState<MCPServer | null>(null);
+  /** An API card whose credential is held and whose own fields + link are next. */
+  const [cardServer, setCardServer] = useState<MCPServer | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [serverModalOpen, setServerModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<MCPServer | null>(null);
@@ -894,12 +1042,32 @@ export default function Connections() {
     onError: () => toast.error('Could not remove that connection.'),
   });
 
-  const handleDisconnect = (server: MCPServer) => {
+  const handleDisconnect = async (server: MCPServer) => {
     const ids = (server.required_credential_types ?? [])
       .map((slug) => credTypeBySlug.get(slug))
       .filter((ct): ct is CredentialType => ct !== undefined)
       .map((ct) => credByTypeId.get(ct.id)?.id)
       .filter((id): id is number => id !== undefined);
+
+    if (server.kind === 'api') {
+      // The card link goes first, then the credential. If the link cannot be
+      // removed the credential stays too, so the two never disagree.
+      setBusyId(server.id);
+      try {
+        await mcpService.cardDisconnect(server.id);
+      } catch (err) {
+        setBusyId(null);
+        toast.error(apiErrorMessage(err, 'Could not disconnect. Please try again.'));
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['mcpServers'] });
+      if (ids.length === 0) {
+        setBusyId(null);
+        toast.success('Disconnected');
+        return;
+      }
+    }
+
     if (ids.length === 0) return;
     setBusyId(server.id);
     disconnectMutation.mutate(ids);
@@ -957,6 +1125,19 @@ export default function Connections() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connecting, credByTypeId, credTypeBySlug, validationQuery.data]);
 
+  /**
+   * Connect is the first step for any card. An API card whose credential is
+   * already held (or resolves) goes straight to its own fields and link;
+   * anything else opens the credential form first.
+   */
+  const startConnect = (server: MCPServer) => {
+    const credentialReady =
+      missingCredTypes(server).length === 0 &&
+      validationQuery.data?.get(server.id)?.ok !== false;
+    if (server.kind === 'api' && credentialReady) setCardServer(server);
+    else setConnecting(server);
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -984,7 +1165,7 @@ export default function Connections() {
       />
 
       {serversQuery.error && (
-        <div className="mx-4 md:mx-8 mt-4 bg-destructive/10 text-destructive p-4 rounded-md border border-destructive/20 flex items-center gap-3">
+        <div className="mx-4 md:mx-6 mt-4 bg-destructive/10 text-destructive p-4 rounded-md border border-destructive/20 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 shrink-0" />
           <p className="text-sm font-medium">
             Could not load your connections. Please try again later.
@@ -992,7 +1173,7 @@ export default function Connections() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 md:py-8 space-y-8 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 md:py-8 space-y-8 custom-scrollbar">
         <HeldToolsPanel />
         {CATEGORY_ORDER.map((category) => {
           const group = byCategory.get(category) ?? [];
@@ -1013,7 +1194,7 @@ export default function Connections() {
                     server={server}
                     status={statusOf(server)}
                     busy={busyId === server.id}
-                    onConnect={() => setConnecting(server)}
+                    onConnect={() => startConnect(server)}
                     onDisconnect={() => handleDisconnect(server)}
                     onToggle={(enabled) =>
                       toggleMutation.mutate({ id: server.id, enabled })
@@ -1030,7 +1211,9 @@ export default function Connections() {
             <Plug className="w-12 h-12 text-muted-foreground/30 mb-4" />
             <p className="text-lg font-semibold text-foreground">No connections available</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Ask an administrator to set up connections, or add your own below.
+              {CUSTOM_MCP_SERVERS
+                ? 'Ask an administrator to set up connections, or add your own below.'
+                : 'Ask an administrator to set up connections.'}
             </p>
           </div>
         )}
@@ -1048,7 +1231,9 @@ export default function Connections() {
         />
 
         {/* Advanced. The MCP vocabulary lives here and nowhere else: it is a real
-            capability, but naming a subprocess is not a task for most people. */}
+            capability, but naming a subprocess is not a task for most people.
+            Retired behind `CUSTOM_MCP_SERVERS` (lib/features.ts). */}
+        {CUSTOM_MCP_SERVERS && (
         <section className="border-t border-border/40 pt-5">
           <button
             onClick={() => setAdvancedOpen((v) => !v)}
@@ -1103,6 +1288,7 @@ export default function Connections() {
             </div>
           )}
         </section>
+        )}
 
         {/* Credentials no longer has a nav entry — you get to a key through the
             connection that uses it. This is the way to the full list for anyone
@@ -1125,13 +1311,23 @@ export default function Connections() {
           onConnected={() => {
             queryClient.invalidateQueries({ queryKey: ['credentials'] });
             queryClient.invalidateQueries({ queryKey: ['mcpValidation'] });
+            // The credential is saved; an API card still needs its own fields and link.
+            if (connecting?.kind === 'api') setCardServer(connecting);
             setConnecting(null);
           }}
         />
       )}
 
+      {cardServer && (
+        <CardConnectModal
+          key={cardServer.id}
+          server={cardServer}
+          onClose={() => setCardServer(null)}
+        />
+      )}
+
       <MCPServerModal
-        isOpen={serverModalOpen}
+        isOpen={CUSTOM_MCP_SERVERS && serverModalOpen}
         onClose={() => {
           setServerModalOpen(false);
           setEditingServer(null);

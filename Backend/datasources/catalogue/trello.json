@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Trello REST API (read-only subset)",
+    "version": "1.0.0",
+    "description": "GET operations from the Trello REST API reference. Base URL: https://api.trello.com/1. Key and token are sent as query parameters."
+  },
+  "paths": {
+    "/members/me": {
+      "get": {
+        "summary": "Get the member the token belongs to",
+        "x-aiaas-check": true,
+        "responses": { "200": { "description": "Member" } }
+      }
+    },
+    "/members/{id}/boards": {
+      "get": {
+        "summary": "Get boards for a member",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Boards" } }
+      }
+    },
+    "/boards/{id}": {
+      "get": {
+        "summary": "Get a board",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Board" } }
+      }
+    },
+    "/boards/{id}/lists": {
+      "get": {
+        "summary": "Get lists on a board",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Lists" } }
+      }
+    },
+    "/boards/{id}/cards": {
+      "get": {
+        "summary": "Get cards on a board",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Cards" } }
+      }
+    }
+  }
+}

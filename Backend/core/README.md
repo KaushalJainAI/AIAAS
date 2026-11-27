@@ -31,13 +31,17 @@ the input and output safety checks.
 | `realtime/channels_middleware.py` | WebSocket login |
 | `http/middleware.py` | Custom middleware. Runs in both sync and async mode |
 | `http/throttling.py`, `http/pagination.py` | Rate limits by tier; page sizes |
+| `http/client_ip.py` | The caller's IP, read through our reverse proxies (`TRUSTED_PROXY_COUNT`) |
 | `safety/security.py` | Checks each message *you* send for attacks on the model. A match refuses the whole request before it is saved. It never rewrites your text |
 | `safety/provenance.py` | Attacks hidden in what a *tool* read (a web page, an email). Puts `auto` mode on guard for the rest of that turn |
-| `safety/net.py` | Outgoing URLs: blocks internal addresses (SSRF) and applies per-agent allow-lists |
+| `safety/net.py` | Outgoing URLs: `validate_url` blocks internal addresses (SSRF). `check_egress` then checks the host against the scope's allow-list |
 | `safety/content_policy.py` | Content the platform refuses whoever asks: sexual content involving minors, sexual deepfakes of real people, weapons of mass destruction |
 | `safety/moderation.py` | A second check by a small safety model, for image prompts and published pages only. Can only refuse more; fails open |
 | `safety/labels.py` | The visible "AI-generated" tag and metadata on generated images |
 | `safety/outbound.py` | Checks every message an agent sends: content policy, daily cap, AI disclosure line |
+| `admin.py`, `apps.py`, `__init__.py` files | Django admin and app config |
+| `management/commands/boot.py` | Prepares the database before the server starts. The image's `CMD` runs it, then starts daphne |
+| `management/commands/backup_db.py` | A consistent copy of the database, kept locally and optionally uploaded to S3 |
 
 Teams are described in [`docs/ORG_KNOWLEDGE_PLAN.md`](../docs/ORG_KNOWLEDGE_PLAN.md).
 Google and social login use `django-allauth`.

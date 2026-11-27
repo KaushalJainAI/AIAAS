@@ -5,7 +5,7 @@ egress, no secrets, and C extensions (numpy/pandas) available. Local dev with
 no sidecar falls back to an in-process AST-guarded engine, which is weaker and
 for development only. Engine selection lives in `sandbox/engine.py`.
 
-Two tools share that one engine, split by effect rather than by implementation:
+Four tools share that one engine, split by effect rather than by implementation:
 
 - `execute_python` (read-only) runs code with no filesystem. It stays in `plan`
   mode and in every autonomy level, which is why it must never write a file.
@@ -13,6 +13,15 @@ Two tools share that one engine, split by effect rather than by implementation:
   collects declared outputs back into the caller's file scope. It is withheld
   where there is no scope and in `plan` mode, exactly like the other file
   tools, because a file it writes is a side effect.
+- `execute_javascript` (read-only) is `execute_python` for JavaScript and
+  TypeScript, on Node inside the sidecar.
+- `run_command` (read-only) runs a pipeline of allowlisted text commands
+  (grep, sort, jq, ...) over text or the caller's files, with no shell. It
+  reads input files but keeps nothing it writes.
+
+The last two exist only on the sidecar (`requires="sidecar"`): the in-process
+engine is an AST guard around Python's own `exec` and has nothing that could
+confine Node or a native program. All four share the `codeExecution` grant.
 """
 from __future__ import annotations
 
@@ -105,6 +114,210 @@ async def execute_python(args: Dict, context: Dict) -> str:
         "type": "code_execution",
         "result": _jsonable(outcome.get("result")),
         "stdout": (outcome.get("output") or "")[:cap],
+    })[:cap]
+
+
+@tool({
+    "type": "function",
+    "function": {
+        "name": "execute_javascript",
+        "description": (
+            "Run JavaScript or TypeScript on Node.js 22 in a sandbox and get what "
+            "it prints back. No network, no npm packages: only Node's built-in "
+            "modules. Print the answer with console.log; there is no `result` "
+            "variable. JavaScript may use require or import. TypeScript is "
+            "checked for syntax, not types, and runs as an ES module, so use "
+            "import there. Prefer execute_python for numbers and tables "
+            "(numpy and pandas are there); use this when the task is about "
+            "JavaScript itself, such as checking a snippet's behaviour."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The source to run.",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["javascript", "typescript"],
+                    "description": "Defaults to javascript.",
+                },
+            },
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+    },
+}, requires="sidecar", effect="read")
+async def execute_javascript(args: Dict, context: Dict) -> str:
+    """JavaScript and TypeScript through the same sidecar as Python.
+
+    Read-only for the reason `execute_python` is: no network, no files kept,
+    and Node's permission model plus the sidecar's exec guard mean the code
+    cannot start another program. Same output knob as Python, because it is
+    the same budget: how much printed text one sandbox run may hand back.
+    """
+    from sandbox.engine import arun_code
+
+    code = (args.get("code") or "").strip()
+    if not code:
+        return "Error: 'code' is required."
+    language = (args.get("language") or "javascript").strip().lower()
+    if language not in ("javascript", "typescript"):
+        return "Error: 'language' must be javascript or typescript."
+
+    from tools_config.overlay import alimit
+
+    cap = await alimit(context, "execute_python", "outputLimit")
+    outcome = await arun_code(code, language=language)
+
+    if not outcome.get("success"):
+        detail = outcome.get("error") or "Execution failed."
+        if outcome.get("stderr") and outcome["stderr"].strip() not in detail:
+            detail = f"{detail}\n{outcome['stderr']}"
+        return f"Error: {detail}"[:cap]
+
+    return json.dumps({
+        "type": "code_execution",
+        "language": language,
+        "stdout": (outcome.get("output") or "")[:cap],
+        **({"stderr": outcome["stderr"][:2_000]} if outcome.get("stderr") else {}),
+    })[:cap]
+
+
+#: Largest `stdin` the sidecar accepts (its `MAX_CODE_BYTES`). Checked here so
+#: the model gets a reason and a fix instead of a bare 413.
+MAX_COMMAND_STDIN_BYTES = 256 * 1024
+
+#: The commands `run_command` may name, for the model to read. The sidecar's
+#: `sandbox_service/commands.py::COMMANDS` is what decides; a test keeps the
+#: two equal, so this list can never offer a command the sidecar refuses.
+RUN_COMMAND_NAMES: tuple[str, ...] = (
+    'awk', 'base64', 'cat', 'cmp', 'column', 'comm', 'cut', 'date', 'diff',
+    'du', 'echo', 'expand', 'file', 'fmt', 'fold', 'grep', 'gunzip', 'gzip',
+    'head', 'iconv', 'join', 'jq', 'ls', 'md5sum', 'nl', 'od', 'paste',
+    'printf', 'rev', 'sed', 'seq', 'sha1sum', 'sha256sum', 'sort', 'stat',
+    'tac', 'tail', 'tr', 'unexpand', 'uniq', 'unzip', 'wc', 'zcat',
+)
+
+
+@tool({
+    "type": "function",
+    "function": {
+        "name": "run_command",
+        "description": (
+            "Run a pipeline of standard Unix text commands in a sandbox: search "
+            "a log, count or de-duplicate lines, slice columns, query JSON. "
+            "Allowed commands: " + ", ".join(RUN_COMMAND_NAMES) + ". "
+            "There is no shell: each stage is a command name plus a list of "
+            "arguments passed exactly as given, so quoting, globs (*.csv), "
+            "redirection (>) and $(...) do not work. Put stages in order to "
+            "pipe one into the next, like `grep ERROR app.log | sort | uniq -c` "
+            "as three stages. `inputs` are workspace paths that appear under "
+            "their file names (\"/Chat/app.log\" is app.log); `stdin` is text "
+            "fed to the first stage. sed and awk run in their sandbox mode "
+            "(no e/r/w commands, no system(), no pipes). Nothing written is "
+            "kept. No network. For anything this cannot do, use execute_python."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pipeline": {
+                    "type": "array",
+                    "description": "1-5 stages; each one's output is the next one's input.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string", "enum": list(RUN_COMMAND_NAMES)},
+                            "args": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Arguments, one per item, e.g. [\"-i\", \"error\", \"app.log\"].",
+                            },
+                        },
+                        "required": ["command"],
+                        "additionalProperties": False,
+                    },
+                },
+                "inputs": {
+                    "type": "array",
+                    "description": "Workspace paths to make available, by file name (at most 5).",
+                    "items": {"type": "string"},
+                },
+                "stdin": {
+                    "type": "string",
+                    "description": "Text fed to the first stage.",
+                },
+            },
+            "required": ["pipeline"],
+            "additionalProperties": False,
+        },
+    },
+}, requires="sidecar", effect="read")
+async def run_command(args: Dict, context: Dict) -> str:
+    """A fixed set of text commands, never a shell.
+
+    Read-only: input files are copied into a throwaway directory and nothing
+    the pipeline writes comes back, so the only effect is the text returned.
+    The sidecar owns the allowlist and the refusals (`commands.py`); this
+    tool checks only the shape, then passes its reason through.
+    """
+    from asgiref.sync import sync_to_async
+
+    from sandbox.engine import arun_commands
+    from workflow_backend.thresholds import SANDBOX_FILE_MAX_FILES
+
+    pipeline = args.get("pipeline")
+    if not isinstance(pipeline, list) or not pipeline:
+        return "Error: 'pipeline' must be a list of {command, args} stages."
+    stdin = args.get("stdin") or ""
+    if not isinstance(stdin, str):
+        return "Error: 'stdin' must be a string."
+    if len(stdin.encode("utf-8")) > MAX_COMMAND_STDIN_BYTES:
+        # Refused, not cut: a truncated input would give a confident wrong count.
+        return (f"Error: 'stdin' is over {MAX_COMMAND_STDIN_BYTES // 1024} KB. Save the "
+                f"text to a file and pass its path in 'inputs' instead.")
+
+    raw_inputs = args.get("inputs") or []
+    if not isinstance(raw_inputs, list):
+        return "Error: 'inputs' must be a list of workspace paths."
+    inputs = [_bare_name(v) for v in raw_inputs if _bare_name(v)]
+    if len(inputs) > SANDBOX_FILE_MAX_FILES:
+        return f"Error: at most {SANDBOX_FILE_MAX_FILES} input files per run."
+    files: dict[str, bytes] = {}
+    if inputs:
+        scope = context.get("file_scope")
+        if scope is None:
+            return ("Error: there is no file workspace here, so files cannot be "
+                    "handed to the command. Pass the text as 'stdin' instead.")
+        try:
+            files = await sync_to_async(_load_inputs)(scope, inputs)
+        except ValueError as exc:
+            return f"Error: {exc}"
+
+    from tools_config.overlay import alimit
+
+    cap = await alimit(context, "execute_python", "outputLimit")
+    outcome = await arun_commands(pipeline, stdin=stdin, files=files)
+
+    if outcome.get("timed_out"):
+        return f"Error: {outcome.get('error') or 'The command timed out.'}"[:cap]
+    if not outcome.get("success"):
+        return f"Error: {outcome.get('error') or 'The command failed.'}"[:cap]
+
+    codes = outcome.get("exit_codes") or []
+    stdout = outcome.get("output") or ""
+    return json.dumps({
+        "type": "command_output",
+        "stdout": stdout[:cap],
+        **({"truncated": True} if len(stdout) > cap else {}),
+        **({"stderr": outcome["stderr"][:2_000]} if outcome.get("stderr") else {}),
+        "exit_codes": codes,
+        # grep exits 1 when it finds nothing: worth saying, so the model does
+        # not read an empty stdout as a broken pipeline.
+        **({"note": "A non-zero exit code is not always an error: grep exits 1 "
+                    "when nothing matched."}
+           if any(c != 0 for c in codes) else {}),
     })[:cap]
 
 

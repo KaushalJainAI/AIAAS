@@ -40,7 +40,7 @@ configures tool by tool.
 | Team knowledge bases | An owner may share a KB read-only with one of their organisations; only a chat reads it; membership checked on every read; hidden eval corpora never pass. | `inference/kb_access.py`, `chat/tools/knowledge.py` |
 | Knowledge-base writes | The `kbWrite` grant lets an agent add documents to a knowledge base that later runs search. Writes need a writable folder in the run's file scope, and a KB is bound to a folder. A run with no writable scope is not offered the two write tools. | `agents/grants.py::GRANT_TOOLS`, `agents/agent/runtime.py` (`allowed_names`, `build_file_scope`), `inference/kb_folders.py` |
 | Team solutions, unattended | Schedules, triggers, missions and delegated workers can search and read team solutions, never save or review one. | `chat/tools/solutions.py::_refuse_if_unattended` |
-| Egress guard | Every outbound request passes the SSRF guard (no private IPs, metadata endpoints, redirects re-checked), then the per-scope host allowlist. | `core/safety/net.py` |
+| Egress guard | Every outbound request passes the SSRF guard (no private IPs, metadata endpoints, redirects re-checked), then the per-scope host allowlist. An IPv6 address is judged by the IPv4 it carries (IPv4-mapped, NAT64, 6to4, Teredo); an unparseable DNS answer fails closed; NAT64 networks still work. | `core/safety/net.py` |
 
 ### Layer 2 — Who approves
 
@@ -65,8 +65,8 @@ configures tool by tool.
 |---|---|---|
 | Input sanitizer | *Direct* attempts — read through disguises (look-alike letters, invisible characters, leetspeak, spacing, base64). Refuses the whole message; never rewrites it. | `core/safety/security.py`, `core/http/middleware.py` |
 | Taint flag | A tool result that addresses an AI marks the turn; `auto` then asks before anything irreversible, and memory becomes read-only. Patterns first; then, in an `auto`/`full` turn with no pattern hit, a model is asked about each new untrusted result (plain prose passes the patterns). A hit taints the turn; the model fails open, verdicts are cached in memory (512, LRU), and `ask`/`review` never ask. | `core/safety/provenance.py::instruction_shaped`, `core/safety/moderation.py::injection_check` / `first_injection`, `chat/turn/agent.py::_model_taint` |
-| Enclosed third-party text | Every tool result and uploaded file reaches the model inside `<untrusted_data source="…" tag="…">`. The tag is random per request, and any envelope marker inside the text is neutralised, so a page cannot close its own envelope. A tool whose output is only ours declares `trusted_output=True` (clock, planning, charts, ask) and is not enclosed. Refusals are our own sentences and are never enclosed. | `core/safety/provenance.py::wrap_untrusted`, `chat/turn/agent.py::enclose_result`, `chat/tools/registry.py` (`trusted_output`) |
-| Uploads and search seeds | An uploaded file's text, and the result of a `/search` or `/research` seed that runs before the first model call, are enclosed and scanned like a tool result. Patterns run in every mode; in `auto`/`full` the model is asked when they find nothing. A hit taints the turn as `upload`, or as the seed's tool name. | `chat/turn/pipeline.py` (`initial_taint`), `chat/turn/agent.py::_describe_attachment_for_text_model` |
+| Enclosed third-party text | Every tool result and uploaded file reaches the model inside `<untrusted_data source="…" tag="…">`. The tag is random per request, and any envelope marker inside the text is neutralised, so a page cannot close its own envelope. A tool whose output is only ours declares `trusted_output=True` (clock, planning, charts, ask) and is not enclosed. Refusals are our own sentences and are never enclosed. The tag is made once per run and kept across an approval pause and resume, so every envelope in a run shares one tag. | `core/safety/provenance.py::wrap_untrusted`, `chat/turn/agent.py::enclose_result`, `chat/tools/registry.py` (`trusted_output`) |
+| Uploads and search seeds | An uploaded file's text, and the result of a `/search` or `/research` seed that runs before the first model call, are enclosed and scanned like a tool result. Patterns run in every mode; in `auto`/`full` the model is asked when they find nothing. A hit taints the turn as `upload`, or as the seed's tool name. A raw PDF or office file (sent as a file block, not wrapped) is scanned through its extracted text the same way, and the question carries one trusted line saying attached files are third-party content. A raw image is read by a vision model (`meta-llama/llama-4-scout`) in `auto`/`full`, up to four a turn; a hit taints the turn as `upload`. | `chat/turn/pipeline.py` (`initial_taint`), `chat/turn/agent.py::_describe_attachment_for_text_model`, `chat/turn/agent.py::prepare_attachments` (`scan_text`), `chat/turn/agent.py::check_raw_images`, `core/safety/moderation.py::image_injection_check` |
 | Taint carried by workers | A worker started from a tainted turn starts tainted. A delegation whose own brief reads like orders starts tainted as `delegated task`. The taint is stored on the run's log, so a worker resumed after an approval comes back tainted. It only widens: a later clean result does not clear it. | `agents/agent/runtime.py::run_agent` (`inherited_taint`), `_remember_taint`, `chat/tools/agents.py`, `chat/tools/tasks.py` |
 | URL provenance | Stops the "open `evil.example/?d=<your data>`" leak: a composed URL carrying data is refused unless the user or a tool result supplied it. | `provenance.check_fetch` |
 | No auto-loading images | A remote image in a reply is a link, never an `<img>`. | `MarkdownMessage.tsx` |
@@ -79,9 +79,11 @@ configures tool by tool.
 
 | Control | What it contains | Code |
 |---|---|---|
-| Python sandbox | A separate hardened container: no network, no root, read-only filesystem, memory and process limits, killed on timeout. | `sandbox_service/`, `sandbox/engine.py` |
+| Code sandbox (Python, JavaScript, commands) | A separate hardened container: no network, no root, read-only filesystem, memory and process limits, killed on timeout. Python cannot start any other program (seccomp blocks `execve`). JavaScript runs under Node's permission model. `run_command` takes only allowlisted text commands as argument lists, never a shell, and each process may start only its own program (one-`execve` seccomp guard, fails closed). Withheld when the engine is not the container. Users are kept apart by slot: each run executes as its slot's own Unix user, in a folder only that user can open, and every process of that user is killed before and after the run. | `sandbox_service/`, `sandbox/engine.py`, `sandbox_service/commands.py` |
 | Virtual filesystem | Agents see paths but they are database rows; nothing reaches the host disk. Deletes go to the recycle bin. | `inference/vfs.py` |
-| Secrets never reach the model | Tools take `secret_ref`s, resolved after approval and scrubbed from results. MCP subprocesses get an allow-listed environment. | `credentials/refs.py`, `mcp_integration/client.py` |
+| Secrets never reach the model | Tools take `secret_ref`s, resolved after approval and scrubbed from results. `call_api` also blanks the credential from a response that echoes it, at any depth, and refuses to save a file (PDF, zip, octet-stream) whose bytes hold it as UTF-8 or UTF-16. A key inside compressed data is not seen. MCP subprocesses get an allow-listed environment. | `credentials/refs.py`, `chat/tools/apicaller.py`, `mcp_integration/client.py` |
+| Secrets stay out of logs | The sanitizer scrubs a log record's arguments as well as its message, and blanks query parameters named like credentials (`key`, `token`, `appid`, `api_key`, `sig`...) wherever a URL appears. httpx and httpcore log at WARNING, so no request URL is logged at INFO. | `core/safety/security.py::SensitiveDataFilter`, `workflow_backend/settings/base.py` (LOGGING) |
+| API card kill switch | A connection built from an API card is called only while the card's `MCPServer` row is enabled; a missing row refuses too. | `chat/tools/apicaller.py::_card_refusal` |
 | Sandboxed rendering | HTML artifacts and published pages render in iframes without same-origin access, under a no-network CSP. File responses carry `CSP: sandbox`. | frontend `HtmlArtifact`, `/p/:slug` |
 | HTML files in the preview pane: scripts are opt-in, owner only | An HTML file opens with an empty `sandbox` and a CSP that blocks all network. Its owner (`is_owner`, computed server-side; a file shared to someone else is never theirs) may press "Run scripts", which sets `sandbox="allow-scripts"` under a CSP that allows inline script and still no network. Never `allow-same-origin`, so the page has no access to our cookies or storage. The choice is not remembered between opens. A missing request context fails closed (`is_owner` false). | frontend `components/files/FilePreview.tsx::HtmlFrame`, `inference/serializers.py::DocumentSerializer.get_is_owner` |
 | App-wide CSP | `connect-src 'self'` refuses fetch/XHR/WebSocket to other hosts; no remote scripts; `object-src 'none'`; `frame-ancestors 'none'`. `script-src` keeps `'unsafe-inline'` because artifacts run inline scripts in `srcdoc` frames; removing it needs artifacts on a separate origin. | `better-n8n-frontend/nginx.conf` |
@@ -102,6 +104,32 @@ configures tool by tool.
 | Indexing runs a fixed number of documents at once | `inference/indexing.py` |
 | A ChatGPT plan pays only for runs a person started: schedules, missions and evals are refused | `llm/chatgpt_plan.py::REFUSED_CALLERS`, `agents/config.py` |
 | **Pause everything** (account-wide), cancel a run, stop a worker | `UserProfile.paused_until`, `cancel_agent_run`, `stop_task` |
+
+#### Send window (undo plan D12–D14)
+
+A message or email sent while a person is watching waits `OUTBOUND_HOLD_SECONDS` (20) so they can cancel it. Once sent, nothing can be unsent, so this is the last chance to catch a mistake.
+
+| Rule | Code |
+|---|---|
+| Only attended sends wait. Unattended runs (`trigger`, `orchestrator`, `mission`) and evals send at once, as before | `messaging/holds.py::should_hold` |
+| A held send is claimed by one conditional `UPDATE`. Cancel, Send now, the timer and the sweep cannot send it twice | `messaging/holds.py::deliver`, `cancel`, `send_now` |
+| A send interrupted mid-delivery is never retried. Stuck in `sending` for 5 minutes, it becomes `unknown`, and the user is told it may or may not have gone out | `messaging/holds.py::sweep` |
+| A held WhatsApp or SMS message is billed when it is delivered, so a cancelled one costs nothing | `chat/tools/talk.py::record_held_cost` |
+| A cancelled hold still counts toward the daily cap, which is the conservative choice | `core/safety/outbound.py` |
+| The user can list, cancel and send-now only their own holds. A foreign id and an unknown id get the same 404 | `messaging/views.py` (`hold_*`) |
+
+#### Undo changes (undo plan D1–D3, D8, D16–D18)
+
+What an agent changed can be put back from the chat answer or the run page. An undo must never cost the user work they did since, so it skips rather than overwrites.
+
+| Rule | Code |
+|---|---|
+| Every tool call is bound to its owner (the user's chat message, or the run), or explicitly to none, so an inline child never records into its parent's list | `chat/turn/agent.py::_dispatch_one`, `logs/changes.py::bind` |
+| File changes are recorded in the agent's own file door, never in the shared save code that also renders a user's pending draft | `inference/vfs.py`, `inference/versions.py::snapshot` |
+| A target changed since the run (by the user or another run) is skipped with a plain note, never overwritten; there is no force option | `logs/undo.py` (`_revert_document`, `_revert_folder`) |
+| A revert is refused while the run, or any worker it started, is still live, and two presses cannot both run (one conditional update; a lock older than 10 minutes, left by a dead process, can be taken over) | `logs/undo.py::revert`, `live_reason` |
+| What we cannot undo (a sent email, an outside tool) is still listed, as "can't be undone from here", instead of vanishing | `chat/turn/agent.py::_journal_untracked` |
+| Only the owner can see or revert a change set; a foreign id and an unknown id get the same 404 | `logs/views.py` (`change_set_*`) |
 
 ### Layer 6 — Content and the law
 
@@ -145,7 +173,7 @@ configures tool by tool.
 | ASI01 Goal hijack | Sanitizer, taint flag, approvals, URL provenance | Covered; injection can still *change the answer*, not act unapproved |
 | ASI02 Tool misuse | Grants, scopes, effects, autonomy ladder | Covered |
 | ASI03 Identity & privilege abuse | Per-user credentials, secret refs, scoped connectors, JWT revocation | Covered |
-| ASI04 Supply chain | MCP tool pinning, stdio off in production, allow-listed env | Covered (TOFU: day-one server is trusted) |
+| ASI04 Supply chain | MCP tool pinning, stdio off in production, allow-listed env, no user-added MCP servers (curated catalogue only) | Covered (TOFU: day-one server is trusted) |
 | ASI05 Code execution | Sandbox container | Covered |
 | ASI06 Memory poisoning | Memory guard, taint flag, solution library guard | Covered for user memory and the org solution library |
 | ASI07 Inter-agent comms | Workers run in-process; a worker's output is a tool result, so the taint flag applies | Covered by design |
@@ -190,14 +218,21 @@ Stated plainly, so nobody reads this as "solved":
 8. **A wrong solution can spread in an org.** An honest mistake saved as a
    fix is offered to colleagues until flagged. Ranking demotes failures;
    owners/admins/curators can retract.
-9. **Raw images and PDFs are not scanned.** A document or picture the model
-   reads directly (sent as an image or file block, not extracted to text) never
-   reaches the pattern check or the model check. Text written into it is seen
-   only by the model itself.
-10. **The envelope tag changes on a human-in-the-loop resume.** Each request
-    makes a new tag, so envelopes written before a pause and after it carry
-    different tags. Nothing compares the two, and the tag's job (a page cannot
-    close its own envelope) holds for both.
+9. **Uploads the checks cannot fully read.** Raw PDFs and office files sent as
+   file blocks are scanned through their extracted text in every mode
+   (2026-11-24). Where that text is not the whole file (a PDF past 100 pages, a
+   workbook past its row cap, text past the stored cap, a failed reader, or no
+   text layer, as in a scanned PDF), the attachment is marked `scan_incomplete`
+   and the turn starts tainted as `upload`, in every mode (H-181). Raw images
+   are checked by a vision model in `auto`/`full` (H-178): up to four a turn,
+   cached by hash, fail open on a timeout or provider error. Still open: an
+   image past the fourth in a turn, and OCR of scanned PDFs (they taint, but are
+   not read).
+10. **Sandbox runs share one container and one kernel.** Slots keep files,
+    stdin and processes apart, but a run can read the command-line arguments
+    of a `run_command` stage running in the other slot at the same moment
+    (`/proc` has no `hidepid`), and a kernel exploit would cross slots. The
+    step past this is gVisor or a microVM per user.
 
 ## 6. Settings
 
@@ -205,12 +240,16 @@ Stated plainly, so nobody reads this as "solved":
 |---|---|---|
 | `RUN_DETAIL_RETENTION_DAYS` | 180 | When a finished run's reasoning and tool payloads are cleared |
 | `OUTBOUND_DAILY_CAP` | 100 | Messages an account's agents may send in 24 h |
+| `OUTBOUND_HOLD_SECONDS` | 20 | How long an attended send waits so the person can cancel it. 0 = send at once |
+| `OUTBOUND_HOLD_SWEEP_SECONDS` | 15 | How often the sweep delivers held sends whose timer was lost |
 | `STORAGE_QUOTA_FREE_MB` / `_PRO_MB` / `_ENTERPRISE_MB` | 1024 / 10240 / 102400 | MB an account may keep by tier. 0 switches the byte quota off |
 | `MAX_DOCUMENTS_PER_USER` | 10000 | Files per account, trash included |
 | `INDEXING_CONCURRENCY` | 2 | Documents extracted and embedded at once, process-wide |
 | `OUTBOUND_AI_DISCLOSURE` | `unattended` | `unattended` (no person reviewed it), `always`, `never` |
 | `AUTO_REVIEWER_MODEL` / `_TIMEOUT_S` | llama-4-scout / 3 | The Auto judge; slower means "ask" |
+| `INJECTION_IMAGE_PROVIDER` / `INJECTION_IMAGE_MODEL` | `openrouter` / llama-4-scout | The vision check on raw images, `auto` and `full` only. Calls OpenRouter on the platform key. A blank model turns it off |
 | `MCP_ALLOW_STDIO` | False in production | Local-process MCP servers |
+| `MCP_CUSTOM_SERVERS_ENABLED` | False everywhere (True only in test settings) | Users adding their own MCP servers; off hides their old rows from every agent |
 | `CHATGPT_PLAN_ENABLED` | False in production | Off, its routes 404 and the provider is not offered |
 | `SANDBOX_ENGINE` | `service` in production | The hardened container, never the dev fallback |
 | `SOLUTION_CAPTURE_DAILY_CAP` | 30 | Automatic team-solution saves per person per day. 0 = off |
@@ -238,6 +277,8 @@ Stated plainly, so nobody reads this as "solved":
 | Sanitizer | `core/tests/test_sanitizer.py` |
 | Provenance, taint, URLs | `core/tests/test_provenance.py`, `chat/tests/test_injection_defences.py` |
 | Model injection check (tool results, seeds, uploads) | `chat/tests/test_injection_model_check.py` |
+| Vision injection check (raw images) | `chat/tests/test_image_injection_check.py` |
+| Raw documents scanned through their text; envelope tag across a resume; partly-read uploads taint | `chat/tests/test_raw_document_scan.py`, `chat/tests/test_untrusted_envelope.py`, `chat/tests/test_unscanned_uploads.py` |
 | Content policy, labels, outbound | `core/tests/test_content_policy.py` |
 | Memory, image prompts, CAPTCHA, publishing | `chat/tests/test_safety_guards.py` |
 | MCP pinning | `mcp_integration/tests/test_tool_pins.py` |

@@ -41,6 +41,42 @@ _BLOCKED_IP_RANGES = [
     ipaddress.ip_network('fe80::/10'),
 ]
 
+# IPv6 forms that carry an IPv4 address inside them. Checking the outer v6
+# address alone lets `::ffff:127.0.0.1` or `64:ff9b::a9fe:a9fe` (NAT64 for
+# 169.254.169.254) through, so the embedded v4 address is checked as well.
+_NAT64 = ipaddress.ip_network('64:ff9b::/96')
+
+
+def _embedded_v4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip in _NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip.teredo is not None:
+        return ip.teredo[1]
+    return None
+
+
+def _is_internal(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True when `ip` is not a public address.
+
+    A v6 address that wraps a v4 one is judged by the v4 address inside it:
+    on a NAT64 network (DNS64) every public site resolves to `64:ff9b::<v4>`,
+    which Python calls reserved, so judging the wrapper would block the whole
+    internet, and judging only the wrapper is what let `::ffff:127.0.0.1` in.
+    """
+    if isinstance(ip, ipaddress.IPv6Address):
+        inner = _embedded_v4(ip)
+        if inner is not None:
+            ip = inner
+    if any(ip in blocked for blocked in _BLOCKED_IP_RANGES):
+        return True
+    return (ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
 _BLOCKED_HOSTNAMES = {
     'metadata.google.internal',
     'metadata.google',
@@ -88,9 +124,8 @@ def validate_url(url: str) -> tuple[bool, str]:
         literal = None
 
     if literal is not None:
-        for blocked in _BLOCKED_IP_RANGES:
-            if literal in blocked:
-                return False, "Access to internal or private network addresses is blocked"
+        if _is_internal(literal):
+            return False, "Access to internal or private network addresses is blocked"
         return True, ""
 
     try:
@@ -103,12 +138,13 @@ def validate_url(url: str) -> tuple[bool, str]:
 
     for *_unused, sockaddr in resolved:
         try:
-            ip = ipaddress.ip_address(sockaddr[0])
+            # A scoped v6 answer ("fe80::1%eth0") carries a zone the parser refuses.
+            ip = ipaddress.ip_address(str(sockaddr[0]).split('%', 1)[0])
         except ValueError:
-            continue
-        for blocked in _BLOCKED_IP_RANGES:
-            if ip in blocked:
-                return False, "Access to internal or private network addresses is blocked"
+            # An answer we cannot read is not one we can vouch for: fail closed.
+            return False, f"Could not check the address '{hostname}' resolves to"
+        if _is_internal(ip):
+            return False, "Access to internal or private network addresses is blocked"
 
     return True, ""
 

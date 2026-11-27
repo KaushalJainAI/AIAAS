@@ -69,6 +69,9 @@ describe('isEssentialField', () => {
     expect(isEssentialField('name')).toBe(true);
     expect(isEssentialField('autonomy')).toBe(true);
     expect(isEssentialField('spendCapRupees')).toBe(true);
+    // Essentials draws the Skills picker; without this the builder's default
+    // view had no way to attach a skill.
+    expect(isEssentialField('skills')).toBe(true);
     expect(isEssentialField('temperature')).toBe(false);
     expect(isEssentialField('effort')).toBe(false);
   });

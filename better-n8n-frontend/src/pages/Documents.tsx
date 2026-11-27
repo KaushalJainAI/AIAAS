@@ -43,7 +43,6 @@ import AuthorTag from '../components/documents/AuthorTag';
 import FilePreview from '../components/files/FilePreview';
 import PreviewFrame from '../components/files/PreviewFrame';
 import ShareDialog from '../components/files/ShareDialog';
-import SidebarMenuButton from '../components/layout/SidebarMenuButton';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { apiErrorMessage, isStorageFull } from '../lib/apiError';
@@ -726,8 +725,7 @@ export default function Documents() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       {/* Address row */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2 md:px-3">
-        <SidebarMenuButton />
+      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-2 md:px-6">
         <button type="button" onClick={() => setNavOpen((o) => !o)} className="inline-flex max-md:h-11 max-md:w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted lg:hidden" aria-label="Show folders">
           <PanelLeft className="h-4 w-4" />
         </button>
@@ -744,7 +742,7 @@ export default function Documents() {
           <RefreshCw className={cn('h-4 w-4', docs.isFetching && 'animate-spin')} />
         </button>
 
-        <nav aria-label="Address" className="mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-md border border-border/60 bg-background px-1.5 py-1 font-mono text-[12.5px]">
+        <nav aria-label="Address" className="mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden rounded-full md:rounded-md border border-border/60 bg-secondary/60 md:bg-background px-2 md:px-1.5 py-1 text-[13px] md:font-mono md:text-[12.5px]">
           {loc.kind === 'folder' ? (
             <>
               <Crumb label="Home" icon={<Home className="h-3.5 w-3.5" />} onClick={() => go({ kind: 'folder', id: null })} onDrop={dragging ? () => void move(dragging, null) : undefined} current={!currentFolder} />
@@ -771,7 +769,7 @@ export default function Documents() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${title}`}
+              data-page-search placeholder={`Search ${title}`}
               aria-label="Search"
               className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             />
@@ -786,7 +784,7 @@ export default function Documents() {
 
       {/* Command bar */}
       {loc.kind !== 'extraction' && (
-        <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card px-2 py-1 scrollbar-none md:px-3">
+        <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card px-2 py-1 scrollbar-none md:px-6">
           {loc.kind === 'trash' ? (
             <button type="button" onClick={() => setConfirmEmpty(true)} className="inline-flex h-11 md:h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-destructive hover:bg-destructive/10">
               <Trash2 className="h-4 w-4" /> Empty Trash
@@ -810,6 +808,7 @@ export default function Documents() {
               {!inFolder && (
                 <span className="self-center whitespace-nowrap px-2 text-[12.5px] text-muted-foreground">Open a folder to add files</span>
               )}
+              <span className={cn('contents', !selectedItems.length && !clipboard && 'max-sm:hidden')}>
               <span className="mx-1 h-5 w-px shrink-0 bg-border/70" />
               {cmd('Cut', Scissors, () => setClipboard({ mode: 'cut', items: selectedItems }), !mine || !selectedItems.length)}
               {cmd('Copy', Copy, () => setClipboard({ mode: 'copy', items: selectedItems.filter((i) => i.kind === 'doc') }), !mine || !selectedDocs.length)}
@@ -818,6 +817,7 @@ export default function Documents() {
               {cmd('Share', Share2, () => single?.kind === 'doc' && setLinkShare(single.doc), !mine || single?.kind !== 'doc')}
               {cmd('Delete', Trash2, () => setConfirmDelete(selectedItems), !mine || !selectedItems.length)}
               {cmd('Download', Download, () => selectedDocs.forEach((d) => void download(d)), !selectedDocs.length)}
+              </span>
               <span className="ml-auto" />
               <div className="relative">
                 <button
@@ -867,7 +867,7 @@ export default function Documents() {
       {listing && (
         <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 bg-card px-3 py-1.5 md:hidden">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${title}`} aria-label="Search"
+          <input value={query} onChange={(e) => setQuery(e.target.value)} data-page-search placeholder={`Search ${title}`} aria-label="Search"
             className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
         </div>
       )}
@@ -1268,10 +1268,10 @@ function EmptyState({
           Upload documents, create new ones, or ask the assistant to make one — files agents write appear here too.
         </p>
         <div className="flex flex-wrap justify-center gap-2">
-          <button type="button" onClick={onUpload} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+          <button type="button" onClick={onUpload} className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground md:min-h-0">
             <Upload className="h-4 w-4" /> Upload files
           </button>
-          <button type="button" onClick={onNew} className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted">
+          <button type="button" onClick={onNew} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-sm hover:bg-muted md:min-h-0">
             <FilePlus2 className="h-4 w-4" /> New document
           </button>
         </div>

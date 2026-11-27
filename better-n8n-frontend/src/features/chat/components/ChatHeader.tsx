@@ -8,7 +8,7 @@
  * second app bar. It names the conversation rather than the section.
  */
 import type { ReactNode } from 'react';
-import { History, Users } from 'lucide-react';
+import { ChevronDown, History, Users } from 'lucide-react';
 
 import type { ChatSession } from '@/api';
 import type { Org } from '@/api/orgs';
@@ -16,7 +16,6 @@ import { AUTONOMY_COPY } from '@/types/agentConfig';
 import { cn } from '@/lib/utils';
 import type { ChatMode } from '../lib/chatMode';
 import { CHAT_APPROVAL_ORDER, approvalSelectClass } from '../lib/approvalTone';
-import SidebarMenuButton from '@/components/layout/SidebarMenuButton';
 import ThisChatMenu from './ThisChatMenu';
 
 interface ChatHeaderProps {
@@ -86,7 +85,6 @@ export default function ChatHeader({
       isGuest && "mt-14 md:mt-10"
     )}>
       <div className="flex items-center gap-1.5 min-w-0">
-        {!isGuest && <SidebarMenuButton />}
         {!historyOpen && (
           <button
             onClick={onOpenHistory}
@@ -100,7 +98,9 @@ export default function ChatHeader({
         <h2
           className={cn(
             "ml-1 truncate text-sm font-medium",
-            session?.title?.trim() ? "text-foreground" : "text-muted-foreground",
+            // Phones: "New conversation" says nothing the empty page does not,
+            // and truncated to "New co…" it only crowds the controls.
+            session?.title?.trim() ? "text-foreground" : "text-muted-foreground max-sm:hidden",
           )}
           title={title}
         >
@@ -110,20 +110,25 @@ export default function ChatHeader({
 
       <div className="flex items-center gap-1 sm:gap-2 min-w-0 shrink-0">
         {showOrgPicker && (
-          <label className="flex items-center gap-1.5 min-w-0 font-mono text-[11px] text-muted-foreground shrink-0">
-            <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <label className="flex h-11 md:h-8 items-center gap-1.5 min-w-0 text-xs text-muted-foreground shrink-0">
             <span className="hidden sm:inline">Chat in</span>
-            <select
-              value={newChatOrgId ?? ''}
-              onChange={(e) => onNewChatOrgChange?.(e.target.value === '' ? null : Number(e.target.value))}
-              aria-label="Organisation for this conversation"
-              className="h-11 md:h-auto max-w-[9rem] sm:max-w-[12rem] truncate rounded-md border border-border bg-background px-2 md:py-1 text-[11px] text-foreground"
-            >
-              <option value="">Personal</option>
-              {orgs.map((org) => (
-                <option key={org.id} value={org.id}>{org.name}</option>
-              ))}
-            </select>
+            {/* A soft pill: the icon and chevron are drawn over the select,
+                so the browser's own boxy control never shows. */}
+            <span className="relative flex items-center min-w-0">
+              <Users className="pointer-events-none absolute left-2.5 w-3.5 h-3.5" aria-hidden="true" />
+              <select
+                value={newChatOrgId ?? ''}
+                onChange={(e) => onNewChatOrgChange?.(e.target.value === '' ? null : Number(e.target.value))}
+                aria-label="Organisation for this conversation"
+                className="h-8 max-w-[7.5rem] sm:max-w-[12rem] appearance-none truncate rounded-full bg-secondary pl-7 pr-6 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <option value="">Personal</option>
+                {orgs.map((org) => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 w-3 h-3" aria-hidden="true" />
+            </span>
           </label>
         )}
         {/* Phones pick the level in the composer (the coloured chip beside

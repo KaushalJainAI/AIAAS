@@ -11,7 +11,7 @@ setup, as long as `OPENROUTER_API_KEY` is set.
 
 | Setting | Default | Turns off |
 |---|---|---|
-| `STT_ENGINE` (+ `STT_MODEL`) | `openrouter` | `none` |
+| `STT_ENGINE` (+ `STT_MODEL`) | `openrouter` | `none`. Any other value that is not `openrouter` is a remote endpoint at `STT_REMOTE_URL` |
 | `TTS_ENGINE` | `openrouter` | `none` |
 
 ## Files

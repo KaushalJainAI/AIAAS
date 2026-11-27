@@ -17,8 +17,8 @@ import { NotificationsPanel } from '../notifications/NotificationsPanel';
  * the desktop top bar used); a route outside the catalogue falls back to the
  * instance name.
  *
- * Every page header still owns the one `Open menu` button (the mobile e2e pins
- * exactly one), so there is no menu button here. The pending pill deep-links
+ * The drawer opens from the bottom bar's More, so there is no menu button
+ * here or in any page header. The pending pill deep-links
  * to Activity so an approval is one tap away.
  */
 export default function MobileTopBar() {

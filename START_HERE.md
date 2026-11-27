@@ -94,6 +94,9 @@ More words:
   cycles Ask, Auto and Plan.
 - **Steer**: a message typed while the assistant works. It joins a queue and is
   read at the next safe point.
+- **Undo and send hold**: each reply and each run keeps a change set, so its file,
+  memory and agent changes can be put back. A message a person is watching waits
+  20 seconds before it goes out, so they can cancel it.
 - **Manager and workers**: chat hands jobs to agents, which hold only the
   permissions you gave them.
 - **MCP** ("Model Context Protocol") plugs outside tool servers into an AI. Code
@@ -164,9 +167,9 @@ Each folder is a Django app. Most have their own `README.md`, file by file.
 | [`inference/`](Backend/inference/README.md) | Files, folders, recycle bin, knowledge bases, extraction, pages, dashboards, and the server side of Docs / Sheets / Slides. |
 | [`credentials/`](Backend/credentials/README.md) | Saved API keys and OAuth logins, encrypted. |
 | [`core/`](Backend/core/README.md) | Users, login, profile, assistant memory, rate limits, prompt-injection checks. |
-| [`mcp_integration/`](Backend/mcp_integration/README.md) | The Connections page: MCP servers and native Google connectors. |
+| [`mcp_integration/`](Backend/mcp_integration/README.md) | The Connections page: curated connectors (MCP servers with OAuth). Adding your own server is off. |
 | [`datasources/`](Backend/datasources/README.md), [`messaging/`](Backend/messaging/README.md), [`browsing/`](Backend/browsing/README.md), [`esign/`](Backend/esign/README.md), [`voice/`](Backend/voice/README.md) | Your APIs and databases, Slack and other messaging, a browser the AI can drive, e-signature, speech. Browsing and esign are off unless configured. Voice is on by default. |
-| [`sandbox/`](Backend/sandbox/README.md) + `sandbox_service/` | Runs the AI's Python in a locked-down container. |
+| [`sandbox/`](Backend/sandbox/README.md) + `sandbox_service/` | Runs the AI's Python and commands in a locked-down container (production). |
 | [`office/`](Backend/office/README.md) | Not a Django app. Builds and reads `.pptx`, `.xlsx`, `.docx`, PDF, diagrams and charts. |
 | [`workspaces/`](Backend/workspaces/README.md) | Per-user Linux machines for coding agents. **No engine yet.** |
 | [`solutions/`](Backend/solutions/README.md), [`notifications/`](Backend/notifications/README.md), [`eval/`](Backend/eval/README.md), [`imagine/`](Backend/imagine/README.md) | Team knowledge; the bell, reminders and digest; agent tests and fake worlds; image, video and audio. |
@@ -238,7 +241,8 @@ npm test               # vitest
 ```
 
 Backend tests live in `<app>/tests/test_<topic>.py`. Frontend tests live in
-`src/<folder>/__tests__/`.
+`src/<folder>/__tests__/`. Backend tests script the model at the HTTP client
+(`Backend/llm/testing.py`) and never patch it. See `Backend/docs/TESTING.md`.
 
 ## 11. A reading order for your first week
 

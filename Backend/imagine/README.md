@@ -27,12 +27,13 @@ Design: [`docs/IMAGINE.md`](../docs/IMAGINE.md).
 |---|---|
 | `services/dispatcher.py` | **The one generation path**, used by the form and the agent alike |
 | `services/openrouter.py` | The OpenRouter API client |
-| `services/catalog.py`, `services/capabilities.py` | Which media models exist and what each accepts. `catalog.py` also holds the speech list |
+| `services/catalog.py` | The media model catalogue: which models exist |
+| `services/capabilities.py` | Cached access to the catalogue, for the form and the agent |
 | `services/documents.py` | Saves a result as a file in the user's tree |
 | `services/events.py` | Sends progress over the WebSocket |
-| `agent/graph.py` | The agent's steps: understand, ask approval, generate, reply |
-| `agent/intent.py` | Turns a message into a structured request |
-| `agent/hitl.py` | The approval gate |
+| `agent/graph.py` | The agent's steps: classify, approval gate, dispatch, reply |
+| `agent/intent.py` | An LLM turns a message into a structured generation request |
+| `agent/hitl.py` | The approval gate (the WebSocket notice is in `services/events.py`) |
 | `consumers.py` | The WebSocket for the conversational agent |
 | `validation.py` | What the chosen model will actually accept |
 | `tasks.py` | Background jobs (video polling) |
@@ -45,4 +46,4 @@ Design: [`docs/IMAGINE.md`](../docs/IMAGINE.md).
 
 ## Tests
 
-`imagine/tests/`: `test_api.py`, `test_dispatcher.py`, `test_intent.py`, `test_catalog.py`, `test_dials.py`.
+`imagine/tests/`: `test_api.py`, `test_dispatcher.py`, `test_intent.py`, `test_catalog.py`, `test_dials.py`, `test_conversation_rename.py`.

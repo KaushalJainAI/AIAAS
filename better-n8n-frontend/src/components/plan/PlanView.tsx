@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { ChevronRight, History } from 'lucide-react';
+import { Check, ChevronRight, History } from 'lucide-react';
 import type { TodoItem } from '../../api/chat';
 import {
   actionLabel,
@@ -32,6 +32,11 @@ interface Props {
   /** No outer frame and header — the dock and team panel draw their own. */
   bare?: boolean;
   live?: boolean;
+  /**
+   * Lets the person tick a step done or reopen it. Only for a plan whose turn
+   * has ended: a running turn owns its plan. Left out, steps show numbers.
+   */
+  onToggle?: (text: string, done: boolean) => void;
 }
 
 // Changes are a quiet word, not a badge: only "dropped" (left unfinished)
@@ -72,7 +77,10 @@ const INDENT = 'pl-7';
 const STRIKE =
   'box-decoration-clone bg-[linear-gradient(currentColor,currentColor)] bg-no-repeat bg-[position:0_55%] bg-[length:100%_1px]';
 
-function PlanRow({ item, number, actions }: { item: PlanItemView; number: string; actions: StepAction[] }) {
+function PlanRow({ item, number, actions, onToggle }: {
+  item: PlanItemView; number: string; actions: StepAction[];
+  onToggle?: (text: string, done: boolean) => void;
+}) {
   const [open, setOpen] = useState(false);
   const gone = item.change === 'dropped' || item.change === 'removed';
   const tag = item.change ? TAG[item.change] : null;
@@ -84,9 +92,30 @@ function PlanRow({ item, number, actions }: { item: PlanItemView; number: string
   return (
     <li className="py-1.5 text-[13px] leading-5">
       <div className="flex items-start gap-3">
-        <span className={`w-4 shrink-0 text-right text-[12px] tabular-nums leading-5 ${numberClass(item)}`} aria-hidden>
-          {number}
-        </span>
+        {onToggle && !gone ? (
+          // 16 px box, 32 px wide and 40 px tall to tap on a phone, without
+          // moving the text off the number column's line.
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={item.status === 'done'}
+            aria-label={item.status === 'done' ? `Reopen: ${item.text}` : `Mark done: ${item.text}`}
+            title={item.status === 'done' ? 'Reopen this step' : 'Mark this step done'}
+            onClick={() => onToggle(item.text, item.status !== 'done')}
+            className="-mx-2 -my-2 flex min-h-10 w-8 shrink-0 items-center justify-center md:-my-0 md:min-h-5"
+          >
+            <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-sm border transition-colors ${
+              item.status === 'done'
+                ? 'border-agent bg-agent text-background'
+                : 'border-muted-foreground/50 hover:border-foreground'}`}>
+              {item.status === 'done' && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+            </span>
+          </button>
+        ) : (
+          <span className={`w-4 shrink-0 text-right text-[12px] tabular-nums leading-5 ${numberClass(item)}`} aria-hidden>
+            {number}
+          </span>
+        )}
         <span className="sr-only">{gone ? item.change : item.status}:</span>
         <span className={`min-w-0 flex-1 ${textClass(item)}`}>
           {struck
@@ -134,7 +163,7 @@ function PlanRow({ item, number, actions }: { item: PlanItemView; number: string
   );
 }
 
-function PlanView({ history, actions = [], bare = false, live = false }: Props) {
+function PlanView({ history, actions = [], bare = false, live = false, onToggle }: Props) {
   const view = useMemo(() => buildPlanView(history), [history]);
   const byStep = useMemo(() => actionsByStep(actions), [actions]);
   const [showHistory, setShowHistory] = useState(false);
@@ -163,7 +192,7 @@ function PlanView({ history, actions = [], bare = false, live = false }: Props) 
       <ul className="m-0 list-none px-3 py-2">
         {numbered.map(({ item, number }) => (
           <PlanRow key={`${item.change ?? 'live'}-${item.key}`} item={item} number={number}
-            actions={byStep.get(item.key) ?? []} />
+            actions={byStep.get(item.key) ?? []} onToggle={live ? undefined : onToggle} />
         ))}
       </ul>
 

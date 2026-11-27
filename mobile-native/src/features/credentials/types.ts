@@ -77,6 +77,25 @@ export interface CredentialVerifyResult {
   message: string;
 }
 
+/**
+ * GET /credentials/{id}/balance/ for an OpenRouter key. Dollars. A provider
+ * failure is a 200 with `available: false`, so the screen can say why.
+ */
+export type CredentialBalance =
+  | {
+      available: true;
+      usage: number | null;
+      /** Null when the key has no limit. */
+      limit: number | null;
+      limit_remaining: number | null;
+      usage_daily: number | null;
+      usage_monthly: number | null;
+      is_free_tier: boolean;
+      /** Null when this key may not read the account's credits. */
+      account_credits_remaining: number | null;
+    }
+  | { available: false; reason: string };
+
 /** POST /credentials/oauth/google/callback/ body: the code the provider redirected with. */
 export interface GoogleOAuthCompleteInput {
   code: string;

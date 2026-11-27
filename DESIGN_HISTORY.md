@@ -3730,7 +3730,70 @@ The search_solutions rule moved into `AGENT_CORE_RULES`, so it is not said twice
 
 Rule: nothing in `PLATFORM_OPENER`, `CORE_RULES` or `AGENT_CORE_RULES` may depend on the user, agent, run or clock. `CacheOrderTests` and `test_the_fixed_rules_lead_and_the_date_is_last` pin the order.
 
-## H-171 · Tests script the model at the wire; recordings, a frozen clock, and CI running again (2026-11-24)
+## H-169 · JavaScript and allowlisted commands in the sandbox, and no program the model chose (2026-11-24)
+
+Files: Backend/sandbox_service/commands.py, Backend/sandbox_service/launch.py, Backend/sandbox_service/executor.py, Backend/sandbox_service/runner.py, Backend/sandbox_service/server.py, Backend/sandbox_service/Dockerfile, Backend/sandbox/engine.py, Backend/sandbox/service_client.py, Backend/chat/tools/sandbox.py, Backend/agents/grants.py, Backend/agents/agent/runtime.py, Backend/sandbox_service/tests/test_commands.py, Backend/sandbox_service/tests/test_languages.py, Backend/chat/tests/test_sandbox_languages.py
+
+The sidecar ran only Python. It now also runs JavaScript/TypeScript (`execute_javascript`) and a pipeline of allowlisted text commands (`run_command`). Both are `read`, ride the `codeExecution` grant, and exist only on the sidecar (`requires="sidecar"`, `SIDECAR_ONLY_TOOLS`): the in-process engine cannot confine Node or a native program, so on it they are not offered.
+
+**The user's rule was "prebuilt commands, not any bash command".** Three things make that true rather than nominal:
+1. **No shell anywhere.** A stage is a command name plus an argument list, exec'd directly, so shell syntax in an argument is text. The allowlist (`commands.py::COMMANDS`, authoritative; `RUN_COMMAND_NAMES` is the model's copy, kept equal by a test) holds text tools only and leaves out anything that can start a program: shells, interpreters, `env`, `xargs`, `find`, `timeout`, `tar`, `zip`, `split`, `sqlite3`. `sed` and gawk always get `--sandbox`; `sort --compress-program` is refused, including getopt's prefix spellings.
+2. **One `execve` per process** (`launch.py`). Each stage installs a seccomp filter in which `execve` passes only when its path pointer is the buffer we filled, then exec's with that buffer. A flag the allowlist missed still cannot start a second program: gawk *without* `--sandbox` cannot run `system("id")`. It fails closed if pyseccomp is missing.
+3. **Python lost `execve` too** (`runner.py`). Before this, `subprocess.run(["bash", ...])` inside `execute_python` ran any command at all, which would have made the allowlist pointless. numpy and pandas don't exec; the filter is still best-effort there because it predates this guard.
+
+**Node** is the bare binary from `node:22.18.0-bookworm-slim` (no npm), with `--permission` (no child processes, workers, addons, or files outside the run folder) and a heap cap. Measured: V8 needs ~1 GB of *address space* to start, so the sidecar's `RLIMIT_AS` killed it at 256 and 512 MB; Node runs are capped with `RLIMIT_DATA`, which still fails a 600 MB allocation under 256 MB. TypeScript is stripped by Node itself (`--input-type=module-typescript`, `--experimental-transform-types` for enums, warning suppressed). Node's permission model does not block sockets; the seccomp network block and the network-less container do.
+
+**Known gap, not new:** all runs share one uid in one container, so a run could read a *concurrent* run's `/tmp/sbx-*` folder. Same for Python before this change. Fixing it needs a uid per slot or a container per run.
+
+Tests run in the real image with prod's flags (read-only, cap_drop ALL, no-new-privileges, no network): `sandbox_service/tests/test_languages.py`. They skip on Windows.
+
+## H-170 · A Unix user per sandbox slot, and nothing alive between runs (2026-11-24)
+
+Files: Backend/sandbox_service/executor.py, Backend/sandbox_service/server.py, Backend/sandbox_service/Dockerfile, docker-compose.yml, docker-compose.prod.yml, Backend/sandbox_service/tests/test_isolation.py
+
+**The leak, measured.** Every sandbox run used to execute as the same user in one container. A Python run forked a child that called `setsid` (leaving the process group, so the timeout `killpg` missed it) and closed its pipes, so the run finished normally. The child lived on and read the *next* run's input file out of `/tmp/sbx-*`. That is one user reading another's documents, and it predates `run_command` (H-169 called it a concurrent-only gap; it was worse).
+
+**The fix: a user per slot.** The server's concurrency semaphore became a queue of slot numbers. Slot *n* runs as uid/gid `20000 + n` (`sbx1`..`sbx8` in the Dockerfile):
+- The run's folder (`work/` as cwd, `tmp/` as HOME and TMPDIR) is chowned to that user with mode 0700, and `/tmp` is 0711 (set by compose, and by the executor on first use), so a run cannot list `/tmp` or write to it.
+- Before and after every run, `_reap` runs `kill(-1, SIGKILL)` *as the slot's user*. Linux reaches every process that user owns, setsid or not, and nothing of anyone else's, so the server needs no `CAP_KILL`. A timeout reaps the same way.
+- `RLIMIT_NPROC` caps a slot at 64 processes, so a fork bomb is bounded per slot.
+- `init: true` makes tini PID 1, so killed orphans are reaped instead of piling up against `pids_limit`.
+
+**Root with four capabilities.** Switching users needs privilege, so the server now runs as root with `cap_drop: ALL` plus `SETUID`, `SETGID`, `CHOWN` and `DAC_OVERRIDE` (to read outputs and delete the folder). It never runs model code: `subprocess` switches the child to the slot's user before `preexec_fn`, and leaving uid 0 clears every capability. `_slot_user` refuses to run anything as root without a valid slot, so forgetting the argument fails instead of running untrusted code as root. Off the image (Windows, a non-root Linux dev box) there is no user to switch to, and runs execute as the caller, as before.
+
+**Still not isolated** (measured, documented in SANDBOX_EXECUTION.md and SAFETY_AND_GUARDRAILS.md gap 11): `/proc` has no `hidepid`, so a run can read the *command line* of a `run_command` stage in the other slot at the same moment, for example a grep pattern. Files, stdin, environment and open files stay private. Python and JavaScript code travels on stdin, not argv. The kernel is shared. The next steps are gVisor (`runtime: runsc`) or a microVM per user (`COMPUTE_ISOLATION_PLAN.md`). A userns/pid-namespace sandbox like bubblewrap would hide `/proc`, but it needs a custom seccomp profile allowing `unshare`, which widens the kernel attack surface.
+
+**Deploy:** the image and `docker-compose.prod.yml` must ship together. The new image without `cap_add` cannot switch users and every run fails. The old image with the new compose works, but it is not isolated.
+
+Tests: `sandbox_service/tests/test_isolation.py` (image only, as root): a run's uid, `/tmp` closed, another slot refused a run's file even given the exact path, the setsid spy dead before the next run, the fork bomb capped and cleaned up.
+
+## H-171 · A send waits for the person watching (2026-11-24)
+
+Files: Backend/messaging/holds.py, Backend/messaging/models.py, Backend/messaging/migrations/0003_pendingsend.py, Backend/messaging/views.py, Backend/messaging/urls.py, Backend/messaging/tasks.py, Backend/messaging/tests/test_holds.py, Backend/chat/tools/talk.py, Backend/chat/tools/google/gmail.py, Backend/chat/tests/test_gmail_hold.py, Backend/agents/scheduler.py, Backend/agents/tests/test_scheduler.py, Backend/notifications/models.py, Backend/notifications/migrations/0008_alter_notification_type.py, Backend/workflow_backend/settings/base.py, Backend/.env.example, Backend/docs/API.md, Backend/docs/SAFETY_AND_GUARDRAILS.md, Backend/messaging/README.md, CLAUDE.md
+
+A message or email sent while a person is watching now waits `OUTBOUND_HOLD_SECONDS` (20) in a `PendingSend` row, so they can cancel it. The window exists so a watching person can catch a mistake before it leaves. Once a message is sent it cannot be unsent, and the two send tools used to send at once. Unattended runs (`trigger`, `orchestrator`, `mission`) keep the immediate send, as D12 says: nobody is watching them, and the recipient allowlist and the daily cap already guard them. Evals are excluded too, although `eval` is not in `UNATTENDED_CALLERS`: nobody watches an eval, and a send held past its run would land after the run had ended.
+
+Every change of state is one conditional `UPDATE` in `messaging/holds.py`. The timer, Cancel, Send now and the periodic sweep therefore cannot send the same message twice. A send interrupted mid-delivery is never retried. A row left in `sending` for five minutes becomes `unknown`, and the user is told it may or may not have gone out (D14). When the provider accepted a message and only our outbox write failed, the row is `sent`, because telling the user a delivered message was not sent would invite a second send. A cancelled hold still counts toward the daily cap (D13). The two tools were split into a checking half, which runs in the tool, and `deliver_message` / `deliver_gmail`, which the timer can call without a run's context. The unheld path returns exactly what it returned before, and tests pin that output.
+
+## H-172 · Undo is net effect per target, and never overwrites newer work (2026-11-24)
+
+Files: Backend/logs/undo.py, Backend/logs/views.py, Backend/logs/urls.py, Backend/logs/serializers.py, Backend/logs/queries.py, Backend/logs/README.md, Backend/logs/tests/test_undo_documents.py, Backend/logs/tests/test_undo_api.py, Backend/docs/API.md, Backend/.importlinter, Backend/inference/versions.py, Backend/inference/recycle.py, Backend/inference/vfs.py, Backend/inference/office_edit.py
+
+A revert puts back one row per target, not one step per action (D1). The row keeps the state before the set first touched the target, so the undo needs only the copy taken before the run began (the first version the set stamped, D3). Before a row is put back, the target is compared with the state the run left it in: the etag, the bin state, the folder and the name. Anything different means the change is **skipped** with a plain note, and the user's work is not touched. There is no force option (D2). A file the user edited after the run keeps their text, and the run's text stays reachable as a `restore` version. Version copies from a tool call are stamped only when they are `agent` or `restore` (D16). An `app` copy inside a tool call is the render of the user's pending draft, and stamping it would let a revert drop the draft's edits.
+
+A revert is refused, not skipped, while a run or chat turn in the tree is still live (409, naming the worker). The set moves through `reverting` under one conditional update, so two presses at once cannot both run. That lock accepts `reverted` as well as `open`, `closed` and `partial`, so a second press is a no-op instead of a refusal, and a skipped change can be retried later. Untracked rows are listed as not revertible and are never written to.
+
+Tests: `logs/tests/test_undo_documents.py`, `logs/tests/test_undo_api.py`.
+
+## H-173 · Change sets cross the detached boundary by id, and a worker's set exists from its first step (2026-11-25)
+
+Files: Backend/logs/changes.py, Backend/chat/turn/agent.py, Backend/chat/turn/pipeline.py, Backend/chat/tools/agents.py, Backend/chat/tools/tasks.py, Backend/agents/agent/runtime.py, Backend/agents/tests/test_change_parent.py, Backend/chat/tests/test_change_close.py, Backend/logs/tests/test_undo_tree.py, Backend/workflow_backend/background.py
+
+A chat's undo must reach what its workers wrote, but the binding is a ContextVar and `spawn()` starts every detached task in an empty context, so it can never flow to a worker on its own, and must not: the worker is a different owner. The three tools that start workers (`run_agent`, `invoke_subagent`, `start_tasks`) therefore take the chat's set id while the binding is live and pass it as `change_parent_id`. `start_tasks` takes it once in the tool body, because its spawned `_run()` would see nothing. `_dispatch_one` binds on every call, binding `None` when a turn has no owner, because `invoke_subagent` awaits its child inline in the same context and an unowned child (an eval) would otherwise record into the parent's set (D18).
+
+The plan said a run's set is created on its first change. That lost the link for a worker that paused for approval before writing anything: its resume made a set with no parent. `run_agent` now opens the set at the start of any run that has a parent (`changes.open_run_set`), so the link is on the row before any pause. A chat set is keyed by the user's message, not `turn_id`, because the message survives an approval pause and the turn id does not (D6). It is closed when the answer is saved, when the turn is interrupted, and when a provider error ends it. Never on a pause. The answer carries the count in `metadata['changes']`. Tests: `agents/tests/test_change_parent.py`, `chat/tests/test_change_close.py`, `logs/tests/test_undo_tree.py` (undoing the chat answer puts back the worker's file, and is refused while the worker runs).
+
+## H-174 · Tests script the model at the wire; recordings, a frozen clock, and CI running again (2026-11-24)
 
 Files: .github/workflows/backend.yml, .github/workflows/frontend.yml, Backend/llm/testing.py, Backend/llm/recorded.py, Backend/llm/tests/recordings/, Backend/llm/tests/test_recorded_providers.py, Backend/llm/tests/test_no_model_fakes.py, Backend/llm/tests/test_scripted_model.py, Backend/llm/handlers/llm_nodes.py, Backend/core/safety/moderation.py, Backend/workflow_backend/testclock.py, Backend/workflow_backend/tests/test_testclock.py, Backend/inference/tests/test_vfs_hardening.py, Backend/chat/tests/test_chat_transcript.py, Backend/chat/tests/test_curation_e2e.py, Backend/chat/tests/test_context_overflow.py, Backend/chat/tests/test_attachment_prefix.py, Backend/chat/tests/test_auto_reviewer.py, Backend/chat/tests/test_auto_mode.py, Backend/chat/tests/test_injection_model_check.py, Backend/requirements.txt, Backend/requirements-linux.txt, Backend/.gitignore, Backend/docs/TESTING.md
 
@@ -3748,3 +3811,209 @@ What running the real funnel found:
 **The clock** (`workflow_backend/testclock.py`, `time-machine`) freezes wall time and moves it on request. `time-machine` 2.16 also froze `time.monotonic` on Windows, which hung every `asyncio` wait, so the helper restores the real monotonic clock. It fixed the known Windows flake `test_fresh_version_writes`: a file's version is its `updated_at`, and two writes in one ~15 ms tick shared it.
 
 Rules: script the model at the wire or replay a recording; give a test with a small context budget a small tool list; to make time pass, move the clock; to prove concurrency, use a barrier.
+
+## H-175 · Custom MCP servers retired behind a switch, not deleted (2026-11-23)
+
+Files: Backend/mcp_integration/client.py, Backend/mcp_integration/views.py, Backend/agents/config.py, Backend/workflow_backend/settings/base.py, Backend/workflow_backend/settings/test.py, Backend/mcp_integration/tests/test_custom_servers_retired.py, better-n8n-frontend/src/lib/features.ts, better-n8n-frontend/src/pages/Connections.tsx, mobile-native/src/lib/features.ts, mobile-native/src/features/connections/ConnectionsScreen.tsx, mobile-native/src/features/connections/ConnectionDetailScreen.tsx
+
+**Users can no longer add their own MCP server; connectors come from the curated catalogue only** (`Backend/docs/CONNECTOR_CATALOGUE_PLAN.md`, Phase 0). The user asked for it "commented out", so it is a switch and not a deletion: `MCP_CUSTOM_SERVERS_ENABLED` (off in every environment) plus one constant per app (`CUSTOM_MCP_SERVERS` in each `lib/features.ts`). Commented-out code is not type-checked or linted, so it rots, and bringing it back would mean un-commenting three apps by hand. **One predicate does the work:** `_visible_servers_queryset` drops user-owned rows when the switch is off, and every reader of "which servers" goes through it (both doors, the builder picker, `visible_server_ids_sync`, the benchmark installer); the only direct `MCPServer.objects` read outside it is `permissions._server_for`, which reads metadata to decide gating and cannot widen anything. The viewset answers create with 403 `custom_servers_disabled` and every other action on an owned row with the same 404 an unknown id gets, **except DELETE**, so an owner can still clean up. **An agent naming a retired server keeps the id.** The validator accepts it (`retired_server_ids_sync`) instead of refusing an unrelated edit, and it must not drop it: dropping the only id leaves `connectors` empty, which means *unrestricted*, so retiring a server would have widened the agent to every curated connector. A kept id resolves to no server at run time, which can only take tools away. **The test settings keep the switch on**, because the MCP suites use a user-owned row as the simplest fixture for the engine (pooling, credentials, toggles); `test_custom_servers_retired.py` turns it off to test what users get, and asserts that `base.py` ships it off so production cannot inherit the test value.
+
+## H-176 · Envelope tag kept across a resume; raw documents scanned (2026-11-24)
+
+Files: `Backend/chat/turn/agent.py` (`run_turn`, `_restore_untrusted_tag`, `prepare_attachments`, `RAW_FILES_NOTICE`), `Backend/chat/turn/pipeline.py` (taint block, notice), `Backend/chat/tests/test_untrusted_envelope.py`, `Backend/chat/tests/test_raw_document_scan.py` (both script the model at the wire, H-174), `Backend/docs/SAFETY_AND_GUARDRAILS.md` §2 and §5 (gaps 9 and 10).
+
+Two gaps from `docs/INJECTION_GAPS_PLAN.md`, closed together.
+
+**The tag holds across a resume.** Each request made a new `untrusted_tag`, so a run paused for an approval and resumed carried two tags in one transcript. The tag now rides in graph state (`metadata["untrusted_tag"]`, set when a run starts). A resume reads it back from the checkpoint and rebuilds the turn with it before the graph runs, and the config's `turn` is updated too, since the nodes read it from there. A checkpoint written before this change has no key and keeps the fresh tag. A new turn on the same thread still gets its own tag. The key is removed from the `TurnResult` metadata, because that metadata is saved with the message.
+
+**Raw documents are scanned.** A PDF or office file sent as a `file` block was never checked, though its text is already stored on the attachment. `prepare_attachments` now returns the text of the raw non-image, non-video attachments as `scan_text`. The pipeline runs it through the pattern check in every mode and the model check in auto/full, the same as described text. Scanned text is not put into the prompt, because the model reads the file block itself. The question carries one trusted line (`RAW_FILES_NOTICE`) saying attached files are third-party content.
+
+Still open: raw images (checked by a vision model in Phase 3 of the plan) and scanned PDFs with no text layer.
+
+## H-177 · Signing out forgets the conversation the browser kept (2026-11-17)
+
+Area: security  
+Files: better-n8n-frontend/src/lib/accountData.ts, better-n8n-frontend/src/lib/__tests__/accountData.test.ts, better-n8n-frontend/src/contexts/AuthContext.tsx, better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx, better-n8n-frontend/src/lib/transcriptCache.ts
+
+**Signing out forgets the conversation the browser kept (2026-11-17).** Found
+while checking the preview pane by hand: a new account signing in on the same
+browser saw the previous account's conversation. Sign-out cleared only the
+tokens, but the chat keeps `aiaas_ui:chat.lastSessionId` and a copy of that
+transcript (`transcriptCache.ts`) so a reload paints at once; the next user's
+chat page restored the id, painted the copy, and when the server answered 404
+the error was only logged, so the other person's messages stayed on screen.
+Two layers now: `lib/accountData.ts` treats the transcript copy, the last
+conversation, auth drafts and the pane's `pane:*` tabs as one account's
+content. `forgetAccountData()` runs at sign-out (with the in-memory query
+cache), and `claimAccountData(userId)` runs **before any page renders**
+(inside the profile query and each sign-in callback), so a different account,
+or data written before ownership was recorded, finds nothing; this also covers
+a session that ended without a sign-out. And `loadConversation` clears what
+it painted when the fetch is a 404. Preferences and guest drafts are kept.
+One cost: on first load after this ships, everyone's cached transcript and
+drafts are dropped once, because no owner was recorded yet.
+
+## H-179 · An OpenAPI operation's fixed header is sent for it (2026-11-25)
+
+Files: Backend/chat/tools/apicaller.py, Backend/datasources/tests/test_data.py, Backend/inference/recents.py, Backend/inference/tests/test_recents.py, Backend/docs/CONNECTOR_CATALOGUE_PLAN.md, DESIGN_HISTORY.md
+
+**An operation's fixed header is sent with the call.** Cal.com v2
+needs a `cal-api-version` header whose date differs per endpoint, and
+`call_api` sent no spec headers at all, so only `/me` worked. Now a header
+parameter that an operation declares as `required` and fixes with one `enum`
+value or a `default` is sent with that operation (`_fixed_headers` in
+`chat/tools/apicaller.py`, path-level parameters applied unless the operation
+redefines them, `$ref`s into `components/parameters` followed). A fixed header
+never replaces what auth set (`User-Agent`, `Authorization`), and a choice of
+values is not guessed. `calcom.json` still declares no such parameter: the spec
+gives no date, so the dates are not in the repo and the card is unchanged
+until someone checks them against the Cal.com reference.
+
+**Two opens on one clock tick keep their order (2026-11-25).** The recents
+listing ordered by `-opened_at, -id`, which is deterministic, but on Windows
+two opens within one ~15 ms tick tie, and the tie fell to row id: a file
+re-opened in the same tick ranked below the file opened just before it. The
+test `test_opens_in_the_same_clock_tick_keep_their_order` showed `[2, 1] != [1, 2]`
+in a full run. `_open_instant()` (`inference/recents.py`) now stamps each open
+strictly after the user's newest open (one microsecond later when the clock
+has not moved), so the id tie-break is never the thing that decides a real
+order. The regression test uses `frozen_clock`, so the tie is forced, not hoped for.
+
+## H-182 · An OpenRouter key shows the credit it has left (2026-11-25)
+
+Area: credentials, llm, frontend, mobile
+Files: Backend/llm/balance.py, Backend/credentials/views.py, Backend/credentials/tests/test_balance.py, Backend/credentials/README.md, Backend/docs/API.md, better-n8n-frontend/src/api/credentials.ts, better-n8n-frontend/src/lib/credentialBalance.ts, better-n8n-frontend/src/lib/__tests__/credentialBalance.test.ts, better-n8n-frontend/src/components/credentials/CredentialBalanceLine.tsx, better-n8n-frontend/src/pages/Credentials.tsx, mobile-native/src/features/credentials/balance.ts, mobile-native/src/features/credentials/api.ts, mobile-native/src/features/credentials/types.ts, mobile-native/src/features/credentials/queries.ts, mobile-native/src/features/credentials/CredentialDetailScreen.tsx
+
+A user's own OpenRouter key now shows what it has left: "$9.53 left of $10.00 ·
+$0.01 today", or "$4.78 used · no limit" when the key has no limit. The
+answer comes from OpenRouter's `GET /api/v1/key`, with `GET /api/v1/credits`
+read too when the key may see the account. `GET /api/credentials/<id>/balance/`
+is the one route. It is owner-scoped, so an unknown id and someone else's id
+are the same 404; any other credential type is a 400.
+
+Why it is a read on demand and not a metered call: it is for a person looking
+at their own bill, so it never goes through `llm/access.py`, never charges
+`UserProfile.credits_remaining`, and is not counted as a model call. The key is
+decrypted the way verify decrypts it (one `accessed` audit row). The key is
+sent only as the bearer header and never returned or logged. A provider failure
+is a 200 with `available: false` and the reason, so the page says why instead
+of showing an empty row. Only good answers are cached (60 s, keyed by a hash of
+the key), so a failure is asked again the next time someone looks.
+
+The web and the phone check on demand (a button), never on render and never
+on a poll: a card with ten keys costs ten requests only when someone asks. The
+phone formats dollars by hand because Intl currency output is not reliable on
+every Android JS engine.
+
+## H-180 · SSRF guard reads wrapped IPv4; secrets kept out of logs and API results (2026-11-25)
+
+Area: security  
+Files: Backend/core/safety/net.py (commit a0f98c5), Backend/core/tests/test_net.py, Backend/core/safety/security.py, Backend/core/tests/test_log_secrets.py, Backend/workflow_backend/settings/base.py, Backend/chat/tools/apicaller.py, Backend/chat/tests/test_call_api_guards.py, Backend/datasources/auth_template.py, Backend/datasources/tests/test_api_auth_template.py, Backend/docs/SAFETY_AND_GUARDRAILS.md
+
+The SSRF guard judges an IPv6 address by the IPv4 address it carries. IPv4-mapped (`::ffff:10.0.0.1`), NAT64 (`64:ff9b::/96`), 6to4 and Teredo literals are checked as the v4 inside them, so a private address hidden in a v6 literal is refused. A DNS answer that cannot be parsed fails closed. NAT64 networks still work: the public v4 inside a `64:ff9b::` address is allowed, because judging the wrapper itself would block every public site on a DNS64 network.
+
+Some API cards send their key in the query string (Trello, Pipedrive, OpenWeather). httpx logs each request URL at INFO, and the filter read only `record.msg`, so the URL, key included, reached the console through `record.args`. Now httpx and httpcore log at WARNING, and `SensitiveDataFilter` scrubs the arguments as well as the message and blanks secret-named query parameters (`key`, `token`, `appid`, `api_key`, `access_token`, `sig`...) wherever a URL appears.
+
+`call_api` refuses a connection whose API card is switched off, or whose card row is gone: the card's `MCPServer.enabled` is the kill switch, and it had been ignored. It also blanks every resolved credential value from the response, at any depth, before the model sees it or a saved copy is written. A stored auth template with a line break is refused by `check_parts`, and a bad stored template returns a tool error instead of an uncaught ValueError or a silent call with no sign-in.
+
+Not scrubbed: a binary response saved to the user's files (`_save_binary`). A file has no string to match, so the key is only protected if the vendor does not echo it into a file.
+
+## H-178 · Raw images get a vision injection check (2026-11-25)
+
+Files: `Backend/core/safety/moderation.py` (`image_injection_check`, `first_image_injection`, `image_check_enabled`, `IMAGE_INJECTION_POLICY`), `Backend/chat/turn/agent.py` (`check_raw_images`), `Backend/chat/turn/pipeline.py` (taint block), `Backend/workflow_backend/thresholds.py` (`INJECTION_CHECK_MAX_IMAGES`), `Backend/workflow_backend/settings/base.py` and `test.py` (`INJECTION_IMAGE_PROVIDER`, `INJECTION_IMAGE_MODEL`), `Backend/chat/tests/test_image_injection_check.py` (scripts the checker at the wire, H-174), `Backend/docs/INJECTION_GAPS_PLAN.md` (Phase 3), `Backend/docs/SAFETY_AND_GUARDRAILS.md` §5 (gap 9), `CLAUDE.md` (env list, Model IDs).
+
+An image sent raw is read by the chat model, and no text check reads its pixels, so text written into a picture reached the model with nothing marking the turn as tainted (H-176 left this open). Option A of the plan is built: a vision model answers, for each raw image, whether it addresses an AI, with the same `yes: <quote>` / `no` answer and the same reader (`_read_injection_answer`) as the text check.
+
+**What is checked.** `agent.check_raw_images` takes the attachments `prepare_attachments` returns as raw. A described image is a pointer the model never sees, so it is not read. It runs in `auto`/`full` only, after the pattern check and the text checks found nothing, and a hit sets `initial_taint="upload"`. The first `INJECTION_CHECK_MAX_IMAGES` (4) raw images of a turn are checked; the rest are logged as unchecked. The images are asked concurrently under one `CONTENT_MODERATION_TIMEOUT_S`.
+
+**Cache and fail-open.** Verdicts are keyed by `sha256(bytes)` in the same LRU as the text check, so an image replayed from history (`recent_attachments`) is not billed again. A timeout, a provider error or an unreadable answer passes the image and is not remembered.
+
+**Model.** `openrouter` / `meta-llama/llama-4-scout`, the same model as the `auto` reviewer, chosen for a one-word reply with no reasoning tokens. A blank `INJECTION_IMAGE_MODEL` switches it off, and so does a provider other than `openrouter`, because the call goes to OpenRouter's endpoint only. The call uses the same pooled client as `injection_check`, on the platform key.
+
+**Deviations from the plan.** Scanned PDFs with no text layer (rendering page 1 and checking it) are not built; gap 9 stays open for them and for images past the fourth. The labelled measurement run (clean and planted screenshots) is still to be approved, since it calls a paid model, so the hit rate and false-positive rate are not yet recorded.
+
+## H-181 · Undo never evicts, holds re-check a stop, unscannable files taint, approvals check the thread (2026-11-25)
+
+Files: Backend/core/memory.py (`has_room`), Backend/logs/undo.py (`_revert_memory`, `_created_facts_first`, `_unlock_tree`, `revert`), Backend/logs/tests/test_undo_never_evicts.py, Backend/logs/changes.py (`_tree_ids`, `summary`, `purge_old_sets`), Backend/logs/tests/test_change_tree_bounds.py, Backend/messaging/holds.py (`deliver`, `_stop_reason`, `_run_cancelled`), Backend/messaging/tests/test_holds_stop.py, Backend/agents/views/runs.py (`_is_callers_thread`, `agent_execute`, `agent_approve`, `agent_reject`), Backend/agents/tests/test_run_thread_ownership.py, Backend/chat/turn/pipeline.py (`_recall_block`, taint block), Backend/chat/tests/test_recall_enclosed.py, Backend/chat/sources/attachments.py (`extract_text_checked`, `scan_is_incomplete`, `*_report`), Backend/inference/utils.py (`extract_docx_report`, `extract_xlsx_report`, `extract_pptx_report`), Backend/chat/models.py (`ChatAttachment.scan_incomplete`), Backend/chat/migrations/0022_chatattachment_scan_incomplete.py, Backend/chat/views.py (upload), Backend/chat/tests/test_unscanned_uploads.py, Backend/docs/SAFETY_AND_GUARDRAILS.md, Backend/docs/UNDO_PLAN.md
+
+A review of the undo, send-window, approval and upload paths found seven things. Each is fixed with a test.
+
+**Undo never makes room by evicting.** Putting back a fact the run removed called `remember()`, which deletes the least recently touched fact in a full category. The undo could delete a fact the run never touched. It now skips with "Skipped: the memory category is full" (`core/memory.py::has_room`; a repeat is a touch and always allowed). A run's own stored facts are forgotten before the facts it pushed out come back, so the room is there for them (`_created_facts_first`). Without that ordering the existing "a pushed-out fact comes back on undo" case would now skip.
+
+**Liveness is read under the lock.** `revert` checked for a live run before `_lock_tree` and nothing after it. A run that started in between could be written under while its files were put back. The check now runs again once the lock is held; a live tree gives the lock back (`_unlock_tree`) and refuses with 409.
+
+**The worker walk is one user's and capped.** `changes._tree_ids` followed child sets whatever their owner and without a limit, so a summary or the retention sweep could read or delete another account's sets. It now filters by user and stops at `CHANGE_LIST_LIMIT` (500). A capped walk makes `summary()` report `incomplete`, and the purge skips a partial tree rather than deleting part of it.
+
+**A held send re-checks before it goes out.** A hold queued while the person was watching was sent whatever happened in its 20 seconds. At delivery it is now cancelled, with the reason in `error`, if the account is paused (`UserProfile.paused_until`), if the agent run that queued it was `cancelled`, or if the chat turn was `stopped` and is still in the run registry. A run or turn that ended normally is not a reason: a hold outlives most turns. The check and the cancel are one conditional update, as every other change of state in this module.
+
+**Unscannable raw files taint the turn.** The model reads a raw PDF or office file whole, but the scan read the text the reader produced, and that could be cut or missing. `ChatAttachment.scan_incomplete` is set at upload when the reader stopped (a PDF past 100 pages, a workbook past its row cap, a deck or Word file it could not open), when the stored text hit `DOCUMENT_EXTRACT_CAP`, or when a document with bytes gave no text (a scanned PDF). The pipeline starts such a turn tainted as `upload`, in every mode. Only raw sends count: a file sent as described text is scanned in full already. Images are never marked, because they have no text to scan. The readers see more: a deck's table cells, group shapes and speaker notes, and a Word file's headers, footers, footnotes and endnotes. The chat reader now delegates to `inference.utils`, which already read tables and notes.
+
+**Approve, reject and resume check the thread.** The thread id comes from the body and a checkpoint is keyed by it alone, so a signed-in user could act on another account's paused run under an agent of their own. A thread that is not the caller's `ExecutionLog` under that agent now gets the same 404 as an unknown id, before anything is recorded or started. Reject is covered too, though the request named approve and resume: it had the same hole.
+
+**Recalled earlier turns are enclosed.** `_recall_block` put earlier snippets into the prompt bare. They now sit inside the turn's `untrusted_data` envelope, under the turn's own tag, and the trusted header stays outside it.
+
+Not changed, by design: the `eval` caller's handling of holds, and the orchestrator's send window. Both are the user's call.
+
+Tests: `logs/tests/test_undo_never_evicts.py`, `logs/tests/test_change_tree_bounds.py`, `messaging/tests/test_holds_stop.py`, `agents/tests/test_run_thread_ownership.py`, `chat/tests/test_recall_enclosed.py`, `chat/tests/test_unscanned_uploads.py`.
+
+## H-183 · HSTS, a strict checkpoint loader, and files that hold the key (2026-11-26)
+
+Files: `Caddyfile`, `~/edge/Caddyfile` (VM), `chat/turn/checkpoints.py`, `chat/tests/test_checkpoint_types.py`, `chat/tools/apicaller.py`, `chat/tests/test_call_api_guards.py`
+
+Three small gaps from the 2026-11-26 deploy review.
+
+**HSTS** is set at the proxy that terminates TLS, the shared `edge-caddy`, the same way its ERP site already did: `max-age=31536000`, no `includeSubDomains` (other subdomains of `kaushaljain.com` belong to other projects) and no `preload` (hard to undo). Not in nginx: its headers are per `location`, so it would have to be repeated in each one.
+
+**Checkpoint types.** LangGraph's loader rebuilds whatever class a checkpoint names and, by default, warns and allows unknown ones; a future version will block them. Every saver now gets `JsonPlusSerializer(allowed_msgpack_modules=checkpoint_types())`, which turns strict mode on today: LangGraph's own safe types plus ours. Strict cuts both ways: a class left off the list comes back as raw data, which would break code expecting the object. So a listener logs every refusal at ERROR, and a test runs two real chat turns on one thread and fails on any refused or unregistered class. Production logs showed exactly one, `llm.usage.TokenUsage`.
+
+**Binary `call_api` responses** are refused, not redacted, when their bytes hold the credential (UTF-8 or UTF-16): replacing bytes inside a PDF or zip corrupts it. Compressed content is not unpacked, so a key inside a deflated stream is not seen; that is the stated limit.
+
+## H-184 · One header row: hub tabs in the page header, Activity in tabs (2026-11-26)
+
+Files: `better-n8n-frontend/src/components/layout/PageHeader.tsx`, `better-n8n-frontend/src/components/layout/HubTabs.tsx`, `better-n8n-frontend/src/components/layout/hubHeader.tsx`, `better-n8n-frontend/src/lib/hubHeader.ts`, `better-n8n-frontend/src/components/layout/PageTabs.tsx`, `better-n8n-frontend/src/lib/activityTabs.ts`, `better-n8n-frontend/src/pages/Runs.tsx`, `better-n8n-frontend/src/lib/commandMenu.ts`, `better-n8n-frontend/playwright.config.ts`, `better-n8n-frontend/tests/e2e/mobile-layout.spec.ts`, `better-n8n-frontend/tests/e2e/page-gutter.spec.ts`
+
+Hub pages stacked two bars: the hub's tab strip, then the page's title row. Now a page with a `PageHeader` draws the hub tabs in the title's place, and the title stays for screen readers; the standalone strip remains for hub pages with no header (Files, Studio) and hides while a header has claimed the tabs. The claim is a counter set in a layout effect, so the strip never flashes above a merged header. The header no longer draws its subtitle (the prop is still accepted). Activity, which was one long scroll of seven sections, is four tabs (Now, Planned, History, Files) kept in `?tab=`; an unknown value lands on Now, only the open tab's sections mount, and an empty Now says so and points at the other two. Ctrl+K now leaves a press an editor already handled (`defaultPrevented`), because CodeMirror binds Control+K on a Mac.
+
+Found by the phone specs before merging: the hidden title, as a direct child of the row, sat under the floating hamburger; tabs with short labels ("Now", "Evals") were 26px wide, so tabs now have `min-w-11`; the empty state's inline links were 20px tall. The mobile spec's overlap check now cuts each box by clipping ancestors, because a hub tab scrolled out of its strip kept a box under the hamburger while showing nothing. Trade-off kept: on a phone, a hub whose page has a wide action button can scroll its first tab out of view; the strip scrolls sideways to it.
+
+The E2E harness sent the rate-lane header on every browser request (`extraHTTPHeaders`), which made every cross-origin API call (and Google Fonts) fail CORS preflight, so most signed-in specs ended on /login. It now rides only on the Node-side sign-ups.
+
+## H-185 · A delegated run's result always reaches the conversation (2026-11-27)
+
+Files: Backend/chat/tools/agents.py, Backend/chat/tools/tasks.py, Backend/agents/agent/tasks.py, Backend/agents/agent/runtime.py, Backend/chat/turn/history.py, Backend/chat/turn/todos.py, Backend/chat/turn/pipeline.py, Backend/chat/turn/runs.py, Backend/chat/views.py, Backend/chat/urls.py, Backend/chat/serializers.py, Backend/logs/models.py, Backend/logs/activity.py, Backend/logs/activity_urls.py, Backend/notifications/utils.py, Backend/workflow_backend/thresholds.py, Backend/agents/migrations/0029_raise_default_run_seconds.py, Backend/logs/migrations/0028_executionlog_chat_session.py, Backend/chat/tests/test_delegated_results.py, better-n8n-frontend/src/components/plan/PlanView.tsx, better-n8n-frontend/src/components/plan/PlanDock.tsx, better-n8n-frontend/src/lib/planView.ts, better-n8n-frontend/src/lib/chatEvents.ts, better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx, better-n8n-frontend/src/features/chat/components/ThisChatMenu.tsx, better-n8n-frontend/src/hooks/useHITLReminders.ts, better-n8n-frontend/src/components/activity/RecentList.tsx, better-n8n-frontend/src/pages/Runs.tsx, better-n8n-frontend/src/types/agentConfig.ts, mobile-native/src/features/builder/config.ts
+
+The incident (prod, 2026-11-27): chat started a Research Analyst run for chilli prices. `run_agent` waited 60 s and handed back an execution id. `get_agent_run` did not wait at all, so the model called it eleven times in two minutes (660k tokens), wrote "still compiling the CSV, no output yet", and ended the turn six seconds before the run finished with a full, sourced table. Nothing brought the answer back: it sat in /runs, the plan dock pulsed "doing" for ever, and the next turns told the user the earlier data "could not be verified". Nothing failed; the result was simply dropped.
+
+What changed:
+
+- **Waits are long and real.** `run_agent`, `answer_subagent` and now `get_agent_run` wait 300 s by default, 900 s at most (`AGENT_RUN_DEFAULT_WAIT` / `AGENT_RUN_MAX_WAIT`). A message from the person ends the wait early (steer or notice), so a long wait never holds them up.
+- **A run that outlives the wait is adopted** (`chat/tools/tasks.py::adopt_run`) into the lead's task records with `kind='agent_run'`, so the machinery `start_tasks` already had applies: `await_reports` holds the answer open, `take_reports` tells the lead at its next step. The report line **points at** the answer (`get_agent_run`) and never inlines it: reports reach the model as system text, outside the untrusted envelope, and a worker's answer is built from web pages.
+- **Late delivery.** If no lead turn is running when the run ends (Stop, time limit, await rounds spent), `post_run_result` writes the result into the chat as an assistant message carrying `metadata.delegated_run`, and sends an `agent_update` notification whose socket frame names the session, so an open chat reloads. History replays that message as a one-line pointer (`history._delegated_run_pointer`), for the same envelope reason. `mark_heard` stops a result the lead already read from being reported or posted again.
+- **Transcripts survive failure.** `run_transcript` reads `AgentTurn`/`AgentStep` (thoughts, replies, calls, newest kept within 12k chars). A failed, timed-out or stopped run returns it automatically; `include_transcript` returns it for any run.
+- **Plans settle.** An ended turn leaves no step `doing` (`todos.settle`: blocked, "Not finished when the reply ended.", old note kept after). A stopped turn now keeps its streamed plan (`runs.last_plan`), so the dock does not fall back to an older reply's live-looking plan. The dock settles old rows client-side too (`settleHistory`). A person can tick a step done or reopen it (`POST .../messages/{mid}/plan/`, a revision marked `by: user`; 409 while the chat is running).
+- **Spend per conversation.** `ExecutionLog.chat_session` (nullable, SET_NULL) records the chat a run worked for, resolved at open time from the starter's session key; a worker started by an agent that chat started follows the thread back (`runtime._conversation_of`). The session detail returns `agent_spend` {cost_usd, runs}, shown under "Cost so far".
+- **Activity shows what finished** in the last 24 h (`GET /api/activity/recent/`): runs, delegated ones included, and each chat's latest reply.
+- **Default run time 15 → 60 min** (`DEFAULT_RUN_SECONDS`, twinned in both builders). Migration `orchestrator.0029` moves agents saved at exactly 900 s, which is what the builders wrote for anyone who never touched it; any other value was a person's choice and stays.
+
+Known limits: adoption and late delivery are in-process (like the task registry and `ChatRun`); a restart loses the follower, and the orphan sweep then fails the run without telling the chat. Code-task (`start_tasks`) results are still not posted into the chat when the lead's turn has ended.
+
+## H-186 · Skills: their own builder section, own skills only (2026-11-27)
+
+Files: Backend/skills/serializers.py, Backend/skills/tests/test_used_by.py, better-n8n-frontend/src/pages/AgentBuilder.tsx, better-n8n-frontend/src/lib/agentAdvanced.ts, better-n8n-frontend/src/api/skills.ts, mobile-native/src/features/builder/screens/Access.tsx, mobile-native/src/features/skills/types.ts
+
+The builder opens on Essentials, which had no Skills control; the picker lived under All settings, Tools, "Context it is given". People reasonably concluded agents could not be given skills. Skills is now its own section in both views (one block drawn twice, like the other shared blocks), and `skills` is an Essentials field so the "N other settings are changed" count does not treat it as hidden. Any number can be attached, as before: every attached skill goes into the system prompt in full on every run (`agents/agent/runtime.py`).
+
+The picker also listed public skills other people shared, but `AgentSerializer.validate_skills` and the runtime accept only the owner's ids, so picking one failed the save with "No such skill". The list now carries `is_mine` and both pickers offer only those, pointing at Fork for a public one. We chose fork-first over letting agents read shared rows live: a live row's owner could edit or unshare it and silently change, or empty, what someone else's scheduled agent is told.
+
+## H-187 · Session records are never deleted; late results for coding tasks; failures tell someone (2026-11-27)
+
+Files: Backend/chat/models.py, Backend/chat/views.py, Backend/chat/turn/pipeline.py, Backend/chat/turn/runs.py, Backend/chat/turn/todos.py, Backend/chat/tools/tasks.py, Backend/agents/agent/runtime.py, Backend/agents/recovery.py, Backend/chat/tests/test_delegated_results.py, better-n8n-frontend/src/api/chat.ts, better-n8n-frontend/src/features/chat/lib/records.ts, better-n8n-frontend/src/features/chat/components/StandaloneChat.tsx, better-n8n-frontend/src/features/chat/components/ChatMessageItem.tsx
+
+Follow-up to H-185, closing the gaps it listed.
+
+- **Session records.** `ChatMessage.RECORD_KEY` (`metadata.record`) marks what happened to a turn or to work it started: a reply that failed, a reply that was stopped, an agent result posted after its turn. Records are the conversation's log, so nothing deletes them: a rewind (retry, edit, take back) removes the other messages in its range and leaves records where they were (`delete_message` answers 200 with `kept`), deleting one alone is 409, and the client keeps them on screen through a rewind (`features/chat/lib/records.ts::keepRecords`) and does not offer Delete on them. Before this, a retry erased the record of the failure and any agent result that had landed after it.
+- **A failed turn is kept.** The stream view catches both a `TurnError` and an unexpected exception after the question was saved (`runs.turn_user_message_id`), and writes a record with what had streamed, the plan settled with "The reply failed before this finished.", and the error in words (`persist_interrupted_answer(..., failure=)`). The error frame carries it as `ai_response`, so it appears at once; it used to live only in a toast and was gone on reload. A turn refused before the question was saved (preflight, the sanitizer) still saves nothing.
+- **Coding tasks deliver late too.** A `start_tasks` worker that ends after the lead's turn is posted into the chat through the same `_deliver_late` path as an adopted `run_agent` run. `post_run_result` is idempotent per execution id, so two posters cannot double it.
+- **Failures nobody watches notify the owner.** A top-level run with caller `trigger` or `mission` that ends `failed` or `timeout` sends a `workflow_failed` notification linking to the run (`runtime.tell_owner_run_failed`, from `_close_log`); the type existed with no sender. A run the orphan sweep fails after a restart is reported the same way, and if a chat started it the chat gets the record (`recovery._tell_someone`), since the in-process follower died with the process.
+
+Left: the non-streaming `POST .../message/` route does not record a failed turn (no run registry there; the web and mobile apps use the stream).

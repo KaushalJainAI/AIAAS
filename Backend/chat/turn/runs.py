@@ -287,6 +287,23 @@ async def stop(key: str, user_id: int) -> ChatRun | None:
     return run
 
 
+def turn_user_message_id(run: ChatRun) -> int | None:
+    """The id of the person's message this turn saved, or None before that."""
+    for event, payload in run.frames:
+        if event == Event.STATUS and payload.get("user_message_id") is not None:
+            return payload["user_message_id"]
+    return None
+
+
+def last_plan(run: ChatRun) -> list[dict[str, Any]]:
+    """The plan as the run last streamed it, or [] when it never had one."""
+    for event, payload in reversed(run.frames):
+        if event == Event.TODOS_UPDATE:
+            todos = payload.get("todos")
+            return list(todos) if isinstance(todos, list) else []
+    return []
+
+
 def partial_answer(run: ChatRun) -> str:
     """
     The answer text streamed so far, as the client currently has it.

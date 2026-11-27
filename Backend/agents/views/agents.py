@@ -13,6 +13,7 @@ agent's configuration, and the two change for different reasons.
 import logging
 
 from django.db.models import Count, Q, Sum
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
@@ -200,16 +201,6 @@ def agent_detail(request, agent_id: int):
     return Response(_with_stats([AgentSerializer.to_config(agent)], [agent], request.user)[0])
 
 
-#: Keys a revision snapshot carries that are observations or identity, not
-#: configuration — restoring them would be restoring the past's statistics.
-#: `status` is left out too: rolling a configuration back is not a request to
-#: pause or unpause the agent.
-_NOT_RESTORED = frozenset({
-    'id', 'status', 'runs', 'unattended', 'spend', 'created_at', 'updated_at',
-    'extraSchedules', 'trigger',
-})
-
-
 @extend_schema(
     methods=['POST'],
     request=None,
@@ -233,24 +224,10 @@ def agent_restore_revision(request, agent_id: int, number: int):
     from logs.models import SubAgentRevision
 
     agent = get_object_or_404(SubAgent, id=agent_id, user=request.user)
-    revision = get_object_or_404(SubAgentRevision, subagent=agent, number=number)
-
-    current = AgentSerializer.to_config(agent)
-    restored = {k: v for k, v in (revision.config or {}).items()
-                if k not in _NOT_RESTORED}
-    merged = {k: v for k, v in current.items() if k not in _NOT_RESTORED}
-    merged.update(restored)
-
-    serializer = AgentSerializer(data=merged, context={'request': request})
-    serializer.is_valid(raise_exception=True)
-    name = serializer.validated_data['name']
-    if SubAgent.objects.filter(user=request.user, name=name).exclude(id=agent.id).exists():
-        return Response(
-            {'error': f'Another agent is now called "{name}"; rename one first.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    AgentSerializer.apply(agent, serializer.validated_data).save()
-    AgentSerializer.sync_schedule(agent, serializer.validated_data)
-    revisions.record(agent, user=request.user, source='restore')
+    try:
+        revisions.restore(agent, number, user=request.user)
+    except SubAgentRevision.DoesNotExist:
+        raise Http404
+    except revisions.RestoreRefused as refused:
+        return Response(refused.detail, status=status.HTTP_400_BAD_REQUEST)
     return Response(_with_stats([AgentSerializer.to_config(agent)], [agent], request.user)[0])

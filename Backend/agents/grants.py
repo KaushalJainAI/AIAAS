@@ -43,7 +43,11 @@ GRANT_TOOLS: dict[str, tuple[str, ...]] = {
     # asks in `ask`, `review` and `auto`, and only `full` runs it unasked. Chat
     # never holds them, since chat's toolbox is read-only.
     'kbWrite': ('create_knowledge_base', 'add_to_knowledge_base'),
-    'codeExecution': ('execute_python', 'run_python_on_files'),
+    # The sandbox sidecar (`sandbox/engine.py`): Python, JavaScript/TypeScript,
+    # and a pipeline of allowlisted text commands. The last two exist only
+    # when the sidecar is the engine and are withheld otherwise.
+    'codeExecution': ('execute_python', 'run_python_on_files',
+                      'execute_javascript', 'run_command'),
     # The virtual filesystem over the user's own Folder/Document tree
     # (`inference/vfs.py`). What the agent may actually do with these is a
     # second axis — `sandbox['fileAccess']` decides read-only vs. its own
@@ -137,6 +141,17 @@ GRANT_TOOLS: dict[str, tuple[str, ...]] = {
 #: kept as the set (rather than deleted) so the next unserved grant has a
 #: named place to land, and the capabilities endpoint keeps its `served` bit.
 UNSERVED_GRANTS = frozenset()
+
+#: The tools that run model-written code or commands in the sandbox. Declared
+#: `read` (nothing outside the sandbox changes), yet an unattended agent at
+#: `ask` or `review` still pauses before them: running code is what those
+#: levels promise to show a person first. Named once here so the runtime's
+#: approval sets cannot list Python and forget JavaScript.
+SANDBOX_RUN_TOOLS = frozenset({'execute_python', 'execute_javascript', 'run_command'})
+
+#: The `codeExecution` tools that need the sidecar engine: withheld when the
+#: engine is the in-process dev fallback, which cannot confine them.
+SIDECAR_ONLY_TOOLS = frozenset({'execute_javascript', 'run_command'})
 
 #: Available whatever the grants say: no side effects, no egress, no reads of
 #: anything the user owns.

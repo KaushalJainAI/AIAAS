@@ -333,7 +333,7 @@ export default function Skills() {
       />
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 py-6 space-y-4">
+        <div className="px-4 md:px-6 py-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <Segmented
               label="Which skills"
@@ -344,11 +344,11 @@ export default function Skills() {
                 { key: 'public', label: tabLabel('public', 'Library') },
               ]}
             />
-            <div className="group flex-1">
+            <div className="group flex-1 sm:max-w-md">
               <SearchInput
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={mine ? 'Search your skills…' : 'Search shared skills…'}
+                data-page-search placeholder={mine ? 'Search your skills…' : 'Search shared skills…'}
                 className="h-9 text-[13px]"
                 aria-label="Search skills"
               />

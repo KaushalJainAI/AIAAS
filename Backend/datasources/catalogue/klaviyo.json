@@ -1,0 +1,38 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Klaviyo API (read-only subset)",
+    "version": "2026-10-15",
+    "description": "GET operations from the Klaviyo API reference. Base URL: https://a.klaviyo.com/api. Requires the revision header."
+  },
+  "paths": {
+    "/lists": {
+      "get": {
+        "summary": "Get all lists in an account",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "The account's lists"}}
+      }
+    },
+    "/lists/{list_id}": {
+      "get": {
+        "summary": "Get one list",
+        "parameters": [
+          {"name": "list_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "One list"}}
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Get all metrics in an account",
+        "responses": {"200": {"description": "The metrics tracked for the account"}}
+      }
+    },
+    "/profiles": {
+      "get": {
+        "summary": "Get all profiles in an account",
+        "responses": {"200": {"description": "A page of profiles"}}
+      }
+    }
+  }
+}

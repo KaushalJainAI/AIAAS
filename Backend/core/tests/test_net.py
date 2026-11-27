@@ -28,6 +28,14 @@ class SsrfValidationTests(SimpleTestCase):
         "https://metadata.google.internal/computeMetadata/v1/",
         "http://[::1]:9200/",
         "http://0.0.0.0:80/",
+        # IPv6 forms that wrap an internal IPv4 address (found 2026-11-25).
+        "http://[::ffff:127.0.0.1]:8000/",
+        "http://[::ffff:169.254.169.254]/latest/meta-data/",
+        "http://[::ffff:a9fe:a9fe]/",
+        "http://[64:ff9b::a9fe:a9fe]/",
+        "http://[2002:a9fe:a9fe::1]/",
+        "http://[::]/",
+        "http://[ff02::1]/",
     ]
 
     def test_internal_targets_are_blocked(self):

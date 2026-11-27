@@ -1,0 +1,162 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cal.com API v2 (read-only subset)",
+    "version": "2.0.0",
+    "description": "GET operations from the Cal.com API v2 reference. Base URL: https://api.cal.com/v2. Most operations need a cal-api-version header; each is declared on its operation with the value the reference requires (checked 2026-11-25)."
+  },
+  "paths": {
+    "/me": {
+      "get": {
+        "summary": "Get my profile",
+        "x-aiaas-check": true,
+        "responses": {
+          "200": {
+            "description": "Profile"
+          }
+        }
+      }
+    },
+    "/event-types": {
+      "get": {
+        "summary": "Get all event types",
+        "responses": {
+          "200": {
+            "description": "Event types"
+          }
+        },
+        "parameters": [
+          {
+            "name": "cal-api-version",
+            "in": "header",
+            "required": true,
+            "description": "Cal.com API version for this endpoint (from cal.com/docs/api-reference/v2, 2026-11-25).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "2026-06-12"
+              ],
+              "default": "2026-06-12"
+            }
+          }
+        ]
+      }
+    },
+    "/event-types/{eventTypeId}": {
+      "get": {
+        "summary": "Get an event type",
+        "parameters": [
+          {
+            "name": "eventTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cal-api-version",
+            "in": "header",
+            "required": true,
+            "description": "Cal.com API version for this endpoint (from cal.com/docs/api-reference/v2, 2026-11-25).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "2026-06-12"
+              ],
+              "default": "2026-06-12"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event type"
+          }
+        }
+      }
+    },
+    "/bookings": {
+      "get": {
+        "summary": "Get all bookings",
+        "responses": {
+          "200": {
+            "description": "Bookings"
+          }
+        },
+        "parameters": [
+          {
+            "name": "cal-api-version",
+            "in": "header",
+            "required": true,
+            "description": "Cal.com API version for this endpoint (from cal.com/docs/api-reference/v2, 2026-11-25).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "2026-05-01"
+              ],
+              "default": "2026-05-01"
+            }
+          }
+        ]
+      }
+    },
+    "/bookings/{bookingUid}": {
+      "get": {
+        "summary": "Get a booking",
+        "parameters": [
+          {
+            "name": "bookingUid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cal-api-version",
+            "in": "header",
+            "required": true,
+            "description": "Cal.com API version for this endpoint (from cal.com/docs/api-reference/v2, 2026-11-25).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "2026-02-25"
+              ],
+              "default": "2026-02-25"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Booking"
+          }
+        }
+      }
+    },
+    "/schedules": {
+      "get": {
+        "summary": "Get all schedules",
+        "responses": {
+          "200": {
+            "description": "Schedules"
+          }
+        },
+        "parameters": [
+          {
+            "name": "cal-api-version",
+            "in": "header",
+            "required": true,
+            "description": "Cal.com API version for this endpoint (from cal.com/docs/api-reference/v2, 2026-11-25).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "2024-06-11"
+              ],
+              "default": "2024-06-11"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

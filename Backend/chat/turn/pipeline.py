@@ -35,6 +35,7 @@ from llm.pricing import combine_sources
 from llm.effort import normalize as normalize_effort
 from . import agent, history, pace, prompts, session_notes
 from . import curation as _curation
+from . import todos as todos_mod
 from .agent import TurnContext, TurnResult
 from .events import Event, EventSink, null_sink
 from chat.models import ChatMessage, ChatSession
@@ -496,7 +497,7 @@ async def _sync_model_choice(
     )
 
 
-async def _recall_block(session: ChatSession, question: str) -> str:
+async def _recall_block(session: ChatSession, question: str, untrusted_tag: str) -> str:
     """
     Look up earlier turns when the user is plainly referring to them.
 
@@ -529,10 +530,14 @@ async def _recall_block(session: ChatSession, question: str) -> str:
     lines = "\n".join(
         f"- [{m['role']} @ {m['timestamp'][:19]}] {m['snippet']}" for m in matches
     )
+    # The snippets are earlier conversation text, which can carry a pasted or
+    # searched third-party page, so they are enclosed like any other result.
+    enclosed = provenance.wrap_untrusted(
+        lines, source="search_conversation_history", tag=untrusted_tag)
     return (
         "\n\n[RECALLED FROM EARLIER IN THIS CONVERSATION — these turns are outside "
         "your visible window but did happen. Use them to answer; do not tell the "
-        f"user you have no record of them.]\n{lines}"
+        f"user you have no record of them.]\n{enclosed}"
     )
 
 
@@ -689,7 +694,9 @@ def _message_type(intent: str, metadata: Mapping[str, Any]) -> str:
 
 
 async def persist_interrupted_answer(
-    session: ChatSession, user, text: str
+    session: ChatSession, user, text: str,
+    todos: list[dict[str, Any]] | None = None,
+    *, failure: str = "",
 ) -> ChatMessage | None:
     """
     Store what a stopped turn had streamed before the user stopped it.
@@ -697,20 +704,64 @@ async def persist_interrupted_answer(
     The normal path writes the reply only once the agent returns, so a turn
     cancelled part-way would leave the user's question with no answer at all.
     Whatever reached the client is kept instead, flagged so the UI can mark it
-    as incomplete. Nothing is written when nothing was streamed.
+    as incomplete. Nothing is written when nothing was streamed and there was
+    no plan.
+
+    `todos` is the plan as the turn last streamed it (`runs.last_plan`). It is
+    kept, settled, because the plan dock reads the latest reply that has one:
+    left out, the dock went back to an older reply's plan and showed its steps
+    as still going (H-185).
+
+    `failure` is set when the turn failed rather than being stopped: the
+    message then says so in words the person can act on, and is written even
+    with nothing streamed, because an error that lives only in a toast is gone
+    on the next reload (H-187). Either way the message is a session record
+    (`ChatMessage.RECORD_KEY`): kept through a rewind or a regenerate.
     """
-    if not text.strip():
+    # The stopped turn is over, so its change set closes whether or not any text
+    # was streamed (docs/UNDO_PLAN.md §6.7). The stop route has no message id;
+    # the turn's user message is the session's latest one.
+    from logs import changes
+
+    user_message = await ChatMessage.objects.filter(session=session, role="user").alast()
+    changes_summary = (
+        await sync_to_async(changes.close_chat)(user.id, user_message.id)
+        if user_message is not None else None
+    )
+
+    plan = todos_mod.settle(
+        todos_mod.normalize(todos),
+        todos_mod.FAILED_NOTE if failure else todos_mod.STOPPED_NOTE)
+    if not text.strip() and not plan and not failure:
         return None
 
+    metadata: dict[str, Any] = {"interrupted": True, "model": session.llm_model,
+                                ChatMessage.RECORD_KEY: True}
+    if failure:
+        metadata["failed"] = True
+        metadata["error"] = failure
+    if changes_summary is not None:
+        metadata["changes"] = changes_summary
+    if plan:
+        metadata["todos"] = plan
+        todos_mod.record_revision(metadata, plan)
     message = await ChatMessage.objects.acreate(
         session=session,
         role="assistant",
-        content=text,
+        content=_record_text(text, failure),
         message_type="chat",
-        metadata={"interrupted": True, "model": session.llm_model},
+        metadata=metadata,
     )
     await _notify(user, session, message)
     return message
+
+
+def _record_text(text: str, failure: str) -> str:
+    """What a stopped or failed turn leaves in the transcript."""
+    if failure:
+        head = text.strip() + "\n\n" if text.strip() else ""
+        return f"{head}**This reply failed.** {failure}"
+    return text if text.strip() else "_Stopped before replying._"
 
 
 async def _notify(user, session: ChatSession, message: ChatMessage) -> None:
@@ -1055,7 +1106,7 @@ async def run_chat_turn(
     # One tag for the whole run, made before any third-party text is placed in
     # the prompt, so every envelope this turn carries the same tag.
     untrusted_tag = secrets.token_hex(6)
-    attachments, extracted_text = await agent.prepare_attachments(
+    attachments, extracted_text, scan_text = await agent.prepare_attachments(
         sendable, model=model, provider=provider, user_id=user.id,
         untrusted_tag=untrusted_tag,
     )
@@ -1068,7 +1119,11 @@ async def run_chat_turn(
             f"[The user's question refers to part of message "
             f"{request.reference_message_id}; prioritise that context.]\n\n{prompt}"
         )
-    prompt += await _recall_block(session, question)
+    if attachments:
+        # Once per turn, in the question itself, so it sits in the same place
+        # on every pass of the loop.
+        prompt += f"\n\n{agent.RAW_FILES_NOTICE}"
+    prompt += await _recall_block(session, question, untrusted_tag)
     phases.mark("recall")
     prompt += extracted_text
 
@@ -1117,11 +1172,21 @@ async def run_chat_turn(
 
     orchestrator = await _limits.for_user(user.id)
 
-    # An uploaded file the model reads as text is third-party data in the
-    # user's prompt. If it reads like orders to an AI, the turn starts tainted,
-    # as a tainted tool result would make it.
+    # An uploaded file is third-party data: the text the model reads, and the
+    # text of a raw document it reads as a file block (`scan_text`). If either
+    # reads like orders to an AI, the turn starts tainted, as a tainted tool
+    # result would make it.
+    # A raw document whose scanned text is not all of it (a reader stopped, a
+    # cap cut it, or it had no text layer) is unscanned in part, so it taints
+    # the turn too: fail closed, in every mode. `attachments` here is what
+    # goes out raw, so a described file is never counted.
+    unscanned_raw = any(getattr(att, "scan_incomplete", False) for att in attachments)
     initial_taint = (
-        "upload" if provenance.instruction_shaped(extracted_text) else None
+        "upload"
+        if provenance.instruction_shaped(extracted_text)
+        or provenance.instruction_shaped(scan_text)
+        or unscanned_raw
+        else None
     )
 
     turn = TurnContext(
@@ -1168,6 +1233,11 @@ async def run_chat_turn(
         )) if command_resolution is not None else {}),
         approval_modes=_approval_modes,
         autonomy=session_autonomy,
+        # The change log's owner is the user's message, not `turn_id`: an
+        # approval reuses this same message, so the set survives a pause (D6).
+        # Closing the set happens at the end of the turn, in a later phase.
+        change_owner={'user_id': user.id, 'owner_kind': 'chat',
+                      'chat_message_id': user_message.id},
     )
 
     # A command that starts a run directly (`/agent`): the typed command is
@@ -1185,8 +1255,9 @@ async def run_chat_turn(
     phases.log(intent, tier)
     if turn.initial_taint is None and provenance.instruction_shaped(seed_text):
         turn = replace(turn, initial_taint=_INTENT_SEED_TOOL[intent][0])
-    # The model check behind the patterns, for the two kinds of third-party
-    # text that enter before `tools_node` ever runs. Only in auto/full, as in
+    # The model check behind the patterns, for the third-party input that enters
+    # before `tools_node` ever runs: the seed, the upload's text and the raw
+    # images (a vision check, `agent.check_raw_images`). Only in auto/full, as in
     # `tools_node`: ask/review already ask before anything sensitive.
     if turn.initial_taint is None and session_autonomy in ("auto", "full"):
         from core.safety import moderation
@@ -1194,6 +1265,10 @@ async def run_chat_turn(
         if seed_text and await moderation.injection_check(seed_text):
             turn = replace(turn, initial_taint=_INTENT_SEED_TOOL[intent][0])
         elif extracted_text and await moderation.injection_check(extracted_text):
+            turn = replace(turn, initial_taint="upload")
+        elif scan_text and await moderation.injection_check(scan_text):
+            turn = replace(turn, initial_taint="upload")
+        elif await agent.check_raw_images(attachments):
             turn = replace(turn, initial_taint="upload")
 
     turn_started = time.monotonic()
@@ -1219,7 +1294,23 @@ async def run_chat_turn(
         # treatment either way: report it as an error, never as the assistant's
         # reply.
         logger.warning("[Turn] Provider error for user %s: %s", user.id, exc)
+        # The turn ended here, so its change set closes (docs/UNDO_PLAN.md §6.7).
+        from logs import changes
+
+        await sync_to_async(changes.close_chat)(user.id, user_message.id)
         raise TurnError(str(exc)) from exc
+    except BaseException:
+        # Anything else leaving the graph (a bug, a timeout, a cancelled turn)
+        # also ends the turn: a pause for approval *returns*, it never raises.
+        # Closing here keeps the set from reading as "still running" for the
+        # idle window. Best effort, and the original error is what propagates.
+        from logs import changes
+
+        try:
+            await sync_to_async(changes.close_chat)(user.id, user_message.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("[Turn] Could not close the change set after an error")
+        raise
     turn_elapsed_s = time.monotonic() - turn_started
     # One line per turn: the pace it started at, where it ended, and what that
     # cost. `quick>deep` is a promoted turn; a `quick` that took a long time or
@@ -1231,7 +1322,8 @@ async def run_chat_turn(
     )
 
     assistant_message = await _persist_answer(
-        session=session, user=user, turn=turn, result=result,
+        session=session, user=user,
+        turn=turn, result=result,
         question=question, intent=intent, elapsed_s=turn_elapsed_s,
         command_json=(
             command_resolution.command_json
@@ -1375,6 +1467,16 @@ async def _persist_answer(
     )
     if result.awaiting_approval:
         metadata["awaiting_approval"] = True
+    elif metadata.get("todos"):
+        # The turn is over: a step still marked `doing` is not being done by
+        # anyone, and a saved plan must not pulse as if it were (H-185).
+        settled = todos_mod.settle(metadata["todos"])
+        if settled != metadata["todos"]:
+            metadata["todos"] = settled
+            # The dock draws the history, not `todos`: the settled list is
+            # its last revision. A fresh list, so `result.metadata` is untouched.
+            metadata["todo_history"] = list(metadata.get("todo_history") or [])
+            todos_mod.record_revision(metadata, settled)
     # How long the turn took and how much it did, for the reply's header
     # ("4 steps · 8.2s"). Both are derivable from what is saved only in part:
     # the duration was logged and never stored.
@@ -1453,6 +1555,20 @@ async def _persist_answer(
     paid_by = await llm.payer(
         provider=turn.provider, model=turn.model, user_id=turn.user_id,
     )
+
+    # The turn's change owner is the user message it answers (D6): the same
+    # owner the writes were recorded under, so the close cannot miss them.
+    # A pause for approval is not the end of the turn: the set stays open, and
+    # the resumed turn records into it. Workers still running at the close may
+    # add changes later; the chip shows the count at close time.
+    owner = getattr(turn, "change_owner", None) or {}
+    if not result.awaiting_approval and owner.get("chat_message_id") is not None:
+        from logs import changes
+
+        changes_summary = await sync_to_async(changes.close_chat)(
+            user.id, owner["chat_message_id"])
+        if changes_summary is not None:
+            metadata["changes"] = changes_summary
 
     message = await ChatMessage.objects.acreate(
         session=session,

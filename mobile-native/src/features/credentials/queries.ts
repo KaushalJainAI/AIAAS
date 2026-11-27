@@ -12,6 +12,7 @@ import {
   completeGoogleOAuth,
   createCredential,
   deleteCredential,
+  getCredentialBalance,
   listCredentials,
   listCredentialTypes,
   updateCredential,
@@ -88,6 +89,16 @@ export function useVerifyCredential() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: credentialKeys.list });
     },
+  });
+}
+
+/**
+ * Ask OpenRouter what an OpenRouter key has left. A mutation on purpose: it
+ * runs when the person presses the button, and is never cached or polled.
+ */
+export function useCheckCredentialBalance() {
+  return useMutation({
+    mutationFn: (id: number) => getCredentialBalance(id),
   });
 }
 

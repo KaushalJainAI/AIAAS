@@ -11,12 +11,23 @@ from rest_framework.response import Response
 
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
-from .client import LIST_TOOLS_TIMEOUT, MCPClientManager, MCPConnectionError, warm_cache
+from .client import (
+    LIST_TOOLS_TIMEOUT,
+    MCPClientManager,
+    MCPConnectionError,
+    custom_servers_enabled,
+    warm_cache,
+)
 from .credential_injector import (
     CredentialInjector,
     CredentialInvalidError,
     CredentialMissingError,
 )
+from credentials.manager import CredentialManager
+from datasources.models import ApiConnection
+from datasources.serializers import ApiConnectionSerializer
+
+from .card_template import CardSpecMissing, check_operation, load_spec, read_operations, render_base_url
 from .models import MCPServer, MCPServerPreference
 from .serializers import MCPServerSerializer
 from .tool_cache import MCPToolCache
@@ -30,6 +41,17 @@ _FALSE = {False, "false", "False", "0", 0}
 def _message(exc: BaseException, fallback: str | None = None) -> str:
     """A human-readable reason that is never the empty string."""
     return str(exc).strip() or fallback or exc.__class__.__name__
+
+
+def _first_error(errors) -> str:
+    """The first human sentence in a DRF `serializer.errors` dict."""
+    for value in (errors or {}).values():
+        first = value[0] if isinstance(value, (list, tuple)) and value else value
+        if isinstance(first, dict):
+            first = next(iter(first.values()), "")
+            first = first[0] if isinstance(first, (list, tuple)) and first else first
+        return str(first)
+    return "This connection could not be saved."
 
 
 def _coerce_bool(value) -> bool | None:
@@ -70,9 +92,27 @@ class MCPServerViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_authenticated:
             return MCPServer.objects.none()
+        if not custom_servers_enabled() and self.action != "destroy":
+            # Custom servers are retired: the user's own rows are not listed,
+            # cannot be read, edited, toggled or signed in to (each answers the
+            # same 404 an unknown id does). Delete still finds them, so an owner
+            # can clean up a row the product no longer shows.
+            return MCPServer.objects.filter(user__isnull=True).order_by("name")
         return MCPServer.objects.filter(
             Q(user=user) | Q(user__isnull=True)
         ).order_by("name")
+
+    def create(self, request, *args, **kwargs):
+        if not custom_servers_enabled():
+            return Response(
+                {
+                    "error": "Adding your own MCP server is no longer available. "
+                             "Choose a connector from the Connections page.",
+                    "code": "custom_servers_disabled",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
 
     def get_serializer_context(self):
         """
@@ -93,6 +133,12 @@ class MCPServerViewSet(viewsets.ModelViewSet):
             context["oauth_connected_ids"] = set(
                 MCPOAuthToken.objects.filter(user=user)
                 .values_list("server_id", flat=True)
+            )
+            # The API cards this user has built a connection from (one query).
+            context["card_connected_slugs"] = set(
+                ApiConnection.objects.filter(user=user)
+                .exclude(card_slug="")
+                .values_list("card_slug", flat=True)
             )
         return context
 
@@ -183,7 +229,7 @@ class MCPServerViewSet(viewsets.ModelViewSet):
         if enabled and server.enabled:
             # Warming a connector that stays off would pay `npx` for a tool
             # list nothing is allowed to read.
-            warm_cache(server.id, self.request.user)
+            warm_cache(server.id, self.request.user, kind=server.kind)
         serializer = self.get_serializer(server)
         data = dict(serializer.data)
         # The context set was computed before this write, so report the new state
@@ -213,7 +259,7 @@ class MCPServerViewSet(viewsets.ModelViewSet):
             server.save(update_fields=["enabled", "updated_at"])
             async_to_sync(MCPToolCache.invalidate)(server.id, server.user_id)
             if enabled:
-                warm_cache(server.id, self.request.user)
+                warm_cache(server.id, self.request.user, kind=server.kind)
             return Response(self.get_serializer(server).data)
         return self._write_preference(server, enabled)
 
@@ -268,6 +314,8 @@ class MCPServerViewSet(viewsets.ModelViewSet):
         string, which is exactly what the original 502 body carried.
         """
         server = self.get_object()
+        if server.kind == "api":
+            return self._api_card_tools(server)
         try:
             manager = MCPClientManager(server.id, user=request.user)
 
@@ -312,10 +360,34 @@ class MCPServerViewSet(viewsets.ModelViewSet):
             {"error": _message(exc, fallback), "code": code}, status=http_status
         )
 
+    def _api_card_tools(self, server: MCPServer) -> Response:
+        """An API card's operations, read from its spec file. No network."""
+        try:
+            spec = load_spec((server.template or {}).get("spec", ""))
+        except CardSpecMissing:
+            logger.exception("API card %s has no readable spec", server.id)
+            return Response(
+                {"error": "This connector's API description is missing on the server.",
+                 "code": "spec_missing"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        tools = [
+            {"name": f"{op['method']} {op['path']}", "description": op["summary"]}
+            for op in read_operations(spec)
+        ]
+        return Response({"tools": tools, "server_id": server.id, "server_name": server.name})
+
     @action(detail=True, methods=["get"])
     def validate_credentials(self, request, pk=None):
         """Dry-run credential resolution for this server."""
         server = self.get_object()
+        if server.kind == "api":
+            # No network for a card: the credential either exists or it does not.
+            slugs = list(server.required_credential_types or [])
+            if slugs and CredentialManager.lookup_by_slug_sync(slugs[0], request.user.id) is None:
+                return Response({"ok": False, "errors": [
+                    "Connect the credential this connector needs first."]})
+            return Response({"ok": True, "errors": []})
         try:
             errors = async_to_sync(CredentialInjector.validate)(server, request.user)
         except Exception as e:  # noqa: BLE001 — a diagnostic that 500s tells the
@@ -323,6 +395,102 @@ class MCPServerViewSet(viewsets.ModelViewSet):
             logger.exception("Credential validation failed for server %s", server.id)
             return Response({"ok": False, "errors": [_message(e)]})
         return Response({"ok": not errors, "errors": errors})
+
+    # ---- API cards ------------------------------------------------------
+    #
+    # A card is a curated template; connecting it builds the user's own
+    # `ApiConnection` through `ApiConnectionSerializer` (the one save path). No
+    # secret passes through these routes: the credential is looked up by type,
+    # and the connection only ever holds a reference to it.
+
+    @action(detail=True, methods=["post"], url_path="card/connect")
+    def card_connect(self, request, pk=None):
+        server = self.get_object()
+        if server.kind != "api":
+            return Response({"error": "This connector is not an API card.",
+                             "code": "not_a_card"}, status=status.HTTP_400_BAD_REQUEST)
+        if not server.enabled:
+            return Response(
+                {
+                    "error": f"'{server.label}' is turned off by the platform and "
+                             f"cannot be connected.",
+                    "code": "server_unavailable",
+                    "detail": server.setup_notes or None,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        template = server.template or {}
+        auth_parts = (template.get("auth") or {}).get("parts") or []
+        if not template.get("base_url") or not server.icon_slug:
+            return Response({"error": "This connector is not set up yet.",
+                             "code": "not_configured"}, status=status.HTTP_409_CONFLICT)
+
+        required = list(server.required_credential_types or [])
+        slug = required[0] if required else ""
+        if slug and CredentialManager.lookup_by_slug_sync(slug, request.user.id) is None:
+            return Response(
+                {"error": "Connect the credential this connector needs first.",
+                 "code": "credential_missing", "credential_type": slug},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not slug and auth_parts:
+            return Response({"error": "This connector names no credential to use.",
+                             "code": "not_configured"}, status=status.HTTP_409_CONFLICT)
+
+        body = request.data if isinstance(request.data, dict) else {}
+        try:
+            base_url = render_base_url(template, body.get("fields", {}))
+        except ValueError as exc:
+            return Response({"error": str(exc), "code": "invalid_field"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            spec = load_spec(template.get("spec", ""))
+        except CardSpecMissing:
+            logger.exception("API card %s has no readable spec", server.id)
+            return Response(
+                {"error": "This connector's API description is missing on the server.",
+                 "code": "spec_missing"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # The card's own connection keeps its name. Another tool of the user's
+        # with the same name is not overwritten, so this one is suffixed.
+        name = server.label
+        if ApiConnection.objects.filter(user=request.user, name=name).exclude(
+                card_slug=server.icon_slug).exists():
+            name = f"{server.label} (connector)"
+        auth = ({"type": "template", "credential_type": slug, "parts": auth_parts}
+                if slug else {"type": "none"})
+        existing = (ApiConnection.objects.filter(user=request.user, card_slug=server.icon_slug)
+                    .order_by("id").first())
+        serializer = ApiConnectionSerializer(existing, data={
+            "name": name,
+            "base_url": base_url,
+            "openapi_spec": spec,
+            "auth": auth,
+            "allowed_methods": template.get("allowed_methods") or ["GET", "HEAD"],
+        }, context={"request": request})
+        if not serializer.is_valid():
+            return Response({"error": _first_error(serializer.errors),
+                             "code": "invalid_connection", "details": serializer.errors},
+                            status=status.HTTP_400_BAD_REQUEST)
+        row = serializer.save(user=request.user, card_slug=server.icon_slug)
+        return Response({"connection_id": row.id})
+
+    @action(detail=True, methods=["post"], url_path="card/disconnect")
+    def card_disconnect(self, request, pk=None):
+        """Remove this user's connection(s) built from the card. Credentials stay."""
+        server = self.get_object()
+        if server.kind != "api":
+            return Response({"error": "This connector is not an API card.",
+                             "code": "not_a_card"}, status=status.HTTP_400_BAD_REQUEST)
+        if not server.icon_slug:
+            return Response({"removed": 0})
+        rows = ApiConnection.objects.filter(user=request.user, card_slug=server.icon_slug)
+        removed = rows.count()
+        rows.delete()
+        return Response({"removed": removed})
 
     # ---- OAuth for remote servers ---------------------------------------
     #

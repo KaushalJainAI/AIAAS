@@ -74,9 +74,23 @@ AGENT_SEARCH_MAX_LIMIT = 25
 #: Waiting is bounded: the tool has to return a usable execution_id *before*
 #: the loop times it out (`AGENT_RUN_CALL_TIMEOUT` below), or the run becomes
 #: unreachable — still going, with nothing holding its id.
-AGENT_RUN_DEFAULT_WAIT = 60
-AGENT_RUN_MAX_WAIT = 90
+#:
+#: Was 60/90 until 2026-11-27 (H-185). A research run takes two to five
+#: minutes, so the wait ran out first, and the model polled `get_agent_run`
+#: (which did not wait at all) eleven times in two minutes, gave up six seconds
+#: before the run finished, and the answer never reached the user. A person is
+#: watching the worker's plan stream in while this waits, and a message from
+#: them ends the wait early (`_await_agent_run`), so a long wait costs nothing.
+AGENT_RUN_DEFAULT_WAIT = 300
+AGENT_RUN_MAX_WAIT = 900
 AGENT_RUN_POLL_SECONDS = 2
+
+#: How much of a worker's own transcript `get_agent_run` hands back, newest
+#: turns kept. A run that failed is still the manager's to explain, and its
+#: error string alone says nothing about what the worker found on the way.
+RUN_TRANSCRIPT_CHARS = 12_000
+#: Each thought, reply, argument list or result inside it.
+RUN_TRANSCRIPT_PIECE_CHARS = 600
 
 #: The loop's limit for `run_agent` / `answer_subagent`. The wait above is not
 #: the whole call: starting a run can queue for a slot for up to
@@ -232,18 +246,91 @@ async def _show_worker_plan(context: Dict | None, execution_id: str,
         logger.debug("Could not forward the plan of %s", execution_id, exc_info=True)
 
 
+def _clip(value: Any, limit: int = RUN_TRANSCRIPT_PIECE_CHARS) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    text = text or ""
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def run_transcript(execution_pk: int,
+                   budget: int = RUN_TRANSCRIPT_CHARS) -> Dict[str, Any]:
+    """What a worker thought, said and called, turn by turn, newest kept.
+
+    Read from `AgentTurn` / `AgentStep`, which are written as the run goes, so
+    it exists for a run that failed, timed out or was stopped as much as for one
+    that finished. Sync: call through `sync_to_async`. Every piece is clipped,
+    and the oldest turns are dropped first when the whole would pass `budget`.
+    """
+    from logs.models import AgentStep, AgentTurn
+
+    turns = list(
+        AgentTurn.objects.filter(execution_id=execution_pk).order_by("index")
+        .values("id", "index", "reasoning", "content")
+    )
+    calls: Dict[Any, list] = {}
+    for step in (AgentStep.objects.filter(execution_id=execution_pk)
+                 .order_by("order")
+                 .values("turn_id", "tool", "args", "status", "result",
+                         "error_message")):
+        call = {"tool": step["tool"], "status": step["status"],
+                "args": _clip(step["args"])}
+        if step["error_message"]:
+            call["error"] = _clip(step["error_message"])
+        elif step["result"]:
+            call["result"] = _clip(step["result"])
+        calls.setdefault(step["turn_id"], []).append(call)
+
+    entries = []
+    for turn in turns:
+        entry: Dict[str, Any] = {"turn": turn["index"]}
+        if turn["reasoning"]:
+            entry["thought"] = _clip(turn["reasoning"])
+        if turn["content"]:
+            entry["said"] = _clip(turn["content"])
+        if calls.get(turn["id"]):
+            entry["calls"] = calls[turn["id"]]
+        entries.append(entry)
+    if calls.get(None):
+        entries.append({"turn": None, "calls": calls[None]})
+
+    kept: list = []
+    used = 0
+    for entry in reversed(entries):
+        size = len(json.dumps(entry, default=str))
+        if kept and used + size > budget:
+            break
+        kept.append(entry)
+        used += size
+    kept.reverse()
+    out: Dict[str, Any] = {"turns": len(turns), "entries": kept}
+    if len(kept) < len(entries):
+        out["note"] = (f"The first {len(entries) - len(kept)} turns are left out; "
+                       f"the whole run is on /runs.")
+    return out
+
+
 async def _await_agent_run(execution_id: str, wait_seconds: int,
                            answer_chars: int = _AGENT_ANSWER_CHARS,
                            *, context: Dict | None = None,
-                           agent_name: str = "") -> Dict[str, Any]:
+                           agent_name: str = "",
+                           title: str = "") -> Dict[str, Any]:
     """Poll a run to a terminal state, or give up and report it still going.
 
     With `context`, the worker's plan is forwarded to the delegating run's
     sink as it changes, so the person watching the chat sees the worker's
     steps, not a spinner. The finished (or paused) outcome carries `plan`.
+
+    With `context`, a run still going when the wait ends is adopted
+    (`chat/tools/tasks.py::adopt_run`): the delegating turn holds its answer
+    open until the run ends, its result is delivered by itself, and if the turn
+    is over by then it is posted into the conversation. A run that ends without
+    finishing (failed, timeout, cancelled) carries the worker's `transcript`.
+    A message from the person ends the wait early: they come first.
     """
     from asgiref.sync import sync_to_async
     from logs.models import ExecutionLog
+
+    from chat.turn import steering
 
     from .runs import live_plan
 
@@ -263,15 +350,28 @@ async def _await_agent_run(execution_id: str, wait_seconds: int,
         return (
             ExecutionLog.objects
             .filter(execution_id=execution_id)
-            .values("status", "output_data", "error_message", "tokens_used",
+            .values("id", "status", "output_data", "error_message", "tokens_used",
                     "thread_id")
             .first()
         )
 
+    async def _still_running(message: str) -> Dict[str, Any]:
+        if context is not None:
+            from . import tasks as task_tools
+
+            await task_tools.adopt_run(context, execution_id=execution_id,
+                                       agent_name=agent_name, title=title)
+        return {"status": "running", "message": message}
+
+    steer_key = str((context or {}).get("session_id") or "")
     deadline = asyncio.get_running_loop().time() + wait_seconds
     row = await _read()
     while row is not None and row["status"] not in _TERMINAL_RUN_STATUSES:
         if row["status"] == "paused":
+            if context is not None:
+                from . import tasks as task_tools
+
+                task_tools.mark_heard(context, execution_id, "paused")
             plan = await _live(row.get("thread_id") or "") if context else []
             return {
                 "status": "paused",
@@ -282,24 +382,34 @@ async def _await_agent_run(execution_id: str, wait_seconds: int,
         if context and polls % PLAN_POLL_EVERY == PLAN_POLL_EVERY - 1:
             await _live(row.get("thread_id") or "")
         polls += 1
+        if steer_key and (steering.pending(steer_key) or steering.has_notices(steer_key)):
+            return await _still_running(
+                "The user wrote a message while this run was going: read it and "
+                "answer it. The run carries on, and its result reaches you by "
+                "itself when it ends — do not start the agent again or poll it.")
         if asyncio.get_running_loop().time() >= deadline:
-            return {
-                "status": "running",
-                "message": (
-                    f"Still running after {wait_seconds}s. Tell the user it is "
-                    f"working and call get_agent_run with this execution_id later "
-                    f"— do not start the agent again."
-                ),
-            }
+            return await _still_running(
+                f"Still running after {wait_seconds}s. It is being followed for "
+                f"you: when it ends, its result reaches you by itself (a "
+                f"<task-reports> block) and this turn waits for it, so do not "
+                f"poll get_agent_run and do not start the agent again. Tell the "
+                f"user in one line that it is still working.")
         await asyncio.sleep(AGENT_RUN_POLL_SECONDS)
         row = await _read()
 
     if row is None:
         return {"status": "unknown", "message": "No run found for that execution_id."}
 
+    if context is not None:
+        # The manager has the result now, from this call: the follower must
+        # not report it a second time, or post it into the chat.
+        from . import tasks as task_tools
+
+        task_tools.mark_heard(context, execution_id, row["status"])
+
     output = row.get("output_data") or {}
     plan = _plan_items(output.get("todos"))
-    return {
+    outcome: Dict[str, Any] = {
         "status": row["status"],
         "answer": (output.get("answer") or "")[:answer_chars],
         "error": row.get("error_message") or "",
@@ -308,6 +418,15 @@ async def _await_agent_run(execution_id: str, wait_seconds: int,
         # blocked, and the chat draws it (`_on_worker_run`).
         **({"plan": plan} if plan else {}),
     }
+    if row["status"] != "completed":
+        # Failed, timed out or stopped: the error alone hides what the worker
+        # had found on the way, which is often most of the answer (H-185).
+        try:
+            outcome["transcript"] = await sync_to_async(run_transcript)(row["id"])
+        except Exception:  # noqa: BLE001 — the outcome stands without it
+            logger.warning("Could not read the transcript of %s", execution_id,
+                           exc_info=True)
+    return outcome
 
 
 #: Description text is capped in the summary: the model is choosing between
@@ -457,6 +576,12 @@ async def search_agents(args: Dict, context: Dict) -> str:
     return json.dumps({"agents": agents, "count": len(agents)})
 
 
+# Tools that start, answer or wait on other agents are `journal=False` (D9).
+# Each one's real effect is recorded under the worker's own change set, so a row
+# for the call would only repeat it. The three here: `run_agent` starts a worker
+# detached; `answer_subagent` resumes a paused one; `invoke_subagent` runs one
+# inline (its child binds its own owner, D18). The coding tools that start,
+# steer and stop tasks are in `chat/tools/tasks.py`.
 @tool({
         "type": "function",
         "function": {
@@ -475,7 +600,7 @@ async def search_agents(args: Dict, context: Dict) -> str:
                     },
                     "wait_seconds": {
                         "type": "integer",
-                        "description": "How long to wait for the result before handing back an execution_id (default 60, max 90)."
+                        "description": "How long to wait for the result before handing back an execution_id (default 300, max 900)."
                     }
                 },
                 "required": [
@@ -489,6 +614,7 @@ async def search_agents(args: Dict, context: Dict) -> str:
     sensitive=True,
     effect="irreversible",
     timeout=AGENT_RUN_CALL_TIMEOUT,
+    journal=False,
 )
 async def run_agent(args: Dict, context: Dict) -> str:
     """Start one of the caller's agents and wait briefly for its answer.
@@ -557,10 +683,16 @@ async def run_agent(args: Dict, context: Dict) -> str:
         return json.dumps({"error": "User not found."})
 
     caller, gated_calls = worker_caller(context, default="chat")
+    # The delegating call's change set: the worker's set hangs under it, so a
+    # revert of this chat reverts the worker first (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
     try:
         execution_id = await start_agent_run(
             agent, goal, user=user, trigger_type="api", caller=caller,
             gated_calls=gated_calls,
+            change_parent_id=change_parent_id,
             # The step that asked for this run. It is what makes the run
             # traceable back to the reasoning that chose to start it, instead
             # of appearing in the history with no explanation of who wanted it.
@@ -581,6 +713,9 @@ async def run_agent(args: Dict, context: Dict) -> str:
             # A worker started from a tainted turn starts tainted (see
             # `runtime.run_agent`). `tainted_by` is None on a clean turn.
             inherited_taint=context.get("tainted_by") or None,
+            # The conversation (or the run) that asked: the run's spend is
+            # counted in that chat's cost (H-185).
+            parent_session_key=str(context.get("session_id") or ""),
         )
     except AgentRunRefused as exc:
         # A guardrail said no — spend cap, disabled agent. The user can act
@@ -597,7 +732,7 @@ async def run_agent(args: Dict, context: Dict) -> str:
         return json.dumps({"error": f"Could not start the agent: {e}"})
 
     outcome = await _await_agent_run(execution_id, wait, context=context,
-                                     agent_name=agent.name)
+                                     agent_name=agent.name, title=goal)
     return json.dumps({
         "type": "agent_run",
         "agent_id": agent_id,
@@ -611,13 +746,21 @@ async def run_agent(args: Dict, context: Dict) -> str:
         "type": "function",
         "function": {
             "name": "get_agent_run",
-            "description": "Check an agent run that had not finished when `run_agent` returned. Reports its status, what it was asked to do, todo/task progress so far and, once it is done, the agent's answer. A run that is still going is not stuck — say so and offer to check again rather than calling this repeatedly.",
+            "description": "Read an agent run: its status, what it was asked to do, its progress, and once it has ended the agent's answer. Waits for a run that is still going (wait_seconds), so one call is enough — never call it in a loop. A run that failed, timed out or was stopped comes back with the worker's `transcript` (what it thought, said and called), so you can still tell the user what it found; pass include_transcript to get it for any run. Use it for a run from an earlier message too.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "execution_id": {
                         "type": "string",
                         "description": "The execution_id returned by run_agent."
+                    },
+                    "wait_seconds": {
+                        "type": "integer",
+                        "description": "How long to wait for a run that is still going (default 300, max 900; 0 reads it now)."
+                    },
+                    "include_transcript": {
+                        "type": "boolean",
+                        "description": "Also return the worker's transcript for a run that finished or is still going."
                     }
                 },
                 "required": [
@@ -626,7 +769,7 @@ async def run_agent(args: Dict, context: Dict) -> str:
                 "additionalProperties": False
             }
         }
-    }, parallel=True, effect="read")
+    }, parallel=True, effect="read", timeout=AGENT_RUN_CALL_TIMEOUT)
 async def get_agent_run(args: Dict, context: Dict) -> str:
     """Report where an agent run got to, for a run that outlived its call."""
     from asgiref.sync import sync_to_async
@@ -678,10 +821,23 @@ async def get_agent_run(args: Dict, context: Dict) -> str:
     except (ValueError, ValidationError):
         return json.dumps({"error": "That is not a valid execution_id."})
 
-    log, turns, steps, last_reasoning, needs_approval = read
+    try:
+        wait = int(args.get("wait_seconds", AGENT_RUN_DEFAULT_WAIT))
+    except (TypeError, ValueError):
+        wait = AGENT_RUN_DEFAULT_WAIT
+    wait = max(0, min(wait, AGENT_RUN_MAX_WAIT))
+
+    log = read[0]
     outcome = await _await_agent_run(
-        execution_id, 0, context=context,
-        agent_name=(log.subagent.name if log.subagent_id and log.subagent else ""))
+        execution_id, wait, context=context,
+        agent_name=(log.subagent.name if log.subagent_id and log.subagent else ""),
+        title=log.delegation_task or "")
+    if wait:
+        # Counts and status moved while it waited: read them again.
+        read = await _read() or read
+    log, turns, steps, last_reasoning, needs_approval = read
+    if args.get("include_transcript") and "transcript" not in outcome:
+        outcome["transcript"] = await sync_to_async(run_transcript)(log.id)
     live = None
     if log.status in ('running', 'paused') and log.thread_id:
         from .runs import live_todos
@@ -726,13 +882,13 @@ async def get_agent_run(args: Dict, context: Dict) -> str:
                 },
                 "reason": {"type": "string", "description": "Why, for a rejection. The agent reads it."},
                 "wait_seconds": {"type": "integer",
-                                 "description": "How long to wait for the resumed run (default 60, max 90)."},
+                                 "description": "How long to wait for the resumed run (default 300, max 900)."},
             },
             "required": ["execution_id", "call_id"],
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", timeout=AGENT_RUN_CALL_TIMEOUT)
+}, sensitive=True, effect="irreversible", timeout=AGENT_RUN_CALL_TIMEOUT, journal=False)
 async def answer_subagent(args: Dict, context: Dict) -> str:
     """Answer a paused worker and resume it — the manager's half of HITL.
 
@@ -797,7 +953,8 @@ async def answer_subagent(args: Dict, context: Dict) -> str:
         return json.dumps({"error": "The decision was recorded but the run could not be resumed."})
 
     outcome = await _await_agent_run(resumed, wait, context=context,
-                                     agent_name=agent.name)
+                                     agent_name=agent.name,
+                                     title=log.delegation_task or "")
     return json.dumps({
         "type": "agent_run", "agent_id": agent.id, "agent_name": agent.name,
         "execution_id": resumed, "request": outcome_label, "decided_by": decided_by,
@@ -862,7 +1019,7 @@ async def _user(user_id: Any):
             "additionalProperties": False,
         },
     },
-}, sensitive=True, effect="irreversible", timeout=FANOUT_CALL_TIMEOUT)
+}, sensitive=True, effect="irreversible", timeout=FANOUT_CALL_TIMEOUT, journal=False)
 async def invoke_subagent(args: Dict, context: Dict) -> str:
     """Fan work out to N workers and return their answers, in order.
 
@@ -1025,6 +1182,11 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             return json.dumps({"error": str(exc), "refused": True})
 
     parent_step_id = await _parent_step_id(context)
+    # The delegating call's change set, read once here where the binding is
+    # live, and handed to every worker (docs/UNDO_PLAN.md D7).
+    from logs import changes
+
+    change_parent_id = await changes.acurrent_set_id(create=True)
 
     # The folder this run writes to, handed down so workers can write there
     # too. Derived from the caller's own scope rather than from its name: the
@@ -1089,6 +1251,7 @@ async def invoke_subagent(args: Dict, context: Dict) -> str:
             org_id=context.get("org_id"),
             share_solutions=bool(context.get("share_solutions")),
             inherited_taint=inherited_taint,
+            change_parent_id=change_parent_id,
         )
         return WorkerResult(
             index=index, task=task, answer=run.answer or "",

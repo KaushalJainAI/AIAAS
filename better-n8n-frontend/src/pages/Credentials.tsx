@@ -26,8 +26,10 @@ import type { Credential, CredentialType } from '../api/credentials';
 import { healthView, maskedKey } from '../lib/credentialHealth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import CredentialModal from '../components/credentials/CredentialModal';
+import CredentialBalanceLine from '../components/credentials/CredentialBalanceLine';
 import PageHeader from '../components/layout/PageHeader';
 import SearchInput from '../components/ui/SearchInput';
+import { Button } from '../components/ui/Button';
 import { cn } from '../lib/utils';
 
 // Icon mapper
@@ -243,6 +245,9 @@ export default function Credentials() {
         {maskedKey(credential) && (
           <p className="font-mono text-[12px] text-muted-foreground truncate">{maskedKey(credential)}</p>
         )}
+        {credentialTypes.find(t => t.id === credential.credential_type)?.slug === 'openrouter' && (
+          <CredentialBalanceLine credentialId={credential.id} />
+        )}
         {!credential.is_verified && credential.last_error && (
           <p className="text-xs text-warning leading-relaxed line-clamp-2" title={credential.last_error}>
             {credential.last_error}
@@ -291,16 +296,16 @@ export default function Credentials() {
         subtitle="Manage your external service connections"
         icon={Key}
         actions={
-          <button 
+          <Button
+            size="sm"
             onClick={() => {
                 setEditingCredential(null);
                 setShowModal(true);
             }}
-            className="btn-primary px-4 py-2"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             Add Credential
-          </button>
+          </Button>
         }
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -334,7 +339,7 @@ export default function Credentials() {
           <div className="flex items-center justify-end">
             <div className="relative w-full md:w-[400px]">
               <SearchInput
-                placeholder="Search credentials..."
+                data-page-search placeholder="Search credentials..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -352,7 +357,7 @@ export default function Credentials() {
 
       {/* Credentials — one list grouped by provider. Verified and unverified
           stay on the same page so a new key never looks lost before Verify. */}
-      <div className="flex-1 overflow-auto p-4 md:p-8 space-y-10 animate-in fade-in duration-500">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-6 space-y-10">
         {unverifiedCredentials.length > 0 && statusFilter === 'all' && (
           <div className="rounded-md border border-warning/40 bg-warning-subtle px-4 py-3 text-sm text-warning">
             {unverifiedCredentials.length} credential{unverifiedCredentials.length === 1 ? '' : 's'} {unverifiedCredentials.length === 1 ? 'needs' : 'need'} verification — only verified keys are used for AI calls. Press Verify on the card.

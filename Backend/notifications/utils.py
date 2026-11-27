@@ -114,6 +114,9 @@ def create_notification(user, type, title, message, data=None, send_email=None,
                 'title': notif.title,
                 'body': notif.message,
                 'action_url': notif_data.get('action_url'),
+                # A chat that is open refreshes itself when a row names it
+                # (a worker's late result, `chat/tools/tasks.py::post_run_result`).
+                'session_id': notif_data.get('session_id'),
             })
         return notif
     except Exception as e:

@@ -13,6 +13,7 @@ import {
   SETTINGS_SECTIONS,
   buildCommands,
   commandMenuShortcutLabel,
+  defaultActiveIndex,
   isCommandMenuShortcut,
   matchRank,
   nextIndex,
@@ -20,6 +21,7 @@ import {
   readCachedSources,
   type CommandItem,
 } from '../commandMenu';
+import type { RecentPage } from '../recentPages';
 
 const settingsSource = readFileSync(
   fileURLToPath(new URL('../../pages/Settings.tsx', import.meta.url)),
@@ -249,6 +251,12 @@ describe('isCommandMenuShortcut', () => {
     expect(isCommandMenuShortcut(press({ ctrlKey: true, altKey: true }))).toBe(false);
     expect(isCommandMenuShortcut(press({ ctrlKey: true, key: 'j' }))).toBe(false);
   });
+
+  it('leaves a press an editor already handled to that editor', () => {
+    // CodeMirror's Mac Control+K (delete to line end) calls preventDefault first.
+    expect(isCommandMenuShortcut({ ...press({ ctrlKey: true }), defaultPrevented: true })).toBe(false);
+    expect(isCommandMenuShortcut({ ...press({ metaKey: true }), defaultPrevented: false })).toBe(true);
+  });
 });
 
 describe('commandMenuShortcutLabel', () => {
@@ -256,5 +264,71 @@ describe('commandMenuShortcutLabel', () => {
     expect(commandMenuShortcutLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)')).toBe('⌘K');
     expect(commandMenuShortcutLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)')).toBe('⌘K');
     expect(commandMenuShortcutLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('Ctrl+K');
+  });
+});
+
+describe('Recent pages in the menu', () => {
+  const NOW = 10 * 60_000;
+  const recent = (path: string, title: string, at: number): RecentPage => ({ path, title, at });
+  const pages: RecentPage[] = [
+    recent('/agents/12', 'Digest agent', NOW - 5 * 60_000),
+    recent('/runs', 'Activity', NOW - 60 * 60_000),
+    recent('/documents', 'Library · Files', NOW - 2 * 24 * 60 * 60_000),
+  ];
+
+  it('shows Recent first on an empty query, ahead of Actions and Go to', () => {
+    const rows = rankCommands('', buildCommands({ recentPages: pages, now: NOW }));
+    expect(rows.slice(0, 3).map((r) => r.section)).toEqual(['Recent', 'Recent', 'Recent']);
+    expect(rows[3].section).toBe('Actions');
+    expect(rows.slice(0, 3).map((r) => r.id)).toEqual(['recent:/agents/12', 'recent:/runs', 'recent:/documents']);
+  });
+
+  it('gives each Recent row its title, its path, and how long ago it was', () => {
+    const [first] = buildCommands({ recentPages: pages, now: NOW }).filter((r) => r.section === 'Recent');
+    expect(first).toMatchObject({ label: 'Digest agent', to: '/agents/12', note: '5 min ago' });
+  });
+
+  it('skips the page the menu was opened on', () => {
+    const rows = buildCommands({ recentPages: pages, currentPath: '/agents/12', now: NOW });
+    const recents = rows.filter((r) => r.section === 'Recent');
+    expect(recents.map((r) => r.to)).toEqual(['/runs', '/documents']);
+  });
+
+  it('is searched by title like the other rows, and found outside an empty query', () => {
+    const rows = rankCommands('library', buildCommands({ recentPages: pages, now: NOW }));
+    expect(rows[0]).toMatchObject({ section: 'Recent', label: 'Library · Files' });
+  });
+
+  it('a note is not searched, so a time word does not match', () => {
+    const rows = rankCommands('ago', buildCommands({ recentPages: pages, now: NOW }));
+    expect(rows.some((r) => r.section === 'Recent')).toBe(false);
+  });
+
+  it('an empty list has no Recent section', () => {
+    const rows = buildCommands({ recentPages: [], now: NOW });
+    expect(rows.some((r) => r.section === 'Recent')).toBe(false);
+    expect(rankCommands('', rows)[0].section).toBe('Actions');
+  });
+
+  it('highlights the first Recent row on open, or the first row when there are none', () => {
+    const rows = rankCommands('', buildCommands({ recentPages: pages, now: NOW }));
+    expect(rows[defaultActiveIndex(rows)].id).toBe('recent:/agents/12');
+    const none = rankCommands('', buildCommands({ now: NOW }));
+    expect(defaultActiveIndex(none)).toBe(0);
+    expect(none[0].section).toBe('Actions');
+  });
+
+  it('highlights the Recent row even when it is not first in the list', () => {
+    const rows: CommandItem[] = [
+      { id: 'a', section: 'Actions', label: 'New chat', to: '/ai-chat' },
+      { id: 'r', section: 'Recent', label: 'Runs', to: '/runs' },
+    ];
+    expect(defaultActiveIndex(rows)).toBe(1);
+    expect(defaultActiveIndex([])).toBe(0);
+  });
+
+  it('with only the current page recorded, Recent is empty', () => {
+    const rows = buildCommands({ recentPages: [pages[0]], currentPath: '/agents/12', now: NOW });
+    expect(rows.some((r) => r.section === 'Recent')).toBe(false);
   });
 });

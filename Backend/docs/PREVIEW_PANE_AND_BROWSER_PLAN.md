@@ -1,7 +1,8 @@
 # Preview pane and agent browser plan
 
-**Status:** built 2026-11-17 (Phases 0–10), undeployed, not committed by this
-work. Open: Phase 6's paid proof run against a real browser provider (needs the
+**Status:** built 2026-11-17 (Phases 0–10), committed, undeployed, and not
+checked by hand in a real browser. The phone "I'm done" button was added
+2026-11-25 (Progress row 9). Open: Phase 6's paid proof run against a real browser provider (needs the
 user's go-ahead, CLAUDE.md "Paid runs"). **Production has no browser engine**
 (the user, 2026-11-17), so in production the browser tools, the Browser tab,
 the chip and the link Preview button stay hidden; the tabbed pane, every file
@@ -23,7 +24,7 @@ and `BROWSER_API_TOKEN` are set.
 | 6 Better browser control | **built** 2026-11-17 (fake-engine tests only) | `elements` (80, ref/role/name/selector, never values), verbs `navigate`/`back`/`hover`/`check`/`uncheck`, `viewport: desktop|phone`, `BrowserSession.last_url` (migration 0002) to resume a session without a url, step error `code`s (`not_found`, `not_visible`, `timeout`, `navigated_away`, `failed`; `blocked` at call level). The fixed script passes `node --check`. **Paid proof run not done: needs the user's go-ahead** |
 | 7 Take over and hand back | **built** 2026-11-17 | `components/pane/NeedsUserCard.tsx`, in the Browser tab and under the **newest** saved answer only (`isLatest`). "I'm done" sends "Done on <host>. Continue." through `sendHandOff` and restores the composer draft. Not shown while the answer is still streaming |
 | 8 Link previews | **built** 2026-11-17 | Backend `POST /api/browser/preview/` (20/hour, billed as one browser minute) and `GET /api/browser/status/`. Web: a Preview button after external links on desktop only when the engine is on (`hooks/useBrowserAvailable.ts`, asked only when signed in), `LinkTabBody.tsx`; previews cached per URL for the session (20) so switching tabs does not bill twice |
-| 9 Phone app | **built** 2026-11-17 (not run on a device) | `browser_update` in `useChatTurn.ts` (`frames.ts::parseBrowser`, replace not append), `BrowserScreen.tsx` at `app/(tabs)/chat/browser/[key].tsx` (views passed by an in-memory key; gone after an app restart), "Browser · host" chip in `AnswerExtras.tsx`, live view via `Linking.openURL` (the system browser). No "I'm done" button: a screen cannot send a chat message, so the notice says to reply in the chat (recorded in `PARITY.md`). tsc + lint green; the app has no test runner |
+| 9 Phone app | **built** 2026-11-17 (not run on a device) | `browser_update` in `useChatTurn.ts` (`frames.ts::parseBrowser`, replace not append), `BrowserScreen.tsx` at `app/(tabs)/chat/browser/[key].tsx` (views passed by an in-memory key; gone after an app restart), "Browser · host" chip in `AnswerExtras.tsx`, live view via `Linking.openURL` (the system browser). Gap B (2026-11-25): "I'm done" added. It shows on the call that is waiting for the person (the web's `awaitingUser` rule, `browserViews.ts`), sends `doneMessage(host)` ("Done on <host>. Continue.") and goes back. The conversation under the screen takes the text from `handOff.ts` when it regains focus and sends it like a typed message (steer while a turn runs). It is not in the composer, so the draft is untouched. Shown only when there is a conversation to go back to. tsc + lint green; the app has no test runner, not run on a device |
 | 10 Docs | with each phase | |
 
 **Who runs this plan:** smaller models, one phase at a time. Every phase says
@@ -718,6 +719,11 @@ soon as Phase 1 is in.
   (`MarkdownMessage.tsx::RemoteImage`). **The user accepted this as it is
   (2026-11-17):** image search results keep loading their pictures. Do not
   "fix" it without asking.
+- **2026-11-17, fixed:** a new account signing in on the same browser saw the
+  previous account's last conversation, painted from the browser's cached
+  copy (sign-out cleared only the tokens). Fixed by `lib/accountData.ts`
+  (forget at sign-out, claim by user id before pages render) and clearing a
+  conversation the server answers 404 for. H-177.
 
 ## Phase 0 results
 

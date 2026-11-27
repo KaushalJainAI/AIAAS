@@ -24,8 +24,11 @@ Nothing is off until you add a connection.
 | `sqlcheck.py` | Decides which SQL is allowed by **parsing** it, not by pattern matching. Raises `SqlRefused` |
 | `drivers.py` | Runs a checked statement against each database kind. Checks the host against the scope, and caps rows (`ROW_CAP`) |
 | `sharing.py` | Publishes a connection as a `SharedTool` (credentials stripped) and installs copies |
-| `models.py`, `serializers.py` | The three models and their API shape |
-| `views.py`, `urls.py` | `/api/datasources/...` |
+| `auth_template.py` | Template auth: the `parts` (header, query or Basic) a credential fills, with `{field}` placeholders. Validates parts, and builds headers and params from resolved values. Used by the serializer, by `call_api` and by API cards (`mcp_integration/card_template.py`) |
+| `catalogue/` | OpenAPI 3 spec files that API cards (`kind='api'`) point at. Only GET/HEAD operations, one marked `x-aiaas-check` |
+| `models.py`, `serializers.py` | The three models and their API shape. `ApiConnection.card_slug` records which API card built a connection |
+| `views.py`, `urls.py` | Private CRUD for your tools, sharing, and the shared-tool install routes. Under `/api/datasources/` |
+| `apps.py` | App config |
 
 ## Rules
 
@@ -35,4 +38,5 @@ Nothing is off until you add a connection.
 
 ## Tests
 
-`datasources/tests/`: `test_api.py`, `test_data.py`, `test_sharing.py`.
+`datasources/tests/`: `test_api.py`, `test_data.py`, `test_sharing.py`,
+`test_api_auth_template.py`.

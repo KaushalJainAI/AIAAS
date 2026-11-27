@@ -1,13 +1,20 @@
 """The sandbox sidecar's HTTP surface.
 
 Stdlib only, on purpose: this process runs untrusted code, so the smaller its
-own dependency surface the better. It exposes exactly two routes on an
+own dependency surface the better. It exposes exactly three routes on an
 internal-only network (no ports are published to the host):
 
     GET  /health        -> {"status": "ok"}
-    POST /execute       -> {code, wall_seconds?, cpu_seconds?, mem_mb?,
+    POST /execute       -> {code, language?: python|javascript|typescript,
+                            wall_seconds?, cpu_seconds?, mem_mb?,
                             files?: {name: base64}, collect?: [name]} -> envelope
                             (+ files_out: {name: base64}, missing, unsaved)
+    POST /commands      -> {pipeline: [{command, args}], stdin?, wall_seconds?,
+                            cpu_seconds?, mem_mb?, files?: {name: base64}}
+                            -> envelope (+ exit_codes: [int])
+
+A request the policy refuses (a bad file name, an unknown language, a command
+not on the allowlist) is a 400 whose `error` is written for the model.
 
 The backend is the only client; there is no auth here because the network it
 sits on has no route in from anywhere else (see compose: an `internal: true`
@@ -20,10 +27,18 @@ import base64
 import binascii
 import json
 import os
-import threading
+import queue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from executor import MAX_FILE_BYTES, MAX_FILES, FileSpecError, execute
+from commands import CommandRefused
+from executor import (
+    MAX_FILE_BYTES,
+    MAX_FILES,
+    MAX_SLOTS,
+    FileSpecError,
+    execute,
+    execute_commands,
+)
 
 # Ceilings the caller cannot exceed, whatever it asks for. The backend passes
 # its own (smaller) defaults; these stop a caller from requesting a run that
@@ -32,9 +47,15 @@ MAX_WALL_SECONDS = int(os.environ.get("SANDBOX_MAX_WALL_SECONDS", "30"))
 MAX_CPU_SECONDS = int(os.environ.get("SANDBOX_MAX_CPU_SECONDS", "25"))
 MAX_MEM_MB = int(os.environ.get("SANDBOX_MAX_MEM_MB", "512"))
 MAX_CODE_BYTES = int(os.environ.get("SANDBOX_MAX_CODE_BYTES", str(256 * 1024)))
-MAX_CONCURRENCY = int(os.environ.get("SANDBOX_MAX_CONCURRENCY", "2"))
+MAX_CONCURRENCY = min(int(os.environ.get("SANDBOX_MAX_CONCURRENCY", "2")), MAX_SLOTS)
 
-_slots = threading.Semaphore(MAX_CONCURRENCY)
+#: The free slots. A slot is both a concurrency permit and an identity: slot n
+#: runs as its own Unix user (`executor._slot_user`), so two runs at once can
+#: never share a user, and a slot is only handed out again after the
+#: executor has killed everything the previous run in it left behind.
+_slots: "queue.Queue[int]" = queue.Queue()
+for _n in range(1, MAX_CONCURRENCY + 1):
+    _slots.put(_n)
 
 #: Body ceiling: the code, plus every input file base64-encoded (4/3), plus JSON.
 MAX_BODY_BYTES = MAX_CODE_BYTES + (MAX_FILES * MAX_FILE_BYTES * 4) // 3 + 64 * 1024
@@ -58,7 +79,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/execute":
+        if self.path not in ("/execute", "/commands"):
             self._send(404, {"error": "not found"})
             return
 
@@ -72,14 +93,28 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             self._send(400, {"error": "invalid JSON body"})
             return
+        if not isinstance(payload, dict):
+            self._send(400, {"error": "body must be a JSON object"})
+            return
 
-        code = payload.get("code")
-        if not isinstance(code, str) or not code.strip():
-            self._send(400, {"error": "'code' is required"})
-            return
-        if len(code.encode("utf-8")) > MAX_CODE_BYTES:
-            self._send(413, {"error": "code too large"})
-            return
+        if self.path == "/commands":
+            stdin = payload.get("stdin") or ""
+            if not isinstance(stdin, str):
+                self._send(400, {"error": "'stdin' must be a string"})
+                return
+            if len(stdin.encode("utf-8")) > MAX_CODE_BYTES:
+                self._send(413, {"error": "stdin too large"})
+                return
+            code = None
+        else:
+            stdin = None
+            code = payload.get("code")
+            if not isinstance(code, str) or not code.strip():
+                self._send(400, {"error": "'code' is required"})
+                return
+            if len(code.encode("utf-8")) > MAX_CODE_BYTES:
+                self._send(413, {"error": "code too large"})
+                return
 
         wall = min(int(payload.get("wall_seconds", 10)), MAX_WALL_SECONDS)
         cpu = min(int(payload.get("cpu_seconds", 8)), MAX_CPU_SECONDS)
@@ -98,24 +133,33 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "collect must be a list of names"})
             return
 
-        acquired = _slots.acquire(timeout=MAX_WALL_SECONDS)
-        if not acquired:
+        try:
+            slot = _slots.get(timeout=MAX_WALL_SECONDS)
+        except queue.Empty:
             self._send(503, {"error": "sandbox busy, try again"})
             return
+        limits = {
+            "slot": slot,
+            "wall_seconds": wall,
+            "cpu_seconds": cpu,
+            "mem_bytes": mem_mb * 1024 * 1024,
+            "files": files,
+        }
         try:
-            result = execute(
-                code,
-                wall_seconds=wall,
-                cpu_seconds=cpu,
-                mem_bytes=mem_mb * 1024 * 1024,
-                files=files,
-                collect=collect,
-            )
-        except FileSpecError as exc:
+            if code is None:
+                result = execute_commands(payload.get("pipeline"), stdin=stdin, **limits)
+            else:
+                result = execute(
+                    code,
+                    language=str(payload.get("language") or "python"),
+                    collect=collect,
+                    **limits,
+                )
+        except (FileSpecError, CommandRefused) as exc:
             self._send(400, {"error": str(exc)})
             return
         finally:
-            _slots.release()
+            _slots.put(slot)
 
         if "files_out" in result:
             result["files_out"] = {

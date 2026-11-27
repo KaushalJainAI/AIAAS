@@ -1,0 +1,48 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SendGrid v3 API (read-only subset)",
+    "version": "3",
+    "description": "GET operations from the SendGrid v3 API reference. Base URL: https://api.sendgrid.com/v3"
+  },
+  "paths": {
+    "/user/profile": {
+      "get": {
+        "summary": "Get the account owner's profile",
+        "x-aiaas-check": true,
+        "responses": {"200": {"description": "The profile fields"}}
+      }
+    },
+    "/stats": {
+      "get": {
+        "summary": "Get global email statistics for a date range",
+        "parameters": [
+          {"name": "start_date", "in": "query", "required": true, "schema": {"type": "string", "format": "date", "example": "2026-11-01"}},
+          {"name": "end_date", "in": "query", "required": false, "schema": {"type": "string", "format": "date"}},
+          {"name": "aggregated_by", "in": "query", "required": false, "schema": {"type": "string", "enum": ["day", "week", "month"]}}
+        ],
+        "responses": {"200": {"description": "Sent, delivered, opened, clicked, bounced and blocked counts"}}
+      }
+    },
+    "/suppression/unsubscribes": {
+      "get": {
+        "summary": "List globally unsubscribed email addresses",
+        "parameters": [
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 500}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"description": "A page of unsubscribed addresses"}}
+      }
+    },
+    "/templates": {
+      "get": {
+        "summary": "List transactional templates",
+        "parameters": [
+          {"name": "page_size", "in": "query", "required": true, "schema": {"type": "integer", "minimum": 1, "maximum": 200}},
+          {"name": "generations", "in": "query", "required": false, "schema": {"type": "string", "enum": ["legacy", "dynamic", "legacy,dynamic"]}}
+        ],
+        "responses": {"200": {"description": "A page of transactional templates"}}
+      }
+    }
+  }
+}

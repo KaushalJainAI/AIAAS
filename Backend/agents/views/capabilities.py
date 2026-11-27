@@ -48,7 +48,7 @@ GRANT_RISKS: dict[str, str] = {
     'scrape': 'Fetches URLs the run names.',
     'rag': 'Reads the selected knowledge bases.',
     'kbWrite': 'Adds documents to knowledge bases later runs will search; asks first unless full auto.',
-    'codeExecution': 'Runs Python in the sandbox; no network, no files.',
+    'codeExecution': 'Runs Python, JavaScript and a fixed set of text commands in the sandbox; no network.',
     'fileOps': 'Reads and writes your files within the access level.',
     'office': 'Creates documents in your files.',
     'media': 'Spends money per image; needs approval.',

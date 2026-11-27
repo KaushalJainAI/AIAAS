@@ -77,7 +77,7 @@ export default function AgentHistory() {
         }
       />
 
-      <div className="px-4 py-6 md:px-8 max-w-3xl">
+      <div className="px-4 py-6 md:px-6 max-w-3xl">
         {isLoading && (
           <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />

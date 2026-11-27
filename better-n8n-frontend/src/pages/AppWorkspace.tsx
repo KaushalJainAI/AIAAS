@@ -442,7 +442,7 @@ function Workspace({ app }: { app: AppMeta }) {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${app.title.toLowerCase()} files…`}
+              data-page-search placeholder={`Search ${app.title.toLowerCase()} files…`}
               aria-label="Search files"
               className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             />

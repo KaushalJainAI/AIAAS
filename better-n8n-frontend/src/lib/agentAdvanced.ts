@@ -18,6 +18,7 @@ export const ESSENTIAL_FIELDS: readonly (keyof AgentConfig)[] = [
   'model',
   'tools',
   'connectors',
+  'skills',
   'autonomy',
   'spendCapRupees',
   'allowUnattended',

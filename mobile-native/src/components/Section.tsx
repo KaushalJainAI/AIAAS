@@ -24,7 +24,7 @@ export function Section({ title, footer, children }: Props) {
       <View
         style={[
           styles.group,
-          { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.md },
+          { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg },
         ]}
       >
         {rows.map((row, index) => (
@@ -43,6 +43,8 @@ const styles = StyleSheet.create({
   wrap: { gap: spacing.sm },
   header: { marginLeft: spacing.xs, fontWeight: '600' },
   group: { borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  divider: { height: StyleSheet.hairlineWidth, marginLeft: spacing.lg },
+  // Starts past the icon tile (ListRow: 16 padding + 32 tile + 12 gap), so the
+  // tiles read as one column; rows without an icon still look right.
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: spacing.lg + 32 + spacing.md },
   footer: { marginHorizontal: spacing.xs },
 });

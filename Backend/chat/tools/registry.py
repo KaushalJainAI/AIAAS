@@ -27,8 +27,10 @@ from typing import Any, Awaitable, Callable, Dict, Iterator, Literal
 #: a speech engine must be configured (`voice/stt.py`, `voice/tts.py`);
 #: `esign` — an e-signature provider must be configured (`esign/provider.py`);
 #: `workspace` — a compute workspace engine must be configured
-#: (`workspaces/engine.py`).
-Requirement = Literal["memory", "vision", "spill", "files", "browser", "stt", "tts", "esign", "workspace", "agent_run"]
+#: (`workspaces/engine.py`); `sidecar` — the code sandbox must be the hardened
+#: sidecar (`sandbox/engine.py::sidecar_available`), which JavaScript and
+#: `run_command` need because nothing in-process could confine them.
+Requirement = Literal["memory", "vision", "spill", "files", "browser", "stt", "tts", "esign", "workspace", "agent_run", "sidecar"]
 
 #: What running this tool does to the world, which is what an autonomy level
 #: actually needs to know. `sensitive` answers "ask in chat"; this answers "how
@@ -116,6 +118,14 @@ class Tool:
     #: where nothing a page, a file or an email said can reach the output.
     trusted_output: bool = False
 
+    #: Does a call to this tool go into the change log (docs/UNDO_PLAN.md D8,
+    #: D9)? True for every tool that does something, so a call the log cannot
+    #: see still shows as an untracked row. False for a tool that only starts,
+    #: steers or stops other work, or only keeps bookkeeping: the work it
+    #: starts is journaled under its own set, and a row for the call itself
+    #: would bury the real list. Only non-`read` tools may be False (a test).
+    journal: bool = True
+
 
 _REGISTRY: Dict[str, Tool] = {}
 
@@ -132,6 +142,7 @@ def tool(
     external: bool = False,
     action_label: str = "",
     trusted_output: bool = False,
+    journal: bool = True,
 ) -> Callable[[ToolFunc], ToolFunc]:
     """
     Register a tool from its own schema and return the function unchanged.
@@ -150,7 +161,7 @@ def tool(
         _REGISTRY[name] = Tool(
             name, schema, func, requires, sensitive, parallel, effect,
             connector, timeout, external=external, action_label=action_label,
-            trusted_output=trusted_output,
+            trusted_output=trusted_output, journal=journal,
         )
         return func
 
@@ -238,6 +249,12 @@ def trusted_output_of(name: str) -> bool:
     """
     entry = _REGISTRY.get(name)
     return entry.trusted_output if entry is not None else False
+
+
+def journal_of(name: str) -> bool:
+    """Whether a call to `name` goes into the change log. Unregistered (MCP) is True."""
+    entry = _REGISTRY.get(name)
+    return entry.journal if entry is not None else True
 
 
 def connector_of(name: str) -> str | None:

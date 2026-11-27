@@ -10,7 +10,11 @@ These rules are how that stays true when many people build screens.
 - Loading, errors and empty lists use `LoadingState`, `ErrorState` and `EmptyState`. Never write a bare spinner or a plain text error.
 - Status words use `StatusPill`. Counts and small labels use `Badge`.
 - Filters use `SegmentedControl`. Search uses `SearchBar`.
-- Icons come from `Icon` (Ionicons). Pass a name, not a component.
+- Icons come from `Icon` (Ionicons). Pass a name, not a component. Use the `-outline` glyph at rest
+  and the filled one for the selected state (the tab bar does this). `ListRow` draws its icon on a
+  32pt tinted tile; do not put a bare coloured icon at the start of a row.
+- Keep one primary action per bar. A secondary action goes in a `Sheet` behind `ellipsis-horizontal`,
+  not beside the first (the chat composer holds attach, mode, model and send in one rounded field).
 - Anything that asks a question or takes a choice opens in a `Sheet` (bottom sheet). Do not use `Alert` for forms.
 - Destructive or irreversible actions use `confirm({ title, message, destructiveLabel })`. It resolves to a boolean.
 - Markdown from the assistant uses `Markdown`.
@@ -25,7 +29,7 @@ These rules are how that stays true when many people build screens.
 
 The app is a near copy of the website on every platform. The colours in `theme.ts` are the
 web's own tokens, the font is the web's (IBM Plex Sans and Mono, bundled in `src/fonts.ts`),
-corners are the web's 6px, and sizes follow its Tailwind scale (body text 14).
+corners are the web's 6px (grouped lists and cards use `radius.lg`, the web's rounded-lg), and sizes follow its Tailwind scale (body text 14).
 
 - **Import `Text` from `src/components/Text`, never from `react-native`.** It draws the web's
   font on Android and iOS alike and turns `fontWeight` into the right font file, which Android

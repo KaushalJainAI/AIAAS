@@ -78,6 +78,26 @@ export function historyFrom(stored: unknown, current: unknown): TodoItem[][] {
   return out;
 }
 
+/** The note a step gets when its turn ended with it in progress (`todos.settle`). */
+export const UNFINISHED_NOTE = 'Not finished when the reply ended.';
+
+/**
+ * A saved plan as an ended turn leaves it: no step still `doing`.
+ *
+ * The server settles plans it saves now (`chat/turn/todos.py::settle`); this
+ * covers replies saved before that, and turns that failed without a reply, so
+ * a step frozen at `doing` never pulses as if work were still going on.
+ */
+export function settleHistory(history: TodoItem[][]): TodoItem[][] {
+  if (!history.length) return history;
+  const last = history[history.length - 1];
+  if (!last.some(t => t.status === 'doing')) return history;
+  const settled = last.map(t => (t.status === 'doing'
+    ? { ...t, status: 'blocked' as const, note: t.note ? `${UNFINISHED_NOTE} Last update: ${t.note}` : UNFINISHED_NOTE }
+    : t));
+  return [...history.slice(0, -1), settled];
+}
+
 function sameList(a: TodoItem[], b: TodoItem[]): boolean {
   return a.length === b.length && a.every((t, i) =>
     t.text === b[i].text && t.status === b[i].status && (t.note ?? '') === (b[i].note ?? ''));
