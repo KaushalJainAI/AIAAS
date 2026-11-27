@@ -258,6 +258,11 @@ def to_wire_history(
             if not (message.metadata or {}).get("attachment_id"):
                 continue
             role, content = "system", _attachment_pointer(message)
+        elif message.role == "assistant" and (message.metadata or {}).get("delegated_run"):
+            # A worker's result posted after its turn (`tasks.post_run_result`).
+            # Its text came from third-party pages: the model reads it through
+            # `get_agent_run`, inside the envelope, never as its own words.
+            role, content = "system", _delegated_run_pointer(message)
         elif message.role in ("user", "assistant"):
             role = message.role
             summary = (message.metadata or {}).get("summary")
@@ -279,6 +284,20 @@ def to_wire_history(
 
     wire.reverse()
     return wire
+
+
+def _delegated_run_pointer(message: ChatMessage) -> str:
+    """The line the model sees for a worker result posted into the chat."""
+    run = (message.metadata or {}).get("delegated_run") or {}
+    name = str(run.get("agent_name") or "An agent").strip()
+    execution_id = str(run.get("execution_id") or "").strip()
+    status = str(run.get("status") or "").strip()
+    ended = "finished" if status == "completed" else f"ended ({status or 'unknown'})"
+    return (
+        f"[{name} {ended} after your earlier turn; its result was shown to the user "
+        f"as message {message.id}. Read it with get_agent_run(execution_id="
+        f"\"{execution_id}\", wait_seconds=0) before using it.]"
+    )
 
 
 def _attachment_pointer(marker: ChatMessage) -> str:

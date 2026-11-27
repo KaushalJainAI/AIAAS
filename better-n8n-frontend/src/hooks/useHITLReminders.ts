@@ -24,6 +24,7 @@
  * second closed-browser channel.
  */
 
+import { announceChatSessionUpdated } from '@/lib/chatEvents';
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -190,6 +191,10 @@ export function useHITLReminders(enabled: boolean = true) {
         const actionUrl = asText(d.action_url);
         surface(title, body, actionUrl, `notif-${asText(d.id) || title}`);
         queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        // A row naming a chat (a worker's result posted after its turn) lets
+        // that chat, if it is open, show the new message at once.
+        const sessionId = asText(d.session_id);
+        if (sessionId) announceChatSessionUpdated(sessionId);
         // A generic notification can also be an HITL-adjacent row (chat
         // approval), so keep the badge honest too.
         queryClient.invalidateQueries({ queryKey: ['hitl'] });

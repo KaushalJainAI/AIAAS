@@ -35,6 +35,23 @@ export interface LiveItem {
   project?: string;
 }
 
+/** Something that finished in the last day: an agent run or a chat's latest reply. */
+export interface RecentItem {
+  kind: 'agent_run' | 'chat_turn';
+  id: string;
+  title: string;
+  /** The task a run was given, or the start of a chat's reply. */
+  detail: string;
+  /** Run: completed | failed | cancelled | timeout. Chat: replied | stopped | result posted | waiting on you. */
+  status: string;
+  ended_at: string | null;
+  href: string;
+  error?: string;
+  is_delegated?: boolean;
+  plan_done?: number;
+  plan_total?: number;
+}
+
 export type FileActivityKind = 'file_opened' | 'file_version' | 'code_change';
 
 export interface FileActivityItem {
@@ -58,6 +75,16 @@ const activityService = {
       items: Array.isArray(data?.items) ? data.items : [],
       truncated: !!data?.truncated,
       note: typeof data?.note === 'string' ? data.note : '',
+    };
+  },
+
+  /** Agent runs and chat replies that finished in the last day, newest first. */
+  async recent(): Promise<{ items: RecentItem[]; truncated: boolean; hours: number }> {
+    const { data } = await apiClient.get('/activity/recent/');
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      truncated: !!data?.truncated,
+      hours: typeof data?.hours === 'number' ? data.hours : 24,
     };
   },
 

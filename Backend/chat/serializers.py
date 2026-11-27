@@ -58,13 +58,27 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         max_digits=12, decimal_places=6, read_only=True, coerce_to_string=True,
     )
     org_name = serializers.CharField(source='org.name', read_only=True, default=None)
+    #: What the agents this chat delegated to spent, and how many runs that
+    #: was (H-185). Kept apart from `total_cost_usd`, which is this chat's
+    #: own model calls: the two are paid at different moments and a run still
+    #: going has not been priced yet.
+    agent_spend = serializers.SerializerMethodField()
+
+    def get_agent_spend(self, obj) -> dict:
+        from django.db.models import Count, Sum
+
+        from logs.models import ExecutionLog
+
+        row = ExecutionLog.objects.filter(chat_session=obj).aggregate(
+            cost=Sum('cost_usd'), runs=Count('id'))
+        return {'cost_usd': str(row['cost'] or 0), 'runs': row['runs'] or 0}
 
     class Meta:
         model = ChatSession
         fields = [
             'id', 'title', 'intent', 'llm_provider', 'llm_model', 'llm_effort',
             'system_prompt', 'memory_enabled', 'autonomy', 'total_tokens_used',
-            'total_cost_usd', 'cost_source', 'paid_by',
+            'total_cost_usd', 'cost_source', 'paid_by', 'agent_spend',
             'org', 'org_name', 'share_solutions',
             # The conversation's notes file (`chat/turn/session_notes.py`), so
             # the client can open it; null until the first reply is filed.
@@ -159,7 +173,10 @@ class ChatSessionListSerializer(ChatSessionSerializer):
     last_agent = serializers.SerializerMethodField()
 
     class Meta(ChatSessionSerializer.Meta):
-        fields = [f for f in ChatSessionSerializer.Meta.fields if f != 'messages'] + [
+        # `agent_spend` is an aggregate per session: the detail route only,
+        # or the list would pay one query per row.
+        fields = [f for f in ChatSessionSerializer.Meta.fields
+                  if f not in ('messages', 'agent_spend')] + [
             'run_state', 'last_agent',
         ]
         read_only_fields = [

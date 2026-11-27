@@ -35,6 +35,7 @@ from llm.pricing import combine_sources
 from llm.effort import normalize as normalize_effort
 from . import agent, history, pace, prompts, session_notes
 from . import curation as _curation
+from . import todos as todos_mod
 from .agent import TurnContext, TurnResult
 from .events import Event, EventSink, null_sink
 from chat.models import ChatMessage, ChatSession
@@ -693,7 +694,9 @@ def _message_type(intent: str, metadata: Mapping[str, Any]) -> str:
 
 
 async def persist_interrupted_answer(
-    session: ChatSession, user, text: str
+    session: ChatSession, user, text: str,
+    todos: list[dict[str, Any]] | None = None,
+    *, failure: str = "",
 ) -> ChatMessage | None:
     """
     Store what a stopped turn had streamed before the user stopped it.
@@ -701,7 +704,19 @@ async def persist_interrupted_answer(
     The normal path writes the reply only once the agent returns, so a turn
     cancelled part-way would leave the user's question with no answer at all.
     Whatever reached the client is kept instead, flagged so the UI can mark it
-    as incomplete. Nothing is written when nothing was streamed.
+    as incomplete. Nothing is written when nothing was streamed and there was
+    no plan.
+
+    `todos` is the plan as the turn last streamed it (`runs.last_plan`). It is
+    kept, settled, because the plan dock reads the latest reply that has one:
+    left out, the dock went back to an older reply's plan and showed its steps
+    as still going (H-185).
+
+    `failure` is set when the turn failed rather than being stopped: the
+    message then says so in words the person can act on, and is written even
+    with nothing streamed, because an error that lives only in a toast is gone
+    on the next reload (H-186). Either way the message is a session record
+    (`ChatMessage.RECORD_KEY`): kept through a rewind or a regenerate.
     """
     # The stopped turn is over, so its change set closes whether or not any text
     # was streamed (docs/UNDO_PLAN.md §6.7). The stop route has no message id;
@@ -714,21 +729,39 @@ async def persist_interrupted_answer(
         if user_message is not None else None
     )
 
-    if not text.strip():
+    plan = todos_mod.settle(
+        todos_mod.normalize(todos),
+        todos_mod.FAILED_NOTE if failure else todos_mod.STOPPED_NOTE)
+    if not text.strip() and not plan and not failure:
         return None
 
-    metadata: dict[str, Any] = {"interrupted": True, "model": session.llm_model}
+    metadata: dict[str, Any] = {"interrupted": True, "model": session.llm_model,
+                                ChatMessage.RECORD_KEY: True}
+    if failure:
+        metadata["failed"] = True
+        metadata["error"] = failure
     if changes_summary is not None:
         metadata["changes"] = changes_summary
+    if plan:
+        metadata["todos"] = plan
+        todos_mod.record_revision(metadata, plan)
     message = await ChatMessage.objects.acreate(
         session=session,
         role="assistant",
-        content=text,
+        content=_record_text(text, failure),
         message_type="chat",
         metadata=metadata,
     )
     await _notify(user, session, message)
     return message
+
+
+def _record_text(text: str, failure: str) -> str:
+    """What a stopped or failed turn leaves in the transcript."""
+    if failure:
+        head = text.strip() + "\n\n" if text.strip() else ""
+        return f"{head}**This reply failed.** {failure}"
+    return text if text.strip() else "_Stopped before replying._"
 
 
 async def _notify(user, session: ChatSession, message: ChatMessage) -> None:
@@ -1434,6 +1467,16 @@ async def _persist_answer(
     )
     if result.awaiting_approval:
         metadata["awaiting_approval"] = True
+    elif metadata.get("todos"):
+        # The turn is over: a step still marked `doing` is not being done by
+        # anyone, and a saved plan must not pulse as if it were (H-185).
+        settled = todos_mod.settle(metadata["todos"])
+        if settled != metadata["todos"]:
+            metadata["todos"] = settled
+            # The dock draws the history, not `todos`: the settled list is
+            # its last revision. A fresh list, so `result.metadata` is untouched.
+            metadata["todo_history"] = list(metadata.get("todo_history") or [])
+            todos_mod.record_revision(metadata, settled)
     # How long the turn took and how much it did, for the reply's header
     # ("4 steps · 8.2s"). Both are derivable from what is saved only in part:
     # the duration was logged and never stored.

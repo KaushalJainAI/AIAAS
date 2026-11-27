@@ -359,6 +359,7 @@ rule names.
 - **The system prompt is session-stable.** Anything that changes per turn (clock, mode,
   pace, plan) rides a trailing system message (`prompts.build_context_update`).
 - **Approval is settled before anything is dispatched** (`interrupt()` re-runs the node).
+- **Delegated work always reports back** (H-185, H-186). A `run_agent` run that outlives its wait is adopted (`chat/tools/tasks.py::adopt_run`) so the turn waits for it; one that ends after its turn is posted into the chat (`post_run_result`), coding tasks too. A worker's answer reaches the model only through `get_agent_run` (enveloped), never inlined in a report or replayed as history. **Session records** (`ChatMessage.RECORD_KEY`: failed or stopped replies, late results) are never deleted, not even by a rewind.
 - **Third-party text reaches the model inside `<untrusted_data>` (`provenance.wrap_untrusted`); a tool whose output is only ours declares `trusted_output=True`.**
 - **Fail before you look busy.** Preflight before the first status frame; account errors
   raise (`LLMUserActionable`), other provider failures go through

@@ -27,6 +27,7 @@ database-backed rows (runs, sweeps, worlds) are visible everywhere.
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -269,6 +270,101 @@ def activity_live(request):
             'runs, sweeps and worlds are visible everywhere.'
         ),
     })
+
+
+#: How far back "recently finished" reaches, and how many rows it returns.
+RECENT_HOURS = 24
+RECENT_LIMIT = 40
+
+#: Finished agent-run statuses.
+DONE_RUN_STATUSES = ('completed', 'failed', 'cancelled', 'timeout')
+
+
+def _recent_run_items(user, since) -> list[dict[str, Any]]:
+    """Agent runs that ended since `since`, delegated workers included."""
+    rows = list(
+        ExecutionLog.objects.filter(user=user, status__in=DONE_RUN_STATUSES,
+                                    completed_at__gte=since)
+        .exclude(caller='eval')
+        .select_related('subagent')
+        .order_by('-completed_at')[:RECENT_LIMIT]
+    )
+    items = []
+    for log in rows:
+        task = ' '.join((log.delegation_task or '').split())
+        items.append({
+            'kind': 'agent_run',
+            'id': str(log.execution_id),
+            'title': queries._agent_name(log) or 'Agent run',
+            'detail': (task[:157] + '...') if len(task) > 160 else task,
+            'status': log.status,
+            'ended_at': _iso(log.completed_at),
+            'error': (log.error_message or '')[:300],
+            'caller': log.caller,
+            'is_delegated': log.parent_step_id is not None or log.caller == 'chat',
+            'href': f'/runs?run={log.execution_id}',
+        })
+    return items
+
+
+def _recent_chat_items(user, since) -> list[dict[str, Any]]:
+    """The latest reply in each chat answered since `since`."""
+    from chat.models import ChatMessage
+
+    rows = (
+        ChatMessage.objects.filter(session__user=user, role='assistant',
+                                   created_at__gte=since)
+        .select_related('session')
+        .order_by('-created_at')[:RECENT_LIMIT * 4]
+    )
+    seen: set = set()
+    items = []
+    for message in rows:
+        if message.session_id in seen:
+            continue
+        seen.add(message.session_id)
+        meta = message.metadata or {}
+        run = meta.get('delegated_run') or {}
+        if run:
+            status = 'result posted'
+        elif meta.get('interrupted'):
+            status = 'stopped'
+        elif meta.get('awaiting_approval'):
+            status = 'waiting on you'
+        else:
+            status = 'replied'
+        todos = meta.get('todos') if isinstance(meta.get('todos'), list) else []
+        text = ' '.join((message.content or '').split())
+        items.append({
+            'kind': 'chat_turn',
+            'id': str(message.session_id),
+            'title': (message.session.title or 'Chat').strip() or 'Chat',
+            'detail': (text[:157] + '...') if len(text) > 160 else text,
+            'status': status,
+            'ended_at': _iso(message.created_at),
+            'plan_done': sum(1 for t in todos if isinstance(t, dict) and t.get('status') == 'done'),
+            'plan_total': len(todos),
+            'href': f'/ai-chat?session={message.session_id}',
+        })
+        if len(items) >= RECENT_LIMIT:
+            break
+    return items
+
+
+@extend_schema(responses={200: OpenApiTypes.OBJECT})
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def activity_recent(request):
+    """What finished in the last day: agent runs (delegated workers included)
+    and the latest reply in each chat, newest first. Sits under "Running now"
+    so a worker that finished after its chat turn is not only findable in
+    History (H-185). Capped, says `truncated`."""
+    since = timezone.now() - timedelta(hours=RECENT_HOURS)
+    items = _recent_run_items(request.user, since) + _recent_chat_items(request.user, since)
+    items.sort(key=lambda i: i['ended_at'] or '', reverse=True)
+    truncated = len(items) > RECENT_LIMIT
+    return Response({'items': items[:RECENT_LIMIT], 'truncated': truncated,
+                     'hours': RECENT_HOURS})
 
 
 @extend_schema(responses={200: OpenApiTypes.OBJECT})

@@ -119,6 +119,30 @@ def _fail(log, message: str) -> None:
         _reads.discard_thread((fresh.input_data or {}).get('thread_id') or '')
     except Exception:  # noqa: BLE001
         pass
+    _tell_someone(fresh)
+
+
+def _tell_someone(log) -> None:
+    """A run lost to a restart is reported where its result would have gone (H-186).
+
+    The in-process follower that would have posted a chat's result died with
+    the process, so the chat that started the run is told here; a scheduled
+    or mission run notifies its owner the way any failed one does.
+    """
+    try:
+        from agents.agent.runtime import NOTIFY_FAILURE_CALLERS, tell_owner_run_failed
+
+        if log.caller in NOTIFY_FAILURE_CALLERS:
+            tell_owner_run_failed(log)
+        if log.chat_session_id:
+            from chat.tools.tasks import post_run_result
+
+            post_run_result(
+                str(log.chat_session_id), log.user_id, str(log.execution_id),
+                agent_name=(log.subagent.name if log.subagent_id and log.subagent else ''),
+                title=' '.join((log.delegation_task or '').split())[:120])
+    except Exception:  # noqa: BLE001
+        logger.warning('[Recovery] Could not report lost run %s', log.id, exc_info=True)
 
 
 async def _has_state(thread_id: str) -> bool:

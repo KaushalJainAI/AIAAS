@@ -44,7 +44,9 @@ import ChartArtifact from '@/components/content/ChartArtifact';
 import PendingSends from '@/components/content/PendingSends';
 import { HELD_SEND_TOOLS, usePendingSends } from '@/hooks/usePendingSends';
 import PlanDock from '@/components/plan/PlanDock';
-import { actionsFrom, historyFrom } from '@/lib/planView';
+import { actionsFrom, historyFrom, settleHistory } from '@/lib/planView';
+import { CHAT_SESSION_UPDATED_EVENT } from '@/lib/chatEvents';
+import { isRecord, keepRecords } from '../lib/records';
 import PlanPanel, { PLAN_RAIL_WIDTH } from '@/components/orchestration/PlanPanel';
 import { MIN_PAGE_WIDTH } from '@/components/pane/SidePane';
 import FileCards from '@/components/files/FileCards';
@@ -401,14 +403,16 @@ export default function StandaloneChat() {
   // Saved replies no longer draw their own plan; this is the only copy.
   const dockPlan = useMemo(() => {
     if (isLoading && live.todoHistory.length > 0) {
-      return { history: live.todoHistory, actions: actionsFrom(live.activity), live: true };
+      return { history: live.todoHistory, actions: actionsFrom(live.activity), live: true, messageId: undefined };
     }
     const last = [...messages].reverse().find(
       m => m.role === 'assistant' && Array.isArray(m.metadata?.todos) && m.metadata.todos.length > 0);
     return {
-      history: last ? historyFrom(last.metadata?.todo_history, last.metadata?.todos) : [],
+      // Settled: the turn is over, so no step can still be in progress.
+      history: last ? settleHistory(historyFrom(last.metadata?.todo_history, last.metadata?.todos)) : [],
       actions: last ? actionsFrom(last.metadata?.tool_trace) : [],
       live: false,
+      messageId: typeof last?.id === 'number' ? last.id : undefined,
     };
   }, [isLoading, live.todoHistory, live.activity, messages]);
 
@@ -421,10 +425,37 @@ export default function StandaloneChat() {
     const last = [...messages].reverse().find(m => m.role === 'assistant');
     return Object.entries(last?.metadata?.worker_plans ?? {}).flatMap(([id, wp]) => (
       Array.isArray(wp?.todos) && wp.todos.length > 0
-        ? [{ id, label: wp.agent_name || 'Agent', todos: wp.todos }]
+        ? [{ id, label: wp.agent_name || 'Agent', todos: settleHistory([wp.todos])[0] }]
         : []
     ));
   }, [isLoading, live.workerPlans, messages]);
+
+  // The person ticks a step of a finished reply's plan, or reopens it. The
+  // server keeps it as a plan revision by the user (`set_plan_step`).
+  const togglePlanStep = useCallback(async (text: string, done: boolean) => {
+    const messageId = dockPlan.messageId;
+    if (!conversationId || messageId === undefined || isGuest) return;
+    try {
+      const { todos, todo_history } = await chatService.setPlanStep(conversationId, messageId, text, done);
+      setMessages(prev => prev.map(m => (m.id === messageId
+        ? { ...m, metadata: { ...m.metadata, todos, todo_history } } as ChatMessage
+        : m)));
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Could not update that step'));
+    }
+  }, [conversationId, dockPlan.messageId, isGuest]);
+
+  // A worker's result posted after its turn ended (`post_run_result`) comes
+  // with a notification naming this chat: show it without a reload.
+  const loadConversationRef = useRef<(id: string) => void>(() => {});
+  useEffect(() => {
+    const onUpdated = (e: Event) => {
+      const id = (e as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (id && id === conversationId && !isLoading) loadConversationRef.current(id);
+    };
+    window.addEventListener(CHAT_SESSION_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(CHAT_SESSION_UPDATED_EVENT, onUpdated);
+  }, [conversationId, isLoading]);
 
   // Bound as consts so a `&&` guard narrows them inside event handlers too,
   // which a `live.x` property read does not.
@@ -539,6 +570,9 @@ export default function StandaloneChat() {
       setIsLoading(getChatRun(id)?.status === 'running');
     }
   };
+
+  // Read by the late-result listener above, which is set up before this exists.
+  useEffect(() => { loadConversationRef.current = loadConversation; });
 
   /**
    * A notification's "Open" lands here as `?session=<id>` (the chat approval
@@ -766,6 +800,11 @@ export default function StandaloneChat() {
 
   const handleDeleteMessage = async (msgId: number) => {
     if (!conversationId) return;
+    if (isRecord(messages.find(m => m.id === msgId))) {
+      // The server refuses too (409); the menu does not offer it.
+      toast.info('This is a record of what happened, so it is kept.');
+      return;
+    }
     
     // Safety: If it's a timestamp ID (> 10^12), it hasn't been synced yet
     // but in most cases our new SSE sync will handle this.
@@ -890,7 +929,7 @@ export default function StandaloneChat() {
 
       await chatService.deleteMessage(conversationId, userMsg.id as number, true);
       
-      setMessages(messages.slice(0, precedingUserMsgIndex));
+      setMessages(keepRecords(messages, precedingUserMsgIndex));
       
       handleSend(userMsg.content);
       toast.success('Regenerating response...');
@@ -927,7 +966,7 @@ export default function StandaloneChat() {
         setDeletingMsgId(null);
       }
     }
-    setMessages(messages.slice(0, targetIndex));
+    setMessages(keepRecords(messages, targetIndex));
     setInput(targetMessage.content);
     setTimeout(() => textareaRef.current?.focus(), 50);
   };
@@ -940,7 +979,7 @@ export default function StandaloneChat() {
       
       const targetIndex = messages.findIndex(m => m.id === messageId);
       if (targetIndex !== -1) {
-        setMessages(messages.slice(0, targetIndex));
+        setMessages(keepRecords(messages, targetIndex));
       }
       setInput(content);
       setTimeout(() => {
@@ -1299,6 +1338,15 @@ export default function StandaloneChat() {
           // No-credential also pins a banner with the fix, since a toast alone
           // vanishes before anyone reaches Credentials + Verify.
           setCredentialError(isNoCredentialError(event.message) ? event.message : null);
+        }
+        // A turn that failed after saving the question is kept in the
+        // transcript as a record (what streamed, the plan, the error), so it
+        // is there after a reload too, not only in a toast (H-186).
+        {
+          const failed = event.ai_response as ChatMessage | null | undefined;
+          if (failed && typeof failed === 'object' && failed.id) {
+            setMessages(prev => (prev.some(m => m.id === failed.id) ? prev : [...prev, failed]));
+          }
         }
         setIsLoading(false);
         break;
@@ -2700,7 +2748,9 @@ export default function StandaloneChat() {
               <div className="enter-each">
               {plan.tasks.length === 0 && dockPlan.history.length > 0 && (
                 <PlanDock history={dockPlan.history} actions={dockPlan.actions}
-                  live={dockPlan.live} />
+                  live={dockPlan.live}
+                  onToggle={!dockPlan.live && dockPlan.messageId !== undefined && !isGuest
+                    ? togglePlanStep : undefined} />
               )}
               {/* Each agent working for this turn shows its own plan too. */}
               {dockWorkerPlans.map(wp => (

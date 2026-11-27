@@ -39,7 +39,7 @@ Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
 | `turn/pipeline.py` | The steps before and after the model: preflight, history, memory, attachments, the run's plan |
 | `turn/agent.py` | The loop (LangGraph): model, tools, curation, steering. `tools_node` runs a batch in four passes. `enclose_result` wraps each tool result in `<untrusted_data>` unless the tool is `trusted_output` |
 | `turn/prompts.py` | System prompt and the context update message. Nothing that changes may go in the system prompt |
-| `turn/history.py` | Loads the transcript the model sees: a window that moves in steps of 10 so the prefix stays cacheable; upload markers replay as a fixed pointer |
+| `turn/history.py` | Loads the transcript the model sees: a window that moves in steps of 10 so the prefix stays cacheable; upload markers replay as a fixed pointer, and so does an agent's result posted after its turn (its text is web data, read through `get_agent_run`) |
 | `turn/session_notes.py` | The conversation's notes file: summary, task index, how to fetch more. Read every turn, but sent after the replayed history, not before it |
 | `turn/context_view.py` | Backs `GET /api/chat/sessions/<id>/context/`, the "What the assistant sees" panel |
 | `turn/curation.py` | Shrinks a long run's transcript and archives what it cuts |
@@ -48,12 +48,12 @@ Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
 | `turn/extraction.py` | Fallback parser for models that write tool calls as text instead of native tool calls |
 | `turn/side_calls.py` | Model calls a turn makes outside its own loop (for example, follow-up questions). Priced into the turn's cost |
 | `turn/steering.py` | Messages sent to a running turn |
-| `turn/todos.py` | The run's plan: `update_todos`, with history |
+| `turn/todos.py` | The run's plan: `update_todos`, with history. `settle()` turns any step still `doing` into "not finished" when a turn ends, so a saved plan never looks busy |
 | `turn/pace.py` | quick, standard or deep, and the budget the model is told about |
 | `turn/limits.py` | The orchestrator's limits, as one account has set them |
-| `turn/checkpoints.py`, `turn/runs.py`, `turn/events.py` | Where run state is saved, turns that outlive the request, and the events streamed to the client |
+| `turn/checkpoints.py`, `turn/runs.py`, `turn/events.py` | Where run state is saved, turns that outlive the request (`runs.py` also hands back a stopped or failed turn's text and plan so they are kept), and the events streamed to the client |
 | `turn/reviewer.py` | The auto-mode judge |
-| `views.py`, `urls.py` | The chat HTTP routes (sessions, messages, stream, stop, steer, runs, speech and transcription). `/api/chat/execute-tool/` is here too |
+| `views.py`, `urls.py` | The chat HTTP routes (sessions, messages, stream, stop, steer, runs, speech and transcription). `/api/chat/execute-tool/` is here too. A failed turn is saved as a **session record**; records (failed or stopped replies, late agent results) are never deleted, even by a rewind. `set_plan_step` lets a person tick a plan step |
 | `serializers.py`, `admin.py`, `apps.py` | DRF serializers, Django admin, app config |
 | `tasks.py` | Celery beat entry points. Production runs the same jobs from `agents/scheduler.py` |
 | `tools/` | One file per topic (below) |
@@ -78,7 +78,7 @@ Design: [`docs/CHAT_AGENT.md`](../docs/CHAT_AGENT.md). Context lifecycle:
 | `docs.py` | Reads a scanned document as text, rows or fields |
 | `messaging/`, `talk.py` | Slack, WhatsApp, Teams, SMS, Telegram |
 | `data.py`, `apicaller.py` | Your databases and your own APIs |
-| `agents.py`, `authoring.py`, `tasks.py` | Running agents, creating agents, the coding team's tasks, `answer_subagent` |
+| `agents.py`, `authoring.py`, `tasks.py` | Running agents, creating agents, the coding team's tasks, `answer_subagent`. `run_agent` waits up to 5 minutes; a run still going is *adopted* (`tasks.adopt_run`) so the chat waits for it, and if the chat's turn is over its result is posted into the chat (`post_run_result`). Coding tasks deliver late the same way. `get_agent_run` returns the worker's transcript when a run failed |
 | `ask.py` | `ask_user`: the run pauses until you answer |
 | `decisions.py` | `decide`: a typed answer from a decision model |
 | `memory.py`, `conversation.py`, `planning.py` | What the assistant remembers, searching this chat, the plan |
